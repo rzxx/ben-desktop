@@ -23,3 +23,50 @@ For the full desktop app workflow, use:
 wails3 dev
 wails3 build
 ```
+
+## Playback Service
+
+The desktop host exposes a `PlaybackService`.
+
+Host lifecycle hooks:
+
+- `ServiceStartup`
+- `ServiceShutdown`
+
+Frontend-callable methods:
+
+Snapshot and events:
+
+- `GetPlaybackSnapshot`
+- `SubscribePlaybackEvents`
+
+Queue mutation:
+
+- `ReplaceQueue`
+- `AppendToQueue`
+- `RemoveQueueItem`
+- `MoveQueueItem`
+- `SelectQueueIndex`
+- `ClearQueue`
+
+Transport:
+
+- `Play`
+- `Pause`
+- `TogglePlayback`
+- `Next`
+- `Previous`
+- `SeekTo`
+- `SetVolume`
+- `SetRepeatMode`
+- `SetShuffle`
+
+Helper queue builders:
+
+- `PlayAlbum`
+- `QueueAlbum`
+- `PlayPlaylist`
+- `QueuePlaylist`
+- `PlayRecording`
+- `QueueRecording`
+- `PlayLiked`

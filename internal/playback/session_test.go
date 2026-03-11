@@ -1,0 +1,354 @@
+package playback
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	apitypes "ben/core/api/types"
+)
+
+type memoryStore struct {
+	snapshot SessionSnapshot
+}
+
+func (s *memoryStore) Load(context.Context) (SessionSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func (s *memoryStore) Save(_ context.Context, snapshot SessionSnapshot) error {
+	s.snapshot = snapshot
+	return nil
+}
+
+func (s *memoryStore) Clear(context.Context) error {
+	s.snapshot = SessionSnapshot{}
+	return nil
+}
+
+type mockBridge struct {
+	results   map[string]apitypes.PlaybackResolveResult
+	recording map[string]apitypes.RecordingListItem
+}
+
+func (b *mockBridge) Close() error { return nil }
+
+func (b *mockBridge) ListRecordings(context.Context, apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
+	return apitypes.Page[apitypes.RecordingListItem]{}, nil
+}
+
+func (b *mockBridge) GetRecording(_ context.Context, recordingID string) (apitypes.RecordingListItem, error) {
+	if item, ok := b.recording[recordingID]; ok {
+		return item, nil
+	}
+	return apitypes.RecordingListItem{}, fmt.Errorf("unexpected recording %s", recordingID)
+}
+
+func (b *mockBridge) ListAlbumTracks(context.Context, apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
+	return apitypes.Page[apitypes.AlbumTrackItem]{}, nil
+}
+
+func (b *mockBridge) ListPlaylistTracks(context.Context, apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {
+	return apitypes.Page[apitypes.PlaylistTrackItem]{}, nil
+}
+
+func (b *mockBridge) ListLikedRecordings(context.Context, apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
+	return apitypes.Page[apitypes.LikedRecordingItem]{}, nil
+}
+
+func (b *mockBridge) ResolvePlaybackRecording(_ context.Context, recordingID, _ string) (apitypes.PlaybackResolveResult, error) {
+	result, ok := b.results[recordingID]
+	if !ok {
+		return apitypes.PlaybackResolveResult{}, fmt.Errorf("unexpected recording %s", recordingID)
+	}
+	return result, nil
+}
+
+func (b *mockBridge) ResolveRecordingArtwork(context.Context, string, string) (apitypes.RecordingArtworkResult, error) {
+	return apitypes.RecordingArtworkResult{}, nil
+}
+
+func (b *mockBridge) GetRecordingAvailability(context.Context, string, string) (apitypes.RecordingPlaybackAvailability, error) {
+	return apitypes.RecordingPlaybackAvailability{}, nil
+}
+
+type testBackend struct {
+	loadedURI      string
+	preloadedURI   string
+	position       int64
+	duration       *int64
+	volume         int
+	events         chan BackendEvent
+	supportsPreload bool
+}
+
+func newTestBackend() *testBackend {
+	return &testBackend{
+		events: make(chan BackendEvent, 8),
+	}
+}
+
+func (b *testBackend) Load(_ context.Context, uri string) error {
+	b.loadedURI = uri
+	b.position = 0
+	return nil
+}
+
+func (b *testBackend) Play(context.Context) error  { return nil }
+func (b *testBackend) Pause(context.Context) error { return nil }
+func (b *testBackend) Stop(context.Context) error {
+	b.position = 0
+	return nil
+}
+
+func (b *testBackend) SeekTo(_ context.Context, positionMS int64) error {
+	b.position = positionMS
+	return nil
+}
+
+func (b *testBackend) SetVolume(_ context.Context, volume int) error {
+	b.volume = volume
+	return nil
+}
+
+func (b *testBackend) PositionMS() (int64, error)  { return b.position, nil }
+func (b *testBackend) DurationMS() (*int64, error) { return cloneInt64Ptr(b.duration), nil }
+func (b *testBackend) Events() <-chan BackendEvent { return b.events }
+func (b *testBackend) SupportsPreload() bool       { return b.supportsPreload }
+func (b *testBackend) PreloadNext(_ context.Context, uri string) error {
+	b.preloadedURI = uri
+	return nil
+}
+
+func (b *testBackend) ClearPreloaded(context.Context) error {
+	b.preloadedURI = ""
+	return nil
+}
+
+func (b *testBackend) Close() error {
+	close(b.events)
+	return nil
+}
+
+func TestSessionStartRestoresPausedState(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	store := &memoryStore{
+		snapshot: SessionSnapshot{
+			Context: &PlaybackContext{
+				Kind: ContextKindAlbum,
+				ID:   "album-1",
+				Entries: []SessionEntry{
+					{
+						EntryID:      "ctx-1",
+						Origin:       EntryOriginContext,
+						ContextIndex: 0,
+						Item: SessionItem{
+							RecordingID: "rec-1",
+							Title:       "Track 1",
+							DurationMS:  duration,
+						},
+					},
+				},
+			},
+			CurrentEntryID:      "ctx-1",
+			CurrentEntry:        &SessionEntry{EntryID: "ctx-1", Origin: EntryOriginContext, ContextIndex: 0, Item: SessionItem{RecordingID: "rec-1", Title: "Track 1", DurationMS: duration}},
+			CurrentOrigin:       EntryOriginContext,
+			CurrentContextIndex: 0,
+			Volume:              60,
+			Status:              StatusPlaying,
+			PositionMS:          2500,
+			DurationMS:          &duration,
+		},
+	}
+	session := NewSession(&mockBridge{}, newTestBackend(), store, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	snapshot := session.Snapshot()
+	if snapshot.Status != StatusPaused {
+		t.Fatalf("expected paused snapshot, got %q", snapshot.Status)
+	}
+	if snapshot.PositionMS != 2500 {
+		t.Fatalf("expected restored position 2500, got %d", snapshot.PositionMS)
+	}
+	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-1" {
+		t.Fatalf("expected current entry rec-1, got %#v", snapshot.CurrentEntry)
+	}
+}
+
+func TestSessionPlayLoadsResolvedURI(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {
+				State:       apitypes.AvailabilityPlayableLocalFile,
+				SourceKind:  apitypes.PlaybackSourceLocalFile,
+				PlayableURI: "file:///tmp/test.mp3",
+			},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind:  ContextKindCustom,
+		ID:    "custom",
+		Items: []SessionItem{{RecordingID: "rec-1", Title: "Track 1"}},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+
+	snapshot, err := session.Play(context.Background())
+	if err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if backend.loadedURI != "file:///tmp/test.mp3" {
+		t.Fatalf("expected loaded URI file:///tmp/test.mp3, got %q", backend.loadedURI)
+	}
+	if snapshot.Status != StatusPlaying {
+		t.Fatalf("expected playing status, got %q", snapshot.Status)
+	}
+}
+
+func TestQueueEntriesPlayBeforeRemainingContext(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"ctx-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"ctx-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+			"queued": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/queued.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindAlbum,
+		ID:   "album-1",
+		Items: []SessionItem{
+			{RecordingID: "ctx-1", Title: "One", Subtitle: "Artist A", AlbumID: "album-1"},
+			{RecordingID: "ctx-2", Title: "Two", Subtitle: "Artist B", AlbumID: "album-1"},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.QueueItems([]SessionItem{{RecordingID: "queued", Title: "Queued"}}, QueueInsertLast); err != nil {
+		t.Fatalf("queue items: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+
+	snapshot, err := session.Next(context.Background())
+	if err != nil {
+		t.Fatalf("next: %v", err)
+	}
+	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "queued" {
+		t.Fatalf("expected queued item to play next, got %#v", snapshot.CurrentEntry)
+	}
+	if len(snapshot.QueuedEntries) != 0 {
+		t.Fatalf("expected queued entries to be consumed, got %d", len(snapshot.QueuedEntries))
+	}
+}
+
+func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"rec-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", Subtitle: "Artist A"},
+			{RecordingID: "rec-2", Title: "Two", Subtitle: "Artist B"},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if backend.preloadedURI != "file:///tmp/two.mp3" {
+		t.Fatalf("expected preloaded URI file:///tmp/two.mp3, got %q", backend.preloadedURI)
+	}
+
+	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := session.Snapshot()
+		if snapshot.CurrentEntry != nil && snapshot.CurrentEntry.Item.RecordingID == "rec-2" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("expected preloaded next track to become current, got %+v", session.Snapshot())
+}
+
+func TestSmartShuffleSpreadsAdjacentArtists(t *testing.T) {
+	t.Parallel()
+
+	session := NewSession(&mockBridge{}, newTestBackend(), &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	_, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "a1", Title: "A1", Subtitle: "Artist A", AlbumID: "album-a"},
+			{RecordingID: "a2", Title: "A2", Subtitle: "Artist A", AlbumID: "album-a"},
+			{RecordingID: "b1", Title: "B1", Subtitle: "Artist B", AlbumID: "album-b"},
+			{RecordingID: "c1", Title: "C1", Subtitle: "Artist C", AlbumID: "album-c"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	snapshot, err := session.SetShuffle(true)
+	if err != nil {
+		t.Fatalf("set shuffle: %v", err)
+	}
+	if len(snapshot.ShuffleCycle) != 4 {
+		t.Fatalf("expected shuffle cycle of 4, got %v", snapshot.ShuffleCycle)
+	}
+
+	cycle := snapshot.ShuffleCycle
+	entries := snapshot.Context.Entries
+	for index := 1; index < len(cycle); index++ {
+		left := entries[cycle[index-1]].Item
+		right := entries[cycle[index]].Item
+		if left.Subtitle == right.Subtitle && len(entries) > 2 {
+			t.Fatalf("expected smart shuffle to avoid adjacent artist repeats, got %v", cycle)
+		}
+	}
+}
