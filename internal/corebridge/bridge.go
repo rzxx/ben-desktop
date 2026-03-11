@@ -9,6 +9,7 @@ import (
 
 	apiruntime "ben/core/api/runtime"
 	apitypes "ben/core/api/types"
+	"ben/desktop/internal/settings"
 )
 
 type Config struct {
@@ -32,16 +33,28 @@ func Open(ctx context.Context, cfg Config) (*RuntimeBridge, error) {
 }
 
 func OpenFromEnv(ctx context.Context) (*RuntimeBridge, error) {
-	return Open(ctx, configFromEnv())
+	return OpenFromSettings(ctx, settings.CoreRuntimeSettings{})
 }
 
-func configFromEnv() Config {
-	dbPath := strings.TrimSpace(os.Getenv("BEN_CORE_DB_PATH"))
-	blobRoot := strings.TrimSpace(os.Getenv("BEN_CORE_BLOB_ROOT"))
+func OpenFromSettings(ctx context.Context, stored settings.CoreRuntimeSettings) (*RuntimeBridge, error) {
+	return Open(ctx, configFromSettings(stored))
+}
+
+func configFromSettings(stored settings.CoreRuntimeSettings) Config {
+	stored = settings.CoreRuntimeSettings{
+		DBPath:           strings.TrimSpace(stored.DBPath),
+		BlobRoot:         strings.TrimSpace(stored.BlobRoot),
+		IdentityKeyPath:  strings.TrimSpace(stored.IdentityKeyPath),
+		FFmpegPath:       strings.TrimSpace(stored.FFmpegPath),
+		TranscodeProfile: strings.TrimSpace(stored.TranscodeProfile),
+	}
+
+	dbPath := firstNonEmpty(strings.TrimSpace(os.Getenv("BEN_CORE_DB_PATH")), stored.DBPath)
+	blobRoot := firstNonEmpty(strings.TrimSpace(os.Getenv("BEN_CORE_BLOB_ROOT")), stored.BlobRoot)
 	if blobRoot == "" && dbPath != "" {
 		blobRoot = filepath.Join(filepath.Dir(dbPath), "blobs")
 	}
-	identityKeyPath := strings.TrimSpace(os.Getenv("BEN_CORE_IDENTITY_KEY_PATH"))
+	identityKeyPath := firstNonEmpty(strings.TrimSpace(os.Getenv("BEN_CORE_IDENTITY_KEY_PATH")), stored.IdentityKeyPath)
 	if identityKeyPath == "" && dbPath != "" {
 		identityKeyPath = filepath.Join(filepath.Dir(dbPath), "identity.key")
 	}
@@ -52,13 +65,22 @@ func configFromEnv() Config {
 			DBPath:           dbPath,
 			BlobRoot:         blobRoot,
 			IdentityKeyPath:  identityKeyPath,
-			FFmpegPath:       strings.TrimSpace(os.Getenv("BEN_CORE_FFMPEG_PATH")),
-			TranscodeProfile: strings.TrimSpace(os.Getenv("BEN_CORE_TRANSCODE_PROFILE")),
+			FFmpegPath:       firstNonEmpty(strings.TrimSpace(os.Getenv("BEN_CORE_FFMPEG_PATH")), stored.FFmpegPath),
+			TranscodeProfile: firstNonEmpty(strings.TrimSpace(os.Getenv("BEN_CORE_TRANSCODE_PROFILE")), stored.TranscodeProfile),
 			Runtime: apitypes.RuntimeConfig{
 				AutoStart: &autoStart,
 			},
 		},
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func NewUnavailableBridge(err error) *UnavailableBridge {

@@ -11,6 +11,7 @@ import (
 	"ben/desktop/internal/corebridge"
 	"ben/desktop/internal/platform"
 	"ben/desktop/internal/playback"
+	"ben/desktop/internal/settings"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -47,7 +48,30 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		return err
 	}
 
-	bridge, err := corebridge.OpenFromEnv(ctx)
+	coreSettings := settings.CoreRuntimeSettings{}
+	settingsPath, err := settings.DefaultPath("ben-desktop")
+	if err != nil {
+		log.Printf("playback: resolve settings path: %v", err)
+	} else {
+		settingsStore, openErr := settings.NewStore(settingsPath)
+		if openErr != nil {
+			log.Printf("playback: open settings store: %v", openErr)
+		} else {
+			defer func() {
+				if closeErr := settingsStore.Close(); closeErr != nil {
+					log.Printf("playback: close settings store: %v", closeErr)
+				}
+			}()
+			state, loadErr := settingsStore.Load()
+			if loadErr != nil {
+				log.Printf("playback: load settings: %v", loadErr)
+			} else {
+				coreSettings = state.Core
+			}
+		}
+	}
+
+	bridge, err := corebridge.OpenFromSettings(ctx, coreSettings)
 	if err != nil {
 		log.Printf("playback: core bridge unavailable: %v", err)
 		bridge = nil
