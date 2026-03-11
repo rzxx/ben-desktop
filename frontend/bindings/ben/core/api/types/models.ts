@@ -5,6 +5,75 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as time$0 from "../../../../time/models.js";
+
+export enum PlaybackPreparationPhase {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    PlaybackPreparationReady = "ready",
+    PlaybackPreparationPreparingFetch = "preparing_fetch",
+    PlaybackPreparationPreparingTranscode = "preparing_transcode",
+    PlaybackPreparationUnavailable = "unavailable",
+    PlaybackPreparationFailed = "failed",
+};
+
+export enum PlaybackPreparationPurpose {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    PlaybackPreparationPlayNow = "play_now",
+    PlaybackPreparationPreloadNext = "preload_next",
+};
+
+export class PlaybackPreparationStatus {
+    "recordingId": string;
+    "preferredProfile": string;
+    "purpose": PlaybackPreparationPurpose;
+    "phase": PlaybackPreparationPhase;
+    "sourceKind"?: PlaybackSourceKind;
+    "reason"?: PlaybackUnavailableReason;
+    "playableUri"?: string;
+    "encodingId"?: string;
+    "blobId"?: string;
+    "updatedAt": time$0.Time;
+
+    /** Creates a new PlaybackPreparationStatus instance. */
+    constructor($$source: Partial<PlaybackPreparationStatus> = {}) {
+        if (!("recordingId" in $$source)) {
+            this["recordingId"] = "";
+        }
+        if (!("preferredProfile" in $$source)) {
+            this["preferredProfile"] = "";
+        }
+        if (!("purpose" in $$source)) {
+            this["purpose"] = PlaybackPreparationPurpose.$zero;
+        }
+        if (!("phase" in $$source)) {
+            this["phase"] = PlaybackPreparationPhase.$zero;
+        }
+        if (!("updatedAt" in $$source)) {
+            this["updatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaybackPreparationStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaybackPreparationStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaybackPreparationStatus($$parsedSource as Partial<PlaybackPreparationStatus>);
+    }
+}
+
 export enum PlaybackSourceKind {
     /**
      * The Go zero value for the underlying type of the enum.
@@ -14,4 +83,16 @@ export enum PlaybackSourceKind {
     PlaybackSourceLocalFile = "local_file",
     PlaybackSourceCachedOpt = "cached_opt",
     PlaybackSourceRemoteOpt = "remote_opt",
+};
+
+export enum PlaybackUnavailableReason {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    PlaybackUnavailableProviderOffline = "provider_offline",
+    PlaybackUnavailableOwnerOffline = "provider_offline",
+    PlaybackUnavailableNoPath = "no_path",
+    PlaybackUnavailableNetworkOff = "network_off",
 };

@@ -4,6 +4,7 @@
 export {
     ContextKind,
     EntryOrigin,
+    EntryPreparation,
     HistoryEntry,
     PlaybackContext,
     PlaybackContextInput,

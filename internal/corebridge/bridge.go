@@ -32,33 +32,33 @@ func Open(ctx context.Context, cfg Config) (*RuntimeBridge, error) {
 }
 
 func OpenFromEnv(ctx context.Context) (*RuntimeBridge, error) {
+	return Open(ctx, configFromEnv())
+}
+
+func configFromEnv() Config {
 	dbPath := strings.TrimSpace(os.Getenv("BEN_CORE_DB_PATH"))
-	if dbPath == "" {
-		return nil, fmt.Errorf("BEN_CORE_DB_PATH is not configured")
-	}
 	blobRoot := strings.TrimSpace(os.Getenv("BEN_CORE_BLOB_ROOT"))
-	if blobRoot == "" {
+	if blobRoot == "" && dbPath != "" {
 		blobRoot = filepath.Join(filepath.Dir(dbPath), "blobs")
 	}
 	identityKeyPath := strings.TrimSpace(os.Getenv("BEN_CORE_IDENTITY_KEY_PATH"))
-	if identityKeyPath == "" {
+	if identityKeyPath == "" && dbPath != "" {
 		identityKeyPath = filepath.Join(filepath.Dir(dbPath), "identity.key")
 	}
-	profile := strings.TrimSpace(os.Getenv("BEN_CORE_TRANSCODE_PROFILE"))
 	autoStart := true
 
-	return Open(ctx, Config{
+	return Config{
 		Core: apitypes.Config{
 			DBPath:           dbPath,
 			BlobRoot:         blobRoot,
 			IdentityKeyPath:  identityKeyPath,
 			FFmpegPath:       strings.TrimSpace(os.Getenv("BEN_CORE_FFMPEG_PATH")),
-			TranscodeProfile: profile,
+			TranscodeProfile: strings.TrimSpace(os.Getenv("BEN_CORE_TRANSCODE_PROFILE")),
 			Runtime: apitypes.RuntimeConfig{
 				AutoStart: &autoStart,
 			},
 		},
-	})
+	}
 }
 
 func NewUnavailableBridge(err error) *UnavailableBridge {
