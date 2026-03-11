@@ -41,7 +41,7 @@ func configFromSettings(stored settings.CoreRuntimeSettings) Config {
 		BlobRoot:         strings.TrimSpace(stored.BlobRoot),
 		IdentityKeyPath:  strings.TrimSpace(stored.IdentityKeyPath),
 		FFmpegPath:       strings.TrimSpace(stored.FFmpegPath),
-		TranscodeProfile: strings.TrimSpace(stored.TranscodeProfile),
+		TranscodeProfile: settings.EffectiveTranscodeProfile(stored.TranscodeProfile),
 	}
 
 	dbPath := stored.DBPath
@@ -83,6 +83,26 @@ func (b *RuntimeBridge) Close() error {
 	return b.runtime.Close()
 }
 
+func (b *RuntimeBridge) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
+	return b.runtime.ListArtists(ctx, req)
+}
+
+func (b *RuntimeBridge) GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error) {
+	return b.runtime.GetArtist(ctx, artistID)
+}
+
+func (b *RuntimeBridge) ListArtistAlbums(ctx context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+	return b.runtime.ListArtistAlbums(ctx, req)
+}
+
+func (b *RuntimeBridge) ListAlbums(ctx context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+	return b.runtime.ListAlbums(ctx, req)
+}
+
+func (b *RuntimeBridge) GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error) {
+	return b.runtime.GetAlbum(ctx, albumID)
+}
+
 func (b *RuntimeBridge) ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
 	return b.runtime.ListRecordings(ctx, req)
 }
@@ -91,8 +111,20 @@ func (b *RuntimeBridge) GetRecording(ctx context.Context, recordingID string) (a
 	return b.runtime.GetRecording(ctx, recordingID)
 }
 
+func (b *RuntimeBridge) ListAlbumVariants(ctx context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error) {
+	return b.runtime.ListAlbumVariants(ctx, req)
+}
+
 func (b *RuntimeBridge) ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
 	return b.runtime.ListAlbumTracks(ctx, req)
+}
+
+func (b *RuntimeBridge) ListPlaylists(ctx context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error) {
+	return b.runtime.ListPlaylists(ctx, req)
+}
+
+func (b *RuntimeBridge) GetPlaylistSummary(ctx context.Context, playlistID string) (apitypes.PlaylistListItem, error) {
+	return b.runtime.GetPlaylistSummary(ctx, playlistID)
 }
 
 func (b *RuntimeBridge) ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {
@@ -131,6 +163,26 @@ func (b *UnavailableBridge) Close() error {
 	return nil
 }
 
+func (b *UnavailableBridge) ListArtists(context.Context, apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
+	return apitypes.Page[apitypes.ArtistListItem]{}, b.err
+}
+
+func (b *UnavailableBridge) GetArtist(context.Context, string) (apitypes.ArtistListItem, error) {
+	return apitypes.ArtistListItem{}, b.err
+}
+
+func (b *UnavailableBridge) ListArtistAlbums(context.Context, apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+	return apitypes.Page[apitypes.AlbumListItem]{}, b.err
+}
+
+func (b *UnavailableBridge) ListAlbums(context.Context, apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+	return apitypes.Page[apitypes.AlbumListItem]{}, b.err
+}
+
+func (b *UnavailableBridge) GetAlbum(context.Context, string) (apitypes.AlbumListItem, error) {
+	return apitypes.AlbumListItem{}, b.err
+}
+
 func (b *UnavailableBridge) ListRecordings(context.Context, apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
 	return apitypes.Page[apitypes.RecordingListItem]{}, b.err
 }
@@ -139,8 +191,20 @@ func (b *UnavailableBridge) GetRecording(context.Context, string) (apitypes.Reco
 	return apitypes.RecordingListItem{}, b.err
 }
 
+func (b *UnavailableBridge) ListAlbumVariants(context.Context, apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error) {
+	return apitypes.Page[apitypes.AlbumVariantItem]{}, b.err
+}
+
 func (b *UnavailableBridge) ListAlbumTracks(context.Context, apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
 	return apitypes.Page[apitypes.AlbumTrackItem]{}, b.err
+}
+
+func (b *UnavailableBridge) ListPlaylists(context.Context, apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error) {
+	return apitypes.Page[apitypes.PlaylistListItem]{}, b.err
+}
+
+func (b *UnavailableBridge) GetPlaylistSummary(context.Context, string) (apitypes.PlaylistListItem, error) {
+	return apitypes.PlaylistListItem{}, b.err
 }
 
 func (b *UnavailableBridge) ListPlaylistTracks(context.Context, apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {

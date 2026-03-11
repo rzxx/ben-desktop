@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
+	apitypes "ben/core/api/types"
 	"ben/desktop/internal/corebridge"
 	"ben/desktop/internal/platform"
 	"ben/desktop/internal/playback"
@@ -14,14 +19,32 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+type hostBridge interface {
+	playback.CorePlaybackBridge
+	ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error)
+	GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error)
+	ListArtistAlbums(ctx context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
+	ListAlbums(ctx context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
+	GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error)
+	ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error)
+	GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error)
+	ListAlbumVariants(ctx context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error)
+	ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error)
+	ListPlaylists(ctx context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error)
+	GetPlaylistSummary(ctx context.Context, playlistID string) (apitypes.PlaylistListItem, error)
+	ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error)
+	ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error)
+}
+
 type PlaybackService struct {
 	mu sync.RWMutex
 
 	app      *application.App
-	bridge   playback.CorePlaybackBridge
+	bridge   hostBridge
 	session  *playback.Session
 	platform playback.PlatformController
 	store    interface{ Close() error }
+	blobRoot string
 }
 
 func NewPlaybackService() *PlaybackService {
@@ -76,7 +99,7 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		bridge = nil
 	}
 
-	var playbackBridge playback.CorePlaybackBridge
+	var playbackBridge hostBridge
 	if bridge != nil {
 		playbackBridge = bridge
 	} else {
@@ -111,6 +134,7 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 	s.session = session
 	s.platform = controller
 	s.store = store
+	s.blobRoot = resolvedBlobRoot(coreSettings)
 	s.mu.Unlock()
 
 	s.handlePlaybackSnapshot(session.Snapshot())
@@ -164,6 +188,85 @@ func (s *PlaybackService) GetPlaybackSnapshot() (playback.SessionSnapshot, error
 
 func (s *PlaybackService) SubscribePlaybackEvents() string {
 	return playback.EventSnapshotChanged
+}
+
+func (s *PlaybackService) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
+	return s.requireBridge().ListArtists(ctx, req)
+}
+
+func (s *PlaybackService) GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error) {
+	return s.requireBridge().GetArtist(ctx, artistID)
+}
+
+func (s *PlaybackService) ListArtistAlbums(ctx context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+	return s.requireBridge().ListArtistAlbums(ctx, req)
+}
+
+func (s *PlaybackService) ListAlbums(ctx context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+	return s.requireBridge().ListAlbums(ctx, req)
+}
+
+func (s *PlaybackService) GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error) {
+	return s.requireBridge().GetAlbum(ctx, albumID)
+}
+
+func (s *PlaybackService) ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
+	return s.requireBridge().ListRecordings(ctx, req)
+}
+
+func (s *PlaybackService) GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error) {
+	return s.requireBridge().GetRecording(ctx, recordingID)
+}
+
+func (s *PlaybackService) ListAlbumVariants(ctx context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error) {
+	return s.requireBridge().ListAlbumVariants(ctx, req)
+}
+
+func (s *PlaybackService) ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
+	return s.requireBridge().ListAlbumTracks(ctx, req)
+}
+
+func (s *PlaybackService) ListPlaylists(ctx context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error) {
+	return s.requireBridge().ListPlaylists(ctx, req)
+}
+
+func (s *PlaybackService) GetPlaylistSummary(ctx context.Context, playlistID string) (apitypes.PlaylistListItem, error) {
+	return s.requireBridge().GetPlaylistSummary(ctx, playlistID)
+}
+
+func (s *PlaybackService) ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {
+	return s.requireBridge().ListPlaylistTracks(ctx, req)
+}
+
+func (s *PlaybackService) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
+	return s.requireBridge().ListLikedRecordings(ctx, req)
+}
+
+func (s *PlaybackService) ResolveBlobURL(blobID string) (string, error) {
+	s.mu.RLock()
+	blobRoot := s.blobRoot
+	s.mu.RUnlock()
+
+	path, ok, err := blobPathForID(blobRoot, blobID)
+	if err != nil || !ok {
+		return "", err
+	}
+	return fileURLFromPath(path)
+}
+
+func (s *PlaybackService) ResolveRecordingArtworkURL(ctx context.Context, recordingID string, variant string) (string, error) {
+	bridge := s.requireBridge()
+	result, err := bridge.ResolveRecordingArtwork(ctx, recordingID, variant)
+	if err != nil {
+		return "", err
+	}
+	if result.LocalPath != "" {
+		return fileURLFromPath(result.LocalPath)
+	}
+	if result.BlobID != "" {
+		return s.ResolveBlobURL(result.BlobID)
+	}
+	return "", nil
 }
 
 func (s *PlaybackService) SetPlaybackContext(input playback.PlaybackContextInput) (playback.SessionSnapshot, error) {
@@ -410,6 +513,16 @@ func (s *PlaybackService) requireLoader() *playback.CatalogLoader {
 	return playback.NewCatalogLoader(bridge)
 }
 
+func (s *PlaybackService) requireBridge() hostBridge {
+	s.mu.RLock()
+	bridge := s.bridge
+	s.mu.RUnlock()
+	if bridge == nil {
+		return corebridge.NewUnavailableBridge(fmt.Errorf("core bridge is not available"))
+	}
+	return bridge
+}
+
 func (s *PlaybackService) requireSession() (*playback.Session, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -420,10 +533,66 @@ func (s *PlaybackService) requireSession() (*playback.Session, error) {
 }
 
 func preferredProfile(coreSettings settings.CoreRuntimeSettings) string {
-	if value := strings.TrimSpace(coreSettings.TranscodeProfile); value != "" {
-		return value
+	return settings.EffectiveTranscodeProfile(coreSettings.TranscodeProfile)
+}
+
+func resolvedBlobRoot(coreSettings settings.CoreRuntimeSettings) string {
+	blobRoot := strings.TrimSpace(coreSettings.BlobRoot)
+	if blobRoot != "" {
+		return blobRoot
 	}
-	return "desktop"
+	dbPath := strings.TrimSpace(coreSettings.DBPath)
+	if dbPath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(dbPath), "blobs")
+}
+
+func blobPathForID(root string, blobID string) (string, bool, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return "", false, nil
+	}
+
+	parts := strings.SplitN(strings.TrimSpace(blobID), ":", 2)
+	if len(parts) != 2 {
+		return "", false, fmt.Errorf("invalid blob id format")
+	}
+	algo := strings.TrimSpace(parts[0])
+	hashHex := strings.ToLower(strings.TrimSpace(parts[1]))
+	if algo != "b3" {
+		return "", false, fmt.Errorf("unsupported blob algo %q", algo)
+	}
+	if len(hashHex) != 64 {
+		return "", false, fmt.Errorf("invalid blob hash length")
+	}
+	if _, err := hex.DecodeString(hashHex); err != nil {
+		return "", false, fmt.Errorf("invalid blob hash: %w", err)
+	}
+
+	path := filepath.Join(root, algo, hashHex[:2], hashHex[2:4], hashHex)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return path, true, nil
+}
+
+func fileURLFromPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return (&url.URL{
+		Scheme: "file",
+		Path:   filepath.ToSlash(absPath),
+	}).String(), nil
 }
 
 type serviceLogger struct{}

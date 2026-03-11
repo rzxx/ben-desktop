@@ -59,7 +59,7 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 			BlobRoot:         "C:\\ben\\blobs",
 			IdentityKeyPath:  "C:\\ben\\identity.key",
 			FFmpegPath:       "C:\\tools\\ffmpeg.exe",
-			TranscodeProfile: "desktop",
+			TranscodeProfile: DefaultTranscodeProfile,
 		},
 	}
 	if state != want {

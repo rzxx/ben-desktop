@@ -22,6 +22,9 @@ func TestConfigFromSettingsAllowsMissingDBPath(t *testing.T) {
 	if cfg.Core.Runtime.AutoStart == nil || !*cfg.Core.Runtime.AutoStart {
 		t.Fatalf("expected auto start to be enabled")
 	}
+	if cfg.Core.TranscodeProfile != settings.DefaultTranscodeProfile {
+		t.Fatalf("expected default transcode profile %q, got %q", settings.DefaultTranscodeProfile, cfg.Core.TranscodeProfile)
+	}
 }
 
 func TestConfigFromSettingsDerivesPathsFromStoredDBPath(t *testing.T) {
@@ -65,7 +68,7 @@ func TestConfigFromSettingsUsesStoredValues(t *testing.T) {
 	if cfg.Core.FFmpegPath != stored.FFmpegPath {
 		t.Fatalf("expected ffmpeg path %q, got %q", stored.FFmpegPath, cfg.Core.FFmpegPath)
 	}
-	if cfg.Core.TranscodeProfile != stored.TranscodeProfile {
-		t.Fatalf("expected transcode profile %q, got %q", stored.TranscodeProfile, cfg.Core.TranscodeProfile)
+	if cfg.Core.TranscodeProfile != settings.DefaultTranscodeProfile {
+		t.Fatalf("expected transcode profile %q, got %q", settings.DefaultTranscodeProfile, cfg.Core.TranscodeProfile)
 	}
 }

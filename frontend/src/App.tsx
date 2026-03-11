@@ -1,5 +1,12 @@
+import { HashRouter } from "./app/router/HashRouter";
+import { WindowShell } from "./app/shell/WindowShell";
+
 function App() {
-  return <main className="min-h-screen" />;
+  return (
+    <HashRouter>
+      <WindowShell />
+    </HashRouter>
+  );
 }
 
 export default App;

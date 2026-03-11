@@ -21,6 +21,11 @@ type CoreRuntimeSettings struct {
 	TranscodeProfile string `json:"transcodeProfile,omitempty"`
 }
 
+const (
+	DefaultTranscodeProfile = "aac_lc_vbr_high"
+	legacyDesktopProfile    = "desktop"
+)
+
 type Store struct {
 	path string
 	mu   sync.Mutex
@@ -109,6 +114,22 @@ func normalizeCoreRuntimeSettings(settings CoreRuntimeSettings) CoreRuntimeSetti
 	settings.BlobRoot = strings.TrimSpace(settings.BlobRoot)
 	settings.IdentityKeyPath = strings.TrimSpace(settings.IdentityKeyPath)
 	settings.FFmpegPath = strings.TrimSpace(settings.FFmpegPath)
-	settings.TranscodeProfile = strings.TrimSpace(settings.TranscodeProfile)
+	settings.TranscodeProfile = NormalizeTranscodeProfile(settings.TranscodeProfile)
 	return settings
+}
+
+func NormalizeTranscodeProfile(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.EqualFold(value, legacyDesktopProfile) {
+		return DefaultTranscodeProfile
+	}
+	return value
+}
+
+func EffectiveTranscodeProfile(value string) string {
+	value = NormalizeTranscodeProfile(value)
+	if value == "" {
+		return DefaultTranscodeProfile
+	}
+	return value
 }

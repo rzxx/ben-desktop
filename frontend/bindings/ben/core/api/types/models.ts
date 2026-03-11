@@ -9,6 +9,613 @@ import { Create as $Create } from "@wailsio/runtime";
 // @ts-ignore: Unused imports
 import * as time$0 from "../../../../time/models.js";
 
+export class AlbumListItem {
+    "AlbumID": string;
+    "AlbumClusterID": string;
+    "Title": string;
+    "Artists": string[];
+    "Year": number | null;
+    "TrackCount": number;
+    "ThumbBlobID": string;
+    "VariantCount": number;
+    "HasVariants": boolean;
+    "Availability": CatalogAggregateAvailabilityHint;
+
+    /** Creates a new AlbumListItem instance. */
+    constructor($$source: Partial<AlbumListItem> = {}) {
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
+        }
+        if (!("AlbumClusterID" in $$source)) {
+            this["AlbumClusterID"] = "";
+        }
+        if (!("Title" in $$source)) {
+            this["Title"] = "";
+        }
+        if (!("Artists" in $$source)) {
+            this["Artists"] = [];
+        }
+        if (!("Year" in $$source)) {
+            this["Year"] = null;
+        }
+        if (!("TrackCount" in $$source)) {
+            this["TrackCount"] = 0;
+        }
+        if (!("ThumbBlobID" in $$source)) {
+            this["ThumbBlobID"] = "";
+        }
+        if (!("VariantCount" in $$source)) {
+            this["VariantCount"] = 0;
+        }
+        if (!("HasVariants" in $$source)) {
+            this["HasVariants"] = false;
+        }
+        if (!("Availability" in $$source)) {
+            this["Availability"] = (new CatalogAggregateAvailabilityHint());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AlbumListItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AlbumListItem {
+        const $$createField3_0 = $$createType0;
+        const $$createField9_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Artists" in $$parsedSource) {
+            $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
+        }
+        if ("Availability" in $$parsedSource) {
+            $$parsedSource["Availability"] = $$createField9_0($$parsedSource["Availability"]);
+        }
+        return new AlbumListItem($$parsedSource as Partial<AlbumListItem>);
+    }
+}
+
+export class AlbumListRequest {
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new AlbumListRequest instance. */
+    constructor($$source: Partial<AlbumListRequest> = {}) {
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AlbumListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AlbumListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AlbumListRequest($$parsedSource as Partial<AlbumListRequest>);
+    }
+}
+
+export class AlbumTrackItem {
+    "RecordingID": string;
+    "Title": string;
+    "DurationMS": number;
+    "DiscNo": number;
+    "TrackNo": number;
+    "Artists": string[];
+    "Availability": CatalogTrackAvailabilityHint;
+
+    /** Creates a new AlbumTrackItem instance. */
+    constructor($$source: Partial<AlbumTrackItem> = {}) {
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("Title" in $$source)) {
+            this["Title"] = "";
+        }
+        if (!("DurationMS" in $$source)) {
+            this["DurationMS"] = 0;
+        }
+        if (!("DiscNo" in $$source)) {
+            this["DiscNo"] = 0;
+        }
+        if (!("TrackNo" in $$source)) {
+            this["TrackNo"] = 0;
+        }
+        if (!("Artists" in $$source)) {
+            this["Artists"] = [];
+        }
+        if (!("Availability" in $$source)) {
+            this["Availability"] = (new CatalogTrackAvailabilityHint());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AlbumTrackItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AlbumTrackItem {
+        const $$createField5_0 = $$createType0;
+        const $$createField6_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Artists" in $$parsedSource) {
+            $$parsedSource["Artists"] = $$createField5_0($$parsedSource["Artists"]);
+        }
+        if ("Availability" in $$parsedSource) {
+            $$parsedSource["Availability"] = $$createField6_0($$parsedSource["Availability"]);
+        }
+        return new AlbumTrackItem($$parsedSource as Partial<AlbumTrackItem>);
+    }
+}
+
+export class AlbumTrackListRequest {
+    "AlbumID": string;
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new AlbumTrackListRequest instance. */
+    constructor($$source: Partial<AlbumTrackListRequest> = {}) {
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
+        }
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AlbumTrackListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AlbumTrackListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AlbumTrackListRequest($$parsedSource as Partial<AlbumTrackListRequest>);
+    }
+}
+
+export class AlbumVariantItem {
+    "AlbumID": string;
+    "AlbumClusterID": string;
+    "Title": string;
+    "Artists": string[];
+    "Year": number | null;
+    "Edition": string;
+    "TrackCount": number;
+    "ThumbBlobID": string;
+    "BestQualityRank": number;
+    "LocalTrackCount": number;
+    "IsPreferred": boolean;
+    "IsExplicitPreferred": boolean;
+    "Availability": CatalogAggregateAvailabilityHint;
+
+    /** Creates a new AlbumVariantItem instance. */
+    constructor($$source: Partial<AlbumVariantItem> = {}) {
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
+        }
+        if (!("AlbumClusterID" in $$source)) {
+            this["AlbumClusterID"] = "";
+        }
+        if (!("Title" in $$source)) {
+            this["Title"] = "";
+        }
+        if (!("Artists" in $$source)) {
+            this["Artists"] = [];
+        }
+        if (!("Year" in $$source)) {
+            this["Year"] = null;
+        }
+        if (!("Edition" in $$source)) {
+            this["Edition"] = "";
+        }
+        if (!("TrackCount" in $$source)) {
+            this["TrackCount"] = 0;
+        }
+        if (!("ThumbBlobID" in $$source)) {
+            this["ThumbBlobID"] = "";
+        }
+        if (!("BestQualityRank" in $$source)) {
+            this["BestQualityRank"] = 0;
+        }
+        if (!("LocalTrackCount" in $$source)) {
+            this["LocalTrackCount"] = 0;
+        }
+        if (!("IsPreferred" in $$source)) {
+            this["IsPreferred"] = false;
+        }
+        if (!("IsExplicitPreferred" in $$source)) {
+            this["IsExplicitPreferred"] = false;
+        }
+        if (!("Availability" in $$source)) {
+            this["Availability"] = (new CatalogAggregateAvailabilityHint());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AlbumVariantItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AlbumVariantItem {
+        const $$createField3_0 = $$createType0;
+        const $$createField12_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Artists" in $$parsedSource) {
+            $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
+        }
+        if ("Availability" in $$parsedSource) {
+            $$parsedSource["Availability"] = $$createField12_0($$parsedSource["Availability"]);
+        }
+        return new AlbumVariantItem($$parsedSource as Partial<AlbumVariantItem>);
+    }
+}
+
+export class AlbumVariantListRequest {
+    "AlbumID": string;
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new AlbumVariantListRequest instance. */
+    constructor($$source: Partial<AlbumVariantListRequest> = {}) {
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
+        }
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AlbumVariantListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AlbumVariantListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AlbumVariantListRequest($$parsedSource as Partial<AlbumVariantListRequest>);
+    }
+}
+
+export class ArtistAlbumListRequest {
+    "ArtistID": string;
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new ArtistAlbumListRequest instance. */
+    constructor($$source: Partial<ArtistAlbumListRequest> = {}) {
+        if (!("ArtistID" in $$source)) {
+            this["ArtistID"] = "";
+        }
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ArtistAlbumListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ArtistAlbumListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ArtistAlbumListRequest($$parsedSource as Partial<ArtistAlbumListRequest>);
+    }
+}
+
+export class ArtistListItem {
+    "ArtistID": string;
+    "Name": string;
+    "AlbumCount": number;
+    "TrackCount": number;
+    "Availability": CatalogAggregateAvailabilityHint;
+
+    /** Creates a new ArtistListItem instance. */
+    constructor($$source: Partial<ArtistListItem> = {}) {
+        if (!("ArtistID" in $$source)) {
+            this["ArtistID"] = "";
+        }
+        if (!("Name" in $$source)) {
+            this["Name"] = "";
+        }
+        if (!("AlbumCount" in $$source)) {
+            this["AlbumCount"] = 0;
+        }
+        if (!("TrackCount" in $$source)) {
+            this["TrackCount"] = 0;
+        }
+        if (!("Availability" in $$source)) {
+            this["Availability"] = (new CatalogAggregateAvailabilityHint());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ArtistListItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ArtistListItem {
+        const $$createField4_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Availability" in $$parsedSource) {
+            $$parsedSource["Availability"] = $$createField4_0($$parsedSource["Availability"]);
+        }
+        return new ArtistListItem($$parsedSource as Partial<ArtistListItem>);
+    }
+}
+
+export class ArtistListRequest {
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new ArtistListRequest instance. */
+    constructor($$source: Partial<ArtistListRequest> = {}) {
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ArtistListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ArtistListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ArtistListRequest($$parsedSource as Partial<ArtistListRequest>);
+    }
+}
+
+export class CatalogAggregateAvailabilityHint {
+    "LocalTrackCount": number;
+    "ProviderOnlineTrackCount": number;
+    "ProviderOfflineTrackCount": number;
+    "AvailableTrackCount": number;
+    "UnavailableTrackCount": number;
+
+    /** Creates a new CatalogAggregateAvailabilityHint instance. */
+    constructor($$source: Partial<CatalogAggregateAvailabilityHint> = {}) {
+        if (!("LocalTrackCount" in $$source)) {
+            this["LocalTrackCount"] = 0;
+        }
+        if (!("ProviderOnlineTrackCount" in $$source)) {
+            this["ProviderOnlineTrackCount"] = 0;
+        }
+        if (!("ProviderOfflineTrackCount" in $$source)) {
+            this["ProviderOfflineTrackCount"] = 0;
+        }
+        if (!("AvailableTrackCount" in $$source)) {
+            this["AvailableTrackCount"] = 0;
+        }
+        if (!("UnavailableTrackCount" in $$source)) {
+            this["UnavailableTrackCount"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CatalogAggregateAvailabilityHint instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CatalogAggregateAvailabilityHint {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CatalogAggregateAvailabilityHint($$parsedSource as Partial<CatalogAggregateAvailabilityHint>);
+    }
+}
+
+export class CatalogTrackAvailabilityHint {
+    "State": CatalogTrackAvailabilityState;
+    "HasLocalSource": boolean;
+    "ProviderDeviceCount": number;
+    "OnlineProviderDeviceCount": number;
+
+    /** Creates a new CatalogTrackAvailabilityHint instance. */
+    constructor($$source: Partial<CatalogTrackAvailabilityHint> = {}) {
+        if (!("State" in $$source)) {
+            this["State"] = CatalogTrackAvailabilityState.$zero;
+        }
+        if (!("HasLocalSource" in $$source)) {
+            this["HasLocalSource"] = false;
+        }
+        if (!("ProviderDeviceCount" in $$source)) {
+            this["ProviderDeviceCount"] = 0;
+        }
+        if (!("OnlineProviderDeviceCount" in $$source)) {
+            this["OnlineProviderDeviceCount"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CatalogTrackAvailabilityHint instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CatalogTrackAvailabilityHint {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CatalogTrackAvailabilityHint($$parsedSource as Partial<CatalogTrackAvailabilityHint>);
+    }
+}
+
+export enum CatalogTrackAvailabilityState {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    CatalogAvailabilityLocal = "LOCAL",
+    CatalogAvailabilityProviderOnline = "PROVIDER_ONLINE",
+    CatalogAvailabilityProviderOffline = "PROVIDER_OFFLINE",
+    CatalogAvailabilityUnavailable = "UNAVAILABLE",
+};
+
+export class LikedRecordingItem {
+    "RecordingID": string;
+    "Title": string;
+    "DurationMS": number;
+    "Artists": string[];
+    "AddedAt": time$0.Time;
+    "Availability": CatalogTrackAvailabilityHint;
+
+    /** Creates a new LikedRecordingItem instance. */
+    constructor($$source: Partial<LikedRecordingItem> = {}) {
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("Title" in $$source)) {
+            this["Title"] = "";
+        }
+        if (!("DurationMS" in $$source)) {
+            this["DurationMS"] = 0;
+        }
+        if (!("Artists" in $$source)) {
+            this["Artists"] = [];
+        }
+        if (!("AddedAt" in $$source)) {
+            this["AddedAt"] = null;
+        }
+        if (!("Availability" in $$source)) {
+            this["Availability"] = (new CatalogTrackAvailabilityHint());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LikedRecordingItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LikedRecordingItem {
+        const $$createField3_0 = $$createType0;
+        const $$createField5_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Artists" in $$parsedSource) {
+            $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
+        }
+        if ("Availability" in $$parsedSource) {
+            $$parsedSource["Availability"] = $$createField5_0($$parsedSource["Availability"]);
+        }
+        return new LikedRecordingItem($$parsedSource as Partial<LikedRecordingItem>);
+    }
+}
+
+export class LikedRecordingListRequest {
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new LikedRecordingListRequest instance. */
+    constructor($$source: Partial<LikedRecordingListRequest> = {}) {
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LikedRecordingListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LikedRecordingListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LikedRecordingListRequest($$parsedSource as Partial<LikedRecordingListRequest>);
+    }
+}
+
+export class Page<T> {
+    "Items": T[];
+    "Page": PageInfo;
+
+    /** Creates a new Page instance. */
+    constructor($$source: Partial<Page<T>> = {}) {
+        if (!("Items" in $$source)) {
+            this["Items"] = [];
+        }
+        if (!("Page" in $$source)) {
+            this["Page"] = (new PageInfo());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Given creation functions for each type parameter,
+     * returns a creation function for a concrete instance
+     * of the generic class Page.
+     */
+    static createFrom<T = any>($$createParamT: (source: any) => T): ($$source?: any) => Page<T> {
+        const $$createField0_0 = $$createType3($$createParamT);
+        const $$createField1_0 = $$createType4;
+        return ($$source: any = {}) => {
+            let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+            if ("Items" in $$parsedSource) {
+                $$parsedSource["Items"] = $$createField0_0($$parsedSource["Items"]);
+            }
+            if ("Page" in $$parsedSource) {
+                $$parsedSource["Page"] = $$createField1_0($$parsedSource["Page"]);
+            }
+            return new Page<T>($$parsedSource as Partial<Page<T>>);
+        };
+    }
+}
+
+export class PageInfo {
+    "Limit": number;
+    "Offset": number;
+    "Returned": number;
+    "Total": number;
+    "HasMore": boolean;
+    "NextOffset": number;
+
+    /** Creates a new PageInfo instance. */
+    constructor($$source: Partial<PageInfo> = {}) {
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+        if (!("Returned" in $$source)) {
+            this["Returned"] = 0;
+        }
+        if (!("Total" in $$source)) {
+            this["Total"] = 0;
+        }
+        if (!("HasMore" in $$source)) {
+            this["HasMore"] = false;
+        }
+        if (!("NextOffset" in $$source)) {
+            this["NextOffset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PageInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PageInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PageInfo($$parsedSource as Partial<PageInfo>);
+    }
+}
+
 export enum PlaybackPreparationPhase {
     /**
      * The Go zero value for the underlying type of the enum.
@@ -96,3 +703,262 @@ export enum PlaybackUnavailableReason {
     PlaybackUnavailableNoPath = "no_path",
     PlaybackUnavailableNetworkOff = "network_off",
 };
+
+export enum PlaylistKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    PlaylistKindNormal = "normal",
+    PlaylistKindLiked = "liked",
+};
+
+export class PlaylistListItem {
+    "PlaylistID": string;
+    "Name": string;
+    "Kind": PlaylistKind;
+    "IsReserved": boolean;
+    "ThumbBlobID": string;
+    "HasCustomCover": boolean;
+    "CreatedBy": string;
+    "UpdatedAt": time$0.Time;
+    "ItemCount": number;
+
+    /** Creates a new PlaylistListItem instance. */
+    constructor($$source: Partial<PlaylistListItem> = {}) {
+        if (!("PlaylistID" in $$source)) {
+            this["PlaylistID"] = "";
+        }
+        if (!("Name" in $$source)) {
+            this["Name"] = "";
+        }
+        if (!("Kind" in $$source)) {
+            this["Kind"] = PlaylistKind.$zero;
+        }
+        if (!("IsReserved" in $$source)) {
+            this["IsReserved"] = false;
+        }
+        if (!("ThumbBlobID" in $$source)) {
+            this["ThumbBlobID"] = "";
+        }
+        if (!("HasCustomCover" in $$source)) {
+            this["HasCustomCover"] = false;
+        }
+        if (!("CreatedBy" in $$source)) {
+            this["CreatedBy"] = "";
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = null;
+        }
+        if (!("ItemCount" in $$source)) {
+            this["ItemCount"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistListItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistListItem {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaylistListItem($$parsedSource as Partial<PlaylistListItem>);
+    }
+}
+
+export class PlaylistListRequest {
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new PlaylistListRequest instance. */
+    constructor($$source: Partial<PlaylistListRequest> = {}) {
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaylistListRequest($$parsedSource as Partial<PlaylistListRequest>);
+    }
+}
+
+export class PlaylistTrackItem {
+    "ItemID": string;
+    "RecordingID": string;
+    "Title": string;
+    "DurationMS": number;
+    "Artists": string[];
+    "AddedAt": time$0.Time;
+    "Availability": CatalogTrackAvailabilityHint;
+
+    /** Creates a new PlaylistTrackItem instance. */
+    constructor($$source: Partial<PlaylistTrackItem> = {}) {
+        if (!("ItemID" in $$source)) {
+            this["ItemID"] = "";
+        }
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("Title" in $$source)) {
+            this["Title"] = "";
+        }
+        if (!("DurationMS" in $$source)) {
+            this["DurationMS"] = 0;
+        }
+        if (!("Artists" in $$source)) {
+            this["Artists"] = [];
+        }
+        if (!("AddedAt" in $$source)) {
+            this["AddedAt"] = null;
+        }
+        if (!("Availability" in $$source)) {
+            this["Availability"] = (new CatalogTrackAvailabilityHint());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistTrackItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistTrackItem {
+        const $$createField4_0 = $$createType0;
+        const $$createField6_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Artists" in $$parsedSource) {
+            $$parsedSource["Artists"] = $$createField4_0($$parsedSource["Artists"]);
+        }
+        if ("Availability" in $$parsedSource) {
+            $$parsedSource["Availability"] = $$createField6_0($$parsedSource["Availability"]);
+        }
+        return new PlaylistTrackItem($$parsedSource as Partial<PlaylistTrackItem>);
+    }
+}
+
+export class PlaylistTrackListRequest {
+    "PlaylistID": string;
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new PlaylistTrackListRequest instance. */
+    constructor($$source: Partial<PlaylistTrackListRequest> = {}) {
+        if (!("PlaylistID" in $$source)) {
+            this["PlaylistID"] = "";
+        }
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistTrackListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistTrackListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaylistTrackListRequest($$parsedSource as Partial<PlaylistTrackListRequest>);
+    }
+}
+
+export class RecordingListItem {
+    "TrackClusterID": string;
+    "RecordingID": string;
+    "Title": string;
+    "DurationMS": number;
+    "Artists": string[];
+    "VariantCount": number;
+    "HasVariants": boolean;
+    "Availability": CatalogTrackAvailabilityHint;
+
+    /** Creates a new RecordingListItem instance. */
+    constructor($$source: Partial<RecordingListItem> = {}) {
+        if (!("TrackClusterID" in $$source)) {
+            this["TrackClusterID"] = "";
+        }
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("Title" in $$source)) {
+            this["Title"] = "";
+        }
+        if (!("DurationMS" in $$source)) {
+            this["DurationMS"] = 0;
+        }
+        if (!("Artists" in $$source)) {
+            this["Artists"] = [];
+        }
+        if (!("VariantCount" in $$source)) {
+            this["VariantCount"] = 0;
+        }
+        if (!("HasVariants" in $$source)) {
+            this["HasVariants"] = false;
+        }
+        if (!("Availability" in $$source)) {
+            this["Availability"] = (new CatalogTrackAvailabilityHint());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingListItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingListItem {
+        const $$createField4_0 = $$createType0;
+        const $$createField7_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Artists" in $$parsedSource) {
+            $$parsedSource["Artists"] = $$createField4_0($$parsedSource["Artists"]);
+        }
+        if ("Availability" in $$parsedSource) {
+            $$parsedSource["Availability"] = $$createField7_0($$parsedSource["Availability"]);
+        }
+        return new RecordingListItem($$parsedSource as Partial<RecordingListItem>);
+    }
+}
+
+export class RecordingListRequest {
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new RecordingListRequest instance. */
+    constructor($$source: Partial<RecordingListRequest> = {}) {
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecordingListRequest($$parsedSource as Partial<RecordingListRequest>);
+    }
+}
+
+// Private type creation functions
+const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = CatalogAggregateAvailabilityHint.createFrom;
+const $$createType2 = CatalogTrackAvailabilityHint.createFrom;
+const $$createType3 = ($$createParamT: any) => $Create.Array($$createParamT);
+const $$createType4 = PageInfo.createFrom;
