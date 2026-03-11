@@ -19,6 +19,8 @@ const (
 	pendingRetryInterval = time.Second
 	pendingRetryTimeout  = 2 * time.Minute
 	maxHistoryEntries    = 128
+	preloadListenedAfter = 45 * time.Second
+	preloadRemainingLead = 45 * time.Second
 )
 
 type Logger interface {
@@ -171,6 +173,8 @@ func (s *Session) SetContext(input PlaybackContextInput) (SessionSnapshot, error
 	s.snapshot.DurationMS = nil
 	s.snapshot.LastError = ""
 	s.snapshot.CurrentSourceKind = ""
+	s.snapshot.CurrentPreparation = nil
+	s.snapshot.NextPreparation = nil
 	s.snapshot.Status = StatusPaused
 	s.snapshot.ShuffleCycle = nil
 	s.cancelPendingRetryLocked()
@@ -204,6 +208,7 @@ func (s *Session) QueueItems(items []SessionItem, mode QueueInsertMode) (Session
 	}
 
 	s.mu.Lock()
+	needsClearPreload := s.snapshot.NextPreparation != nil || s.preloadedID != ""
 	entries := make([]SessionEntry, 0, len(items))
 	for _, item := range items {
 		entries = append(entries, SessionEntry{
@@ -232,10 +237,15 @@ func (s *Session) QueueItems(items []SessionItem, mode QueueInsertMode) (Session
 		s.snapshot.DurationMS = currentDuration(&entry.Item)
 	}
 
+	s.clearNextPreparationStateLocked()
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
+	backend := s.backend
 	s.mu.Unlock()
 
+	if needsClearPreload && backend != nil {
+		_ = backend.ClearPreloaded(context.Background())
+	}
 	s.publishSnapshot(state)
 	return state, nil
 }
@@ -248,11 +258,17 @@ func (s *Session) RemoveQueuedEntry(entryID string) (SessionSnapshot, error) {
 		s.mu.Unlock()
 		return state, fmt.Errorf("queued entry %s not found", strings.TrimSpace(entryID))
 	}
+	needsClearPreload := s.snapshot.NextPreparation != nil || s.preloadedID != ""
 	s.snapshot.QueuedEntries = append(s.snapshot.QueuedEntries[:index], s.snapshot.QueuedEntries[index+1:]...)
+	s.clearNextPreparationStateLocked()
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
+	backend := s.backend
 	s.mu.Unlock()
 
+	if needsClearPreload && backend != nil {
+		_ = backend.ClearPreloaded(context.Background())
+	}
 	s.publishSnapshot(state)
 	return state, nil
 }
@@ -276,15 +292,21 @@ func (s *Session) MoveQueuedEntry(entryID string, toIndex int) (SessionSnapshot,
 		return state, nil
 	}
 
+	needsClearPreload := s.snapshot.NextPreparation != nil || s.preloadedID != ""
 	entry := s.snapshot.QueuedEntries[fromIndex]
 	queue := append([]SessionEntry(nil), s.snapshot.QueuedEntries...)
 	queue = append(queue[:fromIndex], queue[fromIndex+1:]...)
 	queue = append(queue[:toIndex], append([]SessionEntry{entry}, queue[toIndex:]...)...)
 	s.snapshot.QueuedEntries = queue
+	s.clearNextPreparationStateLocked()
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
+	backend := s.backend
 	s.mu.Unlock()
 
+	if needsClearPreload && backend != nil {
+		_ = backend.ClearPreloaded(context.Background())
+	}
 	s.publishSnapshot(state)
 	return state, nil
 }
@@ -306,10 +328,16 @@ func (s *Session) SelectEntry(ctx context.Context, entryID string) (SessionSnaps
 		return state, err
 	}
 	wasPlaying := s.snapshot.Status == StatusPlaying
+	needsClearPreload := s.snapshot.NextPreparation != nil || s.preloadedID != ""
 	s.switchCurrentLocked(target, origin, queueIndex, current, false, 0)
+	s.clearNextPreparationStateLocked()
 	state := snapshotCopyLocked(&s.snapshot)
+	backend := s.backend
 	s.mu.Unlock()
 
+	if needsClearPreload && backend != nil {
+		_ = backend.ClearPreloaded(context.Background())
+	}
 	if !wasPlaying {
 		s.publishSnapshot(state)
 		return state, nil
@@ -328,6 +356,8 @@ func (s *Session) ClearQueue() (SessionSnapshot, error) {
 	s.snapshot.LastError = ""
 	s.snapshot.Status = StatusIdle
 	s.snapshot.CurrentSourceKind = ""
+	s.snapshot.CurrentPreparation = nil
+	s.snapshot.NextPreparation = nil
 	s.clearCurrentLocked()
 	s.cancelPendingRetryLocked()
 	s.loadedEntryID = ""
@@ -609,21 +639,21 @@ func (s *Session) playEntry(
 		return s.Snapshot(), errors.New("playback backend is not configured")
 	}
 
-	result, err := bridge.ResolvePlaybackRecording(ctx, entry.Item.RecordingID, s.preferredProfile)
+	preparation, err := bridge.PreparePlaybackRecording(ctx, entry.Item.RecordingID, s.preferredProfile, apitypes.PlaybackPreparationPlayNow)
 	if err != nil {
 		return s.Snapshot(), err
 	}
 
-	if result.State == apitypes.AvailabilityWaitingTranscode {
+	if preparation.Phase == apitypes.PlaybackPreparationPreparingFetch || preparation.Phase == apitypes.PlaybackPreparationPreparingTranscode {
 		s.mu.Lock()
 		s.switchCurrentLocked(entry, origin, queueIndex, previous, keepPosition, restorePosition)
 		s.snapshot.Status = StatusPending
 		s.snapshot.LastError = ""
-		s.snapshot.CurrentSourceKind = result.SourceKind
+		s.snapshot.CurrentSourceKind = preparation.SourceKind
+		s.snapshot.CurrentPreparation = &EntryPreparation{EntryID: entry.EntryID, Status: preparation}
 		s.loadedEntryID = ""
 		s.loadedURI = ""
-		s.preloadedID = ""
-		s.preloadedURI = ""
+		s.clearNextPreparationStateLocked()
 		s.touchLocked()
 		s.startPendingRetryLocked(entry.EntryID)
 		state := snapshotCopyLocked(&s.snapshot)
@@ -632,11 +662,11 @@ func (s *Session) playEntry(
 		return state, errPendingPlayback
 	}
 
-	if !isPlayableState(result.State) || strings.TrimSpace(result.PlayableURI) == "" {
-		return s.Snapshot(), fmt.Errorf("recording %s is unavailable (%s)", entry.Item.RecordingID, result.Reason)
+	if preparation.Phase != apitypes.PlaybackPreparationReady || strings.TrimSpace(preparation.PlayableURI) == "" {
+		return s.Snapshot(), fmt.Errorf("recording %s is unavailable (%s)", entry.Item.RecordingID, preparation.Reason)
 	}
 
-	if err := backend.Load(ctx, result.PlayableURI); err != nil {
+	if err := backend.Load(ctx, preparation.PlayableURI); err != nil {
 		return s.Snapshot(), err
 	}
 	if restorePosition > 0 {
@@ -650,11 +680,11 @@ func (s *Session) playEntry(
 	s.switchCurrentLocked(entry, origin, queueIndex, previous, keepPosition, restorePosition)
 	s.snapshot.Status = StatusPlaying
 	s.snapshot.LastError = ""
-	s.snapshot.CurrentSourceKind = result.SourceKind
+	s.snapshot.CurrentSourceKind = preparation.SourceKind
+	s.snapshot.CurrentPreparation = &EntryPreparation{EntryID: entry.EntryID, Status: preparation}
 	s.loadedEntryID = entry.EntryID
-	s.loadedURI = result.PlayableURI
-	s.preloadedID = ""
-	s.preloadedURI = ""
+	s.loadedURI = preparation.PlayableURI
+	s.clearNextPreparationStateLocked()
 	s.cancelPendingRetryLocked()
 	s.ensureTickerLocked()
 	s.touchLocked()
@@ -662,7 +692,6 @@ func (s *Session) playEntry(
 	s.mu.Unlock()
 
 	s.refreshPosition()
-	s.preloadNext(ctx)
 	s.publishSnapshot(s.Snapshot())
 	return state, nil
 }
@@ -696,14 +725,14 @@ func (s *Session) preloadNext(ctx context.Context) {
 		return
 	}
 	nextEntry, _, _, ok := s.peekNextLocked(false)
-	if !ok || nextEntry.EntryID == "" {
+	if !ok || nextEntry.EntryID == "" || !s.shouldArmNextPreparationLocked() {
 		backend := s.backend
-		s.preloadedID = ""
-		s.preloadedURI = ""
+		s.clearNextPreparationStateLocked()
 		s.mu.Unlock()
 		_ = backend.ClearPreloaded(ctx)
 		return
 	}
+	currentNext := cloneEntryPreparation(s.snapshot.NextPreparation)
 	backend := s.backend
 	bridge := s.bridge
 	s.mu.Unlock()
@@ -711,23 +740,86 @@ func (s *Session) preloadNext(ctx context.Context) {
 	if bridge == nil || backend == nil {
 		return
 	}
-	result, err := bridge.ResolvePlaybackRecording(ctx, nextEntry.Item.RecordingID, s.preferredProfile)
-	if err != nil || !isPlayableState(result.State) || strings.TrimSpace(result.PlayableURI) == "" {
-		_ = backend.ClearPreloaded(ctx)
-		s.mu.Lock()
+
+	if currentNext != nil && currentNext.EntryID == nextEntry.EntryID {
+		switch currentNext.Status.Phase {
+		case apitypes.PlaybackPreparationReady:
+			if err := backend.PreloadNext(ctx, currentNext.Status.PlayableURI); err != nil {
+				s.logErrorf("playback: preload next failed: %v", err)
+				return
+			}
+			s.mu.Lock()
+			s.preloadedID = nextEntry.EntryID
+			s.preloadedURI = currentNext.Status.PlayableURI
+			s.snapshot.NextPreparation = &EntryPreparation{EntryID: nextEntry.EntryID, Status: currentNext.Status}
+			s.mu.Unlock()
+			return
+		case apitypes.PlaybackPreparationPreparingFetch, apitypes.PlaybackPreparationPreparingTranscode:
+			status, err := bridge.GetPlaybackPreparation(ctx, nextEntry.Item.RecordingID, s.preferredProfile)
+			if err != nil {
+				return
+			}
+			s.applyNextPreparationStatus(ctx, nextEntry, status)
+			return
+		}
+	}
+
+	status, err := bridge.PreparePlaybackRecording(ctx, nextEntry.Item.RecordingID, s.preferredProfile, apitypes.PlaybackPreparationPreloadNext)
+	if err != nil {
+		return
+	}
+	s.applyNextPreparationStatus(ctx, nextEntry, status)
+}
+
+func (s *Session) applyNextPreparationStatus(ctx context.Context, entry SessionEntry, status apitypes.PlaybackPreparationStatus) {
+	s.mu.Lock()
+	backend := s.backend
+	s.snapshot.NextPreparation = &EntryPreparation{EntryID: entry.EntryID, Status: status}
+	if status.Phase != apitypes.PlaybackPreparationReady || strings.TrimSpace(status.PlayableURI) == "" {
 		s.preloadedID = ""
 		s.preloadedURI = ""
+		s.touchLocked()
 		s.mu.Unlock()
+		if backend != nil {
+			_ = backend.ClearPreloaded(ctx)
+		}
 		return
 	}
-	if err := backend.PreloadNext(ctx, result.PlayableURI); err != nil {
-		s.logErrorf("playback: preload next failed: %v", err)
-		return
+	s.touchLocked()
+	s.mu.Unlock()
+
+	if backend != nil {
+		if err := backend.PreloadNext(ctx, status.PlayableURI); err != nil {
+			s.logErrorf("playback: preload next failed: %v", err)
+			return
+		}
 	}
 	s.mu.Lock()
-	s.preloadedID = nextEntry.EntryID
-	s.preloadedURI = result.PlayableURI
+	s.preloadedID = entry.EntryID
+	s.preloadedURI = status.PlayableURI
+	s.snapshot.NextPreparation = &EntryPreparation{EntryID: entry.EntryID, Status: status}
+	s.touchLocked()
 	s.mu.Unlock()
+}
+
+func (s *Session) shouldArmNextPreparationLocked() bool {
+	if s.snapshot.Status != StatusPlaying || s.snapshot.CurrentEntry == nil {
+		return false
+	}
+	if s.snapshot.PositionMS >= preloadListenedAfter.Milliseconds() {
+		return true
+	}
+	if s.snapshot.DurationMS == nil {
+		return false
+	}
+	remaining := *s.snapshot.DurationMS - s.snapshot.PositionMS
+	return remaining <= preloadRemainingLead.Milliseconds()
+}
+
+func (s *Session) clearNextPreparationStateLocked() {
+	s.snapshot.NextPreparation = nil
+	s.preloadedID = ""
+	s.preloadedURI = ""
 }
 
 func (s *Session) runBackendEvents(ctx context.Context, events <-chan BackendEvent) {
@@ -797,10 +889,12 @@ func (s *Session) handleTrackEOF() {
 		s.snapshot.LastError = ""
 		s.snapshot.PositionMS = 0
 		s.snapshot.DurationMS = currentDuration(&nextEntry.Item)
+		if s.snapshot.NextPreparation != nil && s.snapshot.NextPreparation.EntryID == nextEntry.EntryID {
+			s.snapshot.CurrentPreparation = &EntryPreparation{EntryID: nextEntry.EntryID, Status: s.snapshot.NextPreparation.Status}
+		}
 		s.loadedEntryID = nextEntry.EntryID
 		s.loadedURI = s.preloadedURI
-		s.preloadedID = ""
-		s.preloadedURI = ""
+		s.clearNextPreparationStateLocked()
 		s.ensureTickerLocked()
 		s.touchLocked()
 		state := snapshotCopyLocked(&s.snapshot)
@@ -852,6 +946,7 @@ func (s *Session) runTicker(stop <-chan struct{}) {
 				continue
 			}
 			s.refreshPosition()
+			s.preloadNext(context.Background())
 			s.publishSnapshot(s.Snapshot())
 		}
 	}
@@ -931,12 +1026,21 @@ func (s *Session) tryPendingPlayback(ctx context.Context, token uint64, entryID 
 		return true
 	}
 
-	result, err := bridge.ResolvePlaybackRecording(ctx, entry.Item.RecordingID, s.preferredProfile)
-	if err != nil || result.State == apitypes.AvailabilityWaitingTranscode {
+	status, err := bridge.GetPlaybackPreparation(ctx, entry.Item.RecordingID, s.preferredProfile)
+	if err != nil {
 		return false
 	}
-	if !isPlayableState(result.State) || strings.TrimSpace(result.PlayableURI) == "" {
-		_, _ = s.failPlayback(fmt.Errorf("recording %s is unavailable (%s)", entry.Item.RecordingID, result.Reason))
+	s.mu.Lock()
+	if token == s.pendingToken && entryID == s.pendingEntry {
+		s.snapshot.CurrentPreparation = &EntryPreparation{EntryID: entryID, Status: status}
+		s.touchLocked()
+	}
+	s.mu.Unlock()
+	if status.Phase == apitypes.PlaybackPreparationPreparingFetch || status.Phase == apitypes.PlaybackPreparationPreparingTranscode {
+		return false
+	}
+	if status.Phase != apitypes.PlaybackPreparationReady || strings.TrimSpace(status.PlayableURI) == "" {
+		_, _ = s.failPlayback(fmt.Errorf("recording %s is unavailable (%s)", entry.Item.RecordingID, status.Reason))
 		s.mu.Lock()
 		s.pendingCancel = nil
 		s.pendingEntry = ""
@@ -1031,6 +1135,7 @@ func (s *Session) switchCurrentLocked(entry SessionEntry, origin EntryOrigin, qu
 		s.snapshot.QueuedEntries = append(s.snapshot.QueuedEntries[:queueIndex], s.snapshot.QueuedEntries[queueIndex+1:]...)
 	}
 	s.setCurrentLocked(entry, origin)
+	s.snapshot.CurrentPreparation = nil
 	if !keepPosition {
 		s.snapshot.PositionMS = 0
 	}
@@ -1214,6 +1319,15 @@ func (s *Session) failPlayback(err error) (SessionSnapshot, error) {
 	s.mu.Lock()
 	s.snapshot.Status = StatusPaused
 	s.snapshot.LastError = err.Error()
+	if s.snapshot.CurrentEntry != nil {
+		failed := apitypes.PlaybackPreparationStatus{
+			RecordingID:      s.snapshot.CurrentEntry.Item.RecordingID,
+			PreferredProfile: s.preferredProfile,
+			Purpose:          apitypes.PlaybackPreparationPlayNow,
+			Phase:            apitypes.PlaybackPreparationFailed,
+		}
+		s.snapshot.CurrentPreparation = &EntryPreparation{EntryID: s.snapshot.CurrentEntry.EntryID, Status: failed}
+	}
 	s.stopTickerLocked()
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
@@ -1276,6 +1390,8 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 	}
 
 	snapshot.History = cloneHistory(snapshot.History)
+	snapshot.CurrentPreparation = cloneEntryPreparation(snapshot.CurrentPreparation)
+	snapshot.NextPreparation = cloneEntryPreparation(snapshot.NextPreparation)
 
 	if snapshot.CurrentEntry != nil {
 		entry := *snapshot.CurrentEntry
@@ -1299,6 +1415,7 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 	} else {
 		snapshot.CurrentEntryID = ""
 		snapshot.CurrentItem = nil
+		snapshot.CurrentPreparation = nil
 		if snapshot.Status == StatusPlaying || snapshot.Status == StatusPending {
 			snapshot.Status = StatusPaused
 		}
@@ -1321,6 +1438,7 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 		snapshot.PositionMS = 0
 		snapshot.DurationMS = nil
 		snapshot.CurrentSourceKind = ""
+		snapshot.NextPreparation = nil
 	}
 
 	snapshot.UpcomingEntries = buildUpcomingEntries(snapshot)
@@ -1341,6 +1459,8 @@ func snapshotCopyLocked(snapshot *SessionSnapshot) SessionSnapshot {
 	copyState.QueuedEntries = cloneEntries(copyState.QueuedEntries)
 	copyState.History = cloneHistory(copyState.History)
 	copyState.UpcomingEntries = cloneEntries(copyState.UpcomingEntries)
+	copyState.CurrentPreparation = cloneEntryPreparation(copyState.CurrentPreparation)
+	copyState.NextPreparation = cloneEntryPreparation(copyState.NextPreparation)
 	copyState.ShuffleCycle = append([]int(nil), copyState.ShuffleCycle...)
 	if copyState.CurrentEntry != nil {
 		entry := *copyState.CurrentEntry
@@ -1477,6 +1597,14 @@ func cloneEntryPtr(entry *SessionEntry) *SessionEntry {
 	}
 	copyEntry := *entry
 	return &copyEntry
+}
+
+func cloneEntryPreparation(value *EntryPreparation) *EntryPreparation {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	return &copyValue
 }
 
 func currentItemFromEntry(entry *SessionEntry) *SessionItem {

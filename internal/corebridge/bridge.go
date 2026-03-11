@@ -99,6 +99,18 @@ func (b *RuntimeBridge) ResolvePlaybackRecording(ctx context.Context, recordingI
 	return b.runtime.ResolvePlaybackRecording(ctx, recordingID, preferredProfile)
 }
 
+func (b *RuntimeBridge) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+	return b.runtime.InspectPlaybackRecording(ctx, recordingID, preferredProfile)
+}
+
+func (b *RuntimeBridge) PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+	return b.runtime.PreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
+}
+
+func (b *RuntimeBridge) GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+	return b.runtime.GetPlaybackPreparation(ctx, recordingID, preferredProfile)
+}
+
 func (b *RuntimeBridge) ResolveRecordingArtwork(ctx context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error) {
 	return b.runtime.ResolveRecordingArtwork(ctx, recordingID, variant)
 }
@@ -133,6 +145,18 @@ func (b *UnavailableBridge) ListLikedRecordings(context.Context, apitypes.LikedR
 
 func (b *UnavailableBridge) ResolvePlaybackRecording(context.Context, string, string) (apitypes.PlaybackResolveResult, error) {
 	return apitypes.PlaybackResolveResult{}, b.err
+}
+
+func (b *UnavailableBridge) InspectPlaybackRecording(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error) {
+	return apitypes.PlaybackPreparationStatus{}, b.err
+}
+
+func (b *UnavailableBridge) PreparePlaybackRecording(context.Context, string, string, apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+	return apitypes.PlaybackPreparationStatus{}, b.err
+}
+
+func (b *UnavailableBridge) GetPlaybackPreparation(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error) {
+	return apitypes.PlaybackPreparationStatus{}, b.err
 }
 
 func (b *UnavailableBridge) ResolveRecordingArtwork(context.Context, string, string) (apitypes.RecordingArtworkResult, error) {

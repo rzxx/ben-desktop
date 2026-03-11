@@ -2,6 +2,7 @@ package playback
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -28,8 +29,9 @@ func (s *memoryStore) Clear(context.Context) error {
 }
 
 type mockBridge struct {
-	results   map[string]apitypes.PlaybackResolveResult
-	recording map[string]apitypes.RecordingListItem
+	results      map[string]apitypes.PlaybackResolveResult
+	preparations map[string][]apitypes.PlaybackPreparationStatus
+	recording    map[string]apitypes.RecordingListItem
 }
 
 func (b *mockBridge) Close() error { return nil }
@@ -65,6 +67,18 @@ func (b *mockBridge) ResolvePlaybackRecording(_ context.Context, recordingID, _ 
 	return result, nil
 }
 
+func (b *mockBridge) InspectPlaybackRecording(_ context.Context, recordingID, _ string) (apitypes.PlaybackPreparationStatus, error) {
+	return b.nextPreparationStatus(recordingID, false)
+}
+
+func (b *mockBridge) PreparePlaybackRecording(_ context.Context, recordingID, _ string, _ apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+	return b.nextPreparationStatus(recordingID, true)
+}
+
+func (b *mockBridge) GetPlaybackPreparation(_ context.Context, recordingID, _ string) (apitypes.PlaybackPreparationStatus, error) {
+	return b.nextPreparationStatus(recordingID, true)
+}
+
 func (b *mockBridge) ResolveRecordingArtwork(context.Context, string, string) (apitypes.RecordingArtworkResult, error) {
 	return apitypes.RecordingArtworkResult{}, nil
 }
@@ -73,13 +87,44 @@ func (b *mockBridge) GetRecordingAvailability(context.Context, string, string) (
 	return apitypes.RecordingPlaybackAvailability{}, nil
 }
 
+func (b *mockBridge) nextPreparationStatus(recordingID string, advance bool) (apitypes.PlaybackPreparationStatus, error) {
+	if rows := b.preparations[recordingID]; len(rows) > 0 {
+		status := rows[0]
+		if advance && len(rows) > 1 {
+			b.preparations[recordingID] = rows[1:]
+		}
+		return status, nil
+	}
+	result, ok := b.results[recordingID]
+	if !ok {
+		return apitypes.PlaybackPreparationStatus{}, fmt.Errorf("unexpected recording %s", recordingID)
+	}
+	status := apitypes.PlaybackPreparationStatus{
+		RecordingID: recordingID,
+		SourceKind:  result.SourceKind,
+		PlayableURI: result.PlayableURI,
+		EncodingID:  result.EncodingID,
+		BlobID:      result.BlobID,
+	}
+	switch result.State {
+	case apitypes.AvailabilityPlayableLocalFile, apitypes.AvailabilityPlayableCachedOpt, apitypes.AvailabilityPlayableRemoteOpt:
+		status.Phase = apitypes.PlaybackPreparationReady
+	case apitypes.AvailabilityWaitingTranscode:
+		status.Phase = apitypes.PlaybackPreparationPreparingTranscode
+	default:
+		status.Phase = apitypes.PlaybackPreparationUnavailable
+		status.Reason = result.Reason
+	}
+	return status, nil
+}
+
 type testBackend struct {
-	loadedURI      string
-	preloadedURI   string
-	position       int64
-	duration       *int64
-	volume         int
-	events         chan BackendEvent
+	loadedURI       string
+	preloadedURI    string
+	position        int64
+	duration        *int64
+	volume          int
+	events          chan BackendEvent
 	supportsPreload bool
 }
 
@@ -226,8 +271,8 @@ func TestQueueEntriesPlayBeforeRemainingContext(t *testing.T) {
 	backend.supportsPreload = true
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
-			"ctx-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
-			"ctx-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+			"ctx-1":  {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"ctx-2":  {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
 			"queued": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/queued.mp3"},
 		},
 	}, backend, &memoryStore{}, "desktop", nil)
@@ -270,6 +315,8 @@ func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
 
 	backend := newTestBackend()
 	backend.supportsPreload = true
+	duration := int64(120000)
+	backend.duration = &duration
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
@@ -285,8 +332,8 @@ func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
 		Kind: ContextKindCustom,
 		ID:   "custom",
 		Items: []SessionItem{
-			{RecordingID: "rec-1", Title: "One", Subtitle: "Artist A"},
-			{RecordingID: "rec-2", Title: "Two", Subtitle: "Artist B"},
+			{RecordingID: "rec-1", Title: "One", Subtitle: "Artist A", DurationMS: duration},
+			{RecordingID: "rec-2", Title: "Two", Subtitle: "Artist B", DurationMS: duration},
 		},
 	}); err != nil {
 		t.Fatalf("set context: %v", err)
@@ -294,6 +341,13 @@ func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
+	if backend.preloadedURI != "" {
+		t.Fatalf("expected no immediate preload before thresholds, got %q", backend.preloadedURI)
+	}
+
+	backend.position = 60000
+	session.refreshPosition()
+	session.preloadNext(context.Background())
 	if backend.preloadedURI != "file:///tmp/two.mp3" {
 		t.Fatalf("expected preloaded URI file:///tmp/two.mp3, got %q", backend.preloadedURI)
 	}
@@ -310,6 +364,100 @@ func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
 	}
 
 	t.Fatalf("expected preloaded next track to become current, got %+v", session.Snapshot())
+}
+
+func TestSessionQueueMutationClearsStalePreload(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"rec-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+			"rec-3": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/three.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", DurationMS: duration},
+			{RecordingID: "rec-2", Title: "Two", DurationMS: duration},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	backend.duration = &duration
+	backend.position = 60000
+	session.refreshPosition()
+	session.preloadNext(context.Background())
+	if backend.preloadedURI != "file:///tmp/two.mp3" {
+		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloadedURI)
+	}
+
+	if _, err := session.QueueItems([]SessionItem{{RecordingID: "rec-3", Title: "Three", DurationMS: duration}}, QueueInsertNext); err != nil {
+		t.Fatalf("queue items: %v", err)
+	}
+	if backend.preloadedURI != "" {
+		t.Fatalf("expected stale preload cleared after queue mutation, got %q", backend.preloadedURI)
+	}
+}
+
+func TestSessionPlayPendingUsesPreparationStatus(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		preparations: map[string][]apitypes.PlaybackPreparationStatus{
+			"rec-1": {
+				{RecordingID: "rec-1", Phase: apitypes.PlaybackPreparationPreparingTranscode, SourceKind: apitypes.PlaybackSourceRemoteOpt},
+				{RecordingID: "rec-1", Phase: apitypes.PlaybackPreparationReady, SourceKind: apitypes.PlaybackSourceRemoteOpt, PlayableURI: "file:///tmp/ready.mp3"},
+			},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind:  ContextKindCustom,
+		ID:    "custom",
+		Items: []SessionItem{{RecordingID: "rec-1", Title: "Track 1"}},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+
+	snapshot, err := session.Play(context.Background())
+	if !errors.Is(err, errPendingPlayback) {
+		t.Fatalf("expected pending playback error, got %v", err)
+	}
+	if snapshot.Status != StatusPending {
+		t.Fatalf("expected pending status, got %q", snapshot.Status)
+	}
+	if snapshot.CurrentPreparation == nil || snapshot.CurrentPreparation.Status.Phase != apitypes.PlaybackPreparationPreparingTranscode {
+		t.Fatalf("expected current preparation to show preparing transcode, got %+v", snapshot.CurrentPreparation)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if backend.loadedURI == "file:///tmp/ready.mp3" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("expected pending playback to resolve and load track, got %q", backend.loadedURI)
 }
 
 func TestSmartShuffleSpreadsAdjacentArtists(t *testing.T) {

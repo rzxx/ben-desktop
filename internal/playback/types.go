@@ -103,8 +103,15 @@ type SessionSnapshot struct {
 	UpdatedAt           string                      `json:"updatedAt"`
 	LastError           string                      `json:"lastError,omitempty"`
 	CurrentSourceKind   apitypes.PlaybackSourceKind `json:"currentSourceKind,omitempty"`
+	CurrentPreparation  *EntryPreparation           `json:"currentPreparation,omitempty"`
+	NextPreparation     *EntryPreparation           `json:"nextPreparation,omitempty"`
 	QueueLength         int                         `json:"queueLength"`
 	NextEntrySeq        int64                       `json:"nextEntrySeq,omitempty"`
+}
+
+type EntryPreparation struct {
+	EntryID string                             `json:"entryId"`
+	Status  apitypes.PlaybackPreparationStatus `json:"status"`
 }
 
 type CorePlaybackBridge interface {
@@ -114,6 +121,9 @@ type CorePlaybackBridge interface {
 	ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error)
 	ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error)
 	ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error)
+	InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error)
+	PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error)
+	GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error)
 	ResolvePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error)
 	ResolveRecordingArtwork(ctx context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error)
 	GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error)
