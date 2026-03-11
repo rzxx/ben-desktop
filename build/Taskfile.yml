@@ -12,14 +12,14 @@ tasks:
     dir: frontend
     sources:
       - package.json
-      - package-lock.json
+      - bun.lock
     generates:
       - node_modules
     preconditions:
-      - sh: npm version
-        msg: "Looks like npm isn't installed. Npm is part of the Node installer: https://nodejs.org/en/download/"
+      - sh: bun --version
+        msg: "Looks like Bun isn't installed. Install it from https://bun.sh/"
     cmds:
-      - npm install
+      - bun install
 
   build:frontend:
     label: build:frontend (DEV={{.DEV}})
@@ -37,7 +37,7 @@ tasks:
           BUILD_FLAGS:
             ref: .BUILD_FLAGS
     cmds:
-      - npm run {{.BUILD_COMMAND}} -q
+      - bun run {{.BUILD_COMMAND}}
     env:
       PRODUCTION: '{{if eq .DEV "true"}}false{{else}}true{{end}}'
     vars:
@@ -70,9 +70,9 @@ tasks:
         INDEX_HTML=frontend/index.html
         if [ -f "$INDEX_HTML" ]; then
           if ! grep -q 'href="/puppertino/puppertino.css"' "$INDEX_HTML"; then
-            # Insert Puppertino link tag after style.css link
+            # Insert Puppertino link tag before the closing head tag
             awk '
-              /href="\/style.css"\/?/ && !x { print; print "    <link rel=\"stylesheet\" href=\"/puppertino/puppertino.css\"/>"; x=1; next }1
+              /<\/head>/ && !x { print "    <link rel=\"stylesheet\" href=\"/puppertino/puppertino.css\"/>"; x=1 }1
             ' "$INDEX_HTML" > "$INDEX_HTML.tmp" && mv "$INDEX_HTML.tmp" "$INDEX_HTML"
           fi
           # Replace default .btn with Puppertino primary button classes if present
@@ -115,7 +115,7 @@ tasks:
     deps:
       - task: install:frontend:deps
     cmds:
-      - npm run dev -- --port {{.VITE_PORT}} --strictPort
+      - bun run dev -- --port {{.VITE_PORT}} --strictPort
 
   update:build-assets:
     summary: Updates the build assets
