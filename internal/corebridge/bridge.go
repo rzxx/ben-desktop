@@ -35,6 +35,16 @@ func OpenFromSettings(ctx context.Context, stored settings.CoreRuntimeSettings) 
 	return Open(ctx, configFromSettings(stored))
 }
 
+func ResolveConfigFromSettings(stored settings.CoreRuntimeSettings) (Config, error) {
+	cfg := configFromSettings(stored)
+	resolved, err := apiruntime.ResolveConfig(cfg.Core)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Core = resolved
+	return cfg, nil
+}
+
 func configFromSettings(stored settings.CoreRuntimeSettings) Config {
 	stored = settings.CoreRuntimeSettings{
 		DBPath:           strings.TrimSpace(stored.DBPath),

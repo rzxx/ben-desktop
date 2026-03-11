@@ -218,6 +218,10 @@ export function ResolveRecordingArtworkURL(recordingID: string, variant: string)
     return $Call.ByID(1531284046, recordingID, variant);
 }
 
+export function ResolveThumbnailURL(artwork: apitypes$0.ArtworkRef): $CancellablePromise<string> {
+    return $Call.ByID(2195486573, artwork);
+}
+
 export function SeekTo(positionMS: number): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(1002348829, positionMS).then(($result: any) => {
         return $$createType0($result);

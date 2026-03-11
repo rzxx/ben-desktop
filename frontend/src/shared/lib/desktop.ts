@@ -7,6 +7,7 @@ export { PlaybackModels, Types };
 export type AlbumListItem = Types.AlbumListItem;
 export type AlbumVariantItem = Types.AlbumVariantItem;
 export type AlbumTrackItem = Types.AlbumTrackItem;
+export type ArtworkRef = Types.ArtworkRef;
 export type ArtistListItem = Types.ArtistListItem;
 export type LikedRecordingItem = Types.LikedRecordingItem;
 export type PageInfo = Types.PageInfo;
@@ -129,8 +130,8 @@ export function listLikedRecordingsPage(offset = 0, limit = TRACK_PAGE_SIZE) {
   );
 }
 
-export function resolveBlobURL(blobId: string) {
-  return PlaybackService.ResolveBlobURL(blobId);
+export function resolveThumbnailURL(thumb: ArtworkRef) {
+  return PlaybackService.ResolveThumbnailURL(thumb);
 }
 
 export function resolveRecordingArtworkURL(

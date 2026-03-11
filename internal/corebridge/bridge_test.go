@@ -1,6 +1,7 @@
 package corebridge
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -70,5 +71,28 @@ func TestConfigFromSettingsUsesStoredValues(t *testing.T) {
 	}
 	if cfg.Core.TranscodeProfile != settings.DefaultTranscodeProfile {
 		t.Fatalf("expected transcode profile %q, got %q", settings.DefaultTranscodeProfile, cfg.Core.TranscodeProfile)
+	}
+}
+
+func TestResolveConfigFromSettingsUsesCoreDefaultsWhenPathsMissing(t *testing.T) {
+	cfg, err := ResolveConfigFromSettings(settings.CoreRuntimeSettings{})
+	if err != nil {
+		t.Fatalf("resolve config from settings: %v", err)
+	}
+
+	configRoot, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("user config dir: %v", err)
+	}
+	dataRoot := filepath.Join(configRoot, "ben", "v2")
+
+	if cfg.Core.DBPath != filepath.Join(dataRoot, "library.db") {
+		t.Fatalf("expected default db path %q, got %q", filepath.Join(dataRoot, "library.db"), cfg.Core.DBPath)
+	}
+	if cfg.Core.BlobRoot != filepath.Join(dataRoot, "blobs") {
+		t.Fatalf("expected default blob root %q, got %q", filepath.Join(dataRoot, "blobs"), cfg.Core.BlobRoot)
+	}
+	if cfg.Core.IdentityKeyPath != filepath.Join(dataRoot, "identity.key") {
+		t.Fatalf("expected default identity path %q, got %q", filepath.Join(dataRoot, "identity.key"), cfg.Core.IdentityKeyPath)
 	}
 }

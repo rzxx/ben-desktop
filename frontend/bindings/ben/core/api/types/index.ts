@@ -11,6 +11,7 @@ export {
     ArtistAlbumListRequest,
     ArtistListItem,
     ArtistListRequest,
+    ArtworkRef,
     CatalogAggregateAvailabilityHint,
     CatalogTrackAvailabilityHint,
     CatalogTrackAvailabilityState,

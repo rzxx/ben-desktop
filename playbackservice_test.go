@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -52,6 +53,62 @@ func TestResolveBlobURLReturnsEmptyForMissingBlob(t *testing.T) {
 	}
 }
 
+func TestResolveThumbnailURLReturnsDataURLWhenBlobExists(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hashHex := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	blobPath := filepath.Join(root, "b3", hashHex[:2], hashHex[2:4], hashHex)
+	if err := os.MkdirAll(filepath.Dir(blobPath), 0o755); err != nil {
+		t.Fatalf("mkdir blob dir: %v", err)
+	}
+	payload := []byte("art")
+	if err := os.WriteFile(blobPath, payload, 0o644); err != nil {
+		t.Fatalf("write blob: %v", err)
+	}
+
+	service := &PlaybackService{blobRoot: root}
+	got, err := service.ResolveThumbnailURL(apitypes.ArtworkRef{
+		BlobID:  "b3:" + hashHex,
+		MIME:    "image/webp",
+		Variant: "320_webp",
+	})
+	if err != nil {
+		t.Fatalf("resolve thumbnail url: %v", err)
+	}
+	want := "data:image/webp;base64," + base64.StdEncoding.EncodeToString(payload)
+	if got != want {
+		t.Fatalf("thumbnail url = %q, want %q", got, want)
+	}
+}
+
+func TestResolveThumbnailURLReturnsEmptyForMissingBlob(t *testing.T) {
+	t.Parallel()
+
+	service := &PlaybackService{blobRoot: t.TempDir()}
+	got, err := service.ResolveThumbnailURL(apitypes.ArtworkRef{
+		BlobID: "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		MIME:   "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("resolve thumbnail url: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("thumbnail url = %q, want empty", got)
+	}
+}
+
+func TestResolveThumbnailURLRejectsMissingMIME(t *testing.T) {
+	t.Parallel()
+
+	service := &PlaybackService{blobRoot: t.TempDir()}
+	if _, err := service.ResolveThumbnailURL(apitypes.ArtworkRef{
+		BlobID: "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	}); err == nil {
+		t.Fatalf("expected missing mime to fail")
+	}
+}
+
 func TestListAlbumsReturnsBridgeErrorWhenUnavailable(t *testing.T) {
 	t.Parallel()
 
@@ -78,5 +135,20 @@ func TestPreferredProfileNormalizesLegacyDesktopProfile(t *testing.T) {
 	got := preferredProfile(settings.CoreRuntimeSettings{TranscodeProfile: " desktop "})
 	if got != settings.DefaultTranscodeProfile {
 		t.Fatalf("preferred profile = %q, want %q", got, settings.DefaultTranscodeProfile)
+	}
+}
+
+func TestResolvedBlobRootUsesCoreDefaultsWhenSettingsEmpty(t *testing.T) {
+	t.Parallel()
+
+	configRoot, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("user config dir: %v", err)
+	}
+
+	got := resolvedBlobRoot(settings.CoreRuntimeSettings{})
+	want := filepath.Join(configRoot, "ben", "v2", "blobs")
+	if got != want {
+		t.Fatalf("resolved blob root = %q, want %q", got, want)
 	}
 }

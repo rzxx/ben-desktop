@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -254,19 +255,41 @@ func (s *PlaybackService) ResolveBlobURL(blobID string) (string, error) {
 	return fileURLFromPath(path)
 }
 
+func (s *PlaybackService) ResolveThumbnailURL(artwork apitypes.ArtworkRef) (string, error) {
+	blobID := strings.TrimSpace(artwork.BlobID)
+	if blobID == "" {
+		return "", nil
+	}
+	mimeType := strings.TrimSpace(artwork.MIME)
+	if mimeType == "" {
+		return "", fmt.Errorf("thumbnail mime is required")
+	}
+
+	s.mu.RLock()
+	blobRoot := s.blobRoot
+	s.mu.RUnlock()
+
+	path, ok, err := blobPathForID(blobRoot, blobID)
+	if err != nil || !ok {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}
+
 func (s *PlaybackService) ResolveRecordingArtworkURL(ctx context.Context, recordingID string, variant string) (string, error) {
 	bridge := s.requireBridge()
 	result, err := bridge.ResolveRecordingArtwork(ctx, recordingID, variant)
 	if err != nil {
 		return "", err
 	}
-	if result.LocalPath != "" {
-		return fileURLFromPath(result.LocalPath)
-	}
-	if result.BlobID != "" {
-		return s.ResolveBlobURL(result.BlobID)
-	}
-	return "", nil
+	return s.ResolveThumbnailURL(result.Artwork)
 }
 
 func (s *PlaybackService) SetPlaybackContext(input playback.PlaybackContextInput) (playback.SessionSnapshot, error) {
@@ -537,15 +560,11 @@ func preferredProfile(coreSettings settings.CoreRuntimeSettings) string {
 }
 
 func resolvedBlobRoot(coreSettings settings.CoreRuntimeSettings) string {
-	blobRoot := strings.TrimSpace(coreSettings.BlobRoot)
-	if blobRoot != "" {
-		return blobRoot
-	}
-	dbPath := strings.TrimSpace(coreSettings.DBPath)
-	if dbPath == "" {
+	cfg, err := corebridge.ResolveConfigFromSettings(coreSettings)
+	if err != nil {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(dbPath), "blobs")
+	return strings.TrimSpace(cfg.Core.BlobRoot)
 }
 
 func blobPathForID(root string, blobID string) (string, bool, error) {

@@ -16,7 +16,7 @@ export class AlbumListItem {
     "Artists": string[];
     "Year": number | null;
     "TrackCount": number;
-    "ThumbBlobID": string;
+    "Thumb": ArtworkRef;
     "VariantCount": number;
     "HasVariants": boolean;
     "Availability": CatalogAggregateAvailabilityHint;
@@ -41,8 +41,8 @@ export class AlbumListItem {
         if (!("TrackCount" in $$source)) {
             this["TrackCount"] = 0;
         }
-        if (!("ThumbBlobID" in $$source)) {
-            this["ThumbBlobID"] = "";
+        if (!("Thumb" in $$source)) {
+            this["Thumb"] = (new ArtworkRef());
         }
         if (!("VariantCount" in $$source)) {
             this["VariantCount"] = 0;
@@ -62,10 +62,14 @@ export class AlbumListItem {
      */
     static createFrom($$source: any = {}): AlbumListItem {
         const $$createField3_0 = $$createType0;
-        const $$createField9_0 = $$createType1;
+        const $$createField6_0 = $$createType1;
+        const $$createField9_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
+        }
+        if ("Thumb" in $$parsedSource) {
+            $$parsedSource["Thumb"] = $$createField6_0($$parsedSource["Thumb"]);
         }
         if ("Availability" in $$parsedSource) {
             $$parsedSource["Availability"] = $$createField9_0($$parsedSource["Availability"]);
@@ -140,7 +144,7 @@ export class AlbumTrackItem {
      */
     static createFrom($$source: any = {}): AlbumTrackItem {
         const $$createField5_0 = $$createType0;
-        const $$createField6_0 = $$createType2;
+        const $$createField6_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField5_0($$parsedSource["Artists"]);
@@ -189,7 +193,7 @@ export class AlbumVariantItem {
     "Year": number | null;
     "Edition": string;
     "TrackCount": number;
-    "ThumbBlobID": string;
+    "Thumb": ArtworkRef;
     "BestQualityRank": number;
     "LocalTrackCount": number;
     "IsPreferred": boolean;
@@ -219,8 +223,8 @@ export class AlbumVariantItem {
         if (!("TrackCount" in $$source)) {
             this["TrackCount"] = 0;
         }
-        if (!("ThumbBlobID" in $$source)) {
-            this["ThumbBlobID"] = "";
+        if (!("Thumb" in $$source)) {
+            this["Thumb"] = (new ArtworkRef());
         }
         if (!("BestQualityRank" in $$source)) {
             this["BestQualityRank"] = 0;
@@ -246,10 +250,14 @@ export class AlbumVariantItem {
      */
     static createFrom($$source: any = {}): AlbumVariantItem {
         const $$createField3_0 = $$createType0;
-        const $$createField12_0 = $$createType1;
+        const $$createField7_0 = $$createType1;
+        const $$createField12_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
+        }
+        if ("Thumb" in $$parsedSource) {
+            $$parsedSource["Thumb"] = $$createField7_0($$parsedSource["Thumb"]);
         }
         if ("Availability" in $$parsedSource) {
             $$parsedSource["Availability"] = $$createField12_0($$parsedSource["Availability"]);
@@ -348,7 +356,7 @@ export class ArtistListItem {
      * Creates a new ArtistListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): ArtistListItem {
-        const $$createField4_0 = $$createType1;
+        const $$createField4_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Availability" in $$parsedSource) {
             $$parsedSource["Availability"] = $$createField4_0($$parsedSource["Availability"]);
@@ -379,6 +387,47 @@ export class ArtistListRequest {
     static createFrom($$source: any = {}): ArtistListRequest {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new ArtistListRequest($$parsedSource as Partial<ArtistListRequest>);
+    }
+}
+
+export class ArtworkRef {
+    "BlobID": string;
+    "MIME": string;
+    "Variant": string;
+    "Width": number;
+    "Height": number;
+    "Bytes": number;
+
+    /** Creates a new ArtworkRef instance. */
+    constructor($$source: Partial<ArtworkRef> = {}) {
+        if (!("BlobID" in $$source)) {
+            this["BlobID"] = "";
+        }
+        if (!("MIME" in $$source)) {
+            this["MIME"] = "";
+        }
+        if (!("Variant" in $$source)) {
+            this["Variant"] = "";
+        }
+        if (!("Width" in $$source)) {
+            this["Width"] = 0;
+        }
+        if (!("Height" in $$source)) {
+            this["Height"] = 0;
+        }
+        if (!("Bytes" in $$source)) {
+            this["Bytes"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ArtworkRef instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ArtworkRef {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ArtworkRef($$parsedSource as Partial<ArtworkRef>);
     }
 }
 
@@ -501,7 +550,7 @@ export class LikedRecordingItem {
      */
     static createFrom($$source: any = {}): LikedRecordingItem {
         const $$createField3_0 = $$createType0;
-        const $$createField5_0 = $$createType2;
+        const $$createField5_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
@@ -560,8 +609,8 @@ export class Page<T> {
      * of the generic class Page.
      */
     static createFrom<T = any>($$createParamT: (source: any) => T): ($$source?: any) => Page<T> {
-        const $$createField0_0 = $$createType3($$createParamT);
-        const $$createField1_0 = $$createType4;
+        const $$createField0_0 = $$createType4($$createParamT);
+        const $$createField1_0 = $$createType5;
         return ($$source: any = {}) => {
             let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
             if ("Items" in $$parsedSource) {
@@ -719,7 +768,7 @@ export class PlaylistListItem {
     "Name": string;
     "Kind": PlaylistKind;
     "IsReserved": boolean;
-    "ThumbBlobID": string;
+    "Thumb": ArtworkRef;
     "HasCustomCover": boolean;
     "CreatedBy": string;
     "UpdatedAt": time$0.Time;
@@ -739,8 +788,8 @@ export class PlaylistListItem {
         if (!("IsReserved" in $$source)) {
             this["IsReserved"] = false;
         }
-        if (!("ThumbBlobID" in $$source)) {
-            this["ThumbBlobID"] = "";
+        if (!("Thumb" in $$source)) {
+            this["Thumb"] = (new ArtworkRef());
         }
         if (!("HasCustomCover" in $$source)) {
             this["HasCustomCover"] = false;
@@ -762,7 +811,11 @@ export class PlaylistListItem {
      * Creates a new PlaylistListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): PlaylistListItem {
+        const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Thumb" in $$parsedSource) {
+            $$parsedSource["Thumb"] = $$createField4_0($$parsedSource["Thumb"]);
+        }
         return new PlaylistListItem($$parsedSource as Partial<PlaylistListItem>);
     }
 }
@@ -833,7 +886,7 @@ export class PlaylistTrackItem {
      */
     static createFrom($$source: any = {}): PlaylistTrackItem {
         const $$createField4_0 = $$createType0;
-        const $$createField6_0 = $$createType2;
+        const $$createField6_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField4_0($$parsedSource["Artists"]);
@@ -919,7 +972,7 @@ export class RecordingListItem {
      */
     static createFrom($$source: any = {}): RecordingListItem {
         const $$createField4_0 = $$createType0;
-        const $$createField7_0 = $$createType2;
+        const $$createField7_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField4_0($$parsedSource["Artists"]);
@@ -958,7 +1011,8 @@ export class RecordingListRequest {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = CatalogAggregateAvailabilityHint.createFrom;
-const $$createType2 = CatalogTrackAvailabilityHint.createFrom;
-const $$createType3 = ($$createParamT: any) => $Create.Array($$createParamT);
-const $$createType4 = PageInfo.createFrom;
+const $$createType1 = ArtworkRef.createFrom;
+const $$createType2 = CatalogAggregateAvailabilityHint.createFrom;
+const $$createType3 = CatalogTrackAvailabilityHint.createFrom;
+const $$createType4 = ($$createParamT: any) => $Create.Array($$createParamT);
+const $$createType5 = PageInfo.createFrom;

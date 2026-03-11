@@ -13,6 +13,7 @@ import {
   type AlbumListItem,
   type AlbumTrackItem,
   type AlbumVariantItem,
+  type ArtworkRef,
   type ArtistListItem,
   type LikedRecordingItem,
   type PlaylistListItem,
@@ -39,7 +40,7 @@ import {
   formatRelativeDate,
   joinArtists,
 } from "../../shared/lib/format";
-import { useBlobUrl } from "../../shared/lib/use-blob-url";
+import { useThumbnailUrl } from "../../shared/lib/use-thumbnail-url";
 import { usePagedQuery } from "../../shared/lib/use-paged-query";
 import { ArtworkTile } from "../../shared/ui/ArtworkTile";
 import { VirtualCardGrid } from "../../shared/ui/VirtualCardGrid";
@@ -78,6 +79,15 @@ function PageHeader({
     </section>
   );
 }
+
+const EMPTY_THUMB: ArtworkRef = {
+  BlobID: "",
+  MIME: "",
+  Variant: "",
+  Width: 0,
+  Height: 0,
+  Bytes: 0,
+};
 
 function ActionButton({
   icon,
@@ -126,18 +136,18 @@ function DetailHero({
   eyebrow,
   title,
   subtitle,
-  blobId,
+  thumb,
   meta,
   actions,
 }: {
   eyebrow: string;
   title: string;
   subtitle: string;
-  blobId?: string;
+  thumb?: ArtworkRef;
   meta?: ReactNode;
   actions?: ReactNode;
 }) {
-  const artworkUrl = useBlobUrl(blobId);
+  const artworkUrl = useThumbnailUrl(thumb);
 
   return (
     <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
@@ -173,7 +183,7 @@ function MetricPill({ label }: { label: string }) {
 }
 
 function AlbumCard({ album }: { album: AlbumListItem }) {
-  const artworkUrl = useBlobUrl(album.ThumbBlobID);
+  const artworkUrl = useThumbnailUrl(album.Thumb);
 
   return (
     <Link
@@ -224,7 +234,7 @@ function ArtistCard({ artist }: { artist: ArtistListItem }) {
 }
 
 function PlaylistCard({ playlist }: { playlist: PlaylistListItem }) {
-  const artworkUrl = useBlobUrl(playlist.ThumbBlobID);
+  const artworkUrl = useThumbnailUrl(playlist.Thumb);
   const playPlaylist = usePlaybackStore((state) => state.playPlaylist);
   const queuePlaylist = usePlaybackStore((state) => state.queuePlaylist);
   const playLiked = usePlaybackStore((state) => state.playLiked);
@@ -569,7 +579,12 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
 
   const heroTitle = activeVariant?.Title ?? detail?.Title ?? "Album";
   const heroArtists = activeVariant?.Artists ?? detail?.Artists ?? [];
-  const heroBlobId = activeVariant?.ThumbBlobID || detail?.ThumbBlobID;
+  const heroThumb =
+    activeVariant?.Thumb?.BlobID
+      ? activeVariant.Thumb
+      : detail?.Thumb?.BlobID
+        ? detail.Thumb
+        : EMPTY_THUMB;
   const heroAvailability = activeVariant?.Availability ??
     detail?.Availability ?? {
       LocalTrackCount: 0,
@@ -587,7 +602,7 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
       Artists: heroArtists,
       Year: activeVariant?.Year ?? null,
       TrackCount: activeVariant?.TrackCount ?? 0,
-      ThumbBlobID: heroBlobId ?? "",
+      Thumb: heroThumb,
       VariantCount: variants.length,
       HasVariants: variants.length > 1,
       Availability: heroAvailability,
@@ -615,7 +630,7 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
             />
           </>
         }
-        blobId={heroBlobId}
+        thumb={heroThumb}
         eyebrow="Album detail"
         meta={
           <>
@@ -832,7 +847,7 @@ export function PlaylistDetailPage({ playlistId }: { playlistId: string }) {
             />
           </>
         }
-        blobId={playlist?.ThumbBlobID}
+        thumb={playlist?.Thumb}
         eyebrow="Playlist detail"
         meta={
           <>
