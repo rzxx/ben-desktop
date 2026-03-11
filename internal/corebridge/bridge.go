@@ -3,7 +3,6 @@ package corebridge
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -32,10 +31,6 @@ func Open(ctx context.Context, cfg Config) (*RuntimeBridge, error) {
 	return &RuntimeBridge{runtime: runtime}, nil
 }
 
-func OpenFromEnv(ctx context.Context) (*RuntimeBridge, error) {
-	return OpenFromSettings(ctx, settings.CoreRuntimeSettings{})
-}
-
 func OpenFromSettings(ctx context.Context, stored settings.CoreRuntimeSettings) (*RuntimeBridge, error) {
 	return Open(ctx, configFromSettings(stored))
 }
@@ -49,12 +44,12 @@ func configFromSettings(stored settings.CoreRuntimeSettings) Config {
 		TranscodeProfile: strings.TrimSpace(stored.TranscodeProfile),
 	}
 
-	dbPath := firstNonEmpty(strings.TrimSpace(os.Getenv("BEN_CORE_DB_PATH")), stored.DBPath)
-	blobRoot := firstNonEmpty(strings.TrimSpace(os.Getenv("BEN_CORE_BLOB_ROOT")), stored.BlobRoot)
+	dbPath := stored.DBPath
+	blobRoot := stored.BlobRoot
 	if blobRoot == "" && dbPath != "" {
 		blobRoot = filepath.Join(filepath.Dir(dbPath), "blobs")
 	}
-	identityKeyPath := firstNonEmpty(strings.TrimSpace(os.Getenv("BEN_CORE_IDENTITY_KEY_PATH")), stored.IdentityKeyPath)
+	identityKeyPath := stored.IdentityKeyPath
 	if identityKeyPath == "" && dbPath != "" {
 		identityKeyPath = filepath.Join(filepath.Dir(dbPath), "identity.key")
 	}
@@ -65,22 +60,13 @@ func configFromSettings(stored settings.CoreRuntimeSettings) Config {
 			DBPath:           dbPath,
 			BlobRoot:         blobRoot,
 			IdentityKeyPath:  identityKeyPath,
-			FFmpegPath:       firstNonEmpty(strings.TrimSpace(os.Getenv("BEN_CORE_FFMPEG_PATH")), stored.FFmpegPath),
-			TranscodeProfile: firstNonEmpty(strings.TrimSpace(os.Getenv("BEN_CORE_TRANSCODE_PROFILE")), stored.TranscodeProfile),
+			FFmpegPath:       stored.FFmpegPath,
+			TranscodeProfile: stored.TranscodeProfile,
 			Runtime: apitypes.RuntimeConfig{
 				AutoStart: &autoStart,
 			},
 		},
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 func NewUnavailableBridge(err error) *UnavailableBridge {

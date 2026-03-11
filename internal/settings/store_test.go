@@ -1,14 +1,15 @@
 package settings
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestStoreLoadMissingRowReturnsZeroState(t *testing.T) {
-	store, err := NewStore(filepath.Join(t.TempDir(), "settings.db"))
+func TestStoreLoadMissingFileReturnsZeroState(t *testing.T) {
+	store, err := NewStore(filepath.Join(t.TempDir(), "settings.json"))
 	if err != nil {
-		t.Fatalf("new sqlite store: %v", err)
+		t.Fatalf("new settings store: %v", err)
 	}
 	defer func() {
 		_ = store.Close()
@@ -24,9 +25,10 @@ func TestStoreLoadMissingRowReturnsZeroState(t *testing.T) {
 }
 
 func TestStoreSaveLoadRoundTrip(t *testing.T) {
-	store, err := NewStore(filepath.Join(t.TempDir(), "settings.db"))
+	path := filepath.Join(t.TempDir(), "settings.json")
+	store, err := NewStore(path)
 	if err != nil {
-		t.Fatalf("new sqlite store: %v", err)
+		t.Fatalf("new settings store: %v", err)
 	}
 	defer func() {
 		_ = store.Close()
@@ -62,5 +64,13 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 	}
 	if state != want {
 		t.Fatalf("expected %#v, got %#v", want, state)
+	}
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read saved settings: %v", err)
+	}
+	if len(payload) == 0 || payload[0] != '{' {
+		t.Fatalf("expected JSON payload, got %q", string(payload))
 	}
 }

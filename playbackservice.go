@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"sync"
 
@@ -88,7 +87,7 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		playbackBridge,
 		playback.NewBackend(),
 		store,
-		strings.TrimSpace(getPreferredProfile()),
+		preferredProfile(coreSettings),
 		serviceLogger{},
 	)
 	session.SetSnapshotEmitter(s.handlePlaybackSnapshot)
@@ -420,8 +419,8 @@ func (s *PlaybackService) requireSession() (*playback.Session, error) {
 	return s.session, nil
 }
 
-func getPreferredProfile() string {
-	if value := strings.TrimSpace(os.Getenv("BEN_CORE_TRANSCODE_PROFILE")); value != "" {
+func preferredProfile(coreSettings settings.CoreRuntimeSettings) string {
+	if value := strings.TrimSpace(coreSettings.TranscodeProfile); value != "" {
 		return value
 	}
 	return "desktop"

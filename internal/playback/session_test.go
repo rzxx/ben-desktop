@@ -264,6 +264,51 @@ func TestSessionPlayLoadsResolvedURI(t *testing.T) {
 	}
 }
 
+func TestSessionClosePersistsFinalPosition(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.duration = &duration
+	store := &memoryStore{}
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {
+				State:       apitypes.AvailabilityPlayableLocalFile,
+				SourceKind:  apitypes.PlaybackSourceLocalFile,
+				PlayableURI: "file:///tmp/test.mp3",
+			},
+		},
+	}, backend, store, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind:  ContextKindCustom,
+		ID:    "custom",
+		Items: []SessionItem{{RecordingID: "rec-1", Title: "Track 1", DurationMS: duration}},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+
+	backend.position = 4321
+
+	if err := session.Close(); err != nil {
+		t.Fatalf("close session: %v", err)
+	}
+
+	if store.snapshot.PositionMS != 4321 {
+		t.Fatalf("expected persisted position 4321, got %d", store.snapshot.PositionMS)
+	}
+	if store.snapshot.Status != StatusPaused {
+		t.Fatalf("expected persisted status paused, got %q", store.snapshot.Status)
+	}
+}
+
 func TestQueueEntriesPlayBeforeRemainingContext(t *testing.T) {
 	t.Parallel()
 

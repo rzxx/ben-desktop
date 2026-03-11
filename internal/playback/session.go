@@ -125,6 +125,8 @@ func (s *Session) Start(ctx context.Context) error {
 }
 
 func (s *Session) Close() error {
+	s.persistFinalSnapshot()
+
 	s.mu.Lock()
 	if s.cancel != nil {
 		s.cancel()
@@ -1338,12 +1340,34 @@ func (s *Session) failPlayback(err error) (SessionSnapshot, error) {
 	return state, err
 }
 
-func (s *Session) publishSnapshot(snapshot SessionSnapshot) {
+func (s *Session) persistFinalSnapshot() {
+	s.mu.Lock()
+	backend := s.backend
+	hasCurrent := s.snapshot.CurrentEntry != nil
+	s.mu.Unlock()
+
+	if backend != nil && hasCurrent {
+		s.refreshPosition()
+	}
+
+	snapshot := s.Snapshot()
+	if snapshot.Status == StatusPlaying || snapshot.Status == StatusPending {
+		snapshot.Status = StatusPaused
+		snapshot.UpdatedAt = formatTimestamp(time.Now().UTC())
+	}
+	s.persistSnapshot(snapshot)
+}
+
+func (s *Session) persistSnapshot(snapshot SessionSnapshot) {
 	if s.store != nil {
 		if err := s.store.Save(context.Background(), snapshot); err != nil {
 			s.logErrorf("playback: save session failed: %v", err)
 		}
 	}
+}
+
+func (s *Session) publishSnapshot(snapshot SessionSnapshot) {
+	s.persistSnapshot(snapshot)
 	s.mu.Lock()
 	emitter := s.emit
 	s.mu.Unlock()

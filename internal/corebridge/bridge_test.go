@@ -8,12 +8,6 @@ import (
 )
 
 func TestConfigFromSettingsAllowsMissingDBPath(t *testing.T) {
-	t.Setenv("BEN_CORE_DB_PATH", "")
-	t.Setenv("BEN_CORE_BLOB_ROOT", "")
-	t.Setenv("BEN_CORE_IDENTITY_KEY_PATH", "")
-	t.Setenv("BEN_CORE_FFMPEG_PATH", "")
-	t.Setenv("BEN_CORE_TRANSCODE_PROFILE", "")
-
 	cfg := configFromSettings(settings.CoreRuntimeSettings{})
 
 	if cfg.Core.DBPath != "" {
@@ -30,13 +24,10 @@ func TestConfigFromSettingsAllowsMissingDBPath(t *testing.T) {
 	}
 }
 
-func TestConfigFromSettingsDerivesPathsFromDBPath(t *testing.T) {
+func TestConfigFromSettingsDerivesPathsFromStoredDBPath(t *testing.T) {
 	dbPath := filepath.Join(`C:\Users\tester\AppData\Roaming\ben\v2`, "library.db")
-	t.Setenv("BEN_CORE_DB_PATH", dbPath)
-	t.Setenv("BEN_CORE_BLOB_ROOT", "")
-	t.Setenv("BEN_CORE_IDENTITY_KEY_PATH", "")
 
-	cfg := configFromSettings(settings.CoreRuntimeSettings{})
+	cfg := configFromSettings(settings.CoreRuntimeSettings{DBPath: dbPath})
 
 	if cfg.Core.DBPath != dbPath {
 		t.Fatalf("expected db path %q, got %q", dbPath, cfg.Core.DBPath)
@@ -51,43 +42,7 @@ func TestConfigFromSettingsDerivesPathsFromDBPath(t *testing.T) {
 	}
 }
 
-func TestConfigFromSettingsPreservesEnvOverrides(t *testing.T) {
-	dbPath := filepath.Join(`D:\ben\data`, "library.db")
-	blobRoot := filepath.Join(`E:\ben-cache`, "blobs")
-	identityKeyPath := filepath.Join(`F:\ben-keys`, "identity.key")
-	ffmpegPath := filepath.Join(`C:\tools`, "ffmpeg.exe")
-	t.Setenv("BEN_CORE_DB_PATH", dbPath)
-	t.Setenv("BEN_CORE_BLOB_ROOT", blobRoot)
-	t.Setenv("BEN_CORE_IDENTITY_KEY_PATH", identityKeyPath)
-	t.Setenv("BEN_CORE_FFMPEG_PATH", ffmpegPath)
-	t.Setenv("BEN_CORE_TRANSCODE_PROFILE", "desktop")
-
-	cfg := configFromSettings(settings.CoreRuntimeSettings{})
-
-	if cfg.Core.DBPath != dbPath {
-		t.Fatalf("expected db path %q, got %q", dbPath, cfg.Core.DBPath)
-	}
-	if cfg.Core.BlobRoot != blobRoot {
-		t.Fatalf("expected blob root %q, got %q", blobRoot, cfg.Core.BlobRoot)
-	}
-	if cfg.Core.IdentityKeyPath != identityKeyPath {
-		t.Fatalf("expected identity key path %q, got %q", identityKeyPath, cfg.Core.IdentityKeyPath)
-	}
-	if cfg.Core.FFmpegPath != ffmpegPath {
-		t.Fatalf("expected ffmpeg path %q, got %q", ffmpegPath, cfg.Core.FFmpegPath)
-	}
-	if cfg.Core.TranscodeProfile != "desktop" {
-		t.Fatalf("expected transcode profile desktop, got %q", cfg.Core.TranscodeProfile)
-	}
-}
-
-func TestConfigFromSettingsUsesStoredValuesWhenEnvMissing(t *testing.T) {
-	t.Setenv("BEN_CORE_DB_PATH", "")
-	t.Setenv("BEN_CORE_BLOB_ROOT", "")
-	t.Setenv("BEN_CORE_IDENTITY_KEY_PATH", "")
-	t.Setenv("BEN_CORE_FFMPEG_PATH", "")
-	t.Setenv("BEN_CORE_TRANSCODE_PROFILE", "")
-
+func TestConfigFromSettingsUsesStoredValues(t *testing.T) {
 	stored := settings.CoreRuntimeSettings{
 		DBPath:           filepath.Join(`D:\ben\data`, "library.db"),
 		BlobRoot:         filepath.Join(`D:\ben\data`, "blobs"),
