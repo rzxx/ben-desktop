@@ -49,7 +49,19 @@ func (s *PlaylistService) CreatePlaylist(ctx context.Context, name, kind string)
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := s.app.db.WithContext(ctx).Create(&row).Error; err != nil {
+	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, "playlist", row.PlaylistID, "upsert", map[string]any{
+			"playlistId": row.PlaylistID,
+			"name":       row.Name,
+			"kind":       row.Kind,
+			"createdBy":  row.CreatedBy,
+			"deleted":    false,
+		})
+		return err
+	}); err != nil {
 		return apitypes.PlaylistRecord{}, err
 	}
 	return s.toPlaylistRecord(ctx, row)
@@ -81,10 +93,21 @@ func (s *PlaylistService) RenamePlaylist(ctx context.Context, playlistID, name s
 	}
 	row.Name = name
 	row.UpdatedAt = time.Now().UTC()
-	if err := s.app.db.WithContext(ctx).
-		Model(&Playlist{}).
-		Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
-		Updates(map[string]any{"name": row.Name, "updated_at": row.UpdatedAt}).Error; err != nil {
+	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Playlist{}).
+			Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
+			Updates(map[string]any{"name": row.Name, "updated_at": row.UpdatedAt}).Error; err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, "playlist", row.PlaylistID, "upsert", map[string]any{
+			"playlistId": row.PlaylistID,
+			"name":       row.Name,
+			"kind":       row.Kind,
+			"createdBy":  row.CreatedBy,
+			"deleted":    false,
+		})
+		return err
+	}); err != nil {
 		return apitypes.PlaylistRecord{}, err
 	}
 	return s.toPlaylistRecord(ctx, row)
@@ -116,8 +139,15 @@ func (s *PlaylistService) DeletePlaylist(ctx context.Context, playlistID string)
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
 			return err
 		}
-		return tx.Where("library_id = ? AND scope_type = ? AND scope_id = ?", local.LibraryID, "playlist", playlistID).
-			Delete(&ArtworkVariant{}).Error
+		if err := tx.Where("library_id = ? AND scope_type = ? AND scope_id = ?", local.LibraryID, "playlist", playlistID).
+			Delete(&ArtworkVariant{}).Error; err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, "playlist", playlistID, "delete", map[string]any{
+			"playlistId": playlistID,
+			"deletedAt":  now,
+		})
+		return err
 	})
 }
 
@@ -176,7 +206,19 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 			UpdatedAt:      now,
 			PositionKey:    positionKey,
 		}
-		return tx.Create(&item).Error
+		if err := tx.Create(&item).Error; err != nil {
+			return err
+		}
+		_, err = s.app.appendLocalOplogTx(tx, local, "playlist_item", item.ItemID, "upsert", map[string]any{
+			"playlistId":   item.PlaylistID,
+			"itemId":       item.ItemID,
+			"recordingId":  item.TrackVariantID,
+			"positionKey":  item.PositionKey,
+			"afterItemId":  strings.TrimSpace(req.AfterItemID),
+			"beforeItemId": strings.TrimSpace(req.BeforeItemID),
+			"deleted":      false,
+		})
+		return err
 	})
 	if err != nil {
 		return apitypes.PlaylistItemRecord{}, err
@@ -226,7 +268,15 @@ func (s *PlaylistService) MovePlaylistItem(ctx context.Context, req apitypes.Pla
 			return err
 		}
 		item = current
-		return nil
+		_, err = s.app.appendLocalOplogTx(tx, local, "playlist_item", item.ItemID, "move", map[string]any{
+			"playlistId":   item.PlaylistID,
+			"itemId":       item.ItemID,
+			"recordingId":  item.TrackVariantID,
+			"positionKey":  item.PositionKey,
+			"afterItemId":  strings.TrimSpace(req.AfterItemID),
+			"beforeItemId": strings.TrimSpace(req.BeforeItemID),
+		})
+		return err
 	})
 	if err != nil {
 		return apitypes.PlaylistItemRecord{}, err
@@ -265,10 +315,20 @@ func (s *PlaylistService) RemovePlaylistItem(ctx context.Context, playlistID, it
 		return s.UnlikeRecording(ctx, item.TrackVariantID)
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).
-		Model(&PlaylistItem{}).
-		Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, playlistID, itemID).
-		Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error
+	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&PlaylistItem{}).
+			Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, playlistID, itemID).
+			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, "playlist_item", item.ItemID, "delete", map[string]any{
+			"playlistId":  item.PlaylistID,
+			"itemId":      item.ItemID,
+			"recordingId": item.TrackVariantID,
+			"deletedAt":   now,
+		})
+		return err
+	})
 }
 
 func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string) error {
@@ -309,7 +369,7 @@ func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string)
 		if err := ensureLikedPlaylistTx(tx, local.LibraryID, local.DeviceID, now); err != nil {
 			return err
 		}
-		return tx.Clauses(clause.OnConflict{
+		if err := tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{
 				{Name: "library_id"},
 				{Name: "playlist_id"},
@@ -322,7 +382,18 @@ func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string)
 				"position_key":     item.PositionKey,
 				"deleted_at":       nil,
 			}),
-		}).Create(&item).Error
+		}).Create(&item).Error; err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, "playlist_item", item.ItemID, "upsert", map[string]any{
+			"playlistId":  item.PlaylistID,
+			"itemId":      item.ItemID,
+			"recordingId": item.TrackVariantID,
+			"positionKey": item.PositionKey,
+			"liked":       true,
+			"deleted":     false,
+		})
+		return err
 	})
 }
 
@@ -346,10 +417,21 @@ func (s *PlaylistService) UnlikeRecording(ctx context.Context, recordingID strin
 		return nil
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).
-		Model(&PlaylistItem{}).
-		Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, item.PlaylistID, item.ItemID).
-		Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error
+	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&PlaylistItem{}).
+			Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, item.PlaylistID, item.ItemID).
+			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, "playlist_item", item.ItemID, "delete", map[string]any{
+			"playlistId":  item.PlaylistID,
+			"itemId":      item.ItemID,
+			"recordingId": item.TrackVariantID,
+			"liked":       true,
+			"deletedAt":   now,
+		})
+		return err
+	})
 }
 
 func (s *PlaylistService) IsRecordingLiked(ctx context.Context, recordingID string) (bool, error) {
