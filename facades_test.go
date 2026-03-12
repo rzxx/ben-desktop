@@ -163,7 +163,7 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	manifest := apitypes.LibraryCheckpointManifest{LibraryID: "lib-1", CheckpointID: "ckpt-1"}
 	compaction := apitypes.CheckpointCompactionResult{LibraryID: "lib-1", CheckpointID: "ckpt-1", Compactable: true}
 	job := desktopcore.JobSnapshot{JobID: "job-checkpoint", Kind: "publish-checkpoint", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
-	calls := make([]string, 0, 12)
+	calls := make([]string, 0, 13)
 	host := &coreHost{
 		started: true,
 		bridge: &passthroughBridgeStub{
@@ -191,6 +191,10 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 			syncNowFn: func(context.Context) error {
 				calls = append(calls, "sync")
 				return nil
+			},
+			startSyncNowFn: func(context.Context) (desktopcore.JobSnapshot, error) {
+				calls = append(calls, "start-sync")
+				return job, nil
 			},
 			connectPeerFn: func(_ context.Context, peerAddr string) error {
 				calls = append(calls, "connect:"+peerAddr)
@@ -238,6 +242,9 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	if err := facade.SyncNow(ctx); err != nil {
 		t.Fatalf("sync now: %v", err)
 	}
+	if got, err := facade.StartSyncNow(ctx); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start sync now = %+v, err=%v", got, err)
+	}
 	if err := facade.ConnectPeer(ctx, "peeraddr"); err != nil {
 		t.Fatalf("connect peer: %v", err)
 	}
@@ -257,7 +264,7 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 		t.Fatalf("start compact checkpoint = %+v, err=%v", got, err)
 	}
 
-	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "sync", "connect:peeraddr", "checkpoint", "publish", "start-publish", "compact:true", "start-compact:true"}
+	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "sync", "start-sync", "connect:peeraddr", "checkpoint", "publish", "start-publish", "compact:true", "start-compact:true"}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("network facade calls = %v, want %v", calls, want)
 	}

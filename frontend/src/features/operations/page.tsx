@@ -26,6 +26,7 @@ import {
   startLibraryRescan,
   startPublishCheckpoint,
   startRootRescan,
+  startSyncNow,
   subscribeJobEvents,
 } from "../../shared/lib/desktop";
 import { formatCount } from "../../shared/lib/format";
@@ -136,6 +137,8 @@ function jobKindLabel(kind: string) {
       return "Publish checkpoint";
     case "compact-checkpoint":
       return "Compact checkpoint";
+    case "sync-now":
+      return "Manual sync";
     case "join-session":
       return "Join session";
     default:
@@ -404,8 +407,9 @@ export function OperationsPage() {
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">
               Manual scan and checkpoint actions now use the async desktop-core job
-              API with Wails job events feeding this page. Sync stays unwired here
-              because the backend sync service is still a stub.
+              API with Wails job events feeding this page. Manual sync now uses the
+              same async job path, so long-running network catch-up no longer blocks
+              the operations screen.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/52">
@@ -631,6 +635,17 @@ export function OperationsPage() {
                 >
                   <RefreshCw className="h-4 w-4" />
                   <span>Scan library</span>
+                </button>
+                <button
+                  className="action-button"
+                  disabled={pendingAction === "sync-now"}
+                  onClick={() => {
+                    void runAction("sync-now", startSyncNow, "Started");
+                  }}
+                  type="button"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  <span>Sync now</span>
                 </button>
                 <button
                   className="action-button"

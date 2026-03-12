@@ -48,6 +48,10 @@ func (c *UnavailableCore) SyncNow(context.Context) error {
 	return c.err
 }
 
+func (c *UnavailableCore) StartSyncNow(context.Context) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
 func (c *UnavailableCore) StartPublishCheckpoint(context.Context) (JobSnapshot, error) {
 	return JobSnapshot{}, c.err
 }

@@ -20,6 +20,7 @@ type passthroughBridgeStub struct {
 	activityStatusFn            func(context.Context) (apitypes.ActivityStatus, error)
 	networkStatusFn             func() apitypes.NetworkStatus
 	syncNowFn                   func(context.Context) error
+	startSyncNowFn              func(context.Context) (desktopcore.JobSnapshot, error)
 	connectPeerFn               func(context.Context, string) error
 	checkpointStatusFn          func(context.Context) (apitypes.LibraryCheckpointStatus, error)
 	publishCheckpointFn         func(context.Context) (apitypes.LibraryCheckpointManifest, error)
@@ -126,6 +127,10 @@ func (b *passthroughBridgeStub) NetworkStatus() apitypes.NetworkStatus {
 
 func (b *passthroughBridgeStub) SyncNow(ctx context.Context) error {
 	return b.syncNowFn(ctx)
+}
+
+func (b *passthroughBridgeStub) StartSyncNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
+	return b.startSyncNowFn(ctx)
 }
 
 func (b *passthroughBridgeStub) ConnectPeer(ctx context.Context, peerAddr string) error {

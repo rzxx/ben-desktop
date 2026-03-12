@@ -76,6 +76,12 @@ export function StartPublishCheckpoint(): $CancellablePromise<desktopcore$0.JobS
     });
 }
 
+export function StartSyncNow(): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByName("NetworkFacade.StartSyncNow").then(($result: any) => {
+        return $$createType8($result);
+    });
+}
+
 export function SyncNow(): $CancellablePromise<void> {
     return $Call.ByID(2443585449);
 }

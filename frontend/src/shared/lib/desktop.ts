@@ -189,6 +189,10 @@ export function startCompactCheckpoint(force = false) {
   return NetworkFacade.StartCompactCheckpoint(force);
 }
 
+export function startSyncNow() {
+  return NetworkFacade.StartSyncNow();
+}
+
 export function listJobs(libraryId = "") {
   return JobsFacade.ListJobs(libraryId);
 }

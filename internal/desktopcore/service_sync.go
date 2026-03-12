@@ -17,6 +17,8 @@ const (
 	defaultSyncBatchSize          = 500
 	incrementalSyncBacklogCutover = 5000
 	maxSyncCatchupRounds          = 64
+
+	jobKindSyncNow = "sync-now"
 )
 
 type SyncTransport interface {
@@ -76,26 +78,73 @@ func (a *App) SyncNow(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	local, err = a.ensureLocalPeerContext(ctx, local)
+	return a.syncNowForLocalContext(ctx, local, nil)
+}
+
+func (a *App) StartSyncNow(ctx context.Context) (JobSnapshot, error) {
+	local, err := a.requireActiveContext(ctx)
 	if err != nil {
+		return JobSnapshot{}, err
+	}
+	if a.transport == nil {
+		return JobSnapshot{}, fmt.Errorf("peer transport is not configured")
+	}
+
+	jobID := "sync:" + local.LibraryID
+	snapshot, started := a.jobs.Begin(jobID, jobKindSyncNow, local.LibraryID, "queued manual sync")
+	if !started {
+		return snapshot, nil
+	}
+
+	runCtx := context.WithoutCancel(ctx)
+	go func() {
+		_ = a.syncNowForLocalContext(runCtx, local, a.jobs.Track(jobID, jobKindSyncNow, local.LibraryID))
+	}()
+	return snapshot, nil
+}
+
+func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalContext, job *JobTracker) error {
+	local, err := a.ensureLocalPeerContext(ctx, local)
+	if err != nil {
+		if job != nil {
+			job.Fail(1, "manual sync failed", err)
+		}
 		return err
 	}
 	if a.transport == nil {
-		return fmt.Errorf("peer transport is not configured")
+		err := fmt.Errorf("peer transport is not configured")
+		if job != nil {
+			job.Fail(1, "manual sync failed", err)
+		}
+		return err
+	}
+
+	if job != nil {
+		job.Queued(0, "queued manual sync")
+		job.Running(0.05, "discovering peers")
 	}
 
 	peers, err := a.transport.ListPeers(ctx, local)
 	if err != nil {
+		if job != nil {
+			job.Fail(1, "manual sync failed", err)
+		}
 		return err
 	}
 	if len(peers) == 0 {
-		return fmt.Errorf("no connected peers")
+		err := fmt.Errorf("no connected peers")
+		if job != nil {
+			job.Fail(1, "manual sync failed", err)
+		}
+		return err
 	}
 
 	successes := 0
 	failures := 0
 	var firstErr error
 	seen := make(map[string]struct{}, len(peers))
+	processed := 0
+	totalPeers := len(peers)
 	for _, peer := range peers {
 		key := strings.TrimSpace(peer.Address())
 		if key == "" {
@@ -110,6 +159,14 @@ func (a *App) SyncNow(ctx context.Context) error {
 			}
 			seen[key] = struct{}{}
 		}
+		processed++
+		if job != nil {
+			progress := 0.1
+			if totalPeers > 0 {
+				progress += (float64(processed-1) / float64(totalPeers)) * 0.8
+			}
+			job.Running(progress, syncPeerJobMessage(processed, totalPeers, peer))
+		}
 		if _, err := a.syncPeerCatchup(ctx, local, peer, apitypes.NetworkSyncReasonManual); err != nil {
 			failures++
 			if firstErr == nil {
@@ -122,14 +179,56 @@ func (a *App) SyncNow(ctx context.Context) error {
 
 	if successes == 0 {
 		if firstErr != nil {
+			if job != nil {
+				job.Fail(1, "manual sync failed", firstErr)
+			}
 			return firstErr
 		}
-		return fmt.Errorf("all peer sync attempts failed")
+		err := fmt.Errorf("all peer sync attempts failed")
+		if job != nil {
+			job.Fail(1, "manual sync failed", err)
+		}
+		return err
 	}
 	if failures > 0 && firstErr != nil {
-		return fmt.Errorf("%d peer sync attempts failed: %w", failures, firstErr)
+		err := fmt.Errorf("%d peer sync attempts failed: %w", failures, firstErr)
+		if job != nil {
+			job.Fail(1, "manual sync failed", err)
+		}
+		return err
+	}
+	if job != nil {
+		job.Complete(1, syncJobCompletionMessage(successes, failures))
 	}
 	return nil
+}
+
+func syncPeerJobMessage(index, total int, peer SyncPeer) string {
+	if total <= 0 {
+		total = 1
+	}
+	target := strings.TrimSpace(peer.Address())
+	if target == "" {
+		target = strings.TrimSpace(peer.PeerID())
+	}
+	if target == "" {
+		target = strings.TrimSpace(peer.DeviceID())
+	}
+	if target == "" {
+		return fmt.Sprintf("syncing peer %d of %d", index, total)
+	}
+	return fmt.Sprintf("syncing peer %d of %d: %s", index, total, target)
+}
+
+func syncJobCompletionMessage(successes, failures int) string {
+	switch {
+	case successes > 0 && failures > 0:
+		return fmt.Sprintf("synced %d peer(s), %d failed", successes, failures)
+	case successes > 0:
+		return fmt.Sprintf("synced %d peer(s)", successes)
+	default:
+		return "manual sync completed"
+	}
 }
 
 func (a *App) ConnectPeer(ctx context.Context, peerAddr string) error {

@@ -145,6 +145,10 @@ func (s *NetworkFacade) SyncNow(ctx context.Context) error {
 	return s.bridge().SyncNow(ctx)
 }
 
+func (s *NetworkFacade) StartSyncNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
+	return s.bridge().StartSyncNow(ctx)
+}
+
 func (s *NetworkFacade) ConnectPeer(ctx context.Context, peerAddr string) error {
 	return s.bridge().ConnectPeer(ctx, peerAddr)
 }

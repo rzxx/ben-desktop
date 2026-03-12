@@ -144,6 +144,72 @@ func TestSyncNowInstallsCheckpointWhenBacklogReachesCutover(t *testing.T) {
 	}
 }
 
+func TestStartSyncNowQueuesAsyncJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openPlaylistTestApp(t)
+	joiner := openPlaylistTestApp(t)
+
+	library, err := owner.CreateLibrary(ctx, "sync-now-async")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	seedPlaylistRecording(t, owner, library.LibraryID, "rec-1", "One")
+	playlist, err := owner.CreatePlaylist(ctx, "Queue", "")
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	if _, err := owner.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{
+		PlaylistID:  playlist.PlaylistID,
+		RecordingID: "rec-1",
+	}); err != nil {
+		t.Fatalf("add playlist item: %v", err)
+	}
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	job, err := joiner.StartSyncNow(ctx)
+	if err != nil {
+		t.Fatalf("start sync now: %v", err)
+	}
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindSyncNow {
+		t.Fatalf("unexpected queued sync job: %+v", job)
+	}
+
+	final := waitForJobPhase(t, ctx, joiner, "sync:"+library.LibraryID, JobPhaseCompleted)
+	if final.Kind != jobKindSyncNow || final.LibraryID != library.LibraryID {
+		t.Fatalf("unexpected final sync job: %+v", final)
+	}
+
+	var syncedPlaylist Playlist
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND playlist_id = ? AND deleted_at IS NULL", library.LibraryID, playlist.PlaylistID).
+		Take(&syncedPlaylist).Error; err != nil {
+		t.Fatalf("load synced playlist: %v", err)
+	}
+	if syncedPlaylist.Name != "Queue" {
+		t.Fatalf("synced playlist name = %q, want %q", syncedPlaylist.Name, "Queue")
+	}
+
+	var peerState PeerSyncState
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", library.LibraryID, ownerLocal.DeviceID).
+		Take(&peerState).Error; err != nil {
+		t.Fatalf("load peer sync state: %v", err)
+	}
+	if peerState.LastApplied == 0 || peerState.LastError != "" {
+		t.Fatalf("unexpected peer sync state: %+v", peerState)
+	}
+	if joinerLocal.LibraryID != library.LibraryID {
+		t.Fatalf("joiner active library = %q, want %q", joinerLocal.LibraryID, library.LibraryID)
+	}
+}
+
 func TestConnectPeerAppliesIncrementalLibraryAndCatalogSync(t *testing.T) {
 	t.Parallel()
 

@@ -20,6 +20,7 @@ type hostBridge interface {
 	ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error)
 	NetworkStatus() apitypes.NetworkStatus
 	SyncNow(ctx context.Context) error
+	StartSyncNow(ctx context.Context) (desktopcore.JobSnapshot, error)
 	ConnectPeer(ctx context.Context, peerAddr string) error
 	CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error)
 	PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error)
