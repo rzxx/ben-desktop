@@ -85,7 +85,7 @@ func TestInspectAndOplogDiagnostics(t *testing.T) {
 			DeviceID:    "peer-device",
 			Seq:         1,
 			TSNS:        now.Add(-48 * time.Hour).UnixNano(),
-			EntityType:  entityTypeDeviceAsset,
+			EntityType:  entityTypeDeviceAssetCache,
 			EntityID:    "peer-device:enc-1",
 			OpKind:      "upsert",
 			PayloadJSON: `{"encoding_id":"enc-1","device_id":"peer-device","is_cached":true}`,

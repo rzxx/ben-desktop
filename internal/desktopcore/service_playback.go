@@ -10,6 +10,7 @@ import (
 	"time"
 
 	apitypes "ben/core/api/types"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -406,7 +407,7 @@ func (s *PlaybackService) PinRecordingOffline(ctx context.Context, recordingID, 
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
-	if err := s.upsertOfflinePin(ctx, local.LibraryID, local.DeviceID, "recording", resolvedRecordingID, profile); err != nil {
+	if err := s.upsertOfflinePin(ctx, local, "recording", resolvedRecordingID, profile); err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
 	return result, nil
@@ -421,7 +422,7 @@ func (s *PlaybackService) UnpinRecordingOffline(ctx context.Context, recordingID
 	if resolveErr == nil && strings.TrimSpace(resolvedRecordingID) != "" {
 		recordingID = resolvedRecordingID
 	}
-	return s.deleteOfflinePin(ctx, local.LibraryID, local.DeviceID, "recording", recordingID)
+	return s.deleteOfflinePin(ctx, local, "recording", recordingID)
 }
 
 func (s *PlaybackService) PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
@@ -448,7 +449,7 @@ func (s *PlaybackService) UnpinAlbumOffline(ctx context.Context, albumID string)
 	if err != nil {
 		return err
 	}
-	return s.deleteOfflinePin(ctx, local.LibraryID, local.DeviceID, "album", albumID)
+	return s.deleteOfflinePin(ctx, local, "album", albumID)
 }
 
 func (s *PlaybackService) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
@@ -475,7 +476,7 @@ func (s *PlaybackService) UnpinPlaylistOffline(ctx context.Context, playlistID s
 	if err != nil {
 		return err
 	}
-	return s.deleteOfflinePin(ctx, local.LibraryID, local.DeviceID, "playlist", playlistID)
+	return s.deleteOfflinePin(ctx, local, "playlist", playlistID)
 }
 
 func (s *PlaybackService) PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
@@ -490,7 +491,7 @@ func (s *PlaybackService) PinLikedOffline(ctx context.Context, preferredProfile 
 	}
 	if len(recordingIDs) == 0 {
 		profile := s.resolvePlaybackProfile(preferredProfile)
-		if err := s.upsertOfflinePin(ctx, local.LibraryID, local.DeviceID, "playlist", playlistID, profile); err != nil {
+		if err := s.upsertOfflinePin(ctx, local, "playlist", playlistID, profile); err != nil {
 			return apitypes.PlaybackBatchResult{}, err
 		}
 		return apitypes.PlaybackBatchResult{}, nil
@@ -503,7 +504,7 @@ func (s *PlaybackService) UnpinLikedOffline(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.deleteOfflinePin(ctx, local.LibraryID, local.DeviceID, "playlist", likedPlaylistIDForLibrary(local.LibraryID))
+	return s.deleteOfflinePin(ctx, local, "playlist", likedPlaylistIDForLibrary(local.LibraryID))
 }
 
 func (s *PlaybackService) GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {
@@ -746,7 +747,7 @@ func (s *PlaybackService) pinOfflineScope(ctx context.Context, local apitypes.Lo
 			out.RemoteFetches++
 		}
 	}
-	if err := s.upsertOfflinePin(ctx, local.LibraryID, local.DeviceID, scope, scopeID, profile); err != nil {
+	if err := s.upsertOfflinePin(ctx, local, scope, scopeID, profile); err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
 	return out, nil
@@ -802,41 +803,73 @@ func (s *PlaybackService) prepareRecordingOfflineResult(ctx context.Context, loc
 	return apitypes.PlaybackRecordingResult{}, fmt.Errorf("recording %s has no local or cached asset available for offline pinning", recordingID)
 }
 
-func (s *PlaybackService) upsertOfflinePin(ctx context.Context, libraryID, deviceID, scope, scopeID, profile string) error {
+func (s *PlaybackService) upsertOfflinePin(ctx context.Context, local apitypes.LocalContext, scope, scopeID, profile string) error {
 	scope = strings.TrimSpace(scope)
 	scopeID = strings.TrimSpace(scopeID)
 	if scope == "" || scopeID == "" {
 		return fmt.Errorf("offline pin scope and scope id are required")
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{
-			{Name: "library_id"},
-			{Name: "device_id"},
-			{Name: "scope"},
-			{Name: "scope_id"},
-		},
-		DoUpdates: clause.AssignmentColumns([]string{"profile", "updated_at"}),
-	}).Create(&OfflinePin{
-		LibraryID: libraryID,
-		DeviceID:  deviceID,
-		Scope:     scope,
-		ScopeID:   scopeID,
-		Profile:   strings.TrimSpace(profile),
-		CreatedAt: now,
-		UpdatedAt: now,
-	}).Error
+	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing OfflinePin
+		err := tx.Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, scope, scopeID).
+			Take(&existing).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return err
+		}
+		profile = strings.TrimSpace(profile)
+		if err == nil && strings.TrimSpace(existing.Profile) == profile {
+			return nil
+		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "library_id"},
+				{Name: "device_id"},
+				{Name: "scope"},
+				{Name: "scope_id"},
+			},
+			DoUpdates: clause.AssignmentColumns([]string{"profile", "updated_at"}),
+		}).Create(&OfflinePin{
+			LibraryID: local.LibraryID,
+			DeviceID:  local.DeviceID,
+			Scope:     scope,
+			ScopeID:   scopeID,
+			Profile:   profile,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}).Error; err != nil {
+			return err
+		}
+		_, err = s.app.appendLocalOplogTx(tx, local, entityTypeOfflinePin, offlinePinEntityID(local.DeviceID, scope, scopeID), "upsert", offlinePinOplogPayload{
+			DeviceID:    local.DeviceID,
+			Scope:       scope,
+			ScopeID:     scopeID,
+			Profile:     profile,
+			UpdatedAtNS: now.UnixNano(),
+		})
+		return err
+	})
 }
 
-func (s *PlaybackService) deleteOfflinePin(ctx context.Context, libraryID, deviceID, scope, scopeID string) error {
+func (s *PlaybackService) deleteOfflinePin(ctx context.Context, local apitypes.LocalContext, scope, scopeID string) error {
 	scope = strings.TrimSpace(scope)
 	scopeID = strings.TrimSpace(scopeID)
 	if scopeID == "" {
 		return fmt.Errorf("%s id is required", scope)
 	}
-	return s.app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", libraryID, deviceID, scope, scopeID).
-		Delete(&OfflinePin{}).Error
+	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, scope, scopeID).
+			Delete(&OfflinePin{})
+		if result.Error != nil || result.RowsAffected == 0 {
+			return result.Error
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, entityTypeOfflinePin, offlinePinEntityID(local.DeviceID, scope, scopeID), "delete", offlinePinOplogPayload{
+			DeviceID: local.DeviceID,
+			Scope:    scope,
+			ScopeID:  scopeID,
+		})
+		return err
+	})
 }
 
 func (s *PlaybackService) recordingIDsForAlbum(ctx context.Context, libraryID, albumID string) ([]string, error) {

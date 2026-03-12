@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	apitypes "ben/core/api/types"
 )
@@ -148,6 +149,111 @@ func TestLikeMutationsAppendOplogOnlyForStateChanges(t *testing.T) {
 	clock := loadDeviceClock(t, app, library.LibraryID, local.DeviceID)
 	if clock.LastSeqSeen != 2 {
 		t.Fatalf("device clock = %d, want 2", clock.LastSeqSeen)
+	}
+}
+
+func TestPreferencePinAndCacheMutationsAppendOplogOnlyForStateChanges(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "replicated-state-oplog")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	now := time.Now().UTC()
+	seedCacheRecording(t, app, library.LibraryID, local.DeviceID, cacheSeedInput{
+		RecordingID:    "rec-pref",
+		AlbumID:        "album-pref",
+		SourceFileID:   "src-pref",
+		EncodingID:     "enc-pref",
+		BlobID:         testBlobID("1"),
+		Profile:        "desktop",
+		LastVerifiedAt: now,
+	})
+	seedCacheRecording(t, app, library.LibraryID, local.DeviceID, cacheSeedInput{
+		RecordingID:    "rec-drop",
+		AlbumID:        "album-drop",
+		SourceFileID:   "src-drop",
+		EncodingID:     "enc-drop",
+		BlobID:         testBlobID("2"),
+		Profile:        "desktop",
+		LastVerifiedAt: now,
+	})
+	writeCacheBlob(t, app, testBlobID("1"), 128)
+	writeCacheBlob(t, app, testBlobID("2"), 96)
+
+	if err := app.SetPreferredRecordingVariant(ctx, "rec-pref", "rec-pref"); err != nil {
+		t.Fatalf("set preferred recording variant: %v", err)
+	}
+	if err := app.SetPreferredRecordingVariant(ctx, "rec-pref", "rec-pref"); err != nil {
+		t.Fatalf("repeat preferred recording variant: %v", err)
+	}
+	if err := app.SetPreferredAlbumVariant(ctx, "album-pref", "album-pref"); err != nil {
+		t.Fatalf("set preferred album variant: %v", err)
+	}
+	if err := app.SetPreferredAlbumVariant(ctx, "album-pref", "album-pref"); err != nil {
+		t.Fatalf("repeat preferred album variant: %v", err)
+	}
+	if _, err := app.PinRecordingOffline(ctx, "rec-pref", "desktop"); err != nil {
+		t.Fatalf("pin recording offline: %v", err)
+	}
+	if _, err := app.PinRecordingOffline(ctx, "rec-pref", "desktop"); err != nil {
+		t.Fatalf("repeat pin recording offline: %v", err)
+	}
+	if _, err := app.CleanupCache(ctx, apitypes.CacheCleanupRequest{Mode: apitypes.CacheCleanupAllUnpinned}); err != nil {
+		t.Fatalf("cleanup cache: %v", err)
+	}
+	if err := app.UnpinRecordingOffline(ctx, "rec-pref"); err != nil {
+		t.Fatalf("unpin recording offline: %v", err)
+	}
+	if err := app.UnpinRecordingOffline(ctx, "rec-pref"); err != nil {
+		t.Fatalf("repeat unpin recording offline: %v", err)
+	}
+
+	entries := loadLibraryDeviceOplogEntries(t, app, library.LibraryID, local.DeviceID)
+	if len(entries) != 5 {
+		t.Fatalf("oplog entry count = %d, want 5", len(entries))
+	}
+
+	want := []struct {
+		entityType string
+		opKind     string
+		entityID   string
+	}{
+		{entityTypeDeviceVariantPreference, "upsert", deviceVariantPreferenceEntityID(local.DeviceID, "track", "rec-pref")},
+		{entityTypeDeviceVariantPreference, "upsert", deviceVariantPreferenceEntityID(local.DeviceID, "album", "album-pref")},
+		{entityTypeOfflinePin, "upsert", offlinePinEntityID(local.DeviceID, "recording", "rec-pref")},
+		{entityTypeDeviceAssetCache, "upsert", deviceAssetCacheEntityID(local.DeviceID, "enc-drop")},
+		{entityTypeOfflinePin, "delete", offlinePinEntityID(local.DeviceID, "recording", "rec-pref")},
+	}
+	for i, entry := range entries {
+		if entry.Seq != int64(i+1) {
+			t.Fatalf("entry %d seq = %d, want %d", i, entry.Seq, i+1)
+		}
+		if entry.OpKind != want[i].opKind || entry.EntityType != want[i].entityType || entry.EntityID != want[i].entityID {
+			t.Fatalf("entry %d = (%s %s %s), want (%s %s %s)", i, entry.EntityType, entry.OpKind, entry.EntityID, want[i].entityType, want[i].opKind, want[i].entityID)
+		}
+	}
+
+	clock := loadDeviceClock(t, app, library.LibraryID, local.DeviceID)
+	if clock.LastSeqSeen != int64(len(entries)) {
+		t.Fatalf("device clock = %d, want %d", clock.LastSeqSeen, len(entries))
+	}
+
+	var dropped DeviceAssetCacheModel
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND optimized_asset_id = ?", library.LibraryID, local.DeviceID, "enc-drop").
+		Take(&dropped).Error; err != nil {
+		t.Fatalf("load dropped cache row: %v", err)
+	}
+	if dropped.IsCached {
+		t.Fatalf("expected enc-drop to be marked uncached")
 	}
 }
 

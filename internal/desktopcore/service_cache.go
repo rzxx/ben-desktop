@@ -10,6 +10,7 @@ import (
 	"time"
 
 	apitypes "ben/core/api/types"
+	"gorm.io/gorm"
 )
 
 type CacheService struct {
@@ -483,7 +484,7 @@ func (s *CacheService) cleanupEntry(ctx context.Context, local apitypes.LocalCon
 	}
 
 	if entry.Kind == apitypes.CacheKindOptimizedAudio {
-		if err := s.markBlobEncodingsUncached(ctx, local.LibraryID, local.DeviceID, entry.BlobID); err != nil {
+		if err := s.markBlobEncodingsUncached(ctx, local, entry.BlobID); err != nil {
 			return false, err
 		}
 	}
@@ -506,42 +507,40 @@ func (s *CacheService) cleanupEntry(ctx context.Context, local apitypes.LocalCon
 	return true, nil
 }
 
-func (s *CacheService) markBlobEncodingsUncached(ctx context.Context, libraryID, deviceID, blobID string) error {
+func (s *CacheService) markBlobEncodingsUncached(ctx context.Context, local apitypes.LocalContext, blobID string) error {
 	type row struct {
 		OptimizedAssetID string
 	}
-	var rows []row
-	if err := s.app.db.WithContext(ctx).
-		Table("optimized_assets").
-		Select("optimized_asset_id AS optimized_asset_id").
-		Where("library_id = ? AND blob_id = ?", libraryID, strings.TrimSpace(blobID)).
-		Order("optimized_asset_id ASC").
-		Scan(&rows).Error; err != nil {
-		return err
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-
-	ids := make([]string, 0, len(rows))
-	for _, row := range rows {
-		if strings.TrimSpace(row.OptimizedAssetID) != "" {
-			ids = append(ids, strings.TrimSpace(row.OptimizedAssetID))
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).
-		Model(&DeviceAssetCacheModel{}).
-		Where("library_id = ? AND device_id = ? AND optimized_asset_id IN ?", libraryID, deviceID, ids).
-		Updates(map[string]any{
-			"is_cached":        false,
-			"last_verified_at": &now,
-			"updated_at":       now,
-		}).Error
+	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var rows []row
+		query := `
+SELECT dac.optimized_asset_id AS optimized_asset_id
+FROM device_asset_caches dac
+JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND oa.blob_id = ?
+ORDER BY dac.optimized_asset_id ASC`
+		if err := tx.Raw(query, local.LibraryID, local.DeviceID, strings.TrimSpace(blobID)).Scan(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			encodingID := strings.TrimSpace(row.OptimizedAssetID)
+			if encodingID == "" {
+				continue
+			}
+			if err := s.app.upsertDeviceAssetCacheTx(tx, local, DeviceAssetCacheModel{
+				LibraryID:        local.LibraryID,
+				DeviceID:         local.DeviceID,
+				OptimizedAssetID: encodingID,
+				IsCached:         false,
+				LastVerifiedAt:   &now,
+				UpdatedAt:        now,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *CacheService) blobHasRetainedReferences(ctx context.Context, blobID string) (bool, error) {

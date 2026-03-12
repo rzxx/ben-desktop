@@ -411,17 +411,39 @@ func (s *CatalogService) SetPreferredRecordingVariant(ctx context.Context, recor
 	if !ok || chosenClusterID != clusterID {
 		return fmt.Errorf("chosen recording is not in the same cluster")
 	}
-	return s.app.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "library_id"}, {Name: "device_id"}, {Name: "scope_type"}, {Name: "cluster_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"chosen_variant_id", "updated_at"}),
-	}).Create(&DeviceVariantPreference{
-		LibraryID:       local.LibraryID,
-		DeviceID:        local.DeviceID,
-		ScopeType:       "track",
-		ClusterID:       clusterID,
-		ChosenVariantID: strings.TrimSpace(variantRecordingID),
-		UpdatedAt:       time.Now().UTC(),
-	}).Error
+	now := time.Now().UTC()
+	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing DeviceVariantPreference
+		err := tx.Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", local.LibraryID, local.DeviceID, "track", clusterID).
+			Take(&existing).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return err
+		}
+		if err == nil && strings.TrimSpace(existing.ChosenVariantID) == strings.TrimSpace(variantRecordingID) {
+			return nil
+		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "library_id"}, {Name: "device_id"}, {Name: "scope_type"}, {Name: "cluster_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"chosen_variant_id", "updated_at"}),
+		}).Create(&DeviceVariantPreference{
+			LibraryID:       local.LibraryID,
+			DeviceID:        local.DeviceID,
+			ScopeType:       "track",
+			ClusterID:       clusterID,
+			ChosenVariantID: strings.TrimSpace(variantRecordingID),
+			UpdatedAt:       now,
+		}).Error; err != nil {
+			return err
+		}
+		_, err = s.app.appendLocalOplogTx(tx, local, entityTypeDeviceVariantPreference, deviceVariantPreferenceEntityID(local.DeviceID, "track", clusterID), "upsert", deviceVariantPreferenceOplogPayload{
+			DeviceID:        local.DeviceID,
+			ScopeType:       "track",
+			ClusterID:       clusterID,
+			ChosenVariantID: strings.TrimSpace(variantRecordingID),
+			UpdatedAtNS:     now.UnixNano(),
+		})
+		return err
+	})
 }
 
 func (s *CatalogService) SetPreferredAlbumVariant(ctx context.Context, albumID, variantAlbumID string) error {
@@ -443,17 +465,39 @@ func (s *CatalogService) SetPreferredAlbumVariant(ctx context.Context, albumID, 
 	if !ok || chosenClusterID != clusterID {
 		return fmt.Errorf("chosen album is not in the same cluster")
 	}
-	return s.app.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "library_id"}, {Name: "device_id"}, {Name: "scope_type"}, {Name: "cluster_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"chosen_variant_id", "updated_at"}),
-	}).Create(&DeviceVariantPreference{
-		LibraryID:       local.LibraryID,
-		DeviceID:        local.DeviceID,
-		ScopeType:       "album",
-		ClusterID:       clusterID,
-		ChosenVariantID: strings.TrimSpace(variantAlbumID),
-		UpdatedAt:       time.Now().UTC(),
-	}).Error
+	now := time.Now().UTC()
+	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing DeviceVariantPreference
+		err := tx.Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", local.LibraryID, local.DeviceID, "album", clusterID).
+			Take(&existing).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return err
+		}
+		if err == nil && strings.TrimSpace(existing.ChosenVariantID) == strings.TrimSpace(variantAlbumID) {
+			return nil
+		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "library_id"}, {Name: "device_id"}, {Name: "scope_type"}, {Name: "cluster_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"chosen_variant_id", "updated_at"}),
+		}).Create(&DeviceVariantPreference{
+			LibraryID:       local.LibraryID,
+			DeviceID:        local.DeviceID,
+			ScopeType:       "album",
+			ClusterID:       clusterID,
+			ChosenVariantID: strings.TrimSpace(variantAlbumID),
+			UpdatedAt:       now,
+		}).Error; err != nil {
+			return err
+		}
+		_, err = s.app.appendLocalOplogTx(tx, local, entityTypeDeviceVariantPreference, deviceVariantPreferenceEntityID(local.DeviceID, "album", clusterID), "upsert", deviceVariantPreferenceOplogPayload{
+			DeviceID:        local.DeviceID,
+			ScopeType:       "album",
+			ClusterID:       clusterID,
+			ChosenVariantID: strings.TrimSpace(variantAlbumID),
+			UpdatedAtNS:     now.UnixNano(),
+		})
+		return err
+	})
 }
 
 func (s *CatalogService) ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
@@ -1034,7 +1078,10 @@ WHERE tv.library_id = ?
 	if err := s.app.db.WithContext(ctx).Raw(cachedQuery, libraryID, clusterIDs, localDeviceID).Scan(&cachedRows).Error; err != nil {
 		return nil, err
 	}
-	type facts struct{ local, cached bool; providers, online int }
+	type facts struct {
+		local, cached     bool
+		providers, online int
+	}
 	factMap := make(map[string]facts, len(clusterIDs))
 	for _, item := range rows {
 		clusterID := strings.TrimSpace(item.TrackClusterID)

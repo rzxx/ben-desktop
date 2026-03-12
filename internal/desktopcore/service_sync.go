@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultSyncBatchSize           = 500
+	defaultSyncBatchSize          = 500
 	incrementalSyncBacklogCutover = 5000
 	maxSyncCatchupRounds          = 64
 )
@@ -657,12 +657,17 @@ func selectCheckpointTailOpsTx(tx *gorm.DB, libraryID string, baseClocks map[str
 func clearCheckpointManagedStateTx(tx *gorm.DB, libraryID string) error {
 	models := []any{
 		&ScanRoot{},
+		&OfflinePin{},
 		&Artist{},
 		&Credit{},
 		&AlbumVariantModel{},
 		&TrackVariantModel{},
 		&AlbumTrack{},
+		&DeviceVariantPreference{},
 		&SourceFileModel{},
+		&OptimizedAssetModel{},
+		&DeviceAssetCacheModel{},
+		&ArtworkVariant{},
 		&PlaylistItem{},
 		&Playlist{},
 		&DeviceClock{},

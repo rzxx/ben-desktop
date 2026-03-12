@@ -11,9 +11,7 @@ import (
 )
 
 const (
-	entityTypeOptimizedAsset   = "optimized_asset"
-	entityTypeDeviceAsset      = "device_asset_cache"
-	checkpointAckSourceCovered = "covered"
+	checkpointAckSourceCovered   = "covered"
 	checkpointAckSourceInstalled = "installed"
 )
 
@@ -152,7 +150,7 @@ func (a *App) InspectLibraryOplog(ctx context.Context, libraryID string) (apityp
 	}
 	report.Transcode = apitypes.TranscodeOplogDiagnostics{
 		OplogEncodings:       groupCount(report.OplogByEntityType, entityTypeOptimizedAsset),
-		OplogDeviceEncodings: groupCount(report.OplogByEntityType, entityTypeDeviceAsset),
+		OplogDeviceEncodings: groupCount(report.OplogByEntityType, entityTypeDeviceAssetCache),
 		Encodings:            report.Materialized.Encodings,
 		DeviceEncodings:      report.Materialized.DeviceEncodings,
 		ArtworkVariants:      report.Materialized.ArtworkVariants,

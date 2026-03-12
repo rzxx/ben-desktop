@@ -346,6 +346,290 @@ func TestInstallCheckpointRecordReplaysLibraryAndCatalogState(t *testing.T) {
 	}
 }
 
+func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "replicated-state.flac")
+	if err := os.WriteFile(audioPath, []byte("replicated-state-audio"), 0o644); err != nil {
+		t.Fatalf("write replicated audio: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Replicated State Track",
+				Album:       "Replicated State Album",
+				AlbumArtist: "Replicated State Artist",
+				Artists:     []string{"Replicated State Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  201000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	owner := openCacheTestAppWithTagReader(t, 1024, reader)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "replicated-state-sync")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, _ := seedSharedLibraryForSync(t, owner, joiner, library)
+	if err := owner.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set owner scan roots: %v", err)
+	}
+	if _, err := owner.RescanNow(ctx); err != nil {
+		t.Fatalf("owner rescan: %v", err)
+	}
+
+	recordings, err := owner.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list owner recordings: %v", err)
+	}
+	if len(recordings.Items) != 1 {
+		t.Fatalf("recording count = %d, want 1", len(recordings.Items))
+	}
+	recordingID := recordings.Items[0].RecordingID
+	var recording TrackVariantModel
+	if err := owner.db.WithContext(ctx).
+		Where("library_id = ? AND track_variant_id = ?", library.LibraryID, recordingID).
+		Take(&recording).Error; err != nil {
+		t.Fatalf("load owner recording row: %v", err)
+	}
+
+	albums, err := owner.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list owner albums: %v", err)
+	}
+	if len(albums.Items) != 1 {
+		t.Fatalf("album count = %d, want 1", len(albums.Items))
+	}
+	albumID := albums.Items[0].AlbumID
+	var album AlbumVariantModel
+	if err := owner.db.WithContext(ctx).
+		Where("library_id = ? AND album_variant_id = ?", library.LibraryID, albumID).
+		Take(&album).Error; err != nil {
+		t.Fatalf("load owner album row: %v", err)
+	}
+
+	if err := owner.SetPreferredRecordingVariant(ctx, recordingID, recordingID); err != nil {
+		t.Fatalf("set preferred recording variant: %v", err)
+	}
+	if err := owner.SetPreferredAlbumVariant(ctx, albumID, albumID); err != nil {
+		t.Fatalf("set preferred album variant: %v", err)
+	}
+
+	var source SourceFileModel
+	if err := owner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND is_present = ?", library.LibraryID, ownerLocal.DeviceID, true).
+		Take(&source).Error; err != nil {
+		t.Fatalf("load owner source file: %v", err)
+	}
+
+	encodingBlobID := testBlobID("7")
+	artworkBlobID := testBlobID("8")
+	now := time.Now().UTC()
+	if err := owner.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := owner.upsertOptimizedAssetTx(tx, ownerLocal, OptimizedAssetModel{
+			OptimizedAssetID:  "enc-sync",
+			SourceFileID:      source.SourceFileID,
+			TrackVariantID:    recordingID,
+			Profile:           "desktop",
+			BlobID:            encodingBlobID,
+			MIME:              "audio/mp4",
+			DurationMS:        201000,
+			Bitrate:           128000,
+			Codec:             "aac",
+			Container:         "m4a",
+			CreatedByDeviceID: ownerLocal.DeviceID,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		}); err != nil {
+			return err
+		}
+		if err := owner.upsertDeviceAssetCacheTx(tx, ownerLocal, DeviceAssetCacheModel{
+			DeviceID:         ownerLocal.DeviceID,
+			OptimizedAssetID: "enc-sync",
+			IsCached:         true,
+			LastVerifiedAt:   &now,
+			UpdatedAt:        now,
+		}); err != nil {
+			return err
+		}
+		return owner.upsertArtworkVariantTx(tx, ownerLocal, ArtworkVariant{
+			ScopeType:       "album",
+			ScopeID:         albumID,
+			Variant:         defaultArtworkVariant320,
+			BlobID:          artworkBlobID,
+			MIME:            "image/webp",
+			FileExt:         ".webp",
+			W:               320,
+			H:               320,
+			Bytes:           64,
+			ChosenSource:    "embedded_front",
+			ChosenSourceRef: filepath.Clean(audioPath),
+			UpdatedAt:       now,
+		})
+	}); err != nil {
+		t.Fatalf("seed oplog-backed replicated state: %v", err)
+	}
+	writeCacheBlob(t, owner, encodingBlobID, 128)
+
+	if _, err := owner.PinRecordingOffline(ctx, recordingID, "desktop"); err != nil {
+		t.Fatalf("pin recording offline: %v", err)
+	}
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	if err := joiner.ConnectPeer(ctx, "memory://owner"); err != nil {
+		t.Fatalf("connect peer: %v", err)
+	}
+
+	var trackPref DeviceVariantPreference
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", library.LibraryID, ownerLocal.DeviceID, "track", recording.TrackClusterID).
+		Take(&trackPref).Error; err != nil {
+		t.Fatalf("load synced track preference: %v", err)
+	}
+	if trackPref.ChosenVariantID != recordingID {
+		t.Fatalf("track preference = %q, want %q", trackPref.ChosenVariantID, recordingID)
+	}
+
+	var albumPref DeviceVariantPreference
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", library.LibraryID, ownerLocal.DeviceID, "album", album.AlbumClusterID).
+		Take(&albumPref).Error; err != nil {
+		t.Fatalf("load synced album preference: %v", err)
+	}
+	if albumPref.ChosenVariantID != albumID {
+		t.Fatalf("album preference = %q, want %q", albumPref.ChosenVariantID, albumID)
+	}
+
+	var pin OfflinePin
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", library.LibraryID, ownerLocal.DeviceID, "recording", recordingID).
+		Take(&pin).Error; err != nil {
+		t.Fatalf("load synced offline pin: %v", err)
+	}
+	if pin.Profile != "desktop" {
+		t.Fatalf("offline pin profile = %q, want desktop", pin.Profile)
+	}
+
+	var encoding OptimizedAssetModel
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND optimized_asset_id = ?", library.LibraryID, "enc-sync").
+		Take(&encoding).Error; err != nil {
+		t.Fatalf("load synced optimized asset: %v", err)
+	}
+	if encoding.BlobID != encodingBlobID || encoding.TrackVariantID != recordingID {
+		t.Fatalf("unexpected synced optimized asset: %+v", encoding)
+	}
+
+	var deviceCache DeviceAssetCacheModel
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND optimized_asset_id = ?", library.LibraryID, ownerLocal.DeviceID, "enc-sync").
+		Take(&deviceCache).Error; err != nil {
+		t.Fatalf("load synced device asset cache: %v", err)
+	}
+	if !deviceCache.IsCached {
+		t.Fatalf("expected synced device asset cache to remain cached")
+	}
+
+	var artwork ArtworkVariant
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND scope_type = ? AND scope_id = ? AND variant = ?", library.LibraryID, "album", albumID, defaultArtworkVariant320).
+		Take(&artwork).Error; err != nil {
+		t.Fatalf("load synced artwork variant: %v", err)
+	}
+	if artwork.BlobID != artworkBlobID {
+		t.Fatalf("artwork blob = %q, want %q", artwork.BlobID, artworkBlobID)
+	}
+}
+
+func TestConnectPeerAppliesPlaylistArtworkDeletion(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openCacheTestApp(t, 1024)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "playlist-artwork-delete")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, _ := seedSharedLibraryForSync(t, owner, joiner, library)
+	seedPlaylistRecording(t, owner, library.LibraryID, "rec-playlist", "Playlist")
+
+	playlist, err := owner.CreatePlaylist(ctx, "Queue", "")
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := owner.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return owner.upsertArtworkVariantTx(tx, ownerLocal, ArtworkVariant{
+			ScopeType:       "playlist",
+			ScopeID:         playlist.PlaylistID,
+			Variant:         defaultArtworkVariant320,
+			BlobID:          testBlobID("9"),
+			MIME:            "image/webp",
+			FileExt:         ".webp",
+			W:               320,
+			H:               320,
+			Bytes:           32,
+			ChosenSource:    "manual",
+			ChosenSourceRef: "test",
+			UpdatedAt:       now,
+		})
+	}); err != nil {
+		t.Fatalf("seed playlist artwork: %v", err)
+	}
+	if err := owner.DeletePlaylist(ctx, playlist.PlaylistID); err != nil {
+		t.Fatalf("delete playlist: %v", err)
+	}
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	if err := joiner.ConnectPeer(ctx, "memory://owner"); err != nil {
+		t.Fatalf("connect peer: %v", err)
+	}
+
+	var activePlaylists int64
+	if err := joiner.db.WithContext(ctx).
+		Model(&Playlist{}).
+		Where("library_id = ? AND playlist_id = ? AND deleted_at IS NULL", library.LibraryID, playlist.PlaylistID).
+		Count(&activePlaylists).Error; err != nil {
+		t.Fatalf("count active synced playlist: %v", err)
+	}
+	if activePlaylists != 0 {
+		t.Fatalf("active synced playlist count = %d, want 0", activePlaylists)
+	}
+
+	var artworkCount int64
+	if err := joiner.db.WithContext(ctx).
+		Model(&ArtworkVariant{}).
+		Where("library_id = ? AND scope_type = ? AND scope_id = ?", library.LibraryID, "playlist", playlist.PlaylistID).
+		Count(&artworkCount).Error; err != nil {
+		t.Fatalf("count synced playlist artwork: %v", err)
+	}
+	if artworkCount != 0 {
+		t.Fatalf("playlist artwork count = %d, want 0", artworkCount)
+	}
+}
+
 func seedSharedLibraryForSync(t *testing.T, owner, joiner *App, library apitypes.LibrarySummary) (apitypes.LocalContext, apitypes.LocalContext) {
 	t.Helper()
 

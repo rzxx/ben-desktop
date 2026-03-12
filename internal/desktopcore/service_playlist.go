@@ -139,8 +139,7 @@ func (s *PlaylistService) DeletePlaylist(ctx context.Context, playlistID string)
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("library_id = ? AND scope_type = ? AND scope_id = ?", local.LibraryID, "playlist", playlistID).
-			Delete(&ArtworkVariant{}).Error; err != nil {
+		if err := s.app.deleteArtworkScopeTx(tx, local, "playlist", playlistID); err != nil {
 			return err
 		}
 		_, err := s.app.appendLocalOplogTx(tx, local, "playlist", playlistID, "delete", map[string]any{
