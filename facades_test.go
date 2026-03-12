@@ -184,6 +184,46 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	}
 }
 
+func TestJobsFacadeForwardsToBridge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	job := desktopcore.JobSnapshot{
+		JobID:     "job-1",
+		Kind:      "scan",
+		LibraryID: "lib-1",
+		Phase:     desktopcore.JobPhaseRunning,
+	}
+	calls := make([]string, 0, 2)
+	host := &coreHost{
+		started: true,
+		bridge: &passthroughBridgeStub{
+			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+			listJobsFn: func(_ context.Context, libraryID string) ([]desktopcore.JobSnapshot, error) {
+				calls = append(calls, "list:"+libraryID)
+				return []desktopcore.JobSnapshot{job}, nil
+			},
+			getJobFn: func(_ context.Context, jobID string) (desktopcore.JobSnapshot, bool, error) {
+				calls = append(calls, "get:"+jobID)
+				return job, true, nil
+			},
+		},
+	}
+	facade := NewJobsFacade(host)
+
+	if got, err := facade.ListJobs(ctx, "lib-1"); err != nil || len(got) != 1 || got[0].JobID != job.JobID {
+		t.Fatalf("list jobs = %+v, err=%v", got, err)
+	}
+	if got, ok, err := facade.GetJob(ctx, "job-1"); err != nil || !ok || got.JobID != job.JobID {
+		t.Fatalf("get job = %+v, ok=%v, err=%v", got, ok, err)
+	}
+
+	want := []string{"list:lib-1", "get:job-1"}
+	if strings.Join(calls, "|") != strings.Join(want, "|") {
+		t.Fatalf("jobs facade calls = %v, want %v", calls, want)
+	}
+}
+
 func TestCatalogFacadeForwardsToBridge(t *testing.T) {
 	t.Parallel()
 

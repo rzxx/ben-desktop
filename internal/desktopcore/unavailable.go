@@ -44,6 +44,14 @@ func (c *UnavailableCore) CheckpointStatus(context.Context) (apitypes.LibraryChe
 	return apitypes.LibraryCheckpointStatus{}, c.err
 }
 
+func (c *UnavailableCore) ListJobs(context.Context, string) ([]JobSnapshot, error) {
+	return nil, c.err
+}
+
+func (c *UnavailableCore) GetJob(context.Context, string) (JobSnapshot, bool, error) {
+	return JobSnapshot{}, false, c.err
+}
+
 func (c *UnavailableCore) ListArtists(context.Context, apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
 	return apitypes.Page[apitypes.ArtistListItem]{}, c.err
 }

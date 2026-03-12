@@ -38,6 +38,8 @@ const (
 	joinSessionStatusFailed    = "failed"
 
 	defaultInviteExpiry = 24 * time.Hour
+
+	jobKindJoinSession = "join-session"
 )
 
 type InviteService struct {
@@ -255,11 +257,16 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 
 	requestID := uuid.NewString()
 	sessionID := uuid.NewString()
+	job := s.app.jobs.Track(sessionID, jobKindJoinSession, payload.LibraryID)
+	job.Queued(0, "queued join session start")
+	job.Running(0.1, "validating invite")
 	joinPubKey, err := randomBytes(32)
 	if err != nil {
+		job.Fail(1, "failed to generate join session material", err)
 		return apitypes.JoinSession{}, fmt.Errorf("generate join public key: %w", err)
 	}
 	fingerprint := fingerprintForDevice(deviceID, peerID)
+	job.Running(0.25, "creating join session")
 
 	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&InviteJoinRequest{
@@ -301,6 +308,7 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 		}).Error
 	})
 	if err != nil {
+		job.Fail(1, "failed to create join session", err)
 		return apitypes.JoinSession{}, err
 	}
 	return s.GetJoinSession(ctx, sessionID)
@@ -319,6 +327,7 @@ func (s *InviteService) GetJoinSession(ctx context.Context, sessionID string) (a
 	if err != nil {
 		return apitypes.JoinSession{}, err
 	}
+	s.syncJoinSessionJob(session)
 	return toJoinSessionRecord(session), nil
 }
 
@@ -336,21 +345,28 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 	if err != nil {
 		return apitypes.JoinLibraryResult{}, err
 	}
+	job := s.app.jobs.Track(session.SessionID, jobKindJoinSession, session.LibraryID)
 
 	switch strings.TrimSpace(session.Status) {
 	case joinSessionStatusCompleted:
+		s.syncJoinSessionJob(session)
 		return joinLibraryResultFromSession(session), nil
 	case joinSessionStatusPending:
+		s.syncJoinSessionJob(session)
 		return apitypes.JoinLibraryResult{}, fmt.Errorf("join request is still pending")
 	case joinSessionStatusRejected, joinSessionStatusExpired, joinSessionStatusFailed:
+		s.syncJoinSessionJob(session)
 		return apitypes.JoinLibraryResult{}, fmt.Errorf("join session is %s", strings.TrimSpace(session.Status))
 	case joinSessionStatusApproved:
 	default:
+		s.syncJoinSessionJob(session)
 		return apitypes.JoinLibraryResult{}, fmt.Errorf("join session is %s", strings.TrimSpace(session.Status))
 	}
+	job.Running(0.85, "finalizing join session")
 
 	var material joinSessionMaterial
 	if err := json.Unmarshal([]byte(strings.TrimSpace(session.MaterialJSON)), &material); err != nil {
+		job.Fail(1, "failed to decode join session material", err)
 		return apitypes.JoinLibraryResult{}, fmt.Errorf("decode join session material: %w", err)
 	}
 
@@ -456,13 +472,16 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 			}).Error
 	})
 	if err != nil {
+		job.Fail(1, "failed to finalize join session", err)
 		return apitypes.JoinLibraryResult{}, err
 	}
 
 	session, err = s.loadJoinSession(ctx, sessionID)
 	if err != nil {
+		job.Fail(1, "failed to reload finalized join session", err)
 		return apitypes.JoinLibraryResult{}, err
 	}
+	s.syncJoinSessionJob(session)
 	return joinLibraryResultFromSession(session), nil
 }
 
@@ -475,17 +494,24 @@ func (s *InviteService) CancelJoinSession(ctx context.Context, sessionID string)
 	if err != nil {
 		return err
 	}
+	job := s.app.jobs.Track(session.SessionID, jobKindJoinSession, session.LibraryID)
 	if strings.TrimSpace(session.Status) == joinSessionStatusCompleted {
+		s.syncJoinSessionJob(session)
 		return fmt.Errorf("cannot cancel a completed join session")
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Model(&JoinSession{}).
+	if err := s.app.db.WithContext(ctx).Model(&JoinSession{}).
 		Where("session_id = ?", sessionID).
 		Updates(map[string]any{
 			"status":     joinSessionStatusFailed,
 			"message":    "canceled by user",
 			"updated_at": now,
-		}).Error
+		}).Error; err != nil {
+		job.Fail(1, "failed to cancel join session", err)
+		return err
+	}
+	job.Fail(1, "canceled by user", nil)
+	return nil
 }
 
 func (s *InviteService) ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
@@ -542,12 +568,24 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 	if requestID == "" {
 		return fmt.Errorf("request id is required")
 	}
-	ownerPeerID, err := s.app.ensureDevicePeerID(ctx, local.DeviceID, local.Device)
+	session, sessionFound, err := s.loadJoinSessionByRequestID(ctx, requestID)
 	if err != nil {
 		return err
 	}
+	var job *JobTracker
+	if sessionFound {
+		job = s.app.jobs.Track(session.SessionID, jobKindJoinSession, session.LibraryID)
+		job.Running(0.6, "approving join request")
+	}
+	ownerPeerID, err := s.app.ensureDevicePeerID(ctx, local.DeviceID, local.Device)
+	if err != nil {
+		if job != nil {
+			job.Fail(1, "failed to resolve owner peer id", err)
+		}
+		return err
+	}
 
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var req InviteJoinRequest
 		if err := tx.Where("request_id = ?", requestID).Take(&req).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -661,6 +699,21 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 				"updated_at":        now,
 			}).Error
 	})
+	if err != nil {
+		if job != nil {
+			job.Fail(1, "join request approval failed", err)
+		}
+		return err
+	}
+	if sessionFound {
+		session, _, err = s.loadJoinSessionByRequestID(ctx, requestID)
+		if err != nil {
+			job.Fail(1, "failed to reload approved join session", err)
+			return err
+		}
+		s.syncJoinSessionJob(session)
+	}
+	return nil
 }
 
 func (s *InviteService) RejectJoinRequest(ctx context.Context, requestID, reason string) error {
@@ -680,9 +733,18 @@ func (s *InviteService) RejectJoinRequest(ctx context.Context, requestID, reason
 	if reason == "" {
 		reason = "join request rejected"
 	}
+	session, sessionFound, err := s.loadJoinSessionByRequestID(ctx, requestID)
+	if err != nil {
+		return err
+	}
+	var job *JobTracker
+	if sessionFound {
+		job = s.app.jobs.Track(session.SessionID, jobKindJoinSession, session.LibraryID)
+		job.Running(0.6, "rejecting join request")
+	}
 
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var req InviteJoinRequest
 		if err := tx.Where("request_id = ?", requestID).Take(&req).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -725,6 +787,21 @@ func (s *InviteService) RejectJoinRequest(ctx context.Context, requestID, reason
 				"updated_at": now,
 			}).Error
 	})
+	if err != nil {
+		if job != nil {
+			job.Fail(1, "join request rejection failed", err)
+		}
+		return err
+	}
+	if sessionFound {
+		session, _, err = s.loadJoinSessionByRequestID(ctx, requestID)
+		if err != nil {
+			job.Fail(1, "failed to reload rejected join session", err)
+			return err
+		}
+		s.syncJoinSessionJob(session)
+	}
+	return nil
 }
 
 func (s *InviteService) toIssuedInviteRecord(ctx context.Context, row IssuedInvite, now time.Time) (apitypes.IssuedInviteRecord, error) {
@@ -771,6 +848,22 @@ func (s *InviteService) loadJoinSession(ctx context.Context, sessionID string) (
 		return JoinSession{}, err
 	}
 	return session, nil
+}
+
+func (s *InviteService) loadJoinSessionByRequestID(ctx context.Context, requestID string) (JoinSession, bool, error) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return JoinSession{}, false, nil
+	}
+	var session JoinSession
+	err := s.app.db.WithContext(ctx).Where("request_id = ?", requestID).Take(&session).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return JoinSession{}, false, nil
+		}
+		return JoinSession{}, false, err
+	}
+	return session, true, nil
 }
 
 func (s *InviteService) refreshJoinSession(ctx context.Context, session JoinSession) (JoinSession, error) {
@@ -849,6 +942,29 @@ func (s *InviteService) refreshJoinSession(ctx context.Context, session JoinSess
 	}
 
 	return s.loadJoinSession(ctx, session.SessionID)
+}
+
+func (s *InviteService) syncJoinSessionJob(session JoinSession) {
+	job := s.app.jobs.Track(session.SessionID, jobKindJoinSession, session.LibraryID)
+	if job == nil {
+		return
+	}
+	message := strings.TrimSpace(session.Message)
+	if message == "" {
+		message = "join session in progress"
+	}
+	switch strings.TrimSpace(session.Status) {
+	case joinSessionStatusPending:
+		job.Running(0.25, message)
+	case joinSessionStatusApproved:
+		job.Running(0.75, message)
+	case joinSessionStatusCompleted:
+		job.Complete(1, message)
+	case joinSessionStatusRejected, joinSessionStatusExpired, joinSessionStatusFailed:
+		job.Fail(1, message, nil)
+	default:
+		job.Running(0.5, message)
+	}
 }
 
 func toInviteJoinRequestRecord(row InviteJoinRequest) apitypes.InviteJoinRequestRecord {

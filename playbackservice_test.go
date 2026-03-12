@@ -20,6 +20,8 @@ type passthroughBridgeStub struct {
 	activityStatusFn            func(context.Context) (apitypes.ActivityStatus, error)
 	networkStatusFn             func() apitypes.NetworkStatus
 	checkpointStatusFn          func(context.Context) (apitypes.LibraryCheckpointStatus, error)
+	listJobsFn                  func(context.Context, string) ([]desktopcore.JobSnapshot, error)
+	getJobFn                    func(context.Context, string) (desktopcore.JobSnapshot, bool, error)
 	listLibrariesFn             func(context.Context) ([]apitypes.LibrarySummary, error)
 	activeLibraryFn             func(context.Context) (apitypes.LibrarySummary, bool, error)
 	createLibraryFn             func(context.Context, string) (apitypes.LibrarySummary, error)
@@ -114,6 +116,14 @@ func (b *passthroughBridgeStub) NetworkStatus() apitypes.NetworkStatus {
 
 func (b *passthroughBridgeStub) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
 	return b.checkpointStatusFn(ctx)
+}
+
+func (b *passthroughBridgeStub) ListJobs(ctx context.Context, libraryID string) ([]desktopcore.JobSnapshot, error) {
+	return b.listJobsFn(ctx, libraryID)
+}
+
+func (b *passthroughBridgeStub) GetJob(ctx context.Context, jobID string) (desktopcore.JobSnapshot, bool, error) {
+	return b.getJobFn(ctx, jobID)
 }
 
 func (b *passthroughBridgeStub) ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error) {

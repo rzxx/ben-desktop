@@ -13,6 +13,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+const jobKindPreparePlayback = "prepare-playback"
+
 type PlaybackService struct {
 	app *App
 
@@ -32,6 +34,10 @@ func (s *PlaybackService) InspectPlaybackRecording(ctx context.Context, recordin
 	if err != nil {
 		return apitypes.PlaybackPreparationStatus{}, err
 	}
+	return s.inspectPlaybackRecording(ctx, local, recordingID, preferredProfile)
+}
+
+func (s *PlaybackService) inspectPlaybackRecording(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
 	if err != nil {
 		return apitypes.PlaybackPreparationStatus{}, err
@@ -106,17 +112,32 @@ func (s *PlaybackService) InspectPlaybackRecording(ctx context.Context, recordin
 }
 
 func (s *PlaybackService) PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
-	status, err := s.InspectPlaybackRecording(ctx, recordingID, preferredProfile)
+	local, err := s.app.requireActiveContext(ctx)
 	if err != nil {
 		return apitypes.PlaybackPreparationStatus{}, err
 	}
+	profile := s.resolvePlaybackProfile(preferredProfile)
 	if purpose == "" {
 		purpose = apitypes.PlaybackPreparationPlayNow
+	}
+	job := s.app.jobs.Track(playbackPreparationJobID(local.LibraryID, recordingID, profile, purpose), jobKindPreparePlayback, local.LibraryID)
+	job.Queued(0, "queued playback preparation")
+	job.Running(0.35, "inspecting playback availability")
+
+	status, err := s.inspectPlaybackRecording(ctx, local, recordingID, profile)
+	if err != nil {
+		job.Fail(1, "playback preparation failed", err)
+		return apitypes.PlaybackPreparationStatus{}, err
 	}
 	status.Purpose = purpose
 	s.mu.Lock()
 	s.preparations[s.preparationKey(recordingID, status.PreferredProfile)] = status
 	s.mu.Unlock()
+	if status.Phase == apitypes.PlaybackPreparationReady {
+		job.Complete(1, playbackPreparationReadyMessage(status))
+	} else {
+		job.Fail(1, playbackPreparationUnavailableMessage(status), nil)
+	}
 	return status, nil
 }
 
@@ -590,6 +611,34 @@ func (s *PlaybackService) resolvePlaybackProfile(preferredProfile string) string
 
 func (s *PlaybackService) preparationKey(recordingID, profile string) string {
 	return strings.TrimSpace(recordingID) + "|" + strings.TrimSpace(profile)
+}
+
+func playbackPreparationJobID(libraryID, recordingID, profile string, purpose apitypes.PlaybackPreparationPurpose) string {
+	return strings.TrimSpace(libraryID) + "|prepare-playback|" + strings.TrimSpace(recordingID) + "|" + strings.TrimSpace(profile) + "|" + strings.TrimSpace(string(purpose))
+}
+
+func playbackPreparationReadyMessage(status apitypes.PlaybackPreparationStatus) string {
+	switch status.SourceKind {
+	case apitypes.PlaybackSourceLocalFile:
+		return "playback ready from local file"
+	case apitypes.PlaybackSourceCachedOpt:
+		return "playback ready from cached optimized asset"
+	default:
+		return "playback ready"
+	}
+}
+
+func playbackPreparationUnavailableMessage(status apitypes.PlaybackPreparationStatus) string {
+	switch status.Reason {
+	case apitypes.PlaybackUnavailableProviderOffline:
+		return "playback unavailable: provider offline"
+	case apitypes.PlaybackUnavailableNetworkOff:
+		return "playback unavailable: network fetch required"
+	case apitypes.PlaybackUnavailableNoPath:
+		return "playback unavailable: no playable source"
+	default:
+		return "playback unavailable"
+	}
 }
 
 func (s *PlaybackService) bestLocalRecordingPath(ctx context.Context, libraryID, deviceID, recordingID string) (string, bool, error) {

@@ -9,6 +9,51 @@ import { Create as $Create } from "@wailsio/runtime";
 // @ts-ignore: Unused imports
 import * as time$0 from "../../../../time/models.js";
 
+export class ActivityStatus {
+    "Scan": ScanActivityStatus;
+    "Artwork": ArtworkActivityStatus;
+    "Transcodes": TranscodeActivityStatus[];
+    "UpdatedAt": time$0.Time;
+
+    /** Creates a new ActivityStatus instance. */
+    constructor($$source: Partial<ActivityStatus> = {}) {
+        if (!("Scan" in $$source)) {
+            this["Scan"] = (new ScanActivityStatus());
+        }
+        if (!("Artwork" in $$source)) {
+            this["Artwork"] = (new ArtworkActivityStatus());
+        }
+        if (!("Transcodes" in $$source)) {
+            this["Transcodes"] = [];
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ActivityStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ActivityStatus {
+        const $$createField0_0 = $$createType0;
+        const $$createField1_0 = $$createType1;
+        const $$createField2_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Scan" in $$parsedSource) {
+            $$parsedSource["Scan"] = $$createField0_0($$parsedSource["Scan"]);
+        }
+        if ("Artwork" in $$parsedSource) {
+            $$parsedSource["Artwork"] = $$createField1_0($$parsedSource["Artwork"]);
+        }
+        if ("Transcodes" in $$parsedSource) {
+            $$parsedSource["Transcodes"] = $$createField2_0($$parsedSource["Transcodes"]);
+        }
+        return new ActivityStatus($$parsedSource as Partial<ActivityStatus>);
+    }
+}
+
 export class AggregateAvailabilitySummary {
     "IsLocal": boolean;
     "HasRemote": boolean;
@@ -86,9 +131,9 @@ export class AlbumAvailabilityOverview {
      * Creates a new AlbumAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): AlbumAvailabilityOverview {
-        const $$createField2_0 = $$createType0;
-        const $$createField3_0 = $$createType2;
-        const $$createField4_0 = $$createType4;
+        const $$createField2_0 = $$createType4;
+        const $$createField3_0 = $$createType6;
+        const $$createField4_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Availability" in $$parsedSource) {
             $$parsedSource["Availability"] = $$createField2_0($$parsedSource["Availability"]);
@@ -155,9 +200,9 @@ export class AlbumListItem {
      * Creates a new AlbumListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): AlbumListItem {
-        const $$createField3_0 = $$createType5;
-        const $$createField6_0 = $$createType6;
-        const $$createField9_0 = $$createType7;
+        const $$createField3_0 = $$createType9;
+        const $$createField6_0 = $$createType10;
+        const $$createField9_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
@@ -213,7 +258,7 @@ export class AlbumTrackAvailabilityOverview {
      * Creates a new AlbumTrackAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): AlbumTrackAvailabilityOverview {
-        const $$createField0_0 = $$createType8;
+        const $$createField0_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Track" in $$parsedSource) {
             $$parsedSource["Track"] = $$createField0_0($$parsedSource["Track"]);
@@ -262,8 +307,8 @@ export class AlbumTrackItem {
      * Creates a new AlbumTrackItem instance from a string or object.
      */
     static createFrom($$source: any = {}): AlbumTrackItem {
-        const $$createField5_0 = $$createType5;
-        const $$createField6_0 = $$createType9;
+        const $$createField5_0 = $$createType9;
+        const $$createField6_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField5_0($$parsedSource["Artists"]);
@@ -320,7 +365,7 @@ export class AlbumVariantAvailabilityOverview {
      * Creates a new AlbumVariantAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): AlbumVariantAvailabilityOverview {
-        const $$createField0_0 = $$createType10;
+        const $$createField0_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Variant" in $$parsedSource) {
             $$parsedSource["Variant"] = $$createField0_0($$parsedSource["Variant"]);
@@ -393,9 +438,9 @@ export class AlbumVariantItem {
      * Creates a new AlbumVariantItem instance from a string or object.
      */
     static createFrom($$source: any = {}): AlbumVariantItem {
-        const $$createField3_0 = $$createType5;
-        const $$createField7_0 = $$createType6;
-        const $$createField12_0 = $$createType7;
+        const $$createField3_0 = $$createType9;
+        const $$createField7_0 = $$createType10;
+        const $$createField12_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
@@ -500,7 +545,7 @@ export class ArtistListItem {
      * Creates a new ArtistListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): ArtistListItem {
-        const $$createField4_0 = $$createType7;
+        const $$createField4_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Availability" in $$parsedSource) {
             $$parsedSource["Availability"] = $$createField4_0($$parsedSource["Availability"]);
@@ -531,6 +576,59 @@ export class ArtistListRequest {
     static createFrom($$source: any = {}): ArtistListRequest {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new ArtistListRequest($$parsedSource as Partial<ArtistListRequest>);
+    }
+}
+
+export class ArtworkActivityStatus {
+    "Phase": string;
+    "AlbumsTotal": number;
+    "AlbumsDone": number;
+    "CurrentAlbumID": string;
+    "CurrentSourcePath": string;
+    "Workers": number;
+    "WorkersActive": number;
+    "Errors": number;
+    "UpdatedAt": time$0.Time;
+
+    /** Creates a new ArtworkActivityStatus instance. */
+    constructor($$source: Partial<ArtworkActivityStatus> = {}) {
+        if (!("Phase" in $$source)) {
+            this["Phase"] = "";
+        }
+        if (!("AlbumsTotal" in $$source)) {
+            this["AlbumsTotal"] = 0;
+        }
+        if (!("AlbumsDone" in $$source)) {
+            this["AlbumsDone"] = 0;
+        }
+        if (!("CurrentAlbumID" in $$source)) {
+            this["CurrentAlbumID"] = "";
+        }
+        if (!("CurrentSourcePath" in $$source)) {
+            this["CurrentSourcePath"] = "";
+        }
+        if (!("Workers" in $$source)) {
+            this["Workers"] = 0;
+        }
+        if (!("WorkersActive" in $$source)) {
+            this["WorkersActive"] = 0;
+        }
+        if (!("Errors" in $$source)) {
+            this["Errors"] = 0;
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ArtworkActivityStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ArtworkActivityStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ArtworkActivityStatus($$parsedSource as Partial<ArtworkActivityStatus>);
     }
 }
 
@@ -610,7 +708,7 @@ export class CacheCleanupRequest {
      * Creates a new CacheCleanupRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): CacheCleanupRequest {
-        const $$createField1_0 = $$createType5;
+        const $$createField1_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("BlobIDs" in $$parsedSource) {
             $$parsedSource["BlobIDs"] = $$createField1_0($$parsedSource["BlobIDs"]);
@@ -643,7 +741,7 @@ export class CacheCleanupResult {
      * Creates a new CacheCleanupResult instance from a string or object.
      */
     static createFrom($$source: any = {}): CacheCleanupResult {
-        const $$createField0_0 = $$createType5;
+        const $$createField0_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("DeletedBlobs" in $$parsedSource) {
             $$parsedSource["DeletedBlobs"] = $$createField0_0($$parsedSource["DeletedBlobs"]);
@@ -720,7 +818,7 @@ export class CacheEntryItem {
      * Creates a new CacheEntryItem instance from a string or object.
      */
     static createFrom($$source: any = {}): CacheEntryItem {
-        const $$createField6_0 = $$createType12;
+        const $$createField6_0 = $$createType16;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("PinScopes" in $$parsedSource) {
             $$parsedSource["PinScopes"] = $$createField6_0($$parsedSource["PinScopes"]);
@@ -821,8 +919,8 @@ export class CacheOverview {
      * Creates a new CacheOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): CacheOverview {
-        const $$createField9_0 = $$createType14;
-        const $$createField10_0 = $$createType16;
+        const $$createField9_0 = $$createType18;
+        const $$createField10_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("ByKind" in $$parsedSource) {
             $$parsedSource["ByKind"] = $$createField9_0($$parsedSource["ByKind"]);
@@ -1024,6 +1122,633 @@ export enum CatalogTrackAvailabilityState {
     CatalogAvailabilityUnavailable = "UNAVAILABLE",
 };
 
+export class CheckpointDeviceCoverage {
+    "DeviceID": string;
+    "Role": string;
+    "State": string;
+
+    /** Creates a new CheckpointDeviceCoverage instance. */
+    constructor($$source: Partial<CheckpointDeviceCoverage> = {}) {
+        if (!("DeviceID" in $$source)) {
+            this["DeviceID"] = "";
+        }
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("State" in $$source)) {
+            this["State"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CheckpointDeviceCoverage instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CheckpointDeviceCoverage {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CheckpointDeviceCoverage($$parsedSource as Partial<CheckpointDeviceCoverage>);
+    }
+}
+
+export class InspectSummary {
+    "Libraries": number;
+    "Devices": number;
+    "Memberships": number;
+    "Artists": number;
+    "Credits": number;
+    "Albums": number;
+    "Recordings": number;
+    "DeviceVariantPrefs": number;
+    "Content": number;
+    "DeviceContentPresent": number;
+    "Encodings": number;
+    "DeviceEncodings": number;
+    "AlbumTracks": number;
+    "ArtworkVariants": number;
+    "Playlists": number;
+    "PlaylistItems": number;
+    "OplogEntries": number;
+    "DeviceClocks": number;
+
+    /** Creates a new InspectSummary instance. */
+    constructor($$source: Partial<InspectSummary> = {}) {
+        if (!("Libraries" in $$source)) {
+            this["Libraries"] = 0;
+        }
+        if (!("Devices" in $$source)) {
+            this["Devices"] = 0;
+        }
+        if (!("Memberships" in $$source)) {
+            this["Memberships"] = 0;
+        }
+        if (!("Artists" in $$source)) {
+            this["Artists"] = 0;
+        }
+        if (!("Credits" in $$source)) {
+            this["Credits"] = 0;
+        }
+        if (!("Albums" in $$source)) {
+            this["Albums"] = 0;
+        }
+        if (!("Recordings" in $$source)) {
+            this["Recordings"] = 0;
+        }
+        if (!("DeviceVariantPrefs" in $$source)) {
+            this["DeviceVariantPrefs"] = 0;
+        }
+        if (!("Content" in $$source)) {
+            this["Content"] = 0;
+        }
+        if (!("DeviceContentPresent" in $$source)) {
+            this["DeviceContentPresent"] = 0;
+        }
+        if (!("Encodings" in $$source)) {
+            this["Encodings"] = 0;
+        }
+        if (!("DeviceEncodings" in $$source)) {
+            this["DeviceEncodings"] = 0;
+        }
+        if (!("AlbumTracks" in $$source)) {
+            this["AlbumTracks"] = 0;
+        }
+        if (!("ArtworkVariants" in $$source)) {
+            this["ArtworkVariants"] = 0;
+        }
+        if (!("Playlists" in $$source)) {
+            this["Playlists"] = 0;
+        }
+        if (!("PlaylistItems" in $$source)) {
+            this["PlaylistItems"] = 0;
+        }
+        if (!("OplogEntries" in $$source)) {
+            this["OplogEntries"] = 0;
+        }
+        if (!("DeviceClocks" in $$source)) {
+            this["DeviceClocks"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new InspectSummary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): InspectSummary {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new InspectSummary($$parsedSource as Partial<InspectSummary>);
+    }
+}
+
+export class InviteCodeRequest {
+    "Role": string;
+    "Uses": number;
+    "Expires": time$0.Duration;
+
+    /** Creates a new InviteCodeRequest instance. */
+    constructor($$source: Partial<InviteCodeRequest> = {}) {
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("Uses" in $$source)) {
+            this["Uses"] = 0;
+        }
+        if (!("Expires" in $$source)) {
+            this["Expires"] = time$0.Duration.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new InviteCodeRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): InviteCodeRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new InviteCodeRequest($$parsedSource as Partial<InviteCodeRequest>);
+    }
+}
+
+export class InviteCodeResult {
+    "LibraryID": string;
+    "ServiceTag": string;
+    "InviteCode": string;
+    "InviteLink": string;
+    "Role": string;
+    "Uses": number;
+    "ExpiresAt": time$0.Time;
+
+    /** Creates a new InviteCodeResult instance. */
+    constructor($$source: Partial<InviteCodeResult> = {}) {
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("ServiceTag" in $$source)) {
+            this["ServiceTag"] = "";
+        }
+        if (!("InviteCode" in $$source)) {
+            this["InviteCode"] = "";
+        }
+        if (!("InviteLink" in $$source)) {
+            this["InviteLink"] = "";
+        }
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("Uses" in $$source)) {
+            this["Uses"] = 0;
+        }
+        if (!("ExpiresAt" in $$source)) {
+            this["ExpiresAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new InviteCodeResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): InviteCodeResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new InviteCodeResult($$parsedSource as Partial<InviteCodeResult>);
+    }
+}
+
+export class InviteJoinRequestRecord {
+    "RequestID": string;
+    "LibraryID": string;
+    "DeviceID": string;
+    "DeviceName": string;
+    "PeerID": string;
+    "DeviceFingerprint": string;
+    "RequestedRole": string;
+    "ApprovedRole": string;
+    "Status": string;
+    "Message": string;
+    "ExpiresAt": time$0.Time;
+    "CreatedAt": time$0.Time;
+    "UpdatedAt": time$0.Time;
+
+    /** Creates a new InviteJoinRequestRecord instance. */
+    constructor($$source: Partial<InviteJoinRequestRecord> = {}) {
+        if (!("RequestID" in $$source)) {
+            this["RequestID"] = "";
+        }
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("DeviceID" in $$source)) {
+            this["DeviceID"] = "";
+        }
+        if (!("DeviceName" in $$source)) {
+            this["DeviceName"] = "";
+        }
+        if (!("PeerID" in $$source)) {
+            this["PeerID"] = "";
+        }
+        if (!("DeviceFingerprint" in $$source)) {
+            this["DeviceFingerprint"] = "";
+        }
+        if (!("RequestedRole" in $$source)) {
+            this["RequestedRole"] = "";
+        }
+        if (!("ApprovedRole" in $$source)) {
+            this["ApprovedRole"] = "";
+        }
+        if (!("Status" in $$source)) {
+            this["Status"] = "";
+        }
+        if (!("Message" in $$source)) {
+            this["Message"] = "";
+        }
+        if (!("ExpiresAt" in $$source)) {
+            this["ExpiresAt"] = null;
+        }
+        if (!("CreatedAt" in $$source)) {
+            this["CreatedAt"] = null;
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new InviteJoinRequestRecord instance from a string or object.
+     */
+    static createFrom($$source: any = {}): InviteJoinRequestRecord {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new InviteJoinRequestRecord($$parsedSource as Partial<InviteJoinRequestRecord>);
+    }
+}
+
+export class IssuedInviteRecord {
+    "InviteID": string;
+    "LibraryID": string;
+    "InviteCode": string;
+    "InviteLink": string;
+    "Role": string;
+    "MaxUses": number;
+    "RedemptionCount": number;
+    "Status": string;
+    "ExpiresAt": time$0.Time;
+    "CreatedAt": time$0.Time;
+    "RevokedAt": time$0.Time | null;
+    "RevokeReason": string;
+
+    /** Creates a new IssuedInviteRecord instance. */
+    constructor($$source: Partial<IssuedInviteRecord> = {}) {
+        if (!("InviteID" in $$source)) {
+            this["InviteID"] = "";
+        }
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("InviteCode" in $$source)) {
+            this["InviteCode"] = "";
+        }
+        if (!("InviteLink" in $$source)) {
+            this["InviteLink"] = "";
+        }
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("MaxUses" in $$source)) {
+            this["MaxUses"] = 0;
+        }
+        if (!("RedemptionCount" in $$source)) {
+            this["RedemptionCount"] = 0;
+        }
+        if (!("Status" in $$source)) {
+            this["Status"] = "";
+        }
+        if (!("ExpiresAt" in $$source)) {
+            this["ExpiresAt"] = null;
+        }
+        if (!("CreatedAt" in $$source)) {
+            this["CreatedAt"] = null;
+        }
+        if (!("RevokedAt" in $$source)) {
+            this["RevokedAt"] = null;
+        }
+        if (!("RevokeReason" in $$source)) {
+            this["RevokeReason"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new IssuedInviteRecord instance from a string or object.
+     */
+    static createFrom($$source: any = {}): IssuedInviteRecord {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new IssuedInviteRecord($$parsedSource as Partial<IssuedInviteRecord>);
+    }
+}
+
+export class JoinFromInviteInput {
+    "InviteCode": string;
+    "DeviceID": string;
+    "DeviceName": string;
+    "DiscoverTimeout": time$0.Duration;
+
+    /** Creates a new JoinFromInviteInput instance. */
+    constructor($$source: Partial<JoinFromInviteInput> = {}) {
+        if (!("InviteCode" in $$source)) {
+            this["InviteCode"] = "";
+        }
+        if (!("DeviceID" in $$source)) {
+            this["DeviceID"] = "";
+        }
+        if (!("DeviceName" in $$source)) {
+            this["DeviceName"] = "";
+        }
+        if (!("DiscoverTimeout" in $$source)) {
+            this["DiscoverTimeout"] = time$0.Duration.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new JoinFromInviteInput instance from a string or object.
+     */
+    static createFrom($$source: any = {}): JoinFromInviteInput {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new JoinFromInviteInput($$parsedSource as Partial<JoinFromInviteInput>);
+    }
+}
+
+export class JoinLibraryResult {
+    "Pending": boolean;
+    "RequestID": string;
+    "LibraryID": string;
+    "Role": string;
+    "DeviceID": string;
+    "LocalPeerID": string;
+    "DeviceFingerprint": string;
+    "OwnerDeviceID": string;
+    "OwnerRole": string;
+    "OwnerPeerID": string;
+    "OwnerFingerprint": string;
+
+    /** Creates a new JoinLibraryResult instance. */
+    constructor($$source: Partial<JoinLibraryResult> = {}) {
+        if (!("Pending" in $$source)) {
+            this["Pending"] = false;
+        }
+        if (!("RequestID" in $$source)) {
+            this["RequestID"] = "";
+        }
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("DeviceID" in $$source)) {
+            this["DeviceID"] = "";
+        }
+        if (!("LocalPeerID" in $$source)) {
+            this["LocalPeerID"] = "";
+        }
+        if (!("DeviceFingerprint" in $$source)) {
+            this["DeviceFingerprint"] = "";
+        }
+        if (!("OwnerDeviceID" in $$source)) {
+            this["OwnerDeviceID"] = "";
+        }
+        if (!("OwnerRole" in $$source)) {
+            this["OwnerRole"] = "";
+        }
+        if (!("OwnerPeerID" in $$source)) {
+            this["OwnerPeerID"] = "";
+        }
+        if (!("OwnerFingerprint" in $$source)) {
+            this["OwnerFingerprint"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new JoinLibraryResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): JoinLibraryResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new JoinLibraryResult($$parsedSource as Partial<JoinLibraryResult>);
+    }
+}
+
+export class JoinSession {
+    "SessionID": string;
+    "RequestID": string;
+    "Status": string;
+    "Message": string;
+    "LibraryID": string;
+    "Role": string;
+    "Pending": boolean;
+    "OwnerDeviceID": string;
+    "OwnerRole": string;
+    "OwnerPeerID": string;
+    "ExpiresAt": time$0.Time;
+    "CreatedAt": time$0.Time;
+    "UpdatedAt": time$0.Time;
+
+    /** Creates a new JoinSession instance. */
+    constructor($$source: Partial<JoinSession> = {}) {
+        if (!("SessionID" in $$source)) {
+            this["SessionID"] = "";
+        }
+        if (!("RequestID" in $$source)) {
+            this["RequestID"] = "";
+        }
+        if (!("Status" in $$source)) {
+            this["Status"] = "";
+        }
+        if (!("Message" in $$source)) {
+            this["Message"] = "";
+        }
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("Pending" in $$source)) {
+            this["Pending"] = false;
+        }
+        if (!("OwnerDeviceID" in $$source)) {
+            this["OwnerDeviceID"] = "";
+        }
+        if (!("OwnerRole" in $$source)) {
+            this["OwnerRole"] = "";
+        }
+        if (!("OwnerPeerID" in $$source)) {
+            this["OwnerPeerID"] = "";
+        }
+        if (!("ExpiresAt" in $$source)) {
+            this["ExpiresAt"] = null;
+        }
+        if (!("CreatedAt" in $$source)) {
+            this["CreatedAt"] = null;
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new JoinSession instance from a string or object.
+     */
+    static createFrom($$source: any = {}): JoinSession {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new JoinSession($$parsedSource as Partial<JoinSession>);
+    }
+}
+
+export class LibraryCheckpointStatus {
+    "LibraryID": string;
+    "CheckpointID": string;
+    "ChunkCount": number;
+    "EntryCount": number;
+    "AckedDevices": number;
+    "TotalDevices": number;
+    "Compactable": boolean;
+    "LastCheckpointAt": time$0.Time | null;
+    "PublishedAt": time$0.Time | null;
+    "Devices": CheckpointDeviceCoverage[];
+    "LastError": string;
+
+    /** Creates a new LibraryCheckpointStatus instance. */
+    constructor($$source: Partial<LibraryCheckpointStatus> = {}) {
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("CheckpointID" in $$source)) {
+            this["CheckpointID"] = "";
+        }
+        if (!("ChunkCount" in $$source)) {
+            this["ChunkCount"] = 0;
+        }
+        if (!("EntryCount" in $$source)) {
+            this["EntryCount"] = 0;
+        }
+        if (!("AckedDevices" in $$source)) {
+            this["AckedDevices"] = 0;
+        }
+        if (!("TotalDevices" in $$source)) {
+            this["TotalDevices"] = 0;
+        }
+        if (!("Compactable" in $$source)) {
+            this["Compactable"] = false;
+        }
+        if (!("LastCheckpointAt" in $$source)) {
+            this["LastCheckpointAt"] = null;
+        }
+        if (!("PublishedAt" in $$source)) {
+            this["PublishedAt"] = null;
+        }
+        if (!("Devices" in $$source)) {
+            this["Devices"] = [];
+        }
+        if (!("LastError" in $$source)) {
+            this["LastError"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LibraryCheckpointStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LibraryCheckpointStatus {
+        const $$createField9_0 = $$createType22;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Devices" in $$parsedSource) {
+            $$parsedSource["Devices"] = $$createField9_0($$parsedSource["Devices"]);
+        }
+        return new LibraryCheckpointStatus($$parsedSource as Partial<LibraryCheckpointStatus>);
+    }
+}
+
+export class LibraryMaterializedCounts {
+    "Artists": number;
+    "Credits": number;
+    "Albums": number;
+    "Recordings": number;
+    "Contents": number;
+    "DeviceContentCount": number;
+    "AlbumTracks": number;
+    "Encodings": number;
+    "DeviceEncodings": number;
+    "ArtworkVariants": number;
+    "Playlists": number;
+    "PlaylistItems": number;
+    "OplogEntries": number;
+    "DeviceClocks": number;
+
+    /** Creates a new LibraryMaterializedCounts instance. */
+    constructor($$source: Partial<LibraryMaterializedCounts> = {}) {
+        if (!("Artists" in $$source)) {
+            this["Artists"] = 0;
+        }
+        if (!("Credits" in $$source)) {
+            this["Credits"] = 0;
+        }
+        if (!("Albums" in $$source)) {
+            this["Albums"] = 0;
+        }
+        if (!("Recordings" in $$source)) {
+            this["Recordings"] = 0;
+        }
+        if (!("Contents" in $$source)) {
+            this["Contents"] = 0;
+        }
+        if (!("DeviceContentCount" in $$source)) {
+            this["DeviceContentCount"] = 0;
+        }
+        if (!("AlbumTracks" in $$source)) {
+            this["AlbumTracks"] = 0;
+        }
+        if (!("Encodings" in $$source)) {
+            this["Encodings"] = 0;
+        }
+        if (!("DeviceEncodings" in $$source)) {
+            this["DeviceEncodings"] = 0;
+        }
+        if (!("ArtworkVariants" in $$source)) {
+            this["ArtworkVariants"] = 0;
+        }
+        if (!("Playlists" in $$source)) {
+            this["Playlists"] = 0;
+        }
+        if (!("PlaylistItems" in $$source)) {
+            this["PlaylistItems"] = 0;
+        }
+        if (!("OplogEntries" in $$source)) {
+            this["OplogEntries"] = 0;
+        }
+        if (!("DeviceClocks" in $$source)) {
+            this["DeviceClocks"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LibraryMaterializedCounts instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LibraryMaterializedCounts {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LibraryMaterializedCounts($$parsedSource as Partial<LibraryMaterializedCounts>);
+    }
+}
+
 export class LibraryMemberStatus {
     "LibraryID": string;
     "DeviceID": string;
@@ -1074,6 +1799,71 @@ export class LibraryMemberStatus {
     static createFrom($$source: any = {}): LibraryMemberStatus {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new LibraryMemberStatus($$parsedSource as Partial<LibraryMemberStatus>);
+    }
+}
+
+export class LibraryOplogDiagnostics {
+    "LibraryID": string;
+    "GeneratedAt": time$0.Time;
+    "OplogByEntityType": OplogDiagnosticsGroup[];
+    "OplogByDeviceID": OplogDiagnosticsGroup[];
+    "OplogByRecency": OplogRecencyBucket[];
+    "Materialized": LibraryMaterializedCounts;
+    "Transcode": TranscodeOplogDiagnostics;
+
+    /** Creates a new LibraryOplogDiagnostics instance. */
+    constructor($$source: Partial<LibraryOplogDiagnostics> = {}) {
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("GeneratedAt" in $$source)) {
+            this["GeneratedAt"] = null;
+        }
+        if (!("OplogByEntityType" in $$source)) {
+            this["OplogByEntityType"] = [];
+        }
+        if (!("OplogByDeviceID" in $$source)) {
+            this["OplogByDeviceID"] = [];
+        }
+        if (!("OplogByRecency" in $$source)) {
+            this["OplogByRecency"] = [];
+        }
+        if (!("Materialized" in $$source)) {
+            this["Materialized"] = (new LibraryMaterializedCounts());
+        }
+        if (!("Transcode" in $$source)) {
+            this["Transcode"] = (new TranscodeOplogDiagnostics());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LibraryOplogDiagnostics instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LibraryOplogDiagnostics {
+        const $$createField2_0 = $$createType24;
+        const $$createField3_0 = $$createType24;
+        const $$createField4_0 = $$createType26;
+        const $$createField5_0 = $$createType27;
+        const $$createField6_0 = $$createType28;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("OplogByEntityType" in $$parsedSource) {
+            $$parsedSource["OplogByEntityType"] = $$createField2_0($$parsedSource["OplogByEntityType"]);
+        }
+        if ("OplogByDeviceID" in $$parsedSource) {
+            $$parsedSource["OplogByDeviceID"] = $$createField3_0($$parsedSource["OplogByDeviceID"]);
+        }
+        if ("OplogByRecency" in $$parsedSource) {
+            $$parsedSource["OplogByRecency"] = $$createField4_0($$parsedSource["OplogByRecency"]);
+        }
+        if ("Materialized" in $$parsedSource) {
+            $$parsedSource["Materialized"] = $$createField5_0($$parsedSource["Materialized"]);
+        }
+        if ("Transcode" in $$parsedSource) {
+            $$parsedSource["Transcode"] = $$createField6_0($$parsedSource["Transcode"]);
+        }
+        return new LibraryOplogDiagnostics($$parsedSource as Partial<LibraryOplogDiagnostics>);
     }
 }
 
@@ -1150,8 +1940,8 @@ export class LikedRecordingItem {
      * Creates a new LikedRecordingItem instance from a string or object.
      */
     static createFrom($$source: any = {}): LikedRecordingItem {
-        const $$createField3_0 = $$createType5;
-        const $$createField5_0 = $$createType9;
+        const $$createField3_0 = $$createType9;
+        const $$createField5_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
@@ -1188,6 +1978,209 @@ export class LikedRecordingListRequest {
     }
 }
 
+export class LocalContext {
+    "LibraryID": string;
+    "DeviceID": string;
+    "Device": string;
+    "Role": string;
+    "PeerID": string;
+
+    /** Creates a new LocalContext instance. */
+    constructor($$source: Partial<LocalContext> = {}) {
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("DeviceID" in $$source)) {
+            this["DeviceID"] = "";
+        }
+        if (!("Device" in $$source)) {
+            this["Device"] = "";
+        }
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("PeerID" in $$source)) {
+            this["PeerID"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LocalContext instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LocalContext {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LocalContext($$parsedSource as Partial<LocalContext>);
+    }
+}
+
+export class NetworkStatus {
+    "Running": boolean;
+    "LibraryID": string;
+    "DeviceID": string;
+    "PeerID": string;
+    "ListenAddrs": string[];
+    "ServiceTag": string;
+    "Mode": NetworkSyncMode;
+    "Activity": NetworkSyncActivity;
+    "Reason": NetworkSyncReason;
+    "ActivePeerID": string;
+    "BacklogEstimate": number;
+    "LastBatchApplied": number;
+    "StartedAt": time$0.Time | null;
+    "CompletedAt": time$0.Time | null;
+    "LastSyncError": string;
+
+    /** Creates a new NetworkStatus instance. */
+    constructor($$source: Partial<NetworkStatus> = {}) {
+        if (!("Running" in $$source)) {
+            this["Running"] = false;
+        }
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("DeviceID" in $$source)) {
+            this["DeviceID"] = "";
+        }
+        if (!("PeerID" in $$source)) {
+            this["PeerID"] = "";
+        }
+        if (!("ListenAddrs" in $$source)) {
+            this["ListenAddrs"] = [];
+        }
+        if (!("ServiceTag" in $$source)) {
+            this["ServiceTag"] = "";
+        }
+        if (!("Mode" in $$source)) {
+            this["Mode"] = NetworkSyncMode.$zero;
+        }
+        if (!("Activity" in $$source)) {
+            this["Activity"] = NetworkSyncActivity.$zero;
+        }
+        if (!("Reason" in $$source)) {
+            this["Reason"] = NetworkSyncReason.$zero;
+        }
+        if (!("ActivePeerID" in $$source)) {
+            this["ActivePeerID"] = "";
+        }
+        if (!("BacklogEstimate" in $$source)) {
+            this["BacklogEstimate"] = 0;
+        }
+        if (!("LastBatchApplied" in $$source)) {
+            this["LastBatchApplied"] = 0;
+        }
+        if (!("StartedAt" in $$source)) {
+            this["StartedAt"] = null;
+        }
+        if (!("CompletedAt" in $$source)) {
+            this["CompletedAt"] = null;
+        }
+        if (!("LastSyncError" in $$source)) {
+            this["LastSyncError"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new NetworkStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): NetworkStatus {
+        const $$createField4_0 = $$createType9;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("ListenAddrs" in $$parsedSource) {
+            $$parsedSource["ListenAddrs"] = $$createField4_0($$parsedSource["ListenAddrs"]);
+        }
+        return new NetworkStatus($$parsedSource as Partial<NetworkStatus>);
+    }
+}
+
+export enum NetworkSyncActivity {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    NetworkSyncActivityOps = "ops",
+    NetworkSyncActivityCheckpointInstall = "checkpoint_install",
+    NetworkSyncActivityCheckpointMirror = "checkpoint_mirror",
+};
+
+export enum NetworkSyncMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    NetworkSyncModeIdle = "idle",
+    NetworkSyncModePeriodic = "periodic",
+    NetworkSyncModeCatchup = "catchup",
+};
+
+export enum NetworkSyncReason {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    NetworkSyncReasonStartup = "startup",
+    NetworkSyncReasonJoin = "join",
+    NetworkSyncReasonConnect = "connect",
+    NetworkSyncReasonManual = "manual",
+    NetworkSyncReasonTimer = "timer",
+};
+
+export class OplogDiagnosticsGroup {
+    "Key": string;
+    "Count": number;
+
+    /** Creates a new OplogDiagnosticsGroup instance. */
+    constructor($$source: Partial<OplogDiagnosticsGroup> = {}) {
+        if (!("Key" in $$source)) {
+            this["Key"] = "";
+        }
+        if (!("Count" in $$source)) {
+            this["Count"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new OplogDiagnosticsGroup instance from a string or object.
+     */
+    static createFrom($$source: any = {}): OplogDiagnosticsGroup {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new OplogDiagnosticsGroup($$parsedSource as Partial<OplogDiagnosticsGroup>);
+    }
+}
+
+export class OplogRecencyBucket {
+    "Bucket": string;
+    "Count": number;
+
+    /** Creates a new OplogRecencyBucket instance. */
+    constructor($$source: Partial<OplogRecencyBucket> = {}) {
+        if (!("Bucket" in $$source)) {
+            this["Bucket"] = "";
+        }
+        if (!("Count" in $$source)) {
+            this["Count"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new OplogRecencyBucket instance from a string or object.
+     */
+    static createFrom($$source: any = {}): OplogRecencyBucket {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new OplogRecencyBucket($$parsedSource as Partial<OplogRecencyBucket>);
+    }
+}
+
 export class Page<T> {
     "Items": T[];
     "Page": PageInfo;
@@ -1210,8 +2203,8 @@ export class Page<T> {
      * of the generic class Page.
      */
     static createFrom<T = any>($$createParamT: (source: any) => T): ($$source?: any) => Page<T> {
-        const $$createField0_0 = $$createType17($$createParamT);
-        const $$createField1_0 = $$createType18;
+        const $$createField0_0 = $$createType29($$createParamT);
+        const $$createField1_0 = $$createType30;
         return ($$source: any = {}) => {
             let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
             if ("Items" in $$parsedSource) {
@@ -1621,7 +2614,7 @@ export class PlaylistListItem {
      * Creates a new PlaylistListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): PlaylistListItem {
-        const $$createField4_0 = $$createType6;
+        const $$createField4_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Thumb" in $$parsedSource) {
             $$parsedSource["Thumb"] = $$createField4_0($$parsedSource["Thumb"]);
@@ -1740,7 +2733,7 @@ export class PlaylistRecord {
      * Creates a new PlaylistRecord instance from a string or object.
      */
     static createFrom($$source: any = {}): PlaylistRecord {
-        const $$createField5_0 = $$createType6;
+        const $$createField5_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Thumb" in $$parsedSource) {
             $$parsedSource["Thumb"] = $$createField5_0($$parsedSource["Thumb"]);
@@ -1789,8 +2782,8 @@ export class PlaylistTrackItem {
      * Creates a new PlaylistTrackItem instance from a string or object.
      */
     static createFrom($$source: any = {}): PlaylistTrackItem {
-        const $$createField4_0 = $$createType5;
-        const $$createField6_0 = $$createType9;
+        const $$createField4_0 = $$createType9;
+        const $$createField6_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField4_0($$parsedSource["Artists"]);
@@ -1916,10 +2909,10 @@ export class RecordingAvailabilityOverview {
      * Creates a new RecordingAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingAvailabilityOverview {
-        const $$createField2_0 = $$createType19;
-        const $$createField3_0 = $$createType20;
-        const $$createField4_0 = $$createType22;
-        const $$createField5_0 = $$createType24;
+        const $$createField2_0 = $$createType31;
+        const $$createField3_0 = $$createType32;
+        const $$createField4_0 = $$createType34;
+        const $$createField5_0 = $$createType36;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Playback" in $$parsedSource) {
             $$parsedSource["Playback"] = $$createField2_0($$parsedSource["Playback"]);
@@ -1997,8 +2990,8 @@ export class RecordingListItem {
      * Creates a new RecordingListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingListItem {
-        const $$createField4_0 = $$createType5;
-        const $$createField7_0 = $$createType9;
+        const $$createField4_0 = $$createType9;
+        const $$createField7_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField4_0($$parsedSource["Artists"]);
@@ -2096,8 +3089,8 @@ export class RecordingVariantAvailabilityOverview {
      * Creates a new RecordingVariantAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingVariantAvailabilityOverview {
-        const $$createField0_0 = $$createType25;
-        const $$createField1_0 = $$createType22;
+        const $$createField0_0 = $$createType37;
+        const $$createField1_0 = $$createType34;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Variant" in $$parsedSource) {
             $$parsedSource["Variant"] = $$createField0_0($$parsedSource["Variant"]);
@@ -2213,8 +3206,8 @@ export class RecordingVariantItem {
      * Creates a new RecordingVariantItem instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingVariantItem {
-        const $$createField5_0 = $$createType5;
-        const $$createField22_0 = $$createType9;
+        const $$createField5_0 = $$createType9;
+        const $$createField22_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField5_0($$parsedSource["Artists"]);
@@ -2252,6 +3245,67 @@ export class RecordingVariantListRequest {
     static createFrom($$source: any = {}): RecordingVariantListRequest {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new RecordingVariantListRequest($$parsedSource as Partial<RecordingVariantListRequest>);
+    }
+}
+
+export class ScanActivityStatus {
+    "Phase": string;
+    "RootsTotal": number;
+    "RootsDone": number;
+    "TracksTotal": number;
+    "TracksDone": number;
+    "CurrentRoot": string;
+    "CurrentPath": string;
+    "Workers": number;
+    "WorkersActive": number;
+    "Errors": number;
+    "UpdatedAt": time$0.Time;
+
+    /** Creates a new ScanActivityStatus instance. */
+    constructor($$source: Partial<ScanActivityStatus> = {}) {
+        if (!("Phase" in $$source)) {
+            this["Phase"] = "";
+        }
+        if (!("RootsTotal" in $$source)) {
+            this["RootsTotal"] = 0;
+        }
+        if (!("RootsDone" in $$source)) {
+            this["RootsDone"] = 0;
+        }
+        if (!("TracksTotal" in $$source)) {
+            this["TracksTotal"] = 0;
+        }
+        if (!("TracksDone" in $$source)) {
+            this["TracksDone"] = 0;
+        }
+        if (!("CurrentRoot" in $$source)) {
+            this["CurrentRoot"] = "";
+        }
+        if (!("CurrentPath" in $$source)) {
+            this["CurrentPath"] = "";
+        }
+        if (!("Workers" in $$source)) {
+            this["Workers"] = 0;
+        }
+        if (!("WorkersActive" in $$source)) {
+            this["WorkersActive"] = 0;
+        }
+        if (!("Errors" in $$source)) {
+            this["Errors"] = 0;
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ScanActivityStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ScanActivityStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ScanActivityStatus($$parsedSource as Partial<ScanActivityStatus>);
     }
 }
 
@@ -2316,30 +3370,128 @@ export class TrackAvailabilitySummary {
     }
 }
 
+export class TranscodeActivityStatus {
+    "RecordingID": string;
+    "SourceFileID": string;
+    "SourcePath": string;
+    "Profile": string;
+    "RequestKind": string;
+    "RequesterDeviceID": string;
+    "Phase": string;
+    "StartedAt": time$0.Time;
+
+    /** Creates a new TranscodeActivityStatus instance. */
+    constructor($$source: Partial<TranscodeActivityStatus> = {}) {
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("SourceFileID" in $$source)) {
+            this["SourceFileID"] = "";
+        }
+        if (!("SourcePath" in $$source)) {
+            this["SourcePath"] = "";
+        }
+        if (!("Profile" in $$source)) {
+            this["Profile"] = "";
+        }
+        if (!("RequestKind" in $$source)) {
+            this["RequestKind"] = "";
+        }
+        if (!("RequesterDeviceID" in $$source)) {
+            this["RequesterDeviceID"] = "";
+        }
+        if (!("Phase" in $$source)) {
+            this["Phase"] = "";
+        }
+        if (!("StartedAt" in $$source)) {
+            this["StartedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TranscodeActivityStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TranscodeActivityStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TranscodeActivityStatus($$parsedSource as Partial<TranscodeActivityStatus>);
+    }
+}
+
+export class TranscodeOplogDiagnostics {
+    "OplogEncodings": number;
+    "OplogDeviceEncodings": number;
+    "Encodings": number;
+    "DeviceEncodings": number;
+    "ArtworkVariants": number;
+
+    /** Creates a new TranscodeOplogDiagnostics instance. */
+    constructor($$source: Partial<TranscodeOplogDiagnostics> = {}) {
+        if (!("OplogEncodings" in $$source)) {
+            this["OplogEncodings"] = 0;
+        }
+        if (!("OplogDeviceEncodings" in $$source)) {
+            this["OplogDeviceEncodings"] = 0;
+        }
+        if (!("Encodings" in $$source)) {
+            this["Encodings"] = 0;
+        }
+        if (!("DeviceEncodings" in $$source)) {
+            this["DeviceEncodings"] = 0;
+        }
+        if (!("ArtworkVariants" in $$source)) {
+            this["ArtworkVariants"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TranscodeOplogDiagnostics instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TranscodeOplogDiagnostics {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TranscodeOplogDiagnostics($$parsedSource as Partial<TranscodeOplogDiagnostics>);
+    }
+}
+
 // Private type creation functions
-const $$createType0 = AggregateAvailabilitySummary.createFrom;
-const $$createType1 = AlbumTrackAvailabilityOverview.createFrom;
-const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = AlbumVariantAvailabilityOverview.createFrom;
-const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = $Create.Array($Create.Any);
-const $$createType6 = ArtworkRef.createFrom;
-const $$createType7 = CatalogAggregateAvailabilityHint.createFrom;
-const $$createType8 = AlbumTrackItem.createFrom;
-const $$createType9 = CatalogTrackAvailabilityHint.createFrom;
-const $$createType10 = AlbumVariantItem.createFrom;
-const $$createType11 = CachePinScopeRef.createFrom;
-const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = CacheUsageBreakdown.createFrom;
-const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = CachePinScopeSummary.createFrom;
+const $$createType0 = ScanActivityStatus.createFrom;
+const $$createType1 = ArtworkActivityStatus.createFrom;
+const $$createType2 = TranscodeActivityStatus.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = AggregateAvailabilitySummary.createFrom;
+const $$createType5 = AlbumTrackAvailabilityOverview.createFrom;
+const $$createType6 = $Create.Array($$createType5);
+const $$createType7 = AlbumVariantAvailabilityOverview.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = $Create.Array($Create.Any);
+const $$createType10 = ArtworkRef.createFrom;
+const $$createType11 = CatalogAggregateAvailabilityHint.createFrom;
+const $$createType12 = AlbumTrackItem.createFrom;
+const $$createType13 = CatalogTrackAvailabilityHint.createFrom;
+const $$createType14 = AlbumVariantItem.createFrom;
+const $$createType15 = CachePinScopeRef.createFrom;
 const $$createType16 = $Create.Array($$createType15);
-const $$createType17 = ($$createParamT: any) => $Create.Array($$createParamT);
-const $$createType18 = PageInfo.createFrom;
-const $$createType19 = RecordingPlaybackAvailability.createFrom;
-const $$createType20 = TrackAvailabilitySummary.createFrom;
-const $$createType21 = RecordingAvailabilityItem.createFrom;
+const $$createType17 = CacheUsageBreakdown.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = CachePinScopeSummary.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = CheckpointDeviceCoverage.createFrom;
 const $$createType22 = $Create.Array($$createType21);
-const $$createType23 = RecordingVariantAvailabilityOverview.createFrom;
+const $$createType23 = OplogDiagnosticsGroup.createFrom;
 const $$createType24 = $Create.Array($$createType23);
-const $$createType25 = RecordingVariantItem.createFrom;
+const $$createType25 = OplogRecencyBucket.createFrom;
+const $$createType26 = $Create.Array($$createType25);
+const $$createType27 = LibraryMaterializedCounts.createFrom;
+const $$createType28 = TranscodeOplogDiagnostics.createFrom;
+const $$createType29 = ($$createParamT: any) => $Create.Array($$createParamT);
+const $$createType30 = PageInfo.createFrom;
+const $$createType31 = RecordingPlaybackAvailability.createFrom;
+const $$createType32 = TrackAvailabilitySummary.createFrom;
+const $$createType33 = RecordingAvailabilityItem.createFrom;
+const $$createType34 = $Create.Array($$createType33);
+const $$createType35 = RecordingVariantAvailabilityOverview.createFrom;
+const $$createType36 = $Create.Array($$createType35);
+const $$createType37 = RecordingVariantItem.createFrom;

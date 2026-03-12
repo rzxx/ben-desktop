@@ -88,6 +88,21 @@ func (a *App) Jobs() *JobsService {
 	return a.jobs
 }
 
+func (a *App) ListJobs(_ context.Context, libraryID string) ([]JobSnapshot, error) {
+	if a == nil {
+		return nil, nil
+	}
+	return a.jobs.List(libraryID), nil
+}
+
+func (a *App) GetJob(_ context.Context, jobID string) (JobSnapshot, bool, error) {
+	if a == nil {
+		return JobSnapshot{}, false, nil
+	}
+	job, ok := a.jobs.Get(jobID)
+	return job, ok, nil
+}
+
 func (a *App) Config() Config {
 	if a == nil {
 		return Config{}

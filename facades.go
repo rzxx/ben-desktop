@@ -127,6 +127,24 @@ func (s *NetworkFacade) CheckpointStatus(ctx context.Context) (apitypes.LibraryC
 	return s.bridge().CheckpointStatus(ctx)
 }
 
+type JobsFacade struct {
+	facadeBase
+}
+
+func NewJobsFacade(host *coreHost) *JobsFacade {
+	return &JobsFacade{facadeBase: facadeBase{host: host}}
+}
+
+func (s *JobsFacade) ServiceName() string { return "JobsFacade" }
+
+func (s *JobsFacade) ListJobs(ctx context.Context, libraryID string) ([]desktopcore.JobSnapshot, error) {
+	return s.bridge().ListJobs(ctx, libraryID)
+}
+
+func (s *JobsFacade) GetJob(ctx context.Context, jobID string) (desktopcore.JobSnapshot, bool, error) {
+	return s.bridge().GetJob(ctx, jobID)
+}
+
 type CatalogFacade struct {
 	facadeBase
 }

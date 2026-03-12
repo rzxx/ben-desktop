@@ -3,13 +3,19 @@
 
 import * as CacheFacade from "./cachefacade.js";
 import * as CatalogFacade from "./catalogfacade.js";
+import * as InviteFacade from "./invitefacade.js";
+import * as JobsFacade from "./jobsfacade.js";
 import * as LibraryFacade from "./libraryfacade.js";
+import * as NetworkFacade from "./networkfacade.js";
 import * as PlaybackFacade from "./playbackfacade.js";
 import * as PlaybackService from "./playbackservice.js";
 export {
     CacheFacade,
     CatalogFacade,
+    InviteFacade,
+    JobsFacade,
     LibraryFacade,
+    NetworkFacade,
     PlaybackFacade,
     PlaybackService
 };

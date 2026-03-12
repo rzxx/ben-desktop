@@ -20,6 +20,8 @@ type hostBridge interface {
 	ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error)
 	NetworkStatus() apitypes.NetworkStatus
 	CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error)
+	ListJobs(ctx context.Context, libraryID string) ([]desktopcore.JobSnapshot, error)
+	GetJob(ctx context.Context, jobID string) (desktopcore.JobSnapshot, bool, error)
 	ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error)
 	ActiveLibrary(ctx context.Context) (apitypes.LibrarySummary, bool, error)
 	CreateLibrary(ctx context.Context, name string) (apitypes.LibrarySummary, error)

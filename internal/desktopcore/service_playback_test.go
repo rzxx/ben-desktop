@@ -78,6 +78,59 @@ func TestPinRecordingOfflinePersistsAndUnpinsCachedAsset(t *testing.T) {
 	}
 }
 
+func TestPreparePlaybackRecordingPublishesCompletedJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "prepare-playback-job")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	blobID := testBlobID("9")
+	seedCacheRecording(t, app, library.LibraryID, local.DeviceID, cacheSeedInput{
+		RecordingID:    "rec-job",
+		AlbumID:        "album-job",
+		SourceFileID:   "src-job",
+		EncodingID:     "enc-job",
+		BlobID:         blobID,
+		Profile:        "desktop",
+		LastVerifiedAt: time.Now().UTC(),
+	})
+	writeCacheBlob(t, app, blobID, 128)
+
+	status, err := app.PreparePlaybackRecording(ctx, "rec-job", "desktop", apitypes.PlaybackPreparationPlayNow)
+	if err != nil {
+		t.Fatalf("prepare playback recording: %v", err)
+	}
+	if status.Phase != apitypes.PlaybackPreparationReady {
+		t.Fatalf("prepare playback phase = %q, want %q", status.Phase, apitypes.PlaybackPreparationReady)
+	}
+
+	jobID := playbackPreparationJobID(local.LibraryID, "rec-job", "desktop", apitypes.PlaybackPreparationPlayNow)
+	job, ok, err := app.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatalf("get playback job: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected playback preparation job %q", jobID)
+	}
+	if job.Kind != jobKindPreparePlayback {
+		t.Fatalf("job kind = %q, want %q", job.Kind, jobKindPreparePlayback)
+	}
+	if job.Phase != JobPhaseCompleted {
+		t.Fatalf("job phase = %q, want %q", job.Phase, JobPhaseCompleted)
+	}
+	if job.Message == "" {
+		t.Fatalf("expected playback job to include a message")
+	}
+}
+
 func TestPinAlbumOfflineAggregatesCachedTracks(t *testing.T) {
 	t.Parallel()
 

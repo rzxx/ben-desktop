@@ -72,6 +72,16 @@ func TestJoinApprovalFinalizeFlow(t *testing.T) {
 	if !session.Pending || session.RequestID == "" {
 		t.Fatalf("join session = %+v", session)
 	}
+	job, ok, err := app.GetJob(ctx, session.SessionID)
+	if err != nil {
+		t.Fatalf("get pending join job: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected join job for session %q", session.SessionID)
+	}
+	if job.Kind != jobKindJoinSession || job.Phase != JobPhaseRunning {
+		t.Fatalf("pending join job = %+v", job)
+	}
 
 	requests, err := app.ListJoinRequests(ctx, inviteJoinStatusPending)
 	if err != nil {
@@ -92,6 +102,16 @@ func TestJoinApprovalFinalizeFlow(t *testing.T) {
 	if session.Status != joinSessionStatusApproved || session.Role != roleGuest {
 		t.Fatalf("approved session = %+v", session)
 	}
+	job, ok, err = app.GetJob(ctx, session.SessionID)
+	if err != nil {
+		t.Fatalf("get approved join job: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected approved join job for session %q", session.SessionID)
+	}
+	if job.Phase != JobPhaseRunning || !strings.Contains(job.Message, "approved") {
+		t.Fatalf("approved join job = %+v", job)
+	}
 
 	result, err := app.FinalizeJoinSession(ctx, session.SessionID)
 	if err != nil {
@@ -99,6 +119,16 @@ func TestJoinApprovalFinalizeFlow(t *testing.T) {
 	}
 	if result.LibraryID != library.LibraryID || result.DeviceID != "joiner-device" || result.Role != roleGuest {
 		t.Fatalf("join result = %+v", result)
+	}
+	job, ok, err = app.GetJob(ctx, session.SessionID)
+	if err != nil {
+		t.Fatalf("get completed join job: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected completed join job for session %q", session.SessionID)
+	}
+	if job.Phase != JobPhaseCompleted {
+		t.Fatalf("completed join job = %+v", job)
 	}
 
 	var membership Membership
@@ -133,6 +163,13 @@ func TestJoinRejectCancelAndInviteUseLimit(t *testing.T) {
 	if err := app.RejectJoinRequest(ctx, rejected.RequestID, "no"); err != nil {
 		t.Fatalf("reject join request: %v", err)
 	}
+	job, ok, err := app.GetJob(ctx, rejected.SessionID)
+	if err != nil {
+		t.Fatalf("get rejected join job: %v", err)
+	}
+	if !ok || job.Phase != JobPhaseFailed {
+		t.Fatalf("rejected join job = %+v ok=%v", job, ok)
+	}
 	if _, err := app.FinalizeJoinSession(ctx, rejected.SessionID); err == nil || !strings.Contains(err.Error(), joinSessionStatusRejected) {
 		t.Fatalf("finalize rejected join err = %v", err)
 	}
@@ -143,6 +180,13 @@ func TestJoinRejectCancelAndInviteUseLimit(t *testing.T) {
 	}
 	if err := app.CancelJoinSession(ctx, canceled.SessionID); err != nil {
 		t.Fatalf("cancel join session: %v", err)
+	}
+	job, ok, err = app.GetJob(ctx, canceled.SessionID)
+	if err != nil {
+		t.Fatalf("get canceled join job: %v", err)
+	}
+	if !ok || job.Phase != JobPhaseFailed {
+		t.Fatalf("canceled join job = %+v ok=%v", job, ok)
 	}
 	if _, err := app.GetJoinSession(ctx, canceled.SessionID); err != nil {
 		t.Fatalf("get canceled join session: %v", err)
