@@ -58,9 +58,37 @@ func (a *App) ConnectPeer(ctx context.Context, peerAddr string) error {
 }
 
 func (a *App) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error) {
-	local, err := a.requireActiveContext(ctx)
+	local, err := a.requireCheckpointAdminContext(ctx, "checkpoint publish")
 	if err != nil {
 		return apitypes.LibraryCheckpointManifest{}, err
+	}
+	return a.publishCheckpointForLocalContext(ctx, local)
+}
+
+func (a *App) StartPublishCheckpoint(ctx context.Context) (JobSnapshot, error) {
+	local, err := a.requireCheckpointAdminContext(ctx, "checkpoint publish")
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+
+	jobID := "checkpoint:publish:" + local.LibraryID
+	snapshot, started := a.jobs.Begin(jobID, jobKindPublishCheckpoint, local.LibraryID, "queued checkpoint publish")
+	if !started {
+		return snapshot, nil
+	}
+
+	runCtx := context.WithoutCancel(ctx)
+	go func() {
+		_, _ = a.publishCheckpointForLocalContext(runCtx, local)
+	}()
+	return snapshot, nil
+}
+
+func (a *App) publishCheckpointForLocalContext(ctx context.Context, local apitypes.LocalContext) (apitypes.LibraryCheckpointManifest, error) {
+	local.LibraryID = strings.TrimSpace(local.LibraryID)
+	local.DeviceID = strings.TrimSpace(local.DeviceID)
+	if local.LibraryID == "" {
+		return apitypes.LibraryCheckpointManifest{}, apitypes.ErrNoActiveLibrary
 	}
 	if !canManageLibrary(local.Role) {
 		return apitypes.LibraryCheckpointManifest{}, fmt.Errorf("checkpoint publish requires admin role")
@@ -86,9 +114,36 @@ func (a *App) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpoint
 }
 
 func (a *App) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
-	local, err := a.requireActiveContext(ctx)
+	local, err := a.requireCheckpointAdminContext(ctx, "checkpoint compaction")
 	if err != nil {
 		return apitypes.CheckpointCompactionResult{}, err
+	}
+	return a.compactCheckpointForLocalContext(ctx, local, force)
+}
+
+func (a *App) StartCompactCheckpoint(ctx context.Context, force bool) (JobSnapshot, error) {
+	local, err := a.requireCheckpointAdminContext(ctx, "checkpoint compaction")
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+
+	jobID := "checkpoint:compact:" + local.LibraryID
+	snapshot, started := a.jobs.Begin(jobID, jobKindCompactCheckpoint, local.LibraryID, "queued checkpoint compaction")
+	if !started {
+		return snapshot, nil
+	}
+
+	runCtx := context.WithoutCancel(ctx)
+	go func() {
+		_, _ = a.compactCheckpointForLocalContext(runCtx, local, force)
+	}()
+	return snapshot, nil
+}
+
+func (a *App) compactCheckpointForLocalContext(ctx context.Context, local apitypes.LocalContext, force bool) (apitypes.CheckpointCompactionResult, error) {
+	local.LibraryID = strings.TrimSpace(local.LibraryID)
+	if local.LibraryID == "" {
+		return apitypes.CheckpointCompactionResult{}, apitypes.ErrNoActiveLibrary
 	}
 	if !canManageLibrary(local.Role) {
 		return apitypes.CheckpointCompactionResult{}, fmt.Errorf("checkpoint compaction requires admin role")
@@ -115,6 +170,17 @@ func (a *App) CompactCheckpoint(ctx context.Context, force bool) (apitypes.Check
 		job.Complete(1, message)
 	}
 	return result, nil
+}
+
+func (a *App) requireCheckpointAdminContext(ctx context.Context, action string) (apitypes.LocalContext, error) {
+	local, err := a.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.LocalContext{}, err
+	}
+	if !canManageLibrary(local.Role) {
+		return apitypes.LocalContext{}, fmt.Errorf("%s requires admin role", action)
+	}
+	return local, nil
 }
 
 func (a *App) publishCheckpoint(ctx context.Context, libraryID, deviceID string, job *JobTracker) (apitypes.LibraryCheckpointManifest, error) {

@@ -56,3 +56,33 @@ func TestJobsServiceGetReportsMissingJobs(t *testing.T) {
 		t.Fatalf("expected missing job lookup to report ok=false")
 	}
 }
+
+func TestJobsServiceBeginReusesActiveJob(t *testing.T) {
+	t.Parallel()
+
+	svc := NewJobsService()
+	first, started := svc.Begin("job-1", "scan", "lib-1", "queued")
+	if !started {
+		t.Fatalf("expected first begin to start a job")
+	}
+	if first.Phase != JobPhaseQueued {
+		t.Fatalf("first phase = %q, want queued", first.Phase)
+	}
+
+	second, started := svc.Begin("job-1", "scan", "lib-1", "queued again")
+	if started {
+		t.Fatalf("expected active job begin to reuse existing snapshot")
+	}
+	if second.JobID != first.JobID || second.CreatedAt != first.CreatedAt {
+		t.Fatalf("reused snapshot = %+v, want %+v", second, first)
+	}
+
+	svc.Put(JobSnapshot{JobID: "job-1", Kind: "scan", LibraryID: "lib-1", Phase: JobPhaseCompleted})
+	third, started := svc.Begin("job-1", "scan", "lib-1", "queued after completion")
+	if !started {
+		t.Fatalf("expected completed job to be restartable")
+	}
+	if third.Phase != JobPhaseQueued {
+		t.Fatalf("third phase = %q, want queued", third.Phase)
+	}
+}

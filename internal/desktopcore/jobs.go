@@ -45,6 +45,36 @@ func NewJobsService() *JobsService {
 	return &JobsService{jobs: make(map[string]JobSnapshot)}
 }
 
+func (s *JobsService) Begin(jobID, kind, libraryID, message string) (JobSnapshot, bool) {
+	if s == nil {
+		return JobSnapshot{}, false
+	}
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return JobSnapshot{}, false
+	}
+
+	now := time.Now().UTC()
+	snapshot := JobSnapshot{
+		JobID:     jobID,
+		Kind:      strings.TrimSpace(kind),
+		LibraryID: strings.TrimSpace(libraryID),
+		Phase:     JobPhaseQueued,
+		Message:   strings.TrimSpace(message),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existing, ok := s.jobs[jobID]; ok && isActiveJobPhase(existing.Phase) {
+		return existing, false
+	}
+	s.jobs[jobID] = snapshot
+	return snapshot, true
+}
+
 func (s *JobsService) Track(jobID, kind, libraryID string) *JobTracker {
 	if s == nil {
 		return nil
@@ -199,4 +229,8 @@ func clampJobProgress(progress float64) float64 {
 	default:
 		return progress
 	}
+}
+
+func isActiveJobPhase(phase JobPhase) bool {
+	return phase == JobPhaseQueued || phase == JobPhaseRunning
 }

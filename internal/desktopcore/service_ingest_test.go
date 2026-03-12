@@ -207,6 +207,73 @@ func TestRescanNowImportsMetadataAndPublishesCompletedJob(t *testing.T) {
 	}
 }
 
+func TestStartRescanNowQueuesAsyncJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "async-track.flac")
+	if err := os.WriteFile(audioPath, []byte("fake-audio"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Async Track",
+				Album:       "Async Album",
+				AlbumArtist: "Async Artist",
+				Artists:     []string{"Async Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	library, err := app.CreateLibrary(ctx, "scan-async")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+
+	job, err := app.StartRescanNow(ctx)
+	if err != nil {
+		t.Fatalf("start rescan now: %v", err)
+	}
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindRescanAll {
+		t.Fatalf("unexpected queued job: %+v", job)
+	}
+
+	jobID := scanJobID(library.LibraryID, local.DeviceID, []string{filepath.Clean(root)}, jobKindRescanAll)
+	final := waitForJobPhase(t, ctx, app, jobID, JobPhaseCompleted)
+	if final.Kind != jobKindRescanAll || final.LibraryID != library.LibraryID {
+		t.Fatalf("unexpected final job snapshot: %+v", final)
+	}
+
+	recordings, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list recordings: %v", err)
+	}
+	if len(recordings.Items) != 1 || recordings.Items[0].Title != "Async Track" {
+		t.Fatalf("unexpected recordings page: %+v", recordings)
+	}
+}
+
 func TestRescanRootMarksMissingFilesAbsent(t *testing.T) {
 	t.Parallel()
 
@@ -463,6 +530,29 @@ func waitForRecordingCount(t *testing.T, ctx context.Context, app *App, want int
 	}
 	t.Fatalf("recordings count = %d, want %d", len(page.Items), want)
 	return nil
+}
+
+func waitForJobPhase(t *testing.T, ctx context.Context, app *App, jobID string, want JobPhase) JobSnapshot {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		job, ok, err := app.GetJob(ctx, jobID)
+		if err == nil && ok && job.Phase == want {
+			return job
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	job, ok, err := app.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatalf("get job after wait: %v", err)
+	}
+	if !ok {
+		t.Fatalf("job %q not found after wait", jobID)
+	}
+	t.Fatalf("job %q phase = %q, want %q", jobID, job.Phase, want)
+	return JobSnapshot{}
 }
 
 type staticTagReader struct {

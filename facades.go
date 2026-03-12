@@ -97,8 +97,16 @@ func (s *LibraryFacade) RescanNow(ctx context.Context) (apitypes.ScanStats, erro
 	return s.bridge().RescanNow(ctx)
 }
 
+func (s *LibraryFacade) StartRescanNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
+	return s.bridge().StartRescanNow(ctx)
+}
+
 func (s *LibraryFacade) RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error) {
 	return s.bridge().RescanRoot(ctx, root)
+}
+
+func (s *LibraryFacade) StartRescanRoot(ctx context.Context, root string) (desktopcore.JobSnapshot, error) {
+	return s.bridge().StartRescanRoot(ctx, root)
 }
 
 type NetworkFacade struct {
@@ -147,8 +155,16 @@ func (s *NetworkFacade) PublishCheckpoint(ctx context.Context) (apitypes.Library
 	return s.bridge().PublishCheckpoint(ctx)
 }
 
+func (s *NetworkFacade) StartPublishCheckpoint(ctx context.Context) (desktopcore.JobSnapshot, error) {
+	return s.bridge().StartPublishCheckpoint(ctx)
+}
+
 func (s *NetworkFacade) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
 	return s.bridge().CompactCheckpoint(ctx, force)
+}
+
+func (s *NetworkFacade) StartCompactCheckpoint(ctx context.Context, force bool) (desktopcore.JobSnapshot, error) {
+	return s.bridge().StartCompactCheckpoint(ctx, force)
 }
 
 type JobsFacade struct {

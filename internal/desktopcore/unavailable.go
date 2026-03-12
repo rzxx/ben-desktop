@@ -44,6 +44,10 @@ func (c *UnavailableCore) SyncNow(context.Context) error {
 	return c.err
 }
 
+func (c *UnavailableCore) StartPublishCheckpoint(context.Context) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
 func (c *UnavailableCore) ConnectPeer(context.Context, string) error {
 	return c.err
 }
@@ -58,6 +62,10 @@ func (c *UnavailableCore) PublishCheckpoint(context.Context) (apitypes.LibraryCh
 
 func (c *UnavailableCore) CompactCheckpoint(context.Context, bool) (apitypes.CheckpointCompactionResult, error) {
 	return apitypes.CheckpointCompactionResult{}, c.err
+}
+
+func (c *UnavailableCore) StartCompactCheckpoint(context.Context, bool) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
 }
 
 func (c *UnavailableCore) ListJobs(context.Context, string) ([]JobSnapshot, error) {
@@ -352,6 +360,14 @@ func (c *UnavailableCore) RescanNow(context.Context) (apitypes.ScanStats, error)
 	return apitypes.ScanStats{}, c.err
 }
 
+func (c *UnavailableCore) StartRescanNow(context.Context) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
 func (c *UnavailableCore) RescanRoot(context.Context, string) (apitypes.ScanStats, error) {
 	return apitypes.ScanStats{}, c.err
+}
+
+func (c *UnavailableCore) StartRescanRoot(context.Context, string) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
 }

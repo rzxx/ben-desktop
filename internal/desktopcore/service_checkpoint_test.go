@@ -190,6 +190,140 @@ func TestCompactCheckpointRequiresCoverageThenDeletesCoveredOps(t *testing.T) {
 	}
 }
 
+func TestStartPublishCheckpointQueuesAsyncJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "checkpoint-publish-async")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	now := time.Now().UTC()
+	seedCheckpointOp(t, app, OplogEntry{
+		LibraryID:   library.LibraryID,
+		OpID:        local.DeviceID + ":1",
+		DeviceID:    local.DeviceID,
+		Seq:         1,
+		TSNS:        now.UnixNano(),
+		EntityType:  "playlist",
+		EntityID:    "pl-1",
+		OpKind:      "upsert",
+		PayloadJSON: `{"playlist_id":"pl-1"}`,
+	})
+
+	job, err := app.StartPublishCheckpoint(ctx)
+	if err != nil {
+		t.Fatalf("start publish checkpoint: %v", err)
+	}
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindPublishCheckpoint {
+		t.Fatalf("unexpected queued publish job: %+v", job)
+	}
+
+	final := waitForJobPhase(t, ctx, app, "checkpoint:publish:"+library.LibraryID, JobPhaseCompleted)
+	if final.Kind != jobKindPublishCheckpoint || final.LibraryID != library.LibraryID {
+		t.Fatalf("unexpected final publish job: %+v", final)
+	}
+
+	status, err := app.CheckpointStatus(ctx)
+	if err != nil {
+		t.Fatalf("checkpoint status: %v", err)
+	}
+	if status.CheckpointID == "" || status.EntryCount != 1 {
+		t.Fatalf("unexpected checkpoint status: %+v", status)
+	}
+}
+
+func TestStartCompactCheckpointQueuesAsyncJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "checkpoint-compact-async")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	now := time.Now().UTC()
+	if err := app.db.WithContext(ctx).Create(&Membership{
+		LibraryID:        library.LibraryID,
+		DeviceID:         "peer-device",
+		Role:             roleMember,
+		CapabilitiesJSON: "{}",
+		JoinedAt:         now,
+	}).Error; err != nil {
+		t.Fatalf("seed peer membership: %v", err)
+	}
+	seedCheckpointOp(t, app, OplogEntry{
+		LibraryID:   library.LibraryID,
+		OpID:        local.DeviceID + ":1",
+		DeviceID:    local.DeviceID,
+		Seq:         1,
+		TSNS:        now.UnixNano(),
+		EntityType:  "playlist",
+		EntityID:    "pl-local",
+		OpKind:      "upsert",
+		PayloadJSON: `{"playlist_id":"pl-local"}`,
+	})
+	seedCheckpointOp(t, app, OplogEntry{
+		LibraryID:   library.LibraryID,
+		OpID:        "peer-device:1",
+		DeviceID:    "peer-device",
+		Seq:         1,
+		TSNS:        now.Add(time.Second).UnixNano(),
+		EntityType:  "playlist",
+		EntityID:    "pl-peer",
+		OpKind:      "upsert",
+		PayloadJSON: `{"playlist_id":"pl-peer"}`,
+	})
+
+	manifest, err := app.PublishCheckpoint(ctx)
+	if err != nil {
+		t.Fatalf("publish checkpoint: %v", err)
+	}
+	if err := app.db.WithContext(ctx).Create(&DeviceCheckpointAck{
+		LibraryID:    library.LibraryID,
+		DeviceID:     "peer-device",
+		CheckpointID: manifest.CheckpointID,
+		Source:       checkpointAckSourceCovered,
+		AckedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("seed peer checkpoint ack: %v", err)
+	}
+
+	job, err := app.StartCompactCheckpoint(ctx, false)
+	if err != nil {
+		t.Fatalf("start compact checkpoint: %v", err)
+	}
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindCompactCheckpoint {
+		t.Fatalf("unexpected queued compact job: %+v", job)
+	}
+
+	final := waitForJobPhase(t, ctx, app, "checkpoint:compact:"+library.LibraryID, JobPhaseCompleted)
+	if final.Kind != jobKindCompactCheckpoint || final.LibraryID != library.LibraryID {
+		t.Fatalf("unexpected final compact job: %+v", final)
+	}
+
+	var remainingOps int64
+	if err := app.db.WithContext(ctx).Model(&OplogEntry{}).
+		Where("library_id = ?", library.LibraryID).
+		Count(&remainingOps).Error; err != nil {
+		t.Fatalf("count remaining ops: %v", err)
+	}
+	if remainingOps != 0 {
+		t.Fatalf("remaining oplog entries = %d, want 0", remainingOps)
+	}
+}
+
 func seedCheckpointOp(t *testing.T, app *App, op OplogEntry) {
 	t.Helper()
 	if err := app.db.Create(&op).Error; err != nil {

@@ -23,7 +23,9 @@ type passthroughBridgeStub struct {
 	connectPeerFn               func(context.Context, string) error
 	checkpointStatusFn          func(context.Context) (apitypes.LibraryCheckpointStatus, error)
 	publishCheckpointFn         func(context.Context) (apitypes.LibraryCheckpointManifest, error)
+	startPublishCheckpointFn    func(context.Context) (desktopcore.JobSnapshot, error)
 	compactCheckpointFn         func(context.Context, bool) (apitypes.CheckpointCompactionResult, error)
+	startCompactCheckpointFn    func(context.Context, bool) (desktopcore.JobSnapshot, error)
 	listJobsFn                  func(context.Context, string) ([]desktopcore.JobSnapshot, error)
 	getJobFn                    func(context.Context, string) (desktopcore.JobSnapshot, bool, error)
 	listLibrariesFn             func(context.Context) ([]apitypes.LibrarySummary, error)
@@ -41,7 +43,9 @@ type passthroughBridgeStub struct {
 	removeScanRootsFn           func(context.Context, []string) ([]string, error)
 	scanRootsFn                 func(context.Context) ([]string, error)
 	rescanNowFn                 func(context.Context) (apitypes.ScanStats, error)
+	startRescanNowFn            func(context.Context) (desktopcore.JobSnapshot, error)
 	rescanRootFn                func(context.Context, string) (apitypes.ScanStats, error)
+	startRescanRootFn           func(context.Context, string) (desktopcore.JobSnapshot, error)
 	listArtistsFn               func(context.Context, apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error)
 	getArtistFn                 func(context.Context, string) (apitypes.ArtistListItem, error)
 	listArtistAlbumsFn          func(context.Context, apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
@@ -136,8 +140,16 @@ func (b *passthroughBridgeStub) PublishCheckpoint(ctx context.Context) (apitypes
 	return b.publishCheckpointFn(ctx)
 }
 
+func (b *passthroughBridgeStub) StartPublishCheckpoint(ctx context.Context) (desktopcore.JobSnapshot, error) {
+	return b.startPublishCheckpointFn(ctx)
+}
+
 func (b *passthroughBridgeStub) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
 	return b.compactCheckpointFn(ctx, force)
+}
+
+func (b *passthroughBridgeStub) StartCompactCheckpoint(ctx context.Context, force bool) (desktopcore.JobSnapshot, error) {
+	return b.startCompactCheckpointFn(ctx, force)
 }
 
 func (b *passthroughBridgeStub) ListJobs(ctx context.Context, libraryID string) ([]desktopcore.JobSnapshot, error) {
@@ -208,8 +220,16 @@ func (b *passthroughBridgeStub) RescanNow(ctx context.Context) (apitypes.ScanSta
 	return b.rescanNowFn(ctx)
 }
 
+func (b *passthroughBridgeStub) StartRescanNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
+	return b.startRescanNowFn(ctx)
+}
+
 func (b *passthroughBridgeStub) RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error) {
 	return b.rescanRootFn(ctx, root)
+}
+
+func (b *passthroughBridgeStub) StartRescanRoot(ctx context.Context, root string) (desktopcore.JobSnapshot, error) {
+	return b.startRescanRootFn(ctx, root)
 }
 
 func (b *passthroughBridgeStub) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {

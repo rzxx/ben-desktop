@@ -49,6 +49,21 @@ func (s *IngestService) RescanNow(ctx context.Context) (apitypes.ScanStats, erro
 	return s.runTrackedScan(ctx, local.LibraryID, local.DeviceID, roots, jobKindRescanAll)
 }
 
+func (s *IngestService) StartRescanNow(ctx context.Context) (JobSnapshot, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+	if !canProvideLocalMedia(local.Role) {
+		return JobSnapshot{}, fmt.Errorf("local ingest requires owner, admin, or member role")
+	}
+	roots, err := s.app.scanRootsForDevice(ctx, local.LibraryID, local.DeviceID)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+	return s.startTrackedScan(ctx, local.LibraryID, local.DeviceID, roots, jobKindRescanAll, "queued library scan")
+}
+
 func (s *IngestService) RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error) {
 	local, err := s.app.requireActiveContext(ctx)
 	if err != nil {
@@ -65,6 +80,24 @@ func (s *IngestService) RescanRoot(ctx context.Context, root string) (apitypes.S
 		return apitypes.ScanStats{}, nil
 	}
 	return s.runTrackedScan(ctx, local.LibraryID, local.DeviceID, roots, jobKindRescanRoot)
+}
+
+func (s *IngestService) StartRescanRoot(ctx context.Context, root string) (JobSnapshot, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+	if !canProvideLocalMedia(local.Role) {
+		return JobSnapshot{}, fmt.Errorf("local ingest requires owner, admin, or member role")
+	}
+	roots, err := normalizeScanRoots([]string{root})
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+	if len(roots) == 0 {
+		return JobSnapshot{}, nil
+	}
+	return s.startTrackedScan(ctx, local.LibraryID, local.DeviceID, roots, jobKindRescanRoot, "queued root scan")
 }
 
 func (s *IngestService) runTrackedScan(ctx context.Context, libraryID, deviceID string, roots []string, jobKind string) (apitypes.ScanStats, error) {
@@ -104,6 +137,21 @@ func (s *IngestService) runTrackedScan(ctx context.Context, libraryID, deviceID 
 	}
 	stats, runErr = s.runScanCycle(ctx, libraryID, deviceID, normalized, job)
 	return stats, runErr
+}
+
+func (s *IngestService) startTrackedScan(ctx context.Context, libraryID, deviceID string, roots []string, jobKind, queuedMessage string) (JobSnapshot, error) {
+	normalized := normalizedWatcherRoots(roots)
+	jobID := scanJobID(libraryID, deviceID, normalized, jobKind)
+	snapshot, started := s.app.jobs.Begin(jobID, jobKind, libraryID, queuedMessage)
+	if !started {
+		return snapshot, nil
+	}
+
+	runCtx := context.WithoutCancel(ctx)
+	go func() {
+		_, _ = s.runTrackedScan(runCtx, libraryID, deviceID, normalized, jobKind)
+	}()
+	return snapshot, nil
 }
 
 func (a *App) beginScanFlight(roots []string) (*scanFlight, bool) {

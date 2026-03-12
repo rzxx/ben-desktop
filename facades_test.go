@@ -20,7 +20,8 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 	summary := apitypes.LibrarySummary{LibraryID: "lib-1", Name: "Library", Role: "admin", JoinedAt: time.Now().UTC(), IsActive: true}
 	member := apitypes.LibraryMemberStatus{LibraryID: "lib-1", DeviceID: "dev-1", Role: "admin"}
 	scanStats := apitypes.ScanStats{Scanned: 1, Imported: 1}
-	calls := make([]string, 0, 10)
+	job := desktopcore.JobSnapshot{JobID: "job-scan", Kind: "scan-library", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
+	calls := make([]string, 0, 14)
 	host := &coreHost{
 		started: true,
 		bridge: &passthroughBridgeStub{
@@ -69,9 +70,17 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 				calls = append(calls, "rescan-now")
 				return scanStats, nil
 			},
+			startRescanNowFn: func(context.Context) (desktopcore.JobSnapshot, error) {
+				calls = append(calls, "start-rescan-now")
+				return job, nil
+			},
 			rescanRootFn: func(_ context.Context, root string) (apitypes.ScanStats, error) {
 				calls = append(calls, "rescan-root:"+root)
 				return scanStats, nil
+			},
+			startRescanRootFn: func(_ context.Context, root string) (desktopcore.JobSnapshot, error) {
+				calls = append(calls, "start-rescan-root:"+root)
+				return job, nil
 			},
 		},
 	}
@@ -110,8 +119,14 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 	if got, err := facade.RescanNow(ctx); err != nil || got.Scanned != scanStats.Scanned {
 		t.Fatalf("rescan now = %+v, err=%v", got, err)
 	}
+	if got, err := facade.StartRescanNow(ctx); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start rescan now = %+v, err=%v", got, err)
+	}
 	if got, err := facade.RescanRoot(ctx, "C:/music"); err != nil || got.Imported != scanStats.Imported {
 		t.Fatalf("rescan root = %+v, err=%v", got, err)
+	}
+	if got, err := facade.StartRescanRoot(ctx, "C:/music"); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start rescan root = %+v, err=%v", got, err)
 	}
 
 	want := []string{
@@ -126,7 +141,9 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 		"role:dev-1:guest",
 		"remove:dev-1",
 		"rescan-now",
+		"start-rescan-now",
 		"rescan-root:C:/music",
+		"start-rescan-root:C:/music",
 	}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("library facade calls = %v, want %v", calls, want)
@@ -145,7 +162,8 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	checkpoint := apitypes.LibraryCheckpointStatus{LibraryID: "lib-1", CheckpointID: "ckpt-1"}
 	manifest := apitypes.LibraryCheckpointManifest{LibraryID: "lib-1", CheckpointID: "ckpt-1"}
 	compaction := apitypes.CheckpointCompactionResult{LibraryID: "lib-1", CheckpointID: "ckpt-1", Compactable: true}
-	calls := make([]string, 0, 10)
+	job := desktopcore.JobSnapshot{JobID: "job-checkpoint", Kind: "publish-checkpoint", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
+	calls := make([]string, 0, 12)
 	host := &coreHost{
 		started: true,
 		bridge: &passthroughBridgeStub{
@@ -186,9 +204,17 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 				calls = append(calls, "publish")
 				return manifest, nil
 			},
+			startPublishCheckpointFn: func(context.Context) (desktopcore.JobSnapshot, error) {
+				calls = append(calls, "start-publish")
+				return job, nil
+			},
 			compactCheckpointFn: func(_ context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
 				calls = append(calls, "compact:true")
 				return compaction, nil
+			},
+			startCompactCheckpointFn: func(_ context.Context, force bool) (desktopcore.JobSnapshot, error) {
+				calls = append(calls, "start-compact:true")
+				return job, nil
 			},
 		},
 	}
@@ -221,11 +247,17 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	if got, err := facade.PublishCheckpoint(ctx); err != nil || got.CheckpointID != manifest.CheckpointID {
 		t.Fatalf("publish checkpoint = %+v, err=%v", got, err)
 	}
+	if got, err := facade.StartPublishCheckpoint(ctx); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start publish checkpoint = %+v, err=%v", got, err)
+	}
 	if got, err := facade.CompactCheckpoint(ctx, true); err != nil || got.CheckpointID != compaction.CheckpointID {
 		t.Fatalf("compact checkpoint = %+v, err=%v", got, err)
 	}
+	if got, err := facade.StartCompactCheckpoint(ctx, true); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start compact checkpoint = %+v, err=%v", got, err)
+	}
 
-	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "sync", "connect:peeraddr", "checkpoint", "publish", "compact:true"}
+	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "sync", "connect:peeraddr", "checkpoint", "publish", "start-publish", "compact:true", "start-compact:true"}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("network facade calls = %v, want %v", calls, want)
 	}
