@@ -156,12 +156,52 @@ func (c *UnavailableCore) ResolveRecordingArtwork(context.Context, string, strin
 	return apitypes.RecordingArtworkResult{}, c.err
 }
 
+func (c *UnavailableCore) PinRecordingOffline(context.Context, string, string) (apitypes.PlaybackRecordingResult, error) {
+	return apitypes.PlaybackRecordingResult{}, c.err
+}
+
+func (c *UnavailableCore) UnpinRecordingOffline(context.Context, string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) PinAlbumOffline(context.Context, string, string) (apitypes.PlaybackBatchResult, error) {
+	return apitypes.PlaybackBatchResult{}, c.err
+}
+
+func (c *UnavailableCore) UnpinAlbumOffline(context.Context, string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) PinPlaylistOffline(context.Context, string, string) (apitypes.PlaybackBatchResult, error) {
+	return apitypes.PlaybackBatchResult{}, c.err
+}
+
+func (c *UnavailableCore) UnpinPlaylistOffline(context.Context, string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) PinLikedOffline(context.Context, string) (apitypes.PlaybackBatchResult, error) {
+	return apitypes.PlaybackBatchResult{}, c.err
+}
+
+func (c *UnavailableCore) UnpinLikedOffline(context.Context) error {
+	return c.err
+}
+
 func (c *UnavailableCore) ListRecordingAvailability(context.Context, string, string) ([]apitypes.RecordingAvailabilityItem, error) {
 	return nil, c.err
 }
 
 func (c *UnavailableCore) GetRecordingAvailability(context.Context, string, string) (apitypes.RecordingPlaybackAvailability, error) {
 	return apitypes.RecordingPlaybackAvailability{}, c.err
+}
+
+func (c *UnavailableCore) GetRecordingAvailabilityOverview(context.Context, string, string) (apitypes.RecordingAvailabilityOverview, error) {
+	return apitypes.RecordingAvailabilityOverview{}, c.err
+}
+
+func (c *UnavailableCore) GetAlbumAvailabilityOverview(context.Context, string, string) (apitypes.AlbumAvailabilityOverview, error) {
+	return apitypes.AlbumAvailabilityOverview{}, c.err
 }
 
 func (c *UnavailableCore) ListLibraries(context.Context) ([]apitypes.LibrarySummary, error) {

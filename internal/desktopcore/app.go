@@ -267,10 +267,50 @@ func (a *App) ResolveRecordingArtwork(ctx context.Context, recordingID, variant 
 	return a.playback.ResolveRecordingArtwork(ctx, recordingID, variant)
 }
 
+func (a *App) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+	return a.playback.PinRecordingOffline(ctx, recordingID, preferredProfile)
+}
+
+func (a *App) UnpinRecordingOffline(ctx context.Context, recordingID string) error {
+	return a.playback.UnpinRecordingOffline(ctx, recordingID)
+}
+
+func (a *App) PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return a.playback.PinAlbumOffline(ctx, albumID, preferredProfile)
+}
+
+func (a *App) UnpinAlbumOffline(ctx context.Context, albumID string) error {
+	return a.playback.UnpinAlbumOffline(ctx, albumID)
+}
+
+func (a *App) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return a.playback.PinPlaylistOffline(ctx, playlistID, preferredProfile)
+}
+
+func (a *App) UnpinPlaylistOffline(ctx context.Context, playlistID string) error {
+	return a.playback.UnpinPlaylistOffline(ctx, playlistID)
+}
+
+func (a *App) PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return a.playback.PinLikedOffline(ctx, preferredProfile)
+}
+
+func (a *App) UnpinLikedOffline(ctx context.Context) error {
+	return a.playback.UnpinLikedOffline(ctx)
+}
+
 func (a *App) ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {
 	return a.playback.ListRecordingAvailability(ctx, recordingID, preferredProfile)
 }
 
 func (a *App) GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
 	return a.playback.GetRecordingAvailability(ctx, recordingID, preferredProfile)
+}
+
+func (a *App) GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {
+	return a.playback.GetRecordingAvailabilityOverview(ctx, recordingID, preferredProfile)
+}
+
+func (a *App) GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
+	return a.playback.GetAlbumAvailabilityOverview(ctx, albumID, preferredProfile)
 }

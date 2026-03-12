@@ -60,7 +60,17 @@ type hostBridge interface {
 	GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error)
 	ListCacheEntries(ctx context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error)
 	CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error)
+	PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error)
+	UnpinRecordingOffline(ctx context.Context, recordingID string) error
+	PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error)
+	UnpinAlbumOffline(ctx context.Context, albumID string) error
+	PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error)
+	UnpinPlaylistOffline(ctx context.Context, playlistID string) error
+	PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error)
+	UnpinLikedOffline(ctx context.Context) error
 	ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error)
+	GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error)
+	GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error)
 }
 
 type PlaybackService struct {
@@ -369,6 +379,38 @@ func (s *PlaybackService) CleanupCache(ctx context.Context, req apitypes.CacheCl
 	return s.requireBridge().CleanupCache(ctx, req)
 }
 
+func (s *PlaybackService) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+	return s.requireBridge().PinRecordingOffline(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackService) UnpinRecordingOffline(ctx context.Context, recordingID string) error {
+	return s.requireBridge().UnpinRecordingOffline(ctx, recordingID)
+}
+
+func (s *PlaybackService) PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return s.requireBridge().PinAlbumOffline(ctx, albumID, preferredProfile)
+}
+
+func (s *PlaybackService) UnpinAlbumOffline(ctx context.Context, albumID string) error {
+	return s.requireBridge().UnpinAlbumOffline(ctx, albumID)
+}
+
+func (s *PlaybackService) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return s.requireBridge().PinPlaylistOffline(ctx, playlistID, preferredProfile)
+}
+
+func (s *PlaybackService) UnpinPlaylistOffline(ctx context.Context, playlistID string) error {
+	return s.requireBridge().UnpinPlaylistOffline(ctx, playlistID)
+}
+
+func (s *PlaybackService) PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return s.requireBridge().PinLikedOffline(ctx, preferredProfile)
+}
+
+func (s *PlaybackService) UnpinLikedOffline(ctx context.Context) error {
+	return s.requireBridge().UnpinLikedOffline(ctx)
+}
+
 func (s *PlaybackService) ResolveBlobURL(blobID string) (string, error) {
 	s.mu.RLock()
 	blobRoot := s.blobRoot
@@ -669,8 +711,16 @@ func (s *PlaybackService) ListRecordingAvailability(ctx context.Context, recordi
 	return s.requireBridge().ListRecordingAvailability(ctx, recordingID, preferredProfile)
 }
 
+func (s *PlaybackService) GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {
+	return s.requireBridge().GetRecordingAvailabilityOverview(ctx, recordingID, preferredProfile)
+}
+
 func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
 	return s.requireBridge().GetRecordingAvailability(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackService) GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
+	return s.requireBridge().GetAlbumAvailabilityOverview(ctx, albumID, preferredProfile)
 }
 
 func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapshot) {

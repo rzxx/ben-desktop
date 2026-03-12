@@ -55,12 +55,22 @@ type passthroughBridgeStub struct {
 	getCacheOverviewFn          func(context.Context) (apitypes.CacheOverview, error)
 	listCacheEntriesFn          func(context.Context, apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error)
 	cleanupCacheFn              func(context.Context, apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error)
+	pinRecordingOfflineFn       func(context.Context, string, string) (apitypes.PlaybackRecordingResult, error)
+	unpinRecordingOfflineFn     func(context.Context, string) error
+	pinAlbumOfflineFn           func(context.Context, string, string) (apitypes.PlaybackBatchResult, error)
+	unpinAlbumOfflineFn         func(context.Context, string) error
+	pinPlaylistOfflineFn        func(context.Context, string, string) (apitypes.PlaybackBatchResult, error)
+	unpinPlaylistOfflineFn      func(context.Context, string) error
+	pinLikedOfflineFn           func(context.Context, string) (apitypes.PlaybackBatchResult, error)
+	unpinLikedOfflineFn         func(context.Context) error
 	inspectPlaybackRecordingFn  func(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error)
 	preparePlaybackRecordingFn  func(context.Context, string, string, apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error)
 	getPlaybackPreparationFn    func(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error)
 	resolvePlaybackRecordingFn  func(context.Context, string, string) (apitypes.PlaybackResolveResult, error)
 	listRecordingAvailabilityFn func(context.Context, string, string) ([]apitypes.RecordingAvailabilityItem, error)
+	recordingAvailabilityOVFn   func(context.Context, string, string) (apitypes.RecordingAvailabilityOverview, error)
 	getRecordingAvailabilityFn  func(context.Context, string, string) (apitypes.RecordingPlaybackAvailability, error)
+	albumAvailabilityOVFn       func(context.Context, string, string) (apitypes.AlbumAvailabilityOverview, error)
 }
 
 func (b *passthroughBridgeStub) ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error) {
@@ -163,6 +173,38 @@ func (b *passthroughBridgeStub) CleanupCache(ctx context.Context, req apitypes.C
 	return b.cleanupCacheFn(ctx, req)
 }
 
+func (b *passthroughBridgeStub) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+	return b.pinRecordingOfflineFn(ctx, recordingID, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) UnpinRecordingOffline(ctx context.Context, recordingID string) error {
+	return b.unpinRecordingOfflineFn(ctx, recordingID)
+}
+
+func (b *passthroughBridgeStub) PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return b.pinAlbumOfflineFn(ctx, albumID, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) UnpinAlbumOffline(ctx context.Context, albumID string) error {
+	return b.unpinAlbumOfflineFn(ctx, albumID)
+}
+
+func (b *passthroughBridgeStub) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return b.pinPlaylistOfflineFn(ctx, playlistID, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) UnpinPlaylistOffline(ctx context.Context, playlistID string) error {
+	return b.unpinPlaylistOfflineFn(ctx, playlistID)
+}
+
+func (b *passthroughBridgeStub) PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return b.pinLikedOfflineFn(ctx, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) UnpinLikedOffline(ctx context.Context) error {
+	return b.unpinLikedOfflineFn(ctx)
+}
+
 func (b *passthroughBridgeStub) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 	return b.inspectPlaybackRecordingFn(ctx, recordingID, preferredProfile)
 }
@@ -183,8 +225,16 @@ func (b *passthroughBridgeStub) ListRecordingAvailability(ctx context.Context, r
 	return b.listRecordingAvailabilityFn(ctx, recordingID, preferredProfile)
 }
 
+func (b *passthroughBridgeStub) GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {
+	return b.recordingAvailabilityOVFn(ctx, recordingID, preferredProfile)
+}
+
 func (b *passthroughBridgeStub) GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
 	return b.getRecordingAvailabilityFn(ctx, recordingID, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
+	return b.albumAvailabilityOVFn(ctx, albumID, preferredProfile)
 }
 
 func TestResolveBlobURLReturnsFileURLWhenBlobExists(t *testing.T) {
@@ -630,9 +680,13 @@ func TestPlaybackServicePlaybackHelperMethodsForwardToBridge(t *testing.T) {
 	inspection := apitypes.PlaybackPreparationStatus{RecordingID: "rec-1", PreferredProfile: "desktop", Phase: apitypes.PlaybackPreparationReady, UpdatedAt: now}
 	prepared := apitypes.PlaybackPreparationStatus{RecordingID: "rec-1", PreferredProfile: "desktop", Purpose: apitypes.PlaybackPreparationPlayNow, Phase: apitypes.PlaybackPreparationPreparingFetch, UpdatedAt: now}
 	resolved := apitypes.PlaybackResolveResult{RecordingID: "rec-1", PlayableURI: "file:///track.m4a"}
+	pinned := apitypes.PlaybackRecordingResult{BlobID: "blob-1", Profile: "desktop", FromLocal: true, SourceKind: apitypes.PlaybackSourceCachedOpt}
+	batch := apitypes.PlaybackBatchResult{Tracks: 2, TotalBytes: 2048, LocalHits: 2}
 	availabilityItems := []apitypes.RecordingAvailabilityItem{{DeviceID: "dev-1", CachedOptimized: true}}
 	availability := apitypes.RecordingPlaybackAvailability{RecordingID: "rec-1", PreferredProfile: "desktop", State: apitypes.AvailabilityPlayableCachedOpt}
-	calls := make([]string, 0, 6)
+	recordingOverview := apitypes.RecordingAvailabilityOverview{RecordingID: "rec-1", PreferredProfile: "desktop"}
+	albumOverview := apitypes.AlbumAvailabilityOverview{AlbumID: "album-1", PreferredProfile: "desktop"}
+	calls := make([]string, 0, 14)
 
 	service := &PlaybackService{
 		bridge: &passthroughBridgeStub{
@@ -653,13 +707,53 @@ func TestPlaybackServicePlaybackHelperMethodsForwardToBridge(t *testing.T) {
 				calls = append(calls, "resolve:"+recordingID+":"+preferredProfile)
 				return resolved, nil
 			},
+			pinRecordingOfflineFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+				calls = append(calls, "pin-recording:"+recordingID+":"+preferredProfile)
+				return pinned, nil
+			},
+			unpinRecordingOfflineFn: func(_ context.Context, recordingID string) error {
+				calls = append(calls, "unpin-recording:"+recordingID)
+				return nil
+			},
+			pinAlbumOfflineFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+				calls = append(calls, "pin-album:"+albumID+":"+preferredProfile)
+				return batch, nil
+			},
+			unpinAlbumOfflineFn: func(_ context.Context, albumID string) error {
+				calls = append(calls, "unpin-album:"+albumID)
+				return nil
+			},
+			pinPlaylistOfflineFn: func(_ context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+				calls = append(calls, "pin-playlist:"+playlistID+":"+preferredProfile)
+				return batch, nil
+			},
+			unpinPlaylistOfflineFn: func(_ context.Context, playlistID string) error {
+				calls = append(calls, "unpin-playlist:"+playlistID)
+				return nil
+			},
+			pinLikedOfflineFn: func(_ context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+				calls = append(calls, "pin-liked:"+preferredProfile)
+				return batch, nil
+			},
+			unpinLikedOfflineFn: func(context.Context) error {
+				calls = append(calls, "unpin-liked")
+				return nil
+			},
 			listRecordingAvailabilityFn: func(_ context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {
 				calls = append(calls, "list-availability:"+recordingID+":"+preferredProfile)
 				return availabilityItems, nil
 			},
+			recordingAvailabilityOVFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {
+				calls = append(calls, "recording-overview:"+recordingID+":"+preferredProfile)
+				return recordingOverview, nil
+			},
 			getRecordingAvailabilityFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
 				calls = append(calls, "get-availability:"+recordingID+":"+preferredProfile)
 				return availability, nil
+			},
+			albumAvailabilityOVFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
+				calls = append(calls, "album-overview:"+albumID+":"+preferredProfile)
+				return albumOverview, nil
 			},
 		},
 	}
@@ -676,11 +770,41 @@ func TestPlaybackServicePlaybackHelperMethodsForwardToBridge(t *testing.T) {
 	if got, err := service.ResolvePlaybackRecording(ctx, "rec-1", "desktop"); err != nil || got.PlayableURI != resolved.PlayableURI {
 		t.Fatalf("resolve playback recording = %+v, err=%v", got, err)
 	}
+	if got, err := service.PinRecordingOffline(ctx, "rec-1", "desktop"); err != nil || got.BlobID != pinned.BlobID {
+		t.Fatalf("pin recording offline = %+v, err=%v", got, err)
+	}
+	if err := service.UnpinRecordingOffline(ctx, "rec-1"); err != nil {
+		t.Fatalf("unpin recording offline: %v", err)
+	}
+	if got, err := service.PinAlbumOffline(ctx, "album-1", "desktop"); err != nil || got.Tracks != batch.Tracks {
+		t.Fatalf("pin album offline = %+v, err=%v", got, err)
+	}
+	if err := service.UnpinAlbumOffline(ctx, "album-1"); err != nil {
+		t.Fatalf("unpin album offline: %v", err)
+	}
+	if got, err := service.PinPlaylistOffline(ctx, "playlist-1", "desktop"); err != nil || got.Tracks != batch.Tracks {
+		t.Fatalf("pin playlist offline = %+v, err=%v", got, err)
+	}
+	if err := service.UnpinPlaylistOffline(ctx, "playlist-1"); err != nil {
+		t.Fatalf("unpin playlist offline: %v", err)
+	}
+	if got, err := service.PinLikedOffline(ctx, "desktop"); err != nil || got.Tracks != batch.Tracks {
+		t.Fatalf("pin liked offline = %+v, err=%v", got, err)
+	}
+	if err := service.UnpinLikedOffline(ctx); err != nil {
+		t.Fatalf("unpin liked offline: %v", err)
+	}
 	if got, err := service.ListRecordingAvailability(ctx, "rec-1", "desktop"); err != nil || len(got) != 1 || got[0].DeviceID != availabilityItems[0].DeviceID {
 		t.Fatalf("list recording availability = %+v, err=%v", got, err)
 	}
+	if got, err := service.GetRecordingAvailabilityOverview(ctx, "rec-1", "desktop"); err != nil || got.RecordingID != recordingOverview.RecordingID {
+		t.Fatalf("get recording availability overview = %+v, err=%v", got, err)
+	}
 	if got, err := service.GetRecordingAvailability(ctx, "rec-1", "desktop"); err != nil || got.State != availability.State {
 		t.Fatalf("get recording availability = %+v, err=%v", got, err)
+	}
+	if got, err := service.GetAlbumAvailabilityOverview(ctx, "album-1", "desktop"); err != nil || got.AlbumID != albumOverview.AlbumID {
+		t.Fatalf("get album availability overview = %+v, err=%v", got, err)
 	}
 
 	want := []string{
@@ -688,8 +812,18 @@ func TestPlaybackServicePlaybackHelperMethodsForwardToBridge(t *testing.T) {
 		"prepare:rec-1:desktop:play_now",
 		"get-prep:rec-1:desktop",
 		"resolve:rec-1:desktop",
+		"pin-recording:rec-1:desktop",
+		"unpin-recording:rec-1",
+		"pin-album:album-1:desktop",
+		"unpin-album:album-1",
+		"pin-playlist:playlist-1:desktop",
+		"unpin-playlist:playlist-1",
+		"pin-liked:desktop",
+		"unpin-liked",
 		"list-availability:rec-1:desktop",
+		"recording-overview:rec-1:desktop",
 		"get-availability:rec-1:desktop",
+		"album-overview:album-1:desktop",
 	}
 	if len(calls) != len(want) {
 		t.Fatalf("playback helper call count = %d, want %d (%v)", len(calls), len(want), calls)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	apitypes "ben/core/api/types"
+	"gorm.io/gorm/clause"
 )
 
 type PlaybackService struct {
@@ -371,6 +372,194 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 	return out, nil
 }
 
+func (s *PlaybackService) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
+	if err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	result, err := s.prepareRecordingOfflineResult(ctx, local, resolvedRecordingID, profile)
+	if err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	if err := s.upsertOfflinePin(ctx, local.LibraryID, local.DeviceID, "recording", resolvedRecordingID, profile); err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	return result, nil
+}
+
+func (s *PlaybackService) UnpinRecordingOffline(ctx context.Context, recordingID string) error {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return err
+	}
+	resolvedRecordingID, _, resolveErr := s.resolvePlaybackVariant(ctx, local, recordingID, "")
+	if resolveErr == nil && strings.TrimSpace(resolvedRecordingID) != "" {
+		recordingID = resolvedRecordingID
+	}
+	return s.deleteOfflinePin(ctx, local.LibraryID, local.DeviceID, "recording", recordingID)
+}
+
+func (s *PlaybackService) PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	albumID = strings.TrimSpace(albumID)
+	if albumID == "" {
+		return apitypes.PlaybackBatchResult{}, fmt.Errorf("album id is required")
+	}
+	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, albumID)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	if len(recordingIDs) == 0 {
+		return apitypes.PlaybackBatchResult{}, fmt.Errorf("no recordings found for album %s", albumID)
+	}
+	return s.pinOfflineScope(ctx, local, "album", albumID, recordingIDs, preferredProfile)
+}
+
+func (s *PlaybackService) UnpinAlbumOffline(ctx context.Context, albumID string) error {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.deleteOfflinePin(ctx, local.LibraryID, local.DeviceID, "album", albumID)
+}
+
+func (s *PlaybackService) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	playlistID = strings.TrimSpace(playlistID)
+	if playlistID == "" {
+		return apitypes.PlaybackBatchResult{}, fmt.Errorf("playlist id is required")
+	}
+	recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	if len(recordingIDs) == 0 {
+		return apitypes.PlaybackBatchResult{}, fmt.Errorf("no recordings found for playlist %s", playlistID)
+	}
+	return s.pinOfflineScope(ctx, local, "playlist", playlistID, recordingIDs, preferredProfile)
+}
+
+func (s *PlaybackService) UnpinPlaylistOffline(ctx context.Context, playlistID string) error {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.deleteOfflinePin(ctx, local.LibraryID, local.DeviceID, "playlist", playlistID)
+}
+
+func (s *PlaybackService) PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	playlistID := likedPlaylistIDForLibrary(local.LibraryID)
+	recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	if len(recordingIDs) == 0 {
+		profile := s.resolvePlaybackProfile(preferredProfile)
+		if err := s.upsertOfflinePin(ctx, local.LibraryID, local.DeviceID, "playlist", playlistID, profile); err != nil {
+			return apitypes.PlaybackBatchResult{}, err
+		}
+		return apitypes.PlaybackBatchResult{}, nil
+	}
+	return s.pinOfflineScope(ctx, local, "playlist", playlistID, recordingIDs, preferredProfile)
+}
+
+func (s *PlaybackService) UnpinLikedOffline(ctx context.Context) error {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.deleteOfflinePin(ctx, local.LibraryID, local.DeviceID, "playlist", likedPlaylistIDForLibrary(local.LibraryID))
+}
+
+func (s *PlaybackService) GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.RecordingAvailabilityOverview{}, err
+	}
+	summary, playback, devices, err := s.recordingAvailabilitySummary(ctx, local, recordingID, preferredProfile)
+	if err != nil {
+		return apitypes.RecordingAvailabilityOverview{}, err
+	}
+	variants, err := s.app.catalog.ListRecordingVariants(ctx, apitypes.RecordingVariantListRequest{
+		RecordingID: strings.TrimSpace(recordingID),
+		PageRequest: apitypes.PageRequest{Limit: maxPageLimit},
+	})
+	if err != nil {
+		return apitypes.RecordingAvailabilityOverview{}, err
+	}
+	out := apitypes.RecordingAvailabilityOverview{
+		RecordingID:      strings.TrimSpace(recordingID),
+		PreferredProfile: s.resolvePlaybackProfile(preferredProfile),
+		Playback:         playback,
+		Availability:     summary,
+		Devices:          devices,
+	}
+	for _, variant := range variants.Items {
+		variantDevices, err := s.ListRecordingAvailability(ctx, variant.RecordingID, preferredProfile)
+		if err != nil {
+			return apitypes.RecordingAvailabilityOverview{}, err
+		}
+		out.Variants = append(out.Variants, apitypes.RecordingVariantAvailabilityOverview{
+			Variant: variant,
+			Devices: variantDevices,
+		})
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.AlbumAvailabilityOverview{}, err
+	}
+	tracks, err := s.app.catalog.ListAlbumTracks(ctx, apitypes.AlbumTrackListRequest{
+		AlbumID:     strings.TrimSpace(albumID),
+		PageRequest: apitypes.PageRequest{Limit: maxPageLimit},
+	})
+	if err != nil {
+		return apitypes.AlbumAvailabilityOverview{}, err
+	}
+	variants, err := s.app.catalog.ListAlbumVariants(ctx, apitypes.AlbumVariantListRequest{
+		AlbumID:     strings.TrimSpace(albumID),
+		PageRequest: apitypes.PageRequest{Limit: maxPageLimit},
+	})
+	if err != nil {
+		return apitypes.AlbumAvailabilityOverview{}, err
+	}
+	out := apitypes.AlbumAvailabilityOverview{
+		AlbumID:          strings.TrimSpace(albumID),
+		PreferredProfile: s.resolvePlaybackProfile(preferredProfile),
+	}
+	summaries := make([]apitypes.TrackAvailabilitySummary, 0, len(tracks.Items))
+	for _, track := range tracks.Items {
+		summary, _, _, err := s.recordingAvailabilitySummary(ctx, local, track.RecordingID, preferredProfile)
+		if err != nil {
+			return apitypes.AlbumAvailabilityOverview{}, err
+		}
+		summaries = append(summaries, summary)
+		out.Tracks = append(out.Tracks, apitypes.AlbumTrackAvailabilityOverview{Track: track})
+	}
+	out.Availability = aggregateAvailabilitySummaries(summaries)
+	for _, variant := range variants.Items {
+		out.Variants = append(out.Variants, apitypes.AlbumVariantAvailabilityOverview{Variant: variant})
+	}
+	return out, nil
+}
+
 func (s *PlaybackService) resolvePlaybackVariant(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (string, string, error) {
 	recordingID = strings.TrimSpace(recordingID)
 	if recordingID == "" {
@@ -477,4 +666,260 @@ func (s *PlaybackService) fileURIForBlob(blobID string) (string, error) {
 		return "", err
 	}
 	return fileURIFromPath(path)
+}
+
+func (s *PlaybackService) pinOfflineScope(ctx context.Context, local apitypes.LocalContext, scope, scopeID string, recordingIDs []string, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	seenRecordings := make(map[string]struct{}, len(recordingIDs))
+	out := apitypes.PlaybackBatchResult{}
+	for _, recordingID := range recordingIDs {
+		recordingID = strings.TrimSpace(recordingID)
+		if recordingID == "" {
+			continue
+		}
+		if _, ok := seenRecordings[recordingID]; ok {
+			continue
+		}
+		seenRecordings[recordingID] = struct{}{}
+		resolvedRecordingID, _, err := s.resolvePlaybackVariant(ctx, local, recordingID, profile)
+		if err != nil {
+			return apitypes.PlaybackBatchResult{}, err
+		}
+		result, err := s.prepareRecordingOfflineResult(ctx, local, resolvedRecordingID, profile)
+		if err != nil {
+			return apitypes.PlaybackBatchResult{}, err
+		}
+		out.Tracks++
+		out.TotalBytes += int64(result.Bytes)
+		if result.FromLocal {
+			out.LocalHits++
+		} else {
+			out.RemoteFetches++
+		}
+	}
+	if err := s.upsertOfflinePin(ctx, local.LibraryID, local.DeviceID, scope, scopeID, profile); err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) prepareRecordingOfflineResult(ctx context.Context, local apitypes.LocalContext, recordingID, profile string) (apitypes.PlaybackRecordingResult, error) {
+	if localPath, ok, err := s.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, recordingID); err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	} else if ok {
+		info, err := os.Stat(localPath)
+		if err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		}
+		return apitypes.PlaybackRecordingResult{
+			Profile:    profile,
+			Bytes:      int(info.Size()),
+			FromLocal:  true,
+			SourceKind: apitypes.PlaybackSourceLocalFile,
+			LocalPath:  localPath,
+		}, nil
+	}
+
+	blobID, encodingID, ok, err := s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, profile)
+	if err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	if ok {
+		path, err := s.pathForBlob(blobID)
+		if err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		}
+		var asset OptimizedAssetModel
+		if err := s.app.db.WithContext(ctx).
+			Where("library_id = ? AND optimized_asset_id = ?", local.LibraryID, encodingID).
+			Take(&asset).Error; err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		}
+		return apitypes.PlaybackRecordingResult{
+			EncodingID: encodingID,
+			BlobID:     blobID,
+			Profile:    strings.TrimSpace(asset.Profile),
+			Bitrate:    asset.Bitrate,
+			Bytes:      int(info.Size()),
+			FromLocal:  true,
+			SourceKind: apitypes.PlaybackSourceCachedOpt,
+		}, nil
+	}
+
+	return apitypes.PlaybackRecordingResult{}, fmt.Errorf("recording %s has no local or cached asset available for offline pinning", recordingID)
+}
+
+func (s *PlaybackService) upsertOfflinePin(ctx context.Context, libraryID, deviceID, scope, scopeID, profile string) error {
+	scope = strings.TrimSpace(scope)
+	scopeID = strings.TrimSpace(scopeID)
+	if scope == "" || scopeID == "" {
+		return fmt.Errorf("offline pin scope and scope id are required")
+	}
+	now := time.Now().UTC()
+	return s.app.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "library_id"},
+			{Name: "device_id"},
+			{Name: "scope"},
+			{Name: "scope_id"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{"profile", "updated_at"}),
+	}).Create(&OfflinePin{
+		LibraryID: libraryID,
+		DeviceID:  deviceID,
+		Scope:     scope,
+		ScopeID:   scopeID,
+		Profile:   strings.TrimSpace(profile),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}).Error
+}
+
+func (s *PlaybackService) deleteOfflinePin(ctx context.Context, libraryID, deviceID, scope, scopeID string) error {
+	scope = strings.TrimSpace(scope)
+	scopeID = strings.TrimSpace(scopeID)
+	if scopeID == "" {
+		return fmt.Errorf("%s id is required", scope)
+	}
+	return s.app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", libraryID, deviceID, scope, scopeID).
+		Delete(&OfflinePin{}).Error
+}
+
+func (s *PlaybackService) recordingIDsForAlbum(ctx context.Context, libraryID, albumID string) ([]string, error) {
+	type row struct{ RecordingID string }
+	var rows []row
+	if err := s.app.db.WithContext(ctx).
+		Table("album_tracks").
+		Select("track_variant_id AS recording_id").
+		Where("library_id = ? AND album_variant_id = ?", libraryID, strings.TrimSpace(albumID)).
+		Order("disc_no ASC, track_no ASC, track_variant_id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		recordingID := strings.TrimSpace(row.RecordingID)
+		if recordingID == "" {
+			continue
+		}
+		if _, ok := seen[recordingID]; ok {
+			continue
+		}
+		seen[recordingID] = struct{}{}
+		out = append(out, recordingID)
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) recordingIDsForPlaylist(ctx context.Context, libraryID, playlistID string) ([]string, error) {
+	type row struct{ RecordingID string }
+	var rows []row
+	query := `
+SELECT pi.track_variant_id AS recording_id
+FROM playlist_items pi
+JOIN playlists p ON p.library_id = pi.library_id AND p.playlist_id = pi.playlist_id
+WHERE pi.library_id = ? AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.deleted_at IS NULL
+ORDER BY pi.position_key ASC, pi.item_id ASC`
+	if err := s.app.db.WithContext(ctx).Raw(query, libraryID, strings.TrimSpace(playlistID)).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		recordingID := strings.TrimSpace(row.RecordingID)
+		if recordingID == "" {
+			continue
+		}
+		if _, ok := seen[recordingID]; ok {
+			continue
+		}
+		seen[recordingID] = struct{}{}
+		out = append(out, recordingID)
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) recordingAvailabilitySummary(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (apitypes.TrackAvailabilitySummary, apitypes.RecordingPlaybackAvailability, []apitypes.RecordingAvailabilityItem, error) {
+	playback, err := s.GetRecordingAvailability(ctx, recordingID, preferredProfile)
+	if err != nil {
+		return apitypes.TrackAvailabilitySummary{}, apitypes.RecordingPlaybackAvailability{}, nil, err
+	}
+	devices, err := s.ListRecordingAvailability(ctx, recordingID, preferredProfile)
+	if err != nil {
+		return apitypes.TrackAvailabilitySummary{}, apitypes.RecordingPlaybackAvailability{}, nil, err
+	}
+	return buildTrackAvailabilitySummary(local.DeviceID, playback, devices), playback, devices, nil
+}
+
+func buildTrackAvailabilitySummary(localDeviceID string, playback apitypes.RecordingPlaybackAvailability, devices []apitypes.RecordingAvailabilityItem) apitypes.TrackAvailabilitySummary {
+	out := apitypes.TrackAvailabilitySummary{
+		State:      playback.State,
+		SourceKind: playback.SourceKind,
+		Reason:     playback.Reason,
+	}
+	for _, item := range devices {
+		isLocalDevice := item.DeviceID == localDeviceID
+		hasPath := item.SourcePresent || item.CachedOptimized || item.OptimizedPresent
+		if hasPath {
+			out.AvailableDeviceCount++
+		}
+		if isLocalDevice {
+			if item.SourcePresent {
+				out.HasLocalSource = true
+			}
+			if item.CachedOptimized {
+				out.HasLocalCachedOptimized = true
+			}
+			if hasPath {
+				out.LocalDeviceCount++
+			}
+			continue
+		}
+		if item.SourcePresent {
+			out.HasRemoteSource = true
+		}
+		if item.CachedOptimized {
+			out.HasRemoteCachedOptimized = true
+		}
+		if hasPath {
+			out.RemoteDeviceCount++
+		}
+	}
+	out.IsLocal = out.HasLocalSource || out.HasLocalCachedOptimized ||
+		playback.SourceKind == apitypes.PlaybackSourceLocalFile ||
+		playback.SourceKind == apitypes.PlaybackSourceCachedOpt
+	return out
+}
+
+func aggregateAvailabilitySummaries(items []apitypes.TrackAvailabilitySummary) apitypes.AggregateAvailabilitySummary {
+	out := apitypes.AggregateAvailabilitySummary{}
+	for _, item := range items {
+		if item.IsLocal {
+			out.IsLocal = true
+			out.LocalTrackCount++
+		}
+		if item.HasRemoteSource || item.HasRemoteCachedOptimized || item.RemoteDeviceCount > 0 {
+			out.HasRemote = true
+			out.RemoteTrackCount++
+		}
+		if item.HasLocalCachedOptimized {
+			out.CachedTrackCount++
+		}
+		switch item.State {
+		case apitypes.AvailabilityPlayableLocalFile,
+			apitypes.AvailabilityPlayableCachedOpt,
+			apitypes.AvailabilityPlayableRemoteOpt,
+			apitypes.AvailabilityWaitingTranscode:
+			out.AvailableTrackCount++
+		default:
+			out.UnavailableTrackCount++
+		}
+	}
+	return out
 }
