@@ -9,6 +9,100 @@ import { Create as $Create } from "@wailsio/runtime";
 // @ts-ignore: Unused imports
 import * as time$0 from "../../../../time/models.js";
 
+export class AggregateAvailabilitySummary {
+    "IsLocal": boolean;
+    "HasRemote": boolean;
+    "LocalTrackCount": number;
+    "CachedTrackCount": number;
+    "RemoteTrackCount": number;
+    "AvailableTrackCount": number;
+    "UnavailableTrackCount": number;
+
+    /** Creates a new AggregateAvailabilitySummary instance. */
+    constructor($$source: Partial<AggregateAvailabilitySummary> = {}) {
+        if (!("IsLocal" in $$source)) {
+            this["IsLocal"] = false;
+        }
+        if (!("HasRemote" in $$source)) {
+            this["HasRemote"] = false;
+        }
+        if (!("LocalTrackCount" in $$source)) {
+            this["LocalTrackCount"] = 0;
+        }
+        if (!("CachedTrackCount" in $$source)) {
+            this["CachedTrackCount"] = 0;
+        }
+        if (!("RemoteTrackCount" in $$source)) {
+            this["RemoteTrackCount"] = 0;
+        }
+        if (!("AvailableTrackCount" in $$source)) {
+            this["AvailableTrackCount"] = 0;
+        }
+        if (!("UnavailableTrackCount" in $$source)) {
+            this["UnavailableTrackCount"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AggregateAvailabilitySummary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AggregateAvailabilitySummary {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AggregateAvailabilitySummary($$parsedSource as Partial<AggregateAvailabilitySummary>);
+    }
+}
+
+export class AlbumAvailabilityOverview {
+    "AlbumID": string;
+    "PreferredProfile": string;
+    "Availability": AggregateAvailabilitySummary;
+    "Tracks": AlbumTrackAvailabilityOverview[];
+    "Variants": AlbumVariantAvailabilityOverview[];
+
+    /** Creates a new AlbumAvailabilityOverview instance. */
+    constructor($$source: Partial<AlbumAvailabilityOverview> = {}) {
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
+        }
+        if (!("PreferredProfile" in $$source)) {
+            this["PreferredProfile"] = "";
+        }
+        if (!("Availability" in $$source)) {
+            this["Availability"] = (new AggregateAvailabilitySummary());
+        }
+        if (!("Tracks" in $$source)) {
+            this["Tracks"] = [];
+        }
+        if (!("Variants" in $$source)) {
+            this["Variants"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AlbumAvailabilityOverview instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AlbumAvailabilityOverview {
+        const $$createField2_0 = $$createType0;
+        const $$createField3_0 = $$createType2;
+        const $$createField4_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Availability" in $$parsedSource) {
+            $$parsedSource["Availability"] = $$createField2_0($$parsedSource["Availability"]);
+        }
+        if ("Tracks" in $$parsedSource) {
+            $$parsedSource["Tracks"] = $$createField3_0($$parsedSource["Tracks"]);
+        }
+        if ("Variants" in $$parsedSource) {
+            $$parsedSource["Variants"] = $$createField4_0($$parsedSource["Variants"]);
+        }
+        return new AlbumAvailabilityOverview($$parsedSource as Partial<AlbumAvailabilityOverview>);
+    }
+}
+
 export class AlbumListItem {
     "AlbumID": string;
     "AlbumClusterID": string;
@@ -61,9 +155,9 @@ export class AlbumListItem {
      * Creates a new AlbumListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): AlbumListItem {
-        const $$createField3_0 = $$createType0;
-        const $$createField6_0 = $$createType1;
-        const $$createField9_0 = $$createType2;
+        const $$createField3_0 = $$createType5;
+        const $$createField6_0 = $$createType6;
+        const $$createField9_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
@@ -100,6 +194,31 @@ export class AlbumListRequest {
     static createFrom($$source: any = {}): AlbumListRequest {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new AlbumListRequest($$parsedSource as Partial<AlbumListRequest>);
+    }
+}
+
+export class AlbumTrackAvailabilityOverview {
+    "Track": AlbumTrackItem;
+
+    /** Creates a new AlbumTrackAvailabilityOverview instance. */
+    constructor($$source: Partial<AlbumTrackAvailabilityOverview> = {}) {
+        if (!("Track" in $$source)) {
+            this["Track"] = (new AlbumTrackItem());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AlbumTrackAvailabilityOverview instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AlbumTrackAvailabilityOverview {
+        const $$createField0_0 = $$createType8;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Track" in $$parsedSource) {
+            $$parsedSource["Track"] = $$createField0_0($$parsedSource["Track"]);
+        }
+        return new AlbumTrackAvailabilityOverview($$parsedSource as Partial<AlbumTrackAvailabilityOverview>);
     }
 }
 
@@ -143,8 +262,8 @@ export class AlbumTrackItem {
      * Creates a new AlbumTrackItem instance from a string or object.
      */
     static createFrom($$source: any = {}): AlbumTrackItem {
-        const $$createField5_0 = $$createType0;
-        const $$createField6_0 = $$createType3;
+        const $$createField5_0 = $$createType5;
+        const $$createField6_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField5_0($$parsedSource["Artists"]);
@@ -182,6 +301,31 @@ export class AlbumTrackListRequest {
     static createFrom($$source: any = {}): AlbumTrackListRequest {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new AlbumTrackListRequest($$parsedSource as Partial<AlbumTrackListRequest>);
+    }
+}
+
+export class AlbumVariantAvailabilityOverview {
+    "Variant": AlbumVariantItem;
+
+    /** Creates a new AlbumVariantAvailabilityOverview instance. */
+    constructor($$source: Partial<AlbumVariantAvailabilityOverview> = {}) {
+        if (!("Variant" in $$source)) {
+            this["Variant"] = (new AlbumVariantItem());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AlbumVariantAvailabilityOverview instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AlbumVariantAvailabilityOverview {
+        const $$createField0_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Variant" in $$parsedSource) {
+            $$parsedSource["Variant"] = $$createField0_0($$parsedSource["Variant"]);
+        }
+        return new AlbumVariantAvailabilityOverview($$parsedSource as Partial<AlbumVariantAvailabilityOverview>);
     }
 }
 
@@ -249,9 +393,9 @@ export class AlbumVariantItem {
      * Creates a new AlbumVariantItem instance from a string or object.
      */
     static createFrom($$source: any = {}): AlbumVariantItem {
-        const $$createField3_0 = $$createType0;
-        const $$createField7_0 = $$createType1;
-        const $$createField12_0 = $$createType2;
+        const $$createField3_0 = $$createType5;
+        const $$createField7_0 = $$createType6;
+        const $$createField12_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
@@ -356,7 +500,7 @@ export class ArtistListItem {
      * Creates a new ArtistListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): ArtistListItem {
-        const $$createField4_0 = $$createType2;
+        const $$createField4_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Availability" in $$parsedSource) {
             $$parsedSource["Availability"] = $$createField4_0($$parsedSource["Availability"]);
@@ -466,7 +610,7 @@ export class CacheCleanupRequest {
      * Creates a new CacheCleanupRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): CacheCleanupRequest {
-        const $$createField1_0 = $$createType0;
+        const $$createField1_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("BlobIDs" in $$parsedSource) {
             $$parsedSource["BlobIDs"] = $$createField1_0($$parsedSource["BlobIDs"]);
@@ -499,7 +643,7 @@ export class CacheCleanupResult {
      * Creates a new CacheCleanupResult instance from a string or object.
      */
     static createFrom($$source: any = {}): CacheCleanupResult {
-        const $$createField0_0 = $$createType0;
+        const $$createField0_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("DeletedBlobs" in $$parsedSource) {
             $$parsedSource["DeletedBlobs"] = $$createField0_0($$parsedSource["DeletedBlobs"]);
@@ -576,7 +720,7 @@ export class CacheEntryItem {
      * Creates a new CacheEntryItem instance from a string or object.
      */
     static createFrom($$source: any = {}): CacheEntryItem {
-        const $$createField6_0 = $$createType5;
+        const $$createField6_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("PinScopes" in $$parsedSource) {
             $$parsedSource["PinScopes"] = $$createField6_0($$parsedSource["PinScopes"]);
@@ -677,8 +821,8 @@ export class CacheOverview {
      * Creates a new CacheOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): CacheOverview {
-        const $$createField9_0 = $$createType7;
-        const $$createField10_0 = $$createType9;
+        const $$createField9_0 = $$createType14;
+        const $$createField10_0 = $$createType16;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("ByKind" in $$parsedSource) {
             $$parsedSource["ByKind"] = $$createField9_0($$parsedSource["ByKind"]);
@@ -1006,8 +1150,8 @@ export class LikedRecordingItem {
      * Creates a new LikedRecordingItem instance from a string or object.
      */
     static createFrom($$source: any = {}): LikedRecordingItem {
-        const $$createField3_0 = $$createType0;
-        const $$createField5_0 = $$createType3;
+        const $$createField3_0 = $$createType5;
+        const $$createField5_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField3_0($$parsedSource["Artists"]);
@@ -1066,8 +1210,8 @@ export class Page<T> {
      * of the generic class Page.
      */
     static createFrom<T = any>($$createParamT: (source: any) => T): ($$source?: any) => Page<T> {
-        const $$createField0_0 = $$createType10($$createParamT);
-        const $$createField1_0 = $$createType11;
+        const $$createField0_0 = $$createType17($$createParamT);
+        const $$createField1_0 = $$createType18;
         return ($$source: any = {}) => {
             let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
             if ("Items" in $$parsedSource) {
@@ -1119,6 +1263,39 @@ export class PageInfo {
     static createFrom($$source: any = {}): PageInfo {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new PageInfo($$parsedSource as Partial<PageInfo>);
+    }
+}
+
+export class PlaybackBatchResult {
+    "Tracks": number;
+    "TotalBytes": number;
+    "LocalHits": number;
+    "RemoteFetches": number;
+
+    /** Creates a new PlaybackBatchResult instance. */
+    constructor($$source: Partial<PlaybackBatchResult> = {}) {
+        if (!("Tracks" in $$source)) {
+            this["Tracks"] = 0;
+        }
+        if (!("TotalBytes" in $$source)) {
+            this["TotalBytes"] = 0;
+        }
+        if (!("LocalHits" in $$source)) {
+            this["LocalHits"] = 0;
+        }
+        if (!("RemoteFetches" in $$source)) {
+            this["RemoteFetches"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaybackBatchResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaybackBatchResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaybackBatchResult($$parsedSource as Partial<PlaybackBatchResult>);
     }
 }
 
@@ -1184,6 +1361,59 @@ export class PlaybackPreparationStatus {
     static createFrom($$source: any = {}): PlaybackPreparationStatus {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new PlaybackPreparationStatus($$parsedSource as Partial<PlaybackPreparationStatus>);
+    }
+}
+
+export class PlaybackRecordingResult {
+    "EncodingID": string;
+    "BlobID": string;
+    "Profile": string;
+    "Bitrate": number;
+    "Bytes": number;
+    "FromLocal": boolean;
+    "SourceKind": PlaybackSourceKind;
+    "LocalPath": string;
+    "Reason": PlaybackUnavailableReason;
+
+    /** Creates a new PlaybackRecordingResult instance. */
+    constructor($$source: Partial<PlaybackRecordingResult> = {}) {
+        if (!("EncodingID" in $$source)) {
+            this["EncodingID"] = "";
+        }
+        if (!("BlobID" in $$source)) {
+            this["BlobID"] = "";
+        }
+        if (!("Profile" in $$source)) {
+            this["Profile"] = "";
+        }
+        if (!("Bitrate" in $$source)) {
+            this["Bitrate"] = 0;
+        }
+        if (!("Bytes" in $$source)) {
+            this["Bytes"] = 0;
+        }
+        if (!("FromLocal" in $$source)) {
+            this["FromLocal"] = false;
+        }
+        if (!("SourceKind" in $$source)) {
+            this["SourceKind"] = PlaybackSourceKind.$zero;
+        }
+        if (!("LocalPath" in $$source)) {
+            this["LocalPath"] = "";
+        }
+        if (!("Reason" in $$source)) {
+            this["Reason"] = PlaybackUnavailableReason.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaybackRecordingResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaybackRecordingResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaybackRecordingResult($$parsedSource as Partial<PlaybackRecordingResult>);
     }
 }
 
@@ -1391,7 +1621,7 @@ export class PlaylistListItem {
      * Creates a new PlaylistListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): PlaylistListItem {
-        const $$createField4_0 = $$createType1;
+        const $$createField4_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Thumb" in $$parsedSource) {
             $$parsedSource["Thumb"] = $$createField4_0($$parsedSource["Thumb"]);
@@ -1510,7 +1740,7 @@ export class PlaylistRecord {
      * Creates a new PlaylistRecord instance from a string or object.
      */
     static createFrom($$source: any = {}): PlaylistRecord {
-        const $$createField5_0 = $$createType1;
+        const $$createField5_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Thumb" in $$parsedSource) {
             $$parsedSource["Thumb"] = $$createField5_0($$parsedSource["Thumb"]);
@@ -1559,8 +1789,8 @@ export class PlaylistTrackItem {
      * Creates a new PlaylistTrackItem instance from a string or object.
      */
     static createFrom($$source: any = {}): PlaylistTrackItem {
-        const $$createField4_0 = $$createType0;
-        const $$createField6_0 = $$createType3;
+        const $$createField4_0 = $$createType5;
+        const $$createField6_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField4_0($$parsedSource["Artists"]);
@@ -1650,6 +1880,63 @@ export class RecordingAvailabilityItem {
     }
 }
 
+export class RecordingAvailabilityOverview {
+    "RecordingID": string;
+    "PreferredProfile": string;
+    "Playback": RecordingPlaybackAvailability;
+    "Availability": TrackAvailabilitySummary;
+    "Devices": RecordingAvailabilityItem[];
+    "Variants": RecordingVariantAvailabilityOverview[];
+
+    /** Creates a new RecordingAvailabilityOverview instance. */
+    constructor($$source: Partial<RecordingAvailabilityOverview> = {}) {
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("PreferredProfile" in $$source)) {
+            this["PreferredProfile"] = "";
+        }
+        if (!("Playback" in $$source)) {
+            this["Playback"] = (new RecordingPlaybackAvailability());
+        }
+        if (!("Availability" in $$source)) {
+            this["Availability"] = (new TrackAvailabilitySummary());
+        }
+        if (!("Devices" in $$source)) {
+            this["Devices"] = [];
+        }
+        if (!("Variants" in $$source)) {
+            this["Variants"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingAvailabilityOverview instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingAvailabilityOverview {
+        const $$createField2_0 = $$createType19;
+        const $$createField3_0 = $$createType20;
+        const $$createField4_0 = $$createType22;
+        const $$createField5_0 = $$createType24;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Playback" in $$parsedSource) {
+            $$parsedSource["Playback"] = $$createField2_0($$parsedSource["Playback"]);
+        }
+        if ("Availability" in $$parsedSource) {
+            $$parsedSource["Availability"] = $$createField3_0($$parsedSource["Availability"]);
+        }
+        if ("Devices" in $$parsedSource) {
+            $$parsedSource["Devices"] = $$createField4_0($$parsedSource["Devices"]);
+        }
+        if ("Variants" in $$parsedSource) {
+            $$parsedSource["Variants"] = $$createField5_0($$parsedSource["Variants"]);
+        }
+        return new RecordingAvailabilityOverview($$parsedSource as Partial<RecordingAvailabilityOverview>);
+    }
+}
+
 export enum RecordingAvailabilityState {
     /**
      * The Go zero value for the underlying type of the enum.
@@ -1710,8 +1997,8 @@ export class RecordingListItem {
      * Creates a new RecordingListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingListItem {
-        const $$createField4_0 = $$createType0;
-        const $$createField7_0 = $$createType3;
+        const $$createField4_0 = $$createType5;
+        const $$createField7_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField4_0($$parsedSource["Artists"]);
@@ -1786,6 +2073,39 @@ export class RecordingPlaybackAvailability {
     static createFrom($$source: any = {}): RecordingPlaybackAvailability {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new RecordingPlaybackAvailability($$parsedSource as Partial<RecordingPlaybackAvailability>);
+    }
+}
+
+export class RecordingVariantAvailabilityOverview {
+    "Variant": RecordingVariantItem;
+    "Devices": RecordingAvailabilityItem[];
+
+    /** Creates a new RecordingVariantAvailabilityOverview instance. */
+    constructor($$source: Partial<RecordingVariantAvailabilityOverview> = {}) {
+        if (!("Variant" in $$source)) {
+            this["Variant"] = (new RecordingVariantItem());
+        }
+        if (!("Devices" in $$source)) {
+            this["Devices"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingVariantAvailabilityOverview instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingVariantAvailabilityOverview {
+        const $$createField0_0 = $$createType25;
+        const $$createField1_0 = $$createType22;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Variant" in $$parsedSource) {
+            $$parsedSource["Variant"] = $$createField0_0($$parsedSource["Variant"]);
+        }
+        if ("Devices" in $$parsedSource) {
+            $$parsedSource["Devices"] = $$createField1_0($$parsedSource["Devices"]);
+        }
+        return new RecordingVariantAvailabilityOverview($$parsedSource as Partial<RecordingVariantAvailabilityOverview>);
     }
 }
 
@@ -1893,8 +2213,8 @@ export class RecordingVariantItem {
      * Creates a new RecordingVariantItem instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingVariantItem {
-        const $$createField5_0 = $$createType0;
-        const $$createField22_0 = $$createType3;
+        const $$createField5_0 = $$createType5;
+        const $$createField22_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
             $$parsedSource["Artists"] = $$createField5_0($$parsedSource["Artists"]);
@@ -1935,16 +2255,91 @@ export class RecordingVariantListRequest {
     }
 }
 
+export class TrackAvailabilitySummary {
+    "State": RecordingAvailabilityState;
+    "SourceKind": PlaybackSourceKind;
+    "Reason": PlaybackUnavailableReason;
+    "IsLocal": boolean;
+    "HasLocalSource": boolean;
+    "HasLocalCachedOptimized": boolean;
+    "HasRemoteSource": boolean;
+    "HasRemoteCachedOptimized": boolean;
+    "LocalDeviceCount": number;
+    "RemoteDeviceCount": number;
+    "AvailableDeviceCount": number;
+
+    /** Creates a new TrackAvailabilitySummary instance. */
+    constructor($$source: Partial<TrackAvailabilitySummary> = {}) {
+        if (!("State" in $$source)) {
+            this["State"] = RecordingAvailabilityState.$zero;
+        }
+        if (!("SourceKind" in $$source)) {
+            this["SourceKind"] = PlaybackSourceKind.$zero;
+        }
+        if (!("Reason" in $$source)) {
+            this["Reason"] = PlaybackUnavailableReason.$zero;
+        }
+        if (!("IsLocal" in $$source)) {
+            this["IsLocal"] = false;
+        }
+        if (!("HasLocalSource" in $$source)) {
+            this["HasLocalSource"] = false;
+        }
+        if (!("HasLocalCachedOptimized" in $$source)) {
+            this["HasLocalCachedOptimized"] = false;
+        }
+        if (!("HasRemoteSource" in $$source)) {
+            this["HasRemoteSource"] = false;
+        }
+        if (!("HasRemoteCachedOptimized" in $$source)) {
+            this["HasRemoteCachedOptimized"] = false;
+        }
+        if (!("LocalDeviceCount" in $$source)) {
+            this["LocalDeviceCount"] = 0;
+        }
+        if (!("RemoteDeviceCount" in $$source)) {
+            this["RemoteDeviceCount"] = 0;
+        }
+        if (!("AvailableDeviceCount" in $$source)) {
+            this["AvailableDeviceCount"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TrackAvailabilitySummary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TrackAvailabilitySummary {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TrackAvailabilitySummary($$parsedSource as Partial<TrackAvailabilitySummary>);
+    }
+}
+
 // Private type creation functions
-const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = ArtworkRef.createFrom;
-const $$createType2 = CatalogAggregateAvailabilityHint.createFrom;
-const $$createType3 = CatalogTrackAvailabilityHint.createFrom;
-const $$createType4 = CachePinScopeRef.createFrom;
-const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = CacheUsageBreakdown.createFrom;
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = CachePinScopeSummary.createFrom;
-const $$createType9 = $Create.Array($$createType8);
-const $$createType10 = ($$createParamT: any) => $Create.Array($$createParamT);
-const $$createType11 = PageInfo.createFrom;
+const $$createType0 = AggregateAvailabilitySummary.createFrom;
+const $$createType1 = AlbumTrackAvailabilityOverview.createFrom;
+const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = AlbumVariantAvailabilityOverview.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = $Create.Array($Create.Any);
+const $$createType6 = ArtworkRef.createFrom;
+const $$createType7 = CatalogAggregateAvailabilityHint.createFrom;
+const $$createType8 = AlbumTrackItem.createFrom;
+const $$createType9 = CatalogTrackAvailabilityHint.createFrom;
+const $$createType10 = AlbumVariantItem.createFrom;
+const $$createType11 = CachePinScopeRef.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = CacheUsageBreakdown.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = CachePinScopeSummary.createFrom;
+const $$createType16 = $Create.Array($$createType15);
+const $$createType17 = ($$createParamT: any) => $Create.Array($$createParamT);
+const $$createType18 = PageInfo.createFrom;
+const $$createType19 = RecordingPlaybackAvailability.createFrom;
+const $$createType20 = TrackAvailabilitySummary.createFrom;
+const $$createType21 = RecordingAvailabilityItem.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = RecordingVariantAvailabilityOverview.createFrom;
+const $$createType24 = $Create.Array($$createType23);
+const $$createType25 = RecordingVariantItem.createFrom;

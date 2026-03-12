@@ -24,11 +24,16 @@ func init() {
 // and starts a goroutine that emits a time-based event every second. It subsequently runs the application and
 // logs any error that might occur.
 func main() {
-	playbackService := NewPlaybackService()
+	host := newCoreHost()
+	playbackService := NewPlaybackServiceWithHost(host)
 	app := application.New(application.Options{
 		Name:        "ben-desktop",
 		Description: "Desktop host for ben playback and core services",
 		Services: []application.Service{
+			application.NewService(NewLibraryFacade(host)),
+			application.NewService(NewCatalogFacade(host)),
+			application.NewService(NewPlaybackFacade(host)),
+			application.NewService(NewCacheFacade(host)),
 			application.NewService(playbackService),
 		},
 		Assets: application.AssetOptions{

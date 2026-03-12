@@ -1,0 +1,438 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	apitypes "ben/core/api/types"
+	"ben/desktop/internal/desktopcore"
+)
+
+func TestLibraryFacadeForwardsToBridge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	summary := apitypes.LibrarySummary{LibraryID: "lib-1", Name: "Library", Role: "admin", JoinedAt: time.Now().UTC(), IsActive: true}
+	member := apitypes.LibraryMemberStatus{LibraryID: "lib-1", DeviceID: "dev-1", Role: "admin"}
+	calls := make([]string, 0, 10)
+	host := &coreHost{
+		started: true,
+		bridge: &passthroughBridgeStub{
+			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+			listLibrariesFn: func(context.Context) ([]apitypes.LibrarySummary, error) {
+				calls = append(calls, "list")
+				return []apitypes.LibrarySummary{summary}, nil
+			},
+			activeLibraryFn: func(context.Context) (apitypes.LibrarySummary, bool, error) {
+				calls = append(calls, "active")
+				return summary, true, nil
+			},
+			createLibraryFn: func(_ context.Context, name string) (apitypes.LibrarySummary, error) {
+				calls = append(calls, "create:"+name)
+				return summary, nil
+			},
+			selectLibraryFn: func(_ context.Context, libraryID string) (apitypes.LibrarySummary, error) {
+				calls = append(calls, "select:"+libraryID)
+				return summary, nil
+			},
+			renameLibraryFn: func(_ context.Context, libraryID, name string) (apitypes.LibrarySummary, error) {
+				calls = append(calls, "rename:"+libraryID+":"+name)
+				return summary, nil
+			},
+			leaveLibraryFn: func(_ context.Context, libraryID string) error {
+				calls = append(calls, "leave:"+libraryID)
+				return nil
+			},
+			deleteLibraryFn: func(_ context.Context, libraryID string) error {
+				calls = append(calls, "delete:"+libraryID)
+				return nil
+			},
+			listLibraryMembersFn: func(context.Context) ([]apitypes.LibraryMemberStatus, error) {
+				calls = append(calls, "members")
+				return []apitypes.LibraryMemberStatus{member}, nil
+			},
+			updateLibraryMemberRoleFn: func(_ context.Context, deviceID, role string) error {
+				calls = append(calls, "role:"+deviceID+":"+role)
+				return nil
+			},
+			removeLibraryMemberFn: func(_ context.Context, deviceID string) error {
+				calls = append(calls, "remove:"+deviceID)
+				return nil
+			},
+		},
+	}
+	facade := NewLibraryFacade(host)
+
+	if got, err := facade.ListLibraries(ctx); err != nil || len(got) != 1 || got[0].LibraryID != summary.LibraryID {
+		t.Fatalf("list libraries = %+v, err=%v", got, err)
+	}
+	if got, ok, err := facade.ActiveLibrary(ctx); err != nil || !ok || got.LibraryID != summary.LibraryID {
+		t.Fatalf("active library = %+v, ok=%v, err=%v", got, ok, err)
+	}
+	if _, err := facade.CreateLibrary(ctx, "Library"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if _, err := facade.SelectLibrary(ctx, "lib-1"); err != nil {
+		t.Fatalf("select library: %v", err)
+	}
+	if _, err := facade.RenameLibrary(ctx, "lib-1", "Renamed"); err != nil {
+		t.Fatalf("rename library: %v", err)
+	}
+	if err := facade.LeaveLibrary(ctx, "lib-1"); err != nil {
+		t.Fatalf("leave library: %v", err)
+	}
+	if err := facade.DeleteLibrary(ctx, "lib-1"); err != nil {
+		t.Fatalf("delete library: %v", err)
+	}
+	if got, err := facade.ListLibraryMembers(ctx); err != nil || len(got) != 1 || got[0].DeviceID != member.DeviceID {
+		t.Fatalf("list library members = %+v, err=%v", got, err)
+	}
+	if err := facade.UpdateLibraryMemberRole(ctx, "dev-1", "guest"); err != nil {
+		t.Fatalf("update library member role: %v", err)
+	}
+	if err := facade.RemoveLibraryMember(ctx, "dev-1"); err != nil {
+		t.Fatalf("remove library member: %v", err)
+	}
+
+	want := []string{
+		"list",
+		"active",
+		"create:Library",
+		"select:lib-1",
+		"rename:lib-1:Renamed",
+		"leave:lib-1",
+		"delete:lib-1",
+		"members",
+		"role:dev-1:guest",
+		"remove:dev-1",
+	}
+	if strings.Join(calls, "|") != strings.Join(want, "|") {
+		t.Fatalf("library facade calls = %v, want %v", calls, want)
+	}
+}
+
+func TestCatalogFacadeForwardsToBridge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	album := apitypes.AlbumListItem{AlbumID: "album-1", Title: "Album"}
+	artist := apitypes.ArtistListItem{ArtistID: "artist-1", Name: "Artist"}
+	recording := apitypes.RecordingListItem{RecordingID: "rec-1", Title: "Track"}
+	playlist := apitypes.PlaylistListItem{PlaylistID: "pl-1", Name: "Playlist"}
+	liked := apitypes.LikedRecordingItem{RecordingID: "rec-1", Title: "Track"}
+	item := apitypes.PlaylistItemRecord{PlaylistID: "pl-1", ItemID: "item-1", RecordingID: "rec-1"}
+	pageInfo := apitypes.PageInfo{Returned: 1, Total: 1}
+	calls := make([]string, 0, 18)
+	host := &coreHost{
+		started: true,
+		bridge: &passthroughBridgeStub{
+			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+			listArtistsFn: func(_ context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
+				calls = append(calls, "list-artists")
+				return apitypes.Page[apitypes.ArtistListItem]{Items: []apitypes.ArtistListItem{artist}, Page: pageInfo}, nil
+			},
+			getArtistFn: func(_ context.Context, artistID string) (apitypes.ArtistListItem, error) {
+				calls = append(calls, "get-artist:"+artistID)
+				return artist, nil
+			},
+			listArtistAlbumsFn: func(_ context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+				calls = append(calls, "artist-albums:"+req.ArtistID)
+				return apitypes.Page[apitypes.AlbumListItem]{Items: []apitypes.AlbumListItem{album}, Page: pageInfo}, nil
+			},
+			listAlbumsFn: func(_ context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+				calls = append(calls, "list-albums")
+				return apitypes.Page[apitypes.AlbumListItem]{Items: []apitypes.AlbumListItem{album}, Page: pageInfo}, nil
+			},
+			getAlbumFn: func(_ context.Context, albumID string) (apitypes.AlbumListItem, error) {
+				calls = append(calls, "get-album:"+albumID)
+				return album, nil
+			},
+			listRecordingsFn: func(_ context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
+				calls = append(calls, "list-recordings")
+				return apitypes.Page[apitypes.RecordingListItem]{Items: []apitypes.RecordingListItem{recording}, Page: pageInfo}, nil
+			},
+			getRecordingFn: func(_ context.Context, recordingID string) (apitypes.RecordingListItem, error) {
+				calls = append(calls, "get-recording:"+recordingID)
+				return recording, nil
+			},
+			listRecordingVariantsFn: func(_ context.Context, req apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error) {
+				calls = append(calls, "recording-variants:"+req.RecordingID)
+				return apitypes.Page[apitypes.RecordingVariantItem]{Page: pageInfo}, nil
+			},
+			listAlbumVariantsFn: func(_ context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error) {
+				calls = append(calls, "album-variants:"+req.AlbumID)
+				return apitypes.Page[apitypes.AlbumVariantItem]{Page: pageInfo}, nil
+			},
+			setPreferredRecordingFn: func(_ context.Context, recordingID, variantRecordingID string) error {
+				calls = append(calls, "set-recording-pref:"+recordingID+":"+variantRecordingID)
+				return nil
+			},
+			setPreferredAlbumFn: func(_ context.Context, albumID, variantAlbumID string) error {
+				calls = append(calls, "set-album-pref:"+albumID+":"+variantAlbumID)
+				return nil
+			},
+			listAlbumTracksFn: func(_ context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
+				calls = append(calls, "album-tracks:"+req.AlbumID)
+				return apitypes.Page[apitypes.AlbumTrackItem]{Page: pageInfo}, nil
+			},
+			listPlaylistsFn: func(_ context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error) {
+				calls = append(calls, "list-playlists")
+				return apitypes.Page[apitypes.PlaylistListItem]{Items: []apitypes.PlaylistListItem{playlist}, Page: pageInfo}, nil
+			},
+			getPlaylistSummaryFn: func(_ context.Context, playlistID string) (apitypes.PlaylistListItem, error) {
+				calls = append(calls, "get-playlist:"+playlistID)
+				return playlist, nil
+			},
+			listPlaylistTracksFn: func(_ context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {
+				calls = append(calls, "playlist-tracks:"+req.PlaylistID)
+				return apitypes.Page[apitypes.PlaylistTrackItem]{Page: pageInfo}, nil
+			},
+			listLikedRecordingsFn: func(_ context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
+				calls = append(calls, "liked")
+				return apitypes.Page[apitypes.LikedRecordingItem]{Items: []apitypes.LikedRecordingItem{liked}, Page: pageInfo}, nil
+			},
+			createPlaylistFn: func(_ context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
+				calls = append(calls, "create-playlist:"+name+":"+kind)
+				return apitypes.PlaylistRecord{PlaylistID: "pl-1", Name: name, Kind: apitypes.PlaylistKind(kind)}, nil
+			},
+			renamePlaylistFn: func(_ context.Context, playlistID, name string) (apitypes.PlaylistRecord, error) {
+				calls = append(calls, "rename-playlist:"+playlistID+":"+name)
+				return apitypes.PlaylistRecord{PlaylistID: playlistID, Name: name}, nil
+			},
+			deletePlaylistFn: func(_ context.Context, playlistID string) error {
+				calls = append(calls, "delete-playlist:"+playlistID)
+				return nil
+			},
+			addPlaylistItemFn: func(_ context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error) {
+				calls = append(calls, "add-playlist-item:"+req.PlaylistID+":"+req.RecordingID)
+				return item, nil
+			},
+			movePlaylistItemFn: func(_ context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error) {
+				calls = append(calls, "move-playlist-item:"+req.PlaylistID+":"+req.ItemID)
+				return item, nil
+			},
+			removePlaylistItemFn: func(_ context.Context, playlistID, itemID string) error {
+				calls = append(calls, "remove-playlist-item:"+playlistID+":"+itemID)
+				return nil
+			},
+			likeRecordingFn: func(_ context.Context, recordingID string) error {
+				calls = append(calls, "like:"+recordingID)
+				return nil
+			},
+			unlikeRecordingFn: func(_ context.Context, recordingID string) error {
+				calls = append(calls, "unlike:"+recordingID)
+				return nil
+			},
+			isRecordingLikedFn: func(_ context.Context, recordingID string) (bool, error) {
+				calls = append(calls, "is-liked:"+recordingID)
+				return true, nil
+			},
+		},
+	}
+	facade := NewCatalogFacade(host)
+
+	if _, err := facade.ListArtists(ctx, apitypes.ArtistListRequest{}); err != nil {
+		t.Fatalf("list artists: %v", err)
+	}
+	if _, err := facade.GetArtist(ctx, "artist-1"); err != nil {
+		t.Fatalf("get artist: %v", err)
+	}
+	if _, err := facade.ListArtistAlbums(ctx, apitypes.ArtistAlbumListRequest{ArtistID: "artist-1"}); err != nil {
+		t.Fatalf("list artist albums: %v", err)
+	}
+	if _, err := facade.ListAlbums(ctx, apitypes.AlbumListRequest{}); err != nil {
+		t.Fatalf("list albums: %v", err)
+	}
+	if _, err := facade.GetAlbum(ctx, "album-1"); err != nil {
+		t.Fatalf("get album: %v", err)
+	}
+	if _, err := facade.ListRecordings(ctx, apitypes.RecordingListRequest{}); err != nil {
+		t.Fatalf("list recordings: %v", err)
+	}
+	if _, err := facade.GetRecording(ctx, "rec-1"); err != nil {
+		t.Fatalf("get recording: %v", err)
+	}
+	if _, err := facade.ListRecordingVariants(ctx, apitypes.RecordingVariantListRequest{RecordingID: "rec-1"}); err != nil {
+		t.Fatalf("list recording variants: %v", err)
+	}
+	if _, err := facade.ListAlbumVariants(ctx, apitypes.AlbumVariantListRequest{AlbumID: "album-1"}); err != nil {
+		t.Fatalf("list album variants: %v", err)
+	}
+	if err := facade.SetPreferredRecordingVariant(ctx, "rec-1", "rec-variant"); err != nil {
+		t.Fatalf("set preferred recording variant: %v", err)
+	}
+	if err := facade.SetPreferredAlbumVariant(ctx, "album-1", "album-variant"); err != nil {
+		t.Fatalf("set preferred album variant: %v", err)
+	}
+	if _, err := facade.ListAlbumTracks(ctx, apitypes.AlbumTrackListRequest{AlbumID: "album-1"}); err != nil {
+		t.Fatalf("list album tracks: %v", err)
+	}
+	if _, err := facade.ListPlaylists(ctx, apitypes.PlaylistListRequest{}); err != nil {
+		t.Fatalf("list playlists: %v", err)
+	}
+	if _, err := facade.GetPlaylistSummary(ctx, "pl-1"); err != nil {
+		t.Fatalf("get playlist summary: %v", err)
+	}
+	if _, err := facade.ListPlaylistTracks(ctx, apitypes.PlaylistTrackListRequest{PlaylistID: "pl-1"}); err != nil {
+		t.Fatalf("list playlist tracks: %v", err)
+	}
+	if _, err := facade.ListLikedRecordings(ctx, apitypes.LikedRecordingListRequest{}); err != nil {
+		t.Fatalf("list liked recordings: %v", err)
+	}
+	if _, err := facade.CreatePlaylist(ctx, "Playlist", "normal"); err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	if _, err := facade.RenamePlaylist(ctx, "pl-1", "Renamed"); err != nil {
+		t.Fatalf("rename playlist: %v", err)
+	}
+	if err := facade.DeletePlaylist(ctx, "pl-1"); err != nil {
+		t.Fatalf("delete playlist: %v", err)
+	}
+	if _, err := facade.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{PlaylistID: "pl-1", RecordingID: "rec-1"}); err != nil {
+		t.Fatalf("add playlist item: %v", err)
+	}
+	if _, err := facade.MovePlaylistItem(ctx, apitypes.PlaylistMoveItemRequest{PlaylistID: "pl-1", ItemID: "item-1"}); err != nil {
+		t.Fatalf("move playlist item: %v", err)
+	}
+	if err := facade.RemovePlaylistItem(ctx, "pl-1", "item-1"); err != nil {
+		t.Fatalf("remove playlist item: %v", err)
+	}
+	if err := facade.LikeRecording(ctx, "rec-1"); err != nil {
+		t.Fatalf("like recording: %v", err)
+	}
+	if err := facade.UnlikeRecording(ctx, "rec-1"); err != nil {
+		t.Fatalf("unlike recording: %v", err)
+	}
+	if liked, err := facade.IsRecordingLiked(ctx, "rec-1"); err != nil || !liked {
+		t.Fatalf("is recording liked = %v, err=%v", liked, err)
+	}
+}
+
+func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	overview := apitypes.CacheOverview{UsedBytes: 128, EntryCount: 1}
+	cachePage := apitypes.Page[apitypes.CacheEntryItem]{
+		Items: []apitypes.CacheEntryItem{{BlobID: "b3:" + strings.Repeat("a", 64)}},
+		Page:  apitypes.PageInfo{Returned: 1, Total: 1},
+	}
+	cleanup := apitypes.CacheCleanupResult{DeletedBytes: 64}
+	status := apitypes.PlaybackPreparationStatus{RecordingID: "rec-1", PreferredProfile: "default"}
+	resolve := apitypes.PlaybackResolveResult{RecordingID: "rec-1", PlayableURI: "file:///track.m4a"}
+	availability := apitypes.RecordingPlaybackAvailability{RecordingID: "rec-1", PreferredProfile: "default"}
+	recordingOverview := apitypes.RecordingAvailabilityOverview{RecordingID: "rec-1", PreferredProfile: "default"}
+	albumOverview := apitypes.AlbumAvailabilityOverview{AlbumID: "album-1", PreferredProfile: "default"}
+	blobRoot := t.TempDir()
+	hashHex := strings.Repeat("b", 64)
+	blobPath := filepath.Join(blobRoot, "b3", hashHex[:2], hashHex[2:4], hashHex)
+	if err := os.MkdirAll(filepath.Dir(blobPath), 0o755); err != nil {
+		t.Fatalf("mkdir blob path: %v", err)
+	}
+	if err := os.WriteFile(blobPath, []byte("thumb"), 0o644); err != nil {
+		t.Fatalf("write blob: %v", err)
+	}
+
+	host := &coreHost{
+		started:  true,
+		blobRoot: blobRoot,
+		bridge: &passthroughBridgeStub{
+			UnavailableCore:    desktopcore.NewUnavailableCore(errors.New("unused")),
+			getCacheOverviewFn: func(context.Context) (apitypes.CacheOverview, error) { return overview, nil },
+			listCacheEntriesFn: func(_ context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {
+				return cachePage, nil
+			},
+			cleanupCacheFn: func(_ context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
+				return cleanup, nil
+			},
+			inspectPlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+				return status, nil
+			},
+			preparePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+				return status, nil
+			},
+			getPlaybackPreparationFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+				return status, nil
+			},
+			resolvePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error) {
+				return resolve, nil
+			},
+			listRecordingAvailabilityFn: func(_ context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {
+				return []apitypes.RecordingAvailabilityItem{{DeviceID: "dev-1"}}, nil
+			},
+			getRecordingAvailabilityFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
+				return availability, nil
+			},
+			recordingAvailabilityOVFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {
+				return recordingOverview, nil
+			},
+			albumAvailabilityOVFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
+				return albumOverview, nil
+			},
+			resolveArtworkRefFn: func(_ context.Context, artwork apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error) {
+				return apitypes.ArtworkResolveResult{
+					Artwork:   apitypes.ArtworkRef{BlobID: artwork.BlobID, MIME: "image/webp", FileExt: ".webp"},
+					LocalPath: blobPath,
+					Available: true,
+				}, nil
+			},
+			resolveRecordingArtworkFn: func(_ context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error) {
+				return apitypes.RecordingArtworkResult{
+					RecordingID: recordingID,
+					Artwork:     apitypes.ArtworkRef{BlobID: "b3:" + hashHex, MIME: "image/webp", FileExt: ".webp"},
+				}, nil
+			},
+		},
+	}
+
+	cacheFacade := NewCacheFacade(host)
+	if got, err := cacheFacade.GetCacheOverview(ctx); err != nil || got.UsedBytes != overview.UsedBytes {
+		t.Fatalf("get cache overview = %+v, err=%v", got, err)
+	}
+	if got, err := cacheFacade.ListCacheEntries(ctx, apitypes.CacheEntryListRequest{}); err != nil || len(got.Items) != 1 {
+		t.Fatalf("list cache entries = %+v, err=%v", got, err)
+	}
+	if got, err := cacheFacade.CleanupCache(ctx, apitypes.CacheCleanupRequest{}); err != nil || got.DeletedBytes != cleanup.DeletedBytes {
+		t.Fatalf("cleanup cache = %+v, err=%v", got, err)
+	}
+
+	playbackFacade := NewPlaybackFacade(host)
+	if _, err := playbackFacade.InspectPlaybackRecording(ctx, "rec-1", "default"); err != nil {
+		t.Fatalf("inspect playback recording: %v", err)
+	}
+	if _, err := playbackFacade.PreparePlaybackRecording(ctx, "rec-1", "default", apitypes.PlaybackPreparationPlayNow); err != nil {
+		t.Fatalf("prepare playback recording: %v", err)
+	}
+	if _, err := playbackFacade.GetPlaybackPreparation(ctx, "rec-1", "default"); err != nil {
+		t.Fatalf("get playback preparation: %v", err)
+	}
+	if _, err := playbackFacade.ResolvePlaybackRecording(ctx, "rec-1", "default"); err != nil {
+		t.Fatalf("resolve playback recording: %v", err)
+	}
+	if got, err := playbackFacade.ResolveBlobURL("b3:" + hashHex); err != nil || !strings.HasPrefix(got, "file:") {
+		t.Fatalf("resolve blob url = %q, err=%v", got, err)
+	}
+	if got, err := playbackFacade.ResolveThumbnailURL(apitypes.ArtworkRef{BlobID: "b3:" + hashHex, MIME: "image/webp", FileExt: ".webp"}); err != nil || !strings.HasPrefix(got, "file:") {
+		t.Fatalf("resolve thumbnail url = %q, err=%v", got, err)
+	}
+	if got, err := playbackFacade.ResolveRecordingArtworkURL(ctx, "rec-1", "320_webp"); err != nil || !strings.HasPrefix(got, "file:") {
+		t.Fatalf("resolve recording artwork url = %q, err=%v", got, err)
+	}
+	if _, err := playbackFacade.ListRecordingAvailability(ctx, "rec-1", "default"); err != nil {
+		t.Fatalf("list recording availability: %v", err)
+	}
+	if _, err := playbackFacade.GetRecordingAvailability(ctx, "rec-1", "default"); err != nil {
+		t.Fatalf("get recording availability: %v", err)
+	}
+	if _, err := playbackFacade.GetRecordingAvailabilityOverview(ctx, "rec-1", "default"); err != nil {
+		t.Fatalf("get recording availability overview: %v", err)
+	}
+	if _, err := playbackFacade.GetAlbumAvailabilityOverview(ctx, "album-1", "default"); err != nil {
+		t.Fatalf("get album availability overview: %v", err)
+	}
+}

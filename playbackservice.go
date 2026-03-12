@@ -20,67 +20,11 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-type hostBridge interface {
-	playback.CorePlaybackBridge
-	ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error)
-	ActiveLibrary(ctx context.Context) (apitypes.LibrarySummary, bool, error)
-	CreateLibrary(ctx context.Context, name string) (apitypes.LibrarySummary, error)
-	SelectLibrary(ctx context.Context, libraryID string) (apitypes.LibrarySummary, error)
-	RenameLibrary(ctx context.Context, libraryID, name string) (apitypes.LibrarySummary, error)
-	LeaveLibrary(ctx context.Context, libraryID string) error
-	DeleteLibrary(ctx context.Context, libraryID string) error
-	ListLibraryMembers(ctx context.Context) ([]apitypes.LibraryMemberStatus, error)
-	UpdateLibraryMemberRole(ctx context.Context, deviceID, role string) error
-	RemoveLibraryMember(ctx context.Context, deviceID string) error
-	SetScanRoots(ctx context.Context, roots []string) error
-	AddScanRoots(ctx context.Context, roots []string) ([]string, error)
-	RemoveScanRoots(ctx context.Context, roots []string) ([]string, error)
-	ScanRoots(ctx context.Context) ([]string, error)
-	ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error)
-	GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error)
-	ListArtistAlbums(ctx context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
-	ListAlbums(ctx context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
-	GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error)
-	ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error)
-	GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error)
-	ListRecordingVariants(ctx context.Context, req apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error)
-	ListAlbumVariants(ctx context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error)
-	SetPreferredRecordingVariant(ctx context.Context, recordingID, variantRecordingID string) error
-	SetPreferredAlbumVariant(ctx context.Context, albumID, variantAlbumID string) error
-	ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error)
-	ListPlaylists(ctx context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error)
-	GetPlaylistSummary(ctx context.Context, playlistID string) (apitypes.PlaylistListItem, error)
-	ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error)
-	ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error)
-	CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error)
-	RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error)
-	DeletePlaylist(ctx context.Context, playlistID string) error
-	AddPlaylistItem(ctx context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error)
-	MovePlaylistItem(ctx context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error)
-	RemovePlaylistItem(ctx context.Context, playlistID, itemID string) error
-	LikeRecording(ctx context.Context, recordingID string) error
-	UnlikeRecording(ctx context.Context, recordingID string) error
-	IsRecordingLiked(ctx context.Context, recordingID string) (bool, error)
-	GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error)
-	ListCacheEntries(ctx context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error)
-	CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error)
-	PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error)
-	UnpinRecordingOffline(ctx context.Context, recordingID string) error
-	PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error)
-	UnpinAlbumOffline(ctx context.Context, albumID string) error
-	PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error)
-	UnpinPlaylistOffline(ctx context.Context, playlistID string) error
-	PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error)
-	UnpinLikedOffline(ctx context.Context) error
-	ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error)
-	GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error)
-	GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error)
-}
-
 type PlaybackService struct {
 	mu sync.RWMutex
 
 	app      *application.App
+	host     *coreHost
 	bridge   hostBridge
 	session  *playback.Session
 	platform playback.PlatformController
@@ -89,7 +33,11 @@ type PlaybackService struct {
 }
 
 func NewPlaybackService() *PlaybackService {
-	return &PlaybackService{}
+	return NewPlaybackServiceWithHost(newCoreHost())
+}
+
+func NewPlaybackServiceWithHost(host *coreHost) *PlaybackService {
+	return &PlaybackService{host: host}
 }
 
 func (s *PlaybackService) ServiceName() string {
@@ -111,47 +59,18 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		return err
 	}
 
-	coreSettings := settings.CoreRuntimeSettings{}
-	settingsPath, err := settings.DefaultPath("ben-desktop")
-	if err != nil {
-		log.Printf("playback: resolve settings path: %v", err)
-	} else {
-		settingsStore, openErr := settings.NewStore(settingsPath)
-		if openErr != nil {
-			log.Printf("playback: open settings store: %v", openErr)
-		} else {
-			defer func() {
-				if closeErr := settingsStore.Close(); closeErr != nil {
-					log.Printf("playback: close settings store: %v", closeErr)
-				}
-			}()
-			state, loadErr := settingsStore.Load()
-			if loadErr != nil {
-				log.Printf("playback: load settings: %v", loadErr)
-			} else {
-				coreSettings = state.Core
-			}
-		}
+	host := s.requireHost()
+	if err := host.Start(ctx); err != nil {
+		_ = store.Close()
+		return err
 	}
-
-	bridge, err := desktopcore.OpenFromSettings(ctx, coreSettings)
-	if err != nil {
-		log.Printf("playback: core bridge unavailable: %v", err)
-		bridge = nil
-	}
-
-	var playbackBridge hostBridge
-	if bridge != nil {
-		playbackBridge = bridge
-	} else {
-		playbackBridge = desktopcore.NewUnavailableCore(err)
-	}
+	playbackBridge := host.Bridge()
 
 	session := playback.NewSession(
 		playbackBridge,
 		playback.NewBackend(),
 		store,
-		preferredProfile(coreSettings),
+		host.PreferredProfile(),
 		serviceLogger{},
 	)
 	session.SetSnapshotEmitter(s.handlePlaybackSnapshot)
@@ -171,11 +90,12 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 
 	s.mu.Lock()
 	s.app = app
+	s.host = host
 	s.bridge = playbackBridge
 	s.session = session
 	s.platform = controller
 	s.store = store
-	s.blobRoot = resolvedBlobRoot(coreSettings)
+	s.blobRoot = host.BlobRoot()
 	s.mu.Unlock()
 
 	s.handlePlaybackSnapshot(session.Snapshot())
@@ -187,10 +107,12 @@ func (s *PlaybackService) ServiceShutdown() error {
 	controller := s.platform
 	session := s.session
 	bridge := s.bridge
+	host := s.host
 	store := s.store
 	s.platform = nil
 	s.session = nil
 	s.bridge = nil
+	s.host = nil
 	s.store = nil
 	s.app = nil
 	s.mu.Unlock()
@@ -211,7 +133,11 @@ func (s *PlaybackService) ServiceShutdown() error {
 			shutdownErr = err
 		}
 	}
-	if bridge != nil {
+	if host != nil {
+		if err := host.Close(); err != nil && shutdownErr == nil {
+			shutdownErr = err
+		}
+	} else if bridge != nil {
 		if err := bridge.Close(); err != nil && shutdownErr == nil {
 			shutdownErr = err
 		}
@@ -434,7 +360,11 @@ func (s *PlaybackService) UnpinLikedOffline(ctx context.Context) error {
 func (s *PlaybackService) ResolveBlobURL(blobID string) (string, error) {
 	s.mu.RLock()
 	blobRoot := s.blobRoot
+	host := s.host
 	s.mu.RUnlock()
+	if blobRoot == "" && host != nil {
+		blobRoot = host.BlobRoot()
+	}
 
 	path, ok, err := blobPathForID(blobRoot, blobID)
 	if err != nil || !ok {
@@ -769,20 +699,30 @@ func (s *PlaybackService) replaceContextAndPlay(ctx context.Context, input playb
 }
 
 func (s *PlaybackService) requireLoader() *playback.CatalogLoader {
-	s.mu.RLock()
-	bridge := s.bridge
-	s.mu.RUnlock()
-	return playback.NewCatalogLoader(bridge)
+	return playback.NewCatalogLoader(s.requireBridge())
 }
 
 func (s *PlaybackService) requireBridge() hostBridge {
 	s.mu.RLock()
 	bridge := s.bridge
+	host := s.host
 	s.mu.RUnlock()
 	if bridge == nil {
-		return desktopcore.NewUnavailableCore(fmt.Errorf("core bridge is not available"))
+		if host != nil {
+			return host.Bridge()
+		}
+		return newCoreHost().Bridge()
 	}
 	return bridge
+}
+
+func (s *PlaybackService) requireHost() *coreHost {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.host == nil {
+		s.host = newCoreHost()
+	}
+	return s.host
 }
 
 func (s *PlaybackService) requireSession() (*playback.Session, error) {

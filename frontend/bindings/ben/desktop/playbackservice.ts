@@ -25,21 +25,27 @@ export function AddPlaylistItem(req: apitypes$0.PlaylistAddItemRequest): $Cancel
     });
 }
 
+export function AddScanRoots(roots: string[]): $CancellablePromise<string[]> {
+    return $Call.ByID(663213979, roots).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 export function AppendToQueue(items: playback$0.SessionItem[]): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(3298980760, items).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function CleanupCache(req: apitypes$0.CacheCleanupRequest): $CancellablePromise<apitypes$0.CacheCleanupResult> {
     return $Call.ByID(2229260778, req).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
 export function ClearQueue(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(3770044668).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -51,7 +57,7 @@ export function CreateLibrary(name: string): $CancellablePromise<apitypes$0.Libr
 
 export function CreatePlaylist(name: string, kind: string): $CancellablePromise<apitypes$0.PlaylistRecord> {
     return $Call.ByID(1347071430, name, kind).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -65,55 +71,67 @@ export function DeletePlaylist(playlistID: string): $CancellablePromise<void> {
 
 export function GetAlbum(albumID: string): $CancellablePromise<apitypes$0.AlbumListItem> {
     return $Call.ByID(3733101191, albumID).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
+    });
+}
+
+export function GetAlbumAvailabilityOverview(albumID: string, preferredProfile: string): $CancellablePromise<apitypes$0.AlbumAvailabilityOverview> {
+    return $Call.ByID(3566485771, albumID, preferredProfile).then(($result: any) => {
+        return $$createType7($result);
     });
 }
 
 export function GetArtist(artistID: string): $CancellablePromise<apitypes$0.ArtistListItem> {
     return $Call.ByID(3429865259, artistID).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType8($result);
     });
 }
 
 export function GetCacheOverview(): $CancellablePromise<apitypes$0.CacheOverview> {
     return $Call.ByID(2171875809).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType9($result);
     });
 }
 
 export function GetPlaybackPreparation(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackPreparationStatus> {
     return $Call.ByID(69585430, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType10($result);
     });
 }
 
 export function GetPlaybackSnapshot(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2883480393).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function GetPlaylistSummary(playlistID: string): $CancellablePromise<apitypes$0.PlaylistListItem> {
     return $Call.ByID(46572162, playlistID).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType11($result);
     });
 }
 
 export function GetRecording(recordingID: string): $CancellablePromise<apitypes$0.RecordingListItem> {
     return $Call.ByID(3081840451, recordingID).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType12($result);
     });
 }
 
 export function GetRecordingAvailability(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.RecordingPlaybackAvailability> {
     return $Call.ByID(1097737044, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType11($result);
+        return $$createType13($result);
+    });
+}
+
+export function GetRecordingAvailabilityOverview(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.RecordingAvailabilityOverview> {
+    return $Call.ByID(3756085431, recordingID, preferredProfile).then(($result: any) => {
+        return $$createType14($result);
     });
 }
 
 export function InspectPlaybackRecording(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackPreparationStatus> {
     return $Call.ByID(3914385752, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType10($result);
     });
 }
 
@@ -131,85 +149,85 @@ export function LikeRecording(recordingID: string): $CancellablePromise<void> {
 
 export function ListAlbumTracks(req: apitypes$0.AlbumTrackListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.AlbumTrackItem>> {
     return $Call.ByID(1946162099, req).then(($result: any) => {
-        return $$createType13($result);
+        return $$createType16($result);
     });
 }
 
 export function ListAlbumVariants(req: apitypes$0.AlbumVariantListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.AlbumVariantItem>> {
     return $Call.ByID(4208882965, req).then(($result: any) => {
-        return $$createType15($result);
+        return $$createType18($result);
     });
 }
 
 export function ListAlbums(req: apitypes$0.AlbumListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.AlbumListItem>> {
     return $Call.ByID(3591213824, req).then(($result: any) => {
-        return $$createType16($result);
+        return $$createType19($result);
     });
 }
 
 export function ListArtistAlbums(req: apitypes$0.ArtistAlbumListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.AlbumListItem>> {
     return $Call.ByID(1792926887, req).then(($result: any) => {
-        return $$createType16($result);
+        return $$createType19($result);
     });
 }
 
 export function ListArtists(req: apitypes$0.ArtistListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.ArtistListItem>> {
     return $Call.ByID(2482442412, req).then(($result: any) => {
-        return $$createType17($result);
+        return $$createType20($result);
     });
 }
 
 export function ListCacheEntries(req: apitypes$0.CacheEntryListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.CacheEntryItem>> {
     return $Call.ByID(3080494030, req).then(($result: any) => {
-        return $$createType19($result);
+        return $$createType22($result);
     });
 }
 
 export function ListLibraries(): $CancellablePromise<apitypes$0.LibrarySummary[]> {
     return $Call.ByID(2538907463).then(($result: any) => {
-        return $$createType20($result);
+        return $$createType23($result);
     });
 }
 
 export function ListLibraryMembers(): $CancellablePromise<apitypes$0.LibraryMemberStatus[]> {
     return $Call.ByID(1491866554).then(($result: any) => {
-        return $$createType22($result);
+        return $$createType25($result);
     });
 }
 
 export function ListLikedRecordings(req: apitypes$0.LikedRecordingListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.LikedRecordingItem>> {
     return $Call.ByID(627425737, req).then(($result: any) => {
-        return $$createType24($result);
+        return $$createType27($result);
     });
 }
 
 export function ListPlaylistTracks(req: apitypes$0.PlaylistTrackListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.PlaylistTrackItem>> {
     return $Call.ByID(531454606, req).then(($result: any) => {
-        return $$createType26($result);
+        return $$createType29($result);
     });
 }
 
 export function ListPlaylists(req: apitypes$0.PlaylistListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.PlaylistListItem>> {
     return $Call.ByID(1367076171, req).then(($result: any) => {
-        return $$createType27($result);
+        return $$createType30($result);
     });
 }
 
 export function ListRecordingAvailability(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.RecordingAvailabilityItem[]> {
     return $Call.ByID(3562379088, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType29($result);
+        return $$createType32($result);
     });
 }
 
 export function ListRecordingVariants(req: apitypes$0.RecordingVariantListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.RecordingVariantItem>> {
     return $Call.ByID(1269045609, req).then(($result: any) => {
-        return $$createType31($result);
+        return $$createType34($result);
     });
 }
 
 export function ListRecordings(req: apitypes$0.RecordingListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.RecordingListItem>> {
     return $Call.ByID(792755444, req).then(($result: any) => {
-        return $$createType32($result);
+        return $$createType35($result);
     });
 }
 
@@ -221,109 +239,133 @@ export function MovePlaylistItem(req: apitypes$0.PlaylistMoveItemRequest): $Canc
 
 export function MoveQueueItem(fromIndex: number, toIndex: number): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2310336635, fromIndex, toIndex).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function MoveQueuedEntry(entryID: string, toIndex: number): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2607667796, entryID, toIndex).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function Next(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(1638300629).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function Pause(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2523925334).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
+    });
+}
+
+export function PinAlbumOffline(albumID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
+    return $Call.ByID(3511502621, albumID, preferredProfile).then(($result: any) => {
+        return $$createType36($result);
+    });
+}
+
+export function PinLikedOffline(preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
+    return $Call.ByID(3061322819, preferredProfile).then(($result: any) => {
+        return $$createType36($result);
+    });
+}
+
+export function PinPlaylistOffline(playlistID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
+    return $Call.ByID(3881955088, playlistID, preferredProfile).then(($result: any) => {
+        return $$createType36($result);
+    });
+}
+
+export function PinRecordingOffline(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackRecordingResult> {
+    return $Call.ByID(4243786089, recordingID, preferredProfile).then(($result: any) => {
+        return $$createType37($result);
     });
 }
 
 export function Play(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(3337582598).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function PlayAlbum(albumID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2513738197, albumID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function PlayAlbumTrack(albumID: string, recordingID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(3154194316, albumID, recordingID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function PlayLiked(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(3511599499).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function PlayLikedTrack(recordingID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(832559402, recordingID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function PlayPlaylist(playlistID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(4154106592, playlistID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function PlayPlaylistTrack(playlistID: string, itemID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2792974311, playlistID, itemID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function PlayRecording(recordingID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2902449013, recordingID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function PreparePlaybackRecording(recordingID: string, preferredProfile: string, purpose: apitypes$0.PlaybackPreparationPurpose): $CancellablePromise<apitypes$0.PlaybackPreparationStatus> {
     return $Call.ByID(291423697, recordingID, preferredProfile, purpose).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType10($result);
     });
 }
 
 export function Previous(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(466195825).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function QueueAlbum(albumID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(3156120874, albumID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function QueueItems(items: playback$0.SessionItem[], mode: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2333187429, items, mode).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function QueuePlaylist(playlistID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2887176341, playlistID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function QueueRecording(recordingID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(48181950, recordingID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -337,12 +379,18 @@ export function RemovePlaylistItem(playlistID: string, itemID: string): $Cancell
 
 export function RemoveQueueItem(index: number): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(1105181348, index).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function RemoveQueuedEntry(entryID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(622032947, entryID).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+export function RemoveScanRoots(roots: string[]): $CancellablePromise<string[]> {
+    return $Call.ByID(544867834, roots).then(($result: any) => {
         return $$createType2($result);
     });
 }
@@ -355,13 +403,13 @@ export function RenameLibrary(libraryID: string, name: string): $CancellableProm
 
 export function RenamePlaylist(playlistID: string, name: string): $CancellablePromise<apitypes$0.PlaylistRecord> {
     return $Call.ByID(1120003992, playlistID, name).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
 export function ReplaceQueue(items: playback$0.SessionItem[], startIndex: number): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(3788593979, items, startIndex).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -371,7 +419,7 @@ export function ResolveBlobURL(blobID: string): $CancellablePromise<string> {
 
 export function ResolvePlaybackRecording(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackResolveResult> {
     return $Call.ByID(1410932048, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType33($result);
+        return $$createType38($result);
     });
 }
 
@@ -383,15 +431,21 @@ export function ResolveThumbnailURL(artwork: apitypes$0.ArtworkRef): $Cancellabl
     return $Call.ByID(2195486573, artwork);
 }
 
+export function ScanRoots(): $CancellablePromise<string[]> {
+    return $Call.ByID(291140970).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 export function SeekTo(positionMS: number): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(1002348829, positionMS).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function SelectEntry(entryID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(3698480776, entryID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -403,13 +457,13 @@ export function SelectLibrary(libraryID: string): $CancellablePromise<apitypes$0
 
 export function SelectQueueIndex(index: number): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(325081569, index).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function SetPlaybackContext(input: playback$0.PlaybackContextInput): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2760603892, input).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -423,19 +477,23 @@ export function SetPreferredRecordingVariant(recordingID: string, variantRecordi
 
 export function SetRepeatMode(mode: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2047165460, mode).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
+}
+
+export function SetScanRoots(roots: string[]): $CancellablePromise<void> {
+    return $Call.ByID(1324008290, roots);
 }
 
 export function SetShuffle(enabled: boolean): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(794069357, enabled).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function SetVolume(volume: number): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(1816618662, volume).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -445,12 +503,28 @@ export function SubscribePlaybackEvents(): $CancellablePromise<string> {
 
 export function TogglePlayback(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(934724953).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function UnlikeRecording(recordingID: string): $CancellablePromise<void> {
     return $Call.ByID(467937703, recordingID);
+}
+
+export function UnpinAlbumOffline(albumID: string): $CancellablePromise<void> {
+    return $Call.ByID(729992584, albumID);
+}
+
+export function UnpinLikedOffline(): $CancellablePromise<void> {
+    return $Call.ByID(4147447746);
+}
+
+export function UnpinPlaylistOffline(playlistID: string): $CancellablePromise<void> {
+    return $Call.ByID(313509335, playlistID);
+}
+
+export function UnpinRecordingOffline(recordingID: string): $CancellablePromise<void> {
+    return $Call.ByID(1365134280, recordingID);
 }
 
 export function UpdateLibraryMemberRole(deviceID: string, role: string): $CancellablePromise<void> {
@@ -460,35 +534,40 @@ export function UpdateLibraryMemberRole(deviceID: string, role: string): $Cancel
 // Private type creation functions
 const $$createType0 = apitypes$0.LibrarySummary.createFrom;
 const $$createType1 = apitypes$0.PlaylistItemRecord.createFrom;
-const $$createType2 = playback$0.SessionSnapshot.createFrom;
-const $$createType3 = apitypes$0.CacheCleanupResult.createFrom;
-const $$createType4 = apitypes$0.PlaylistRecord.createFrom;
-const $$createType5 = apitypes$0.AlbumListItem.createFrom;
-const $$createType6 = apitypes$0.ArtistListItem.createFrom;
-const $$createType7 = apitypes$0.CacheOverview.createFrom;
-const $$createType8 = apitypes$0.PlaybackPreparationStatus.createFrom;
-const $$createType9 = apitypes$0.PlaylistListItem.createFrom;
-const $$createType10 = apitypes$0.RecordingListItem.createFrom;
-const $$createType11 = apitypes$0.RecordingPlaybackAvailability.createFrom;
-const $$createType12 = apitypes$0.AlbumTrackItem.createFrom;
-const $$createType13 = apitypes$0.Page.createFrom($$createType12);
-const $$createType14 = apitypes$0.AlbumVariantItem.createFrom;
-const $$createType15 = apitypes$0.Page.createFrom($$createType14);
-const $$createType16 = apitypes$0.Page.createFrom($$createType5);
-const $$createType17 = apitypes$0.Page.createFrom($$createType6);
-const $$createType18 = apitypes$0.CacheEntryItem.createFrom;
-const $$createType19 = apitypes$0.Page.createFrom($$createType18);
-const $$createType20 = $Create.Array($$createType0);
-const $$createType21 = apitypes$0.LibraryMemberStatus.createFrom;
-const $$createType22 = $Create.Array($$createType21);
-const $$createType23 = apitypes$0.LikedRecordingItem.createFrom;
-const $$createType24 = apitypes$0.Page.createFrom($$createType23);
-const $$createType25 = apitypes$0.PlaylistTrackItem.createFrom;
-const $$createType26 = apitypes$0.Page.createFrom($$createType25);
-const $$createType27 = apitypes$0.Page.createFrom($$createType9);
-const $$createType28 = apitypes$0.RecordingAvailabilityItem.createFrom;
-const $$createType29 = $Create.Array($$createType28);
-const $$createType30 = apitypes$0.RecordingVariantItem.createFrom;
-const $$createType31 = apitypes$0.Page.createFrom($$createType30);
-const $$createType32 = apitypes$0.Page.createFrom($$createType10);
-const $$createType33 = apitypes$0.PlaybackResolveResult.createFrom;
+const $$createType2 = $Create.Array($Create.Any);
+const $$createType3 = playback$0.SessionSnapshot.createFrom;
+const $$createType4 = apitypes$0.CacheCleanupResult.createFrom;
+const $$createType5 = apitypes$0.PlaylistRecord.createFrom;
+const $$createType6 = apitypes$0.AlbumListItem.createFrom;
+const $$createType7 = apitypes$0.AlbumAvailabilityOverview.createFrom;
+const $$createType8 = apitypes$0.ArtistListItem.createFrom;
+const $$createType9 = apitypes$0.CacheOverview.createFrom;
+const $$createType10 = apitypes$0.PlaybackPreparationStatus.createFrom;
+const $$createType11 = apitypes$0.PlaylistListItem.createFrom;
+const $$createType12 = apitypes$0.RecordingListItem.createFrom;
+const $$createType13 = apitypes$0.RecordingPlaybackAvailability.createFrom;
+const $$createType14 = apitypes$0.RecordingAvailabilityOverview.createFrom;
+const $$createType15 = apitypes$0.AlbumTrackItem.createFrom;
+const $$createType16 = apitypes$0.Page.createFrom($$createType15);
+const $$createType17 = apitypes$0.AlbumVariantItem.createFrom;
+const $$createType18 = apitypes$0.Page.createFrom($$createType17);
+const $$createType19 = apitypes$0.Page.createFrom($$createType6);
+const $$createType20 = apitypes$0.Page.createFrom($$createType8);
+const $$createType21 = apitypes$0.CacheEntryItem.createFrom;
+const $$createType22 = apitypes$0.Page.createFrom($$createType21);
+const $$createType23 = $Create.Array($$createType0);
+const $$createType24 = apitypes$0.LibraryMemberStatus.createFrom;
+const $$createType25 = $Create.Array($$createType24);
+const $$createType26 = apitypes$0.LikedRecordingItem.createFrom;
+const $$createType27 = apitypes$0.Page.createFrom($$createType26);
+const $$createType28 = apitypes$0.PlaylistTrackItem.createFrom;
+const $$createType29 = apitypes$0.Page.createFrom($$createType28);
+const $$createType30 = apitypes$0.Page.createFrom($$createType11);
+const $$createType31 = apitypes$0.RecordingAvailabilityItem.createFrom;
+const $$createType32 = $Create.Array($$createType31);
+const $$createType33 = apitypes$0.RecordingVariantItem.createFrom;
+const $$createType34 = apitypes$0.Page.createFrom($$createType33);
+const $$createType35 = apitypes$0.Page.createFrom($$createType12);
+const $$createType36 = apitypes$0.PlaybackBatchResult.createFrom;
+const $$createType37 = apitypes$0.PlaybackRecordingResult.createFrom;
+const $$createType38 = apitypes$0.PlaybackResolveResult.createFrom;

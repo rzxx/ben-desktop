@@ -1,4 +1,5 @@
-import * as PlaybackService from "../../../bindings/ben/desktop/playbackservice";
+import * as CatalogFacade from "../../../bindings/ben/desktop/catalogfacade";
+import * as PlaybackFacade from "../../../bindings/ben/desktop/playbackfacade";
 import * as Types from "../../../bindings/ben/core/api/types/models";
 import * as PlaybackModels from "../../../bindings/ben/desktop/internal/playback/models";
 
@@ -22,7 +23,7 @@ export const DEFAULT_PAGE_SIZE = 60;
 export const TRACK_PAGE_SIZE = 120;
 
 export function listAlbumsPage(offset = 0, limit = DEFAULT_PAGE_SIZE) {
-  return PlaybackService.ListAlbums(
+  return CatalogFacade.ListAlbums(
     new Types.AlbumListRequest({
       Limit: limit,
       Offset: offset,
@@ -31,11 +32,11 @@ export function listAlbumsPage(offset = 0, limit = DEFAULT_PAGE_SIZE) {
 }
 
 export function getAlbum(albumId: string) {
-  return PlaybackService.GetAlbum(albumId);
+  return CatalogFacade.GetAlbum(albumId);
 }
 
 export function listAlbumVariants(albumId: string) {
-  return PlaybackService.ListAlbumVariants(
+  return CatalogFacade.ListAlbumVariants(
     new Types.AlbumVariantListRequest({
       AlbumID: albumId,
       Limit: DEFAULT_PAGE_SIZE,
@@ -49,7 +50,7 @@ export function listAlbumTracksPage(
   offset = 0,
   limit = TRACK_PAGE_SIZE,
 ) {
-  return PlaybackService.ListAlbumTracks(
+  return CatalogFacade.ListAlbumTracks(
     new Types.AlbumTrackListRequest({
       AlbumID: albumId,
       Limit: limit,
@@ -59,7 +60,7 @@ export function listAlbumTracksPage(
 }
 
 export function listArtistsPage(offset = 0, limit = DEFAULT_PAGE_SIZE) {
-  return PlaybackService.ListArtists(
+  return CatalogFacade.ListArtists(
     new Types.ArtistListRequest({
       Limit: limit,
       Offset: offset,
@@ -68,7 +69,7 @@ export function listArtistsPage(offset = 0, limit = DEFAULT_PAGE_SIZE) {
 }
 
 export function getArtist(artistId: string) {
-  return PlaybackService.GetArtist(artistId);
+  return CatalogFacade.GetArtist(artistId);
 }
 
 export function listArtistAlbumsPage(
@@ -76,7 +77,7 @@ export function listArtistAlbumsPage(
   offset = 0,
   limit = DEFAULT_PAGE_SIZE,
 ) {
-  return PlaybackService.ListArtistAlbums(
+  return CatalogFacade.ListArtistAlbums(
     new Types.ArtistAlbumListRequest({
       ArtistID: artistId,
       Limit: limit,
@@ -86,7 +87,7 @@ export function listArtistAlbumsPage(
 }
 
 export function listTracksPage(offset = 0, limit = TRACK_PAGE_SIZE) {
-  return PlaybackService.ListRecordings(
+  return CatalogFacade.ListRecordings(
     new Types.RecordingListRequest({
       Limit: limit,
       Offset: offset,
@@ -95,7 +96,7 @@ export function listTracksPage(offset = 0, limit = TRACK_PAGE_SIZE) {
 }
 
 export function listPlaylistsPage(offset = 0, limit = DEFAULT_PAGE_SIZE) {
-  return PlaybackService.ListPlaylists(
+  return CatalogFacade.ListPlaylists(
     new Types.PlaylistListRequest({
       Limit: limit,
       Offset: offset,
@@ -104,7 +105,7 @@ export function listPlaylistsPage(offset = 0, limit = DEFAULT_PAGE_SIZE) {
 }
 
 export function getPlaylistSummary(playlistId: string) {
-  return PlaybackService.GetPlaylistSummary(playlistId);
+  return CatalogFacade.GetPlaylistSummary(playlistId);
 }
 
 export function listPlaylistTracksPage(
@@ -112,7 +113,7 @@ export function listPlaylistTracksPage(
   offset = 0,
   limit = TRACK_PAGE_SIZE,
 ) {
-  return PlaybackService.ListPlaylistTracks(
+  return CatalogFacade.ListPlaylistTracks(
     new Types.PlaylistTrackListRequest({
       PlaylistID: playlistId,
       Limit: limit,
@@ -122,7 +123,7 @@ export function listPlaylistTracksPage(
 }
 
 export function listLikedRecordingsPage(offset = 0, limit = TRACK_PAGE_SIZE) {
-  return PlaybackService.ListLikedRecordings(
+  return CatalogFacade.ListLikedRecordings(
     new Types.LikedRecordingListRequest({
       Limit: limit,
       Offset: offset,
@@ -131,12 +132,12 @@ export function listLikedRecordingsPage(offset = 0, limit = TRACK_PAGE_SIZE) {
 }
 
 export function resolveThumbnailURL(thumb: ArtworkRef) {
-  return PlaybackService.ResolveThumbnailURL(thumb);
+  return PlaybackFacade.ResolveThumbnailURL(thumb);
 }
 
 export function resolveRecordingArtworkURL(
   recordingId: string,
   variant = "320_webp",
 ) {
-  return PlaybackService.ResolveRecordingArtworkURL(recordingId, variant);
+  return PlaybackFacade.ResolveRecordingArtworkURL(recordingId, variant);
 }
