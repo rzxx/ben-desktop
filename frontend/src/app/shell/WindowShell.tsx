@@ -5,6 +5,9 @@ import {
   Album,
   ChevronsUpDown,
   Disc3,
+  FolderCog,
+  HardDrive,
+  KeyRound,
   LibraryBig,
   Minus,
   Music4,
@@ -20,8 +23,11 @@ import { PlayerBar } from "../../features/playback/PlayerBar";
 import { usePlaybackStore } from "../../features/playback/store";
 
 const navItems = [
+  { href: routes.libraries, label: "Libraries", icon: FolderCog },
   { href: routes.albums, label: "Albums", icon: Disc3 },
   { href: routes.artists, label: "Artists", icon: UsersRound },
+  { href: routes.sharing, label: "Sharing", icon: KeyRound },
+  { href: routes.cache, label: "Cache", icon: HardDrive },
   { href: routes.operations, label: "Operations", icon: Activity },
   { href: routes.tracks, label: "Tracks", icon: Music4 },
   { href: routes.playlists, label: "Playlists", icon: LibraryBig },
@@ -144,7 +150,7 @@ function NavigationSidebar() {
           Host notes
         </p>
         <p className="mt-2 text-sm text-white/52">
-          Queue actions are live. Operations now expose async scan and checkpoint jobs.
+          Sharing, cache, and operations now talk to the desktop-core facades directly.
         </p>
       </div>
     </aside>

@@ -18,6 +18,21 @@ export function formatCount(value: number, singular: string, plural = `${singula
   return `${rounded} ${rounded === 1 ? singular : plural}`;
 }
 
+export function formatBytes(value?: number | null) {
+  const bytes = Math.max(0, Math.trunc(value ?? 0));
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = bytes / 1024;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
 export function formatRelativeDate(value?: Date | string | null) {
   if (!value) {
     return "No activity";

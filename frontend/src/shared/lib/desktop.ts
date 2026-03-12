@@ -1,4 +1,6 @@
 import * as CatalogFacade from "../../../bindings/ben/desktop/catalogfacade";
+import * as CacheFacade from "../../../bindings/ben/desktop/cachefacade";
+import * as InviteFacade from "../../../bindings/ben/desktop/invitefacade";
 import * as JobsFacade from "../../../bindings/ben/desktop/jobsfacade";
 import * as LibraryFacade from "../../../bindings/ben/desktop/libraryfacade";
 import * as NetworkFacade from "../../../bindings/ben/desktop/networkfacade";
@@ -15,8 +17,16 @@ export type AlbumTrackItem = Types.AlbumTrackItem;
 export type ActivityStatus = Types.ActivityStatus;
 export type ArtworkRef = Types.ArtworkRef;
 export type ArtistListItem = Types.ArtistListItem;
+export type CacheEntryItem = Types.CacheEntryItem;
+export type CacheOverview = Types.CacheOverview;
 export type LibraryCheckpointStatus = Types.LibraryCheckpointStatus;
+export type LibraryMemberStatus = Types.LibraryMemberStatus;
 export type LibrarySummary = Types.LibrarySummary;
+export type InviteCodeResult = Types.InviteCodeResult;
+export type InviteJoinRequestRecord = Types.InviteJoinRequestRecord;
+export type IssuedInviteRecord = Types.IssuedInviteRecord;
+export type JoinLibraryResult = Types.JoinLibraryResult;
+export type JoinSession = Types.JoinSession;
 export type LikedRecordingItem = Types.LikedRecordingItem;
 export type LocalContext = Types.LocalContext;
 export type PageInfo = Types.PageInfo;
@@ -158,6 +168,42 @@ export async function getActiveLibrary() {
   return { library, found };
 }
 
+export function listLibraries() {
+  return LibraryFacade.ListLibraries();
+}
+
+export function createLibrary(name: string) {
+  return LibraryFacade.CreateLibrary(name);
+}
+
+export function selectLibrary(libraryId: string) {
+  return LibraryFacade.SelectLibrary(libraryId);
+}
+
+export function renameLibrary(libraryId: string, name: string) {
+  return LibraryFacade.RenameLibrary(libraryId, name);
+}
+
+export function leaveLibrary(libraryId: string) {
+  return LibraryFacade.LeaveLibrary(libraryId);
+}
+
+export function deleteLibrary(libraryId: string) {
+  return LibraryFacade.DeleteLibrary(libraryId);
+}
+
+export function listLibraryMembers() {
+  return LibraryFacade.ListLibraryMembers();
+}
+
+export function updateLibraryMemberRole(deviceId: string, role: string) {
+  return LibraryFacade.UpdateLibraryMemberRole(deviceId, role);
+}
+
+export function removeLibraryMember(deviceId: string) {
+  return LibraryFacade.RemoveLibraryMember(deviceId);
+}
+
 export function getLocalContext() {
   return NetworkFacade.EnsureLocalContext();
 }
@@ -172,6 +218,10 @@ export function getActivityStatus() {
 
 export function getCheckpointStatus() {
   return NetworkFacade.CheckpointStatus();
+}
+
+export function connectPeer(peerAddr: string) {
+  return NetworkFacade.ConnectPeer(peerAddr);
 }
 
 export function startLibraryRescan() {
@@ -194,10 +244,67 @@ export function startSyncNow() {
   return NetworkFacade.StartSyncNow();
 }
 
+export function createInviteCode(req: Types.InviteCodeRequest) {
+  return InviteFacade.CreateInviteCode(req);
+}
+
+export function listIssuedInvites(status = "") {
+  return InviteFacade.ListIssuedInvites(status);
+}
+
+export function revokeIssuedInvite(inviteId: string, reason: string) {
+  return InviteFacade.RevokeIssuedInvite(inviteId, reason);
+}
+
+export function startJoinFromInvite(req: Types.JoinFromInviteInput) {
+  return InviteFacade.StartJoinFromInvite(req);
+}
+
+export function getJoinSession(sessionId: string) {
+  return InviteFacade.GetJoinSession(sessionId);
+}
+
+export function finalizeJoinSession(sessionId: string) {
+  return InviteFacade.FinalizeJoinSession(sessionId);
+}
+
+export function cancelJoinSession(sessionId: string) {
+  return InviteFacade.CancelJoinSession(sessionId);
+}
+
+export function listJoinRequests(status = "") {
+  return InviteFacade.ListJoinRequests(status);
+}
+
+export function approveJoinRequest(requestId: string, role: string) {
+  return InviteFacade.ApproveJoinRequest(requestId, role);
+}
+
+export function rejectJoinRequest(requestId: string, reason: string) {
+  return InviteFacade.RejectJoinRequest(requestId, reason);
+}
+
+export function getCacheOverview() {
+  return CacheFacade.GetCacheOverview();
+}
+
+export function listCacheEntries(offset = 0, limit = DEFAULT_PAGE_SIZE) {
+  return CacheFacade.ListCacheEntries(
+    new Types.CacheEntryListRequest({
+      Limit: limit,
+      Offset: offset,
+    }),
+  );
+}
+
+export function cleanupCache(req: Types.CacheCleanupRequest) {
+  return CacheFacade.CleanupCache(req);
+}
+
 export function startPreparePlaybackRecording(
   recordingId: string,
   preferredProfile = "",
-  purpose = Types.PlaybackPreparationPurpose.PlayNow,
+  purpose = Types.PlaybackPreparationPurpose.PlaybackPreparationPlayNow,
 ) {
   return PlaybackFacade.StartPreparePlaybackRecording(
     recordingId,

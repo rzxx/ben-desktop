@@ -1,4 +1,5 @@
 import { Route, Switch } from "wouter";
+import { CachePage } from "../../features/cache/page";
 import {
   AlbumDetailPage,
   AlbumsPage,
@@ -9,7 +10,9 @@ import {
   PlaylistsPage,
   TracksPage,
 } from "../../features/library/pages";
+import { LibrariesPage } from "../../features/library/libraries-page";
 import { OperationsPage } from "../../features/operations/page";
+import { SharingPage } from "../../features/sharing/page";
 
 export function AppRouter() {
   return (
@@ -23,7 +26,10 @@ export function AppRouter() {
       <Route path="/artists/:artistId">
         {(params) => <ArtistDetailPage artistId={params.artistId} />}
       </Route>
+      <Route component={CachePage} path="/cache" />
+      <Route component={LibrariesPage} path="/libraries" />
       <Route component={OperationsPage} path="/operations" />
+      <Route component={SharingPage} path="/sharing" />
       <Route component={TracksPage} path="/tracks" />
       <Route component={PlaylistsPage} path="/playlists" />
       <Route component={LikedPlaylistPage} path="/playlists/liked" />
