@@ -93,6 +93,40 @@ func (s *LibraryFacade) ScanRoots(ctx context.Context) ([]string, error) {
 	return s.bridge().ScanRoots(ctx)
 }
 
+type NetworkFacade struct {
+	facadeBase
+}
+
+func NewNetworkFacade(host *coreHost) *NetworkFacade {
+	return &NetworkFacade{facadeBase: facadeBase{host: host}}
+}
+
+func (s *NetworkFacade) ServiceName() string { return "NetworkFacade" }
+
+func (s *NetworkFacade) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error) {
+	return s.bridge().EnsureLocalContext(ctx)
+}
+
+func (s *NetworkFacade) Inspect(ctx context.Context) (apitypes.InspectSummary, error) {
+	return s.bridge().Inspect(ctx)
+}
+
+func (s *NetworkFacade) InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error) {
+	return s.bridge().InspectLibraryOplog(ctx, libraryID)
+}
+
+func (s *NetworkFacade) ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error) {
+	return s.bridge().ActivityStatus(ctx)
+}
+
+func (s *NetworkFacade) NetworkStatus() apitypes.NetworkStatus {
+	return s.bridge().NetworkStatus()
+}
+
+func (s *NetworkFacade) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
+	return s.bridge().CheckpointStatus(ctx)
+}
+
 type CatalogFacade struct {
 	facadeBase
 }

@@ -14,6 +14,12 @@ import (
 
 type hostBridge interface {
 	playback.CorePlaybackBridge
+	EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error)
+	Inspect(ctx context.Context) (apitypes.InspectSummary, error)
+	InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error)
+	ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error)
+	NetworkStatus() apitypes.NetworkStatus
+	CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error)
 	ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error)
 	ActiveLibrary(ctx context.Context) (apitypes.LibrarySummary, bool, error)
 	CreateLibrary(ctx context.Context, name string) (apitypes.LibrarySummary, error)

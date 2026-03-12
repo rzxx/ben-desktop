@@ -116,6 +116,74 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 	}
 }
 
+func TestNetworkFacadeForwardsToBridge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	local := apitypes.LocalContext{LibraryID: "lib-1", DeviceID: "dev-1", Device: "desktop", Role: "admin", PeerID: "peer-1"}
+	summary := apitypes.InspectSummary{Libraries: 1, Devices: 1, Memberships: 1}
+	report := apitypes.LibraryOplogDiagnostics{LibraryID: "lib-1"}
+	activity := apitypes.ActivityStatus{Scan: apitypes.ScanActivityStatus{Phase: "idle"}}
+	network := apitypes.NetworkStatus{LibraryID: "lib-1", DeviceID: "dev-1", ServiceTag: "ben-123"}
+	checkpoint := apitypes.LibraryCheckpointStatus{LibraryID: "lib-1", CheckpointID: "ckpt-1"}
+	calls := make([]string, 0, 6)
+	host := &coreHost{
+		started: true,
+		bridge: &passthroughBridgeStub{
+			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+			ensureLocalContextFn: func(context.Context) (apitypes.LocalContext, error) {
+				calls = append(calls, "local")
+				return local, nil
+			},
+			inspectFn: func(context.Context) (apitypes.InspectSummary, error) {
+				calls = append(calls, "inspect")
+				return summary, nil
+			},
+			inspectLibraryOplogFn: func(_ context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error) {
+				calls = append(calls, "oplog:"+libraryID)
+				return report, nil
+			},
+			activityStatusFn: func(context.Context) (apitypes.ActivityStatus, error) {
+				calls = append(calls, "activity")
+				return activity, nil
+			},
+			networkStatusFn: func() apitypes.NetworkStatus {
+				calls = append(calls, "network")
+				return network
+			},
+			checkpointStatusFn: func(context.Context) (apitypes.LibraryCheckpointStatus, error) {
+				calls = append(calls, "checkpoint")
+				return checkpoint, nil
+			},
+		},
+	}
+	facade := NewNetworkFacade(host)
+
+	if got, err := facade.EnsureLocalContext(ctx); err != nil || got.DeviceID != local.DeviceID {
+		t.Fatalf("ensure local context = %+v, err=%v", got, err)
+	}
+	if got, err := facade.Inspect(ctx); err != nil || got.Libraries != summary.Libraries {
+		t.Fatalf("inspect = %+v, err=%v", got, err)
+	}
+	if got, err := facade.InspectLibraryOplog(ctx, "lib-1"); err != nil || got.LibraryID != report.LibraryID {
+		t.Fatalf("inspect library oplog = %+v, err=%v", got, err)
+	}
+	if got, err := facade.ActivityStatus(ctx); err != nil || got.Scan.Phase != activity.Scan.Phase {
+		t.Fatalf("activity status = %+v, err=%v", got, err)
+	}
+	if got := facade.NetworkStatus(); got.ServiceTag != network.ServiceTag {
+		t.Fatalf("network status = %+v", got)
+	}
+	if got, err := facade.CheckpointStatus(ctx); err != nil || got.CheckpointID != checkpoint.CheckpointID {
+		t.Fatalf("checkpoint status = %+v, err=%v", got, err)
+	}
+
+	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "checkpoint"}
+	if strings.Join(calls, "|") != strings.Join(want, "|") {
+		t.Fatalf("network facade calls = %v, want %v", calls, want)
+	}
+}
+
 func TestCatalogFacadeForwardsToBridge(t *testing.T) {
 	t.Parallel()
 

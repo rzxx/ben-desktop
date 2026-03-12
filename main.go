@@ -31,6 +31,7 @@ func main() {
 		Description: "Desktop host for ben playback and core services",
 		Services: []application.Service{
 			application.NewService(NewLibraryFacade(host)),
+			application.NewService(NewNetworkFacade(host)),
 			application.NewService(NewCatalogFacade(host)),
 			application.NewService(NewInviteFacade(host)),
 			application.NewService(NewPlaybackFacade(host)),

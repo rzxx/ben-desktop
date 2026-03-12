@@ -14,6 +14,12 @@ import (
 type passthroughBridgeStub struct {
 	*desktopcore.UnavailableCore
 
+	ensureLocalContextFn        func(context.Context) (apitypes.LocalContext, error)
+	inspectFn                   func(context.Context) (apitypes.InspectSummary, error)
+	inspectLibraryOplogFn       func(context.Context, string) (apitypes.LibraryOplogDiagnostics, error)
+	activityStatusFn            func(context.Context) (apitypes.ActivityStatus, error)
+	networkStatusFn             func() apitypes.NetworkStatus
+	checkpointStatusFn          func(context.Context) (apitypes.LibraryCheckpointStatus, error)
 	listLibrariesFn             func(context.Context) ([]apitypes.LibrarySummary, error)
 	activeLibraryFn             func(context.Context) (apitypes.LibrarySummary, bool, error)
 	createLibraryFn             func(context.Context, string) (apitypes.LibrarySummary, error)
@@ -84,6 +90,30 @@ type passthroughBridgeStub struct {
 	recordingAvailabilityOVFn   func(context.Context, string, string) (apitypes.RecordingAvailabilityOverview, error)
 	getRecordingAvailabilityFn  func(context.Context, string, string) (apitypes.RecordingPlaybackAvailability, error)
 	albumAvailabilityOVFn       func(context.Context, string, string) (apitypes.AlbumAvailabilityOverview, error)
+}
+
+func (b *passthroughBridgeStub) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error) {
+	return b.ensureLocalContextFn(ctx)
+}
+
+func (b *passthroughBridgeStub) Inspect(ctx context.Context) (apitypes.InspectSummary, error) {
+	return b.inspectFn(ctx)
+}
+
+func (b *passthroughBridgeStub) InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error) {
+	return b.inspectLibraryOplogFn(ctx, libraryID)
+}
+
+func (b *passthroughBridgeStub) ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error) {
+	return b.activityStatusFn(ctx)
+}
+
+func (b *passthroughBridgeStub) NetworkStatus() apitypes.NetworkStatus {
+	return b.networkStatusFn()
+}
+
+func (b *passthroughBridgeStub) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
+	return b.checkpointStatusFn(ctx)
 }
 
 func (b *passthroughBridgeStub) ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error) {

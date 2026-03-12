@@ -20,6 +20,30 @@ func NewUnavailableCore(err error) *UnavailableCore {
 
 func (c *UnavailableCore) Close() error { return nil }
 
+func (c *UnavailableCore) EnsureLocalContext(context.Context) (apitypes.LocalContext, error) {
+	return apitypes.LocalContext{}, c.err
+}
+
+func (c *UnavailableCore) Inspect(context.Context) (apitypes.InspectSummary, error) {
+	return apitypes.InspectSummary{}, c.err
+}
+
+func (c *UnavailableCore) InspectLibraryOplog(context.Context, string) (apitypes.LibraryOplogDiagnostics, error) {
+	return apitypes.LibraryOplogDiagnostics{}, c.err
+}
+
+func (c *UnavailableCore) ActivityStatus(context.Context) (apitypes.ActivityStatus, error) {
+	return apitypes.ActivityStatus{}, c.err
+}
+
+func (c *UnavailableCore) NetworkStatus() apitypes.NetworkStatus {
+	return apitypes.NetworkStatus{}
+}
+
+func (c *UnavailableCore) CheckpointStatus(context.Context) (apitypes.LibraryCheckpointStatus, error) {
+	return apitypes.LibraryCheckpointStatus{}, c.err
+}
+
 func (c *UnavailableCore) ListArtists(context.Context, apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
 	return apitypes.Page[apitypes.ArtistListItem]{}, c.err
 }
