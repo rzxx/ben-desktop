@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	apitypes "ben/core/api/types"
-	"ben/desktop/internal/corebridge"
+	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/platform"
 	"ben/desktop/internal/playback"
 	"ben/desktop/internal/settings"
@@ -94,7 +94,7 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		}
 	}
 
-	bridge, err := corebridge.OpenFromSettings(ctx, coreSettings)
+	bridge, err := desktopcore.OpenFromSettings(ctx, coreSettings)
 	if err != nil {
 		log.Printf("playback: core bridge unavailable: %v", err)
 		bridge = nil
@@ -104,7 +104,7 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 	if bridge != nil {
 		playbackBridge = bridge
 	} else {
-		playbackBridge = corebridge.NewUnavailableBridge(err)
+		playbackBridge = desktopcore.NewUnavailableCore(err)
 	}
 
 	session := playback.NewSession(
@@ -560,7 +560,7 @@ func (s *PlaybackService) requireBridge() hostBridge {
 	bridge := s.bridge
 	s.mu.RUnlock()
 	if bridge == nil {
-		return corebridge.NewUnavailableBridge(fmt.Errorf("core bridge is not available"))
+		return desktopcore.NewUnavailableCore(fmt.Errorf("core bridge is not available"))
 	}
 	return bridge
 }
@@ -579,11 +579,11 @@ func preferredProfile(coreSettings settings.CoreRuntimeSettings) string {
 }
 
 func resolvedBlobRoot(coreSettings settings.CoreRuntimeSettings) string {
-	cfg, err := corebridge.ResolveConfigFromSettings(coreSettings)
+	cfg, err := desktopcore.ResolveConfigFromSettings(coreSettings)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(cfg.Core.BlobRoot)
+	return strings.TrimSpace(cfg.BlobRoot)
 }
 
 func blobPathForID(root string, blobID string) (string, bool, error) {

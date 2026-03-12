@@ -8,12 +8,12 @@ import (
 	"testing"
 
 	apitypes "ben/core/api/types"
-	"ben/desktop/internal/corebridge"
+	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/settings"
 )
 
 type artworkResolveBridgeStub struct {
-	*corebridge.UnavailableBridge
+	*desktopcore.UnavailableCore
 	result apitypes.ArtworkResolveResult
 	err    error
 }
@@ -76,7 +76,7 @@ func TestResolveThumbnailURLReturnsTypedFileURLWhenBlobExists(t *testing.T) {
 
 	service := &PlaybackService{
 		bridge: &artworkResolveBridgeStub{
-			UnavailableBridge: corebridge.NewUnavailableBridge(errors.New("unused")),
+			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 			result: apitypes.ArtworkResolveResult{
 				Artwork: apitypes.ArtworkRef{
 					BlobID:  "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -115,7 +115,7 @@ func TestResolveThumbnailURLReturnsEmptyForMissingBlob(t *testing.T) {
 
 	service := &PlaybackService{
 		bridge: &artworkResolveBridgeStub{
-			UnavailableBridge: corebridge.NewUnavailableBridge(errors.New("unused")),
+			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 			result: apitypes.ArtworkResolveResult{
 				Artwork: apitypes.ArtworkRef{
 					BlobID:  "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -149,7 +149,7 @@ func TestResolveThumbnailURLFallsBackToMIMEForLegacyArtworkRef(t *testing.T) {
 
 	service := &PlaybackService{
 		bridge: &artworkResolveBridgeStub{
-			UnavailableBridge: corebridge.NewUnavailableBridge(errors.New("unused")),
+			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 			result: apitypes.ArtworkResolveResult{
 				Artwork: apitypes.ArtworkRef{
 					BlobID: "b3:fedcba98765432100123456789abcdef0123456789abcdef0123456789abcdef",
@@ -180,7 +180,7 @@ func TestListAlbumsReturnsBridgeErrorWhenUnavailable(t *testing.T) {
 	t.Parallel()
 
 	service := &PlaybackService{
-		bridge: corebridge.NewUnavailableBridge(errors.New("core unavailable")),
+		bridge: desktopcore.NewUnavailableCore(errors.New("core unavailable")),
 	}
 	_, err := service.ListAlbums(context.Background(), apitypes.AlbumListRequest{})
 	if err == nil || err.Error() != "core unavailable" {

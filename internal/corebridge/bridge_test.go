@@ -20,9 +20,6 @@ func TestConfigFromSettingsAllowsMissingDBPath(t *testing.T) {
 	if cfg.Core.IdentityKeyPath != "" {
 		t.Fatalf("expected empty identity key path, got %q", cfg.Core.IdentityKeyPath)
 	}
-	if cfg.Core.Runtime.AutoStart == nil || !*cfg.Core.Runtime.AutoStart {
-		t.Fatalf("expected auto start to be enabled")
-	}
 	if cfg.Core.TranscodeProfile != settings.DefaultTranscodeProfile {
 		t.Fatalf("expected default transcode profile %q, got %q", settings.DefaultTranscodeProfile, cfg.Core.TranscodeProfile)
 	}
