@@ -36,6 +36,8 @@ type passthroughBridgeStub struct {
 	addScanRootsFn              func(context.Context, []string) ([]string, error)
 	removeScanRootsFn           func(context.Context, []string) ([]string, error)
 	scanRootsFn                 func(context.Context) ([]string, error)
+	rescanNowFn                 func(context.Context) (apitypes.ScanStats, error)
+	rescanRootFn                func(context.Context, string) (apitypes.ScanStats, error)
 	listArtistsFn               func(context.Context, apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error)
 	getArtistFn                 func(context.Context, string) (apitypes.ArtistListItem, error)
 	listArtistAlbumsFn          func(context.Context, apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
@@ -180,6 +182,14 @@ func (b *passthroughBridgeStub) RemoveScanRoots(ctx context.Context, roots []str
 
 func (b *passthroughBridgeStub) ScanRoots(ctx context.Context) ([]string, error) {
 	return b.scanRootsFn(ctx)
+}
+
+func (b *passthroughBridgeStub) RescanNow(ctx context.Context) (apitypes.ScanStats, error) {
+	return b.rescanNowFn(ctx)
+}
+
+func (b *passthroughBridgeStub) RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error) {
+	return b.rescanRootFn(ctx, root)
 }
 
 func (b *passthroughBridgeStub) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {

@@ -272,6 +272,10 @@ func TestCleanupCacheKeepsBlobFileWhenAnotherLibraryStillCachesIt(t *testing.T) 
 }
 
 func openCacheTestApp(t *testing.T, cacheBytes int64) *App {
+	return openCacheTestAppWithTagReader(t, cacheBytes, nil)
+}
+
+func openCacheTestAppWithTagReader(t *testing.T, cacheBytes int64, reader TagReader) *App {
 	t.Helper()
 
 	root := t.TempDir()
@@ -279,6 +283,7 @@ func openCacheTestApp(t *testing.T, cacheBytes int64) *App {
 		DBPath:     filepath.Join(root, "library.db"),
 		BlobRoot:   filepath.Join(root, "blobs"),
 		CacheBytes: cacheBytes,
+		TagReader:  reader,
 	})
 	if err != nil {
 		t.Fatalf("open app: %v", err)

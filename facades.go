@@ -93,6 +93,14 @@ func (s *LibraryFacade) ScanRoots(ctx context.Context) ([]string, error) {
 	return s.bridge().ScanRoots(ctx)
 }
 
+func (s *LibraryFacade) RescanNow(ctx context.Context) (apitypes.ScanStats, error) {
+	return s.bridge().RescanNow(ctx)
+}
+
+func (s *LibraryFacade) RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error) {
+	return s.bridge().RescanRoot(ctx, root)
+}
+
 type NetworkFacade struct {
 	facadeBase
 }

@@ -161,18 +161,7 @@ func (a *App) InspectLibraryOplog(ctx context.Context, libraryID string) (apityp
 }
 
 func (a *App) ActivityStatus(context.Context) (apitypes.ActivityStatus, error) {
-	now := time.Now().UTC()
-	return apitypes.ActivityStatus{
-		Scan: apitypes.ScanActivityStatus{
-			Phase:     "idle",
-			UpdatedAt: now,
-		},
-		Artwork: apitypes.ArtworkActivityStatus{
-			Phase:     "idle",
-			UpdatedAt: now,
-		},
-		UpdatedAt: now,
-	}, nil
+	return a.ActivityStatusSnapshot(), nil
 }
 
 func (a *App) NetworkStatus() apitypes.NetworkStatus {

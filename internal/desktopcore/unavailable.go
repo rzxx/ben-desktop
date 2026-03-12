@@ -331,3 +331,11 @@ func (c *UnavailableCore) RemoveScanRoots(context.Context, []string) ([]string, 
 func (c *UnavailableCore) ScanRoots(context.Context) ([]string, error) {
 	return nil, c.err
 }
+
+func (c *UnavailableCore) RescanNow(context.Context) (apitypes.ScanStats, error) {
+	return apitypes.ScanStats{}, c.err
+}
+
+func (c *UnavailableCore) RescanRoot(context.Context, string) (apitypes.ScanStats, error) {
+	return apitypes.ScanStats{}, c.err
+}

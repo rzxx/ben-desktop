@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	apitypes "ben/core/api/types"
 	"gorm.io/gorm"
@@ -12,6 +13,11 @@ import (
 type App struct {
 	cfg Config
 	db  *gorm.DB
+
+	activityMu sync.RWMutex
+	activity   apitypes.ActivityStatus
+	scanFlight *scanFlight
+	tagReader  TagReader
 
 	jobs     *JobsService
 	library  *LibraryService
@@ -47,9 +53,16 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	}
 
 	app := &App{
-		cfg:  resolved,
-		db:   db,
-		jobs: NewJobsService(),
+		cfg:      resolved,
+		db:       db,
+		activity: newActivityStatus(),
+		jobs:     NewJobsService(),
+		tagReader: func() TagReader {
+			if resolved.TagReader != nil {
+				return resolved.TagReader
+			}
+			return NewTagReader()
+		}(),
 	}
 	app.library = &LibraryService{app: app}
 	app.ingest = &IngestService{app: app}
@@ -164,6 +177,14 @@ func (a *App) RemoveScanRoots(ctx context.Context, roots []string) ([]string, er
 
 func (a *App) ScanRoots(ctx context.Context) ([]string, error) {
 	return a.ingest.ScanRoots(ctx)
+}
+
+func (a *App) RescanNow(ctx context.Context) (apitypes.ScanStats, error) {
+	return a.ingest.RescanNow(ctx)
+}
+
+func (a *App) RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error) {
+	return a.ingest.RescanRoot(ctx, root)
 }
 
 func (a *App) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {

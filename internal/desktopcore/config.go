@@ -20,6 +20,7 @@ type Config struct {
 	FFmpegPath       string
 	TranscodeProfile string
 	CacheBytes       int64
+	TagReader        TagReader
 	Logger           apitypes.Logger
 }
 

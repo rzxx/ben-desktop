@@ -36,6 +36,8 @@ type hostBridge interface {
 	AddScanRoots(ctx context.Context, roots []string) ([]string, error)
 	RemoveScanRoots(ctx context.Context, roots []string) ([]string, error)
 	ScanRoots(ctx context.Context) ([]string, error)
+	RescanNow(ctx context.Context) (apitypes.ScanStats, error)
+	RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error)
 	ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error)
 	GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error)
 	ListArtistAlbums(ctx context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)

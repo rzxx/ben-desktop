@@ -19,6 +19,7 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 	ctx := context.Background()
 	summary := apitypes.LibrarySummary{LibraryID: "lib-1", Name: "Library", Role: "admin", JoinedAt: time.Now().UTC(), IsActive: true}
 	member := apitypes.LibraryMemberStatus{LibraryID: "lib-1", DeviceID: "dev-1", Role: "admin"}
+	scanStats := apitypes.ScanStats{Scanned: 1, Imported: 1}
 	calls := make([]string, 0, 10)
 	host := &coreHost{
 		started: true,
@@ -64,6 +65,14 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 				calls = append(calls, "remove:"+deviceID)
 				return nil
 			},
+			rescanNowFn: func(context.Context) (apitypes.ScanStats, error) {
+				calls = append(calls, "rescan-now")
+				return scanStats, nil
+			},
+			rescanRootFn: func(_ context.Context, root string) (apitypes.ScanStats, error) {
+				calls = append(calls, "rescan-root:"+root)
+				return scanStats, nil
+			},
 		},
 	}
 	facade := NewLibraryFacade(host)
@@ -98,6 +107,12 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 	if err := facade.RemoveLibraryMember(ctx, "dev-1"); err != nil {
 		t.Fatalf("remove library member: %v", err)
 	}
+	if got, err := facade.RescanNow(ctx); err != nil || got.Scanned != scanStats.Scanned {
+		t.Fatalf("rescan now = %+v, err=%v", got, err)
+	}
+	if got, err := facade.RescanRoot(ctx, "C:/music"); err != nil || got.Imported != scanStats.Imported {
+		t.Fatalf("rescan root = %+v, err=%v", got, err)
+	}
 
 	want := []string{
 		"list",
@@ -110,6 +125,8 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 		"members",
 		"role:dev-1:guest",
 		"remove:dev-1",
+		"rescan-now",
+		"rescan-root:C:/music",
 	}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("library facade calls = %v, want %v", calls, want)
