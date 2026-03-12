@@ -1,8 +1,13 @@
-//go:build !libmpv
+//go:build nompv
 
 package playback
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var errNoMPVBackend = errors.New("mpv playback backend is disabled in this build")
 
 type stubBackend struct {
 	loadedURI string
@@ -24,31 +29,31 @@ func newBackend() Backend {
 func (b *stubBackend) Load(_ context.Context, uri string) error {
 	b.loadedURI = uri
 	b.position = 0
-	return nil
+	return errNoMPVBackend
 }
 
 func (b *stubBackend) Play(context.Context) error {
 	if b.loadedURI == "" {
-		return nil
+		return errNoMPVBackend
 	}
 	b.playing = true
 	b.paused = false
-	return nil
+	return errNoMPVBackend
 }
 
 func (b *stubBackend) Pause(context.Context) error {
 	if !b.playing {
-		return nil
+		return errNoMPVBackend
 	}
 	b.paused = true
-	return nil
+	return errNoMPVBackend
 }
 
 func (b *stubBackend) Stop(context.Context) error {
 	b.playing = false
 	b.paused = false
 	b.position = 0
-	return nil
+	return errNoMPVBackend
 }
 
 func (b *stubBackend) SeekTo(_ context.Context, positionMS int64) error {
@@ -56,7 +61,7 @@ func (b *stubBackend) SeekTo(_ context.Context, positionMS int64) error {
 		positionMS = 0
 	}
 	b.position = positionMS
-	return nil
+	return errNoMPVBackend
 }
 
 func (b *stubBackend) SetVolume(_ context.Context, volume int) error {
@@ -81,11 +86,11 @@ func (b *stubBackend) SupportsPreload() bool {
 }
 
 func (b *stubBackend) PreloadNext(context.Context, string) error {
-	return nil
+	return errNoMPVBackend
 }
 
 func (b *stubBackend) ClearPreloaded(context.Context) error {
-	return nil
+	return errNoMPVBackend
 }
 
 func (b *stubBackend) Close() error {

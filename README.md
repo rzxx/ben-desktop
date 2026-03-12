@@ -24,6 +24,8 @@ wails3 dev
 wails3 build
 ```
 
+Playback uses `libmpv` by default. On Windows, place `libmpv.dll` at `build/windows/runtime/libmpv.dll` before `wails3 build` or packaging so the built app and NSIS installer include it. To intentionally build without mpv support, use the `nompv` build tag.
+
 ## Playback Service
 
 The desktop host exposes a `PlaybackService`.

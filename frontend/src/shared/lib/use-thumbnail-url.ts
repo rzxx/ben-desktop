@@ -3,6 +3,7 @@ import { type ArtworkRef, resolveThumbnailURL } from "./desktop";
 
 const thumbnailUrlCache = new Map<string, string>();
 const thumbnailPendingCache = new Map<string, Promise<string>>();
+const thumbnailRetryDelaysMS = [1000, 2500, 5000, 10000, 15000];
 
 async function resolveCached(
   key: string,
@@ -18,7 +19,9 @@ async function resolveCached(
       key,
       load()
         .then((value) => {
-          cache.set(key, value);
+          if (value) {
+            cache.set(key, value);
+          }
           pending.delete(key);
           return value;
         })
@@ -34,11 +37,16 @@ async function resolveCached(
 function thumbnailCacheKey(thumb?: ArtworkRef | null) {
   const blobId = thumb?.BlobID?.trim() ?? "";
   const mime = thumb?.MIME?.trim() ?? "";
+  const fileExt = thumb?.FileExt?.trim() ?? "";
   const variant = thumb?.Variant?.trim() ?? "";
   if (!blobId) {
     return "";
   }
-  return `${blobId}|${mime}|${variant}`;
+  return `${blobId}|${mime}|${fileExt}|${variant}`;
+}
+
+function retryDelayMs(attempt: number) {
+  return thumbnailRetryDelaysMS[Math.min(attempt, thumbnailRetryDelaysMS.length - 1)];
 }
 
 export function useThumbnailUrl(thumb?: ArtworkRef | null) {
@@ -46,15 +54,27 @@ export function useThumbnailUrl(thumb?: ArtworkRef | null) {
     key: "",
     url: "",
   });
+  const [retryAttempt, setRetryAttempt] = useState(0);
 
   const cacheKey = thumbnailCacheKey(thumb);
   const cachedUrl = cacheKey ? (thumbnailUrlCache.get(cacheKey) ?? "") : "";
 
   useEffect(() => {
     if (!cacheKey || !thumb) {
+      setState({
+        key: "",
+        url: "",
+      });
+    }
+    setRetryAttempt(0);
+  }, [cacheKey, thumb]);
+
+  useEffect(() => {
+    if (!cacheKey || !thumb) {
       return;
     }
     let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     void resolveCached(cacheKey, thumbnailUrlCache, thumbnailPendingCache, () =>
       resolveThumbnailURL(thumb),
     )
@@ -64,6 +84,11 @@ export function useThumbnailUrl(thumb?: ArtworkRef | null) {
             key: cacheKey,
             url: value,
           });
+          if (!value) {
+            retryTimer = setTimeout(() => {
+              setRetryAttempt((current) => current + 1);
+            }, retryDelayMs(retryAttempt));
+          }
         }
       })
       .catch(() => {
@@ -72,12 +97,18 @@ export function useThumbnailUrl(thumb?: ArtworkRef | null) {
             key: cacheKey,
             url: "",
           });
+          retryTimer = setTimeout(() => {
+            setRetryAttempt((current) => current + 1);
+          }, retryDelayMs(retryAttempt));
         }
       });
     return () => {
       active = false;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
     };
-  }, [cacheKey, thumb]);
+  }, [cacheKey, retryAttempt, thumb]);
 
   if (!cacheKey) {
     return "";

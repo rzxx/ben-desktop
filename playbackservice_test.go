@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +11,19 @@ import (
 	"ben/desktop/internal/corebridge"
 	"ben/desktop/internal/settings"
 )
+
+type artworkResolveBridgeStub struct {
+	*corebridge.UnavailableBridge
+	result apitypes.ArtworkResolveResult
+	err    error
+}
+
+func (b *artworkResolveBridgeStub) ResolveArtworkRef(context.Context, apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error) {
+	if b.err != nil {
+		return apitypes.ArtworkResolveResult{}, b.err
+	}
+	return b.result, nil
+}
 
 func TestResolveBlobURLReturnsFileURLWhenBlobExists(t *testing.T) {
 	t.Parallel()
@@ -53,42 +65,71 @@ func TestResolveBlobURLReturnsEmptyForMissingBlob(t *testing.T) {
 	}
 }
 
-func TestResolveThumbnailURLReturnsDataURLWhenBlobExists(t *testing.T) {
+func TestResolveThumbnailURLReturnsTypedFileURLWhenBlobExists(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	hashHex := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	blobPath := filepath.Join(root, "b3", hashHex[:2], hashHex[2:4], hashHex)
-	if err := os.MkdirAll(filepath.Dir(blobPath), 0o755); err != nil {
-		t.Fatalf("mkdir blob dir: %v", err)
-	}
+	blobPath := filepath.Join(t.TempDir(), "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	payload := []byte("art")
 	if err := os.WriteFile(blobPath, payload, 0o644); err != nil {
 		t.Fatalf("write blob: %v", err)
 	}
 
-	service := &PlaybackService{blobRoot: root}
+	service := &PlaybackService{
+		bridge: &artworkResolveBridgeStub{
+			UnavailableBridge: corebridge.NewUnavailableBridge(errors.New("unused")),
+			result: apitypes.ArtworkResolveResult{
+				Artwork: apitypes.ArtworkRef{
+					BlobID:  "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+					MIME:    "image/webp",
+					FileExt: ".webp",
+					Variant: "320_webp",
+				},
+				LocalPath: blobPath,
+				Available: true,
+			},
+		},
+	}
 	got, err := service.ResolveThumbnailURL(apitypes.ArtworkRef{
-		BlobID:  "b3:" + hashHex,
+		BlobID:  "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		MIME:    "image/webp",
+		FileExt: ".webp",
 		Variant: "320_webp",
 	})
 	if err != nil {
 		t.Fatalf("resolve thumbnail url: %v", err)
 	}
-	want := "data:image/webp;base64," + base64.StdEncoding.EncodeToString(payload)
+	want, err := fileURLFromPath(blobPath + ".webp")
+	if err != nil {
+		t.Fatalf("alias file url: %v", err)
+	}
 	if got != want {
 		t.Fatalf("thumbnail url = %q, want %q", got, want)
+	}
+	if data, err := os.ReadFile(blobPath + ".webp"); err != nil || string(data) != string(payload) {
+		t.Fatalf("expected typed alias payload, got data=%q err=%v", string(data), err)
 	}
 }
 
 func TestResolveThumbnailURLReturnsEmptyForMissingBlob(t *testing.T) {
 	t.Parallel()
 
-	service := &PlaybackService{blobRoot: t.TempDir()}
+	service := &PlaybackService{
+		bridge: &artworkResolveBridgeStub{
+			UnavailableBridge: corebridge.NewUnavailableBridge(errors.New("unused")),
+			result: apitypes.ArtworkResolveResult{
+				Artwork: apitypes.ArtworkRef{
+					BlobID:  "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+					MIME:    "image/jpeg",
+					FileExt: ".jpg",
+				},
+				Available: false,
+			},
+		},
+	}
 	got, err := service.ResolveThumbnailURL(apitypes.ArtworkRef{
-		BlobID: "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		MIME:   "image/jpeg",
+		BlobID:  "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		MIME:    "image/jpeg",
+		FileExt: ".jpg",
 	})
 	if err != nil {
 		t.Fatalf("resolve thumbnail url: %v", err)
@@ -98,14 +139,40 @@ func TestResolveThumbnailURLReturnsEmptyForMissingBlob(t *testing.T) {
 	}
 }
 
-func TestResolveThumbnailURLRejectsMissingMIME(t *testing.T) {
+func TestResolveThumbnailURLFallsBackToMIMEForLegacyArtworkRef(t *testing.T) {
 	t.Parallel()
 
-	service := &PlaybackService{blobRoot: t.TempDir()}
-	if _, err := service.ResolveThumbnailURL(apitypes.ArtworkRef{
-		BlobID: "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-	}); err == nil {
-		t.Fatalf("expected missing mime to fail")
+	blobPath := filepath.Join(t.TempDir(), "fedcba98765432100123456789abcdef0123456789abcdef0123456789abcdef")
+	if err := os.WriteFile(blobPath, []byte("legacy"), 0o644); err != nil {
+		t.Fatalf("write blob: %v", err)
+	}
+
+	service := &PlaybackService{
+		bridge: &artworkResolveBridgeStub{
+			UnavailableBridge: corebridge.NewUnavailableBridge(errors.New("unused")),
+			result: apitypes.ArtworkResolveResult{
+				Artwork: apitypes.ArtworkRef{
+					BlobID: "b3:fedcba98765432100123456789abcdef0123456789abcdef0123456789abcdef",
+					MIME:   "image/jpeg",
+				},
+				LocalPath: blobPath,
+				Available: true,
+			},
+		},
+	}
+	got, err := service.ResolveThumbnailURL(apitypes.ArtworkRef{
+		BlobID: "b3:fedcba98765432100123456789abcdef0123456789abcdef0123456789abcdef",
+		MIME:   "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("resolve legacy thumbnail: %v", err)
+	}
+	want, err := fileURLFromPath(blobPath + ".jpg")
+	if err != nil {
+		t.Fatalf("legacy file url: %v", err)
+	}
+	if got != want {
+		t.Fatalf("legacy thumbnail url = %q, want %q", got, want)
 	}
 }
 

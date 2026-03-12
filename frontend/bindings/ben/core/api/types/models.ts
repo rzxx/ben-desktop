@@ -393,6 +393,7 @@ export class ArtistListRequest {
 export class ArtworkRef {
     "BlobID": string;
     "MIME": string;
+    "FileExt": string;
     "Variant": string;
     "Width": number;
     "Height": number;
@@ -405,6 +406,9 @@ export class ArtworkRef {
         }
         if (!("MIME" in $$source)) {
             this["MIME"] = "";
+        }
+        if (!("FileExt" in $$source)) {
+            this["FileExt"] = "";
         }
         if (!("Variant" in $$source)) {
             this["Variant"] = "";
@@ -433,6 +437,7 @@ export class ArtworkRef {
 
 export class CatalogAggregateAvailabilityHint {
     "LocalTrackCount": number;
+    "CachedTrackCount": number;
     "ProviderOnlineTrackCount": number;
     "ProviderOfflineTrackCount": number;
     "AvailableTrackCount": number;
@@ -442,6 +447,9 @@ export class CatalogAggregateAvailabilityHint {
     constructor($$source: Partial<CatalogAggregateAvailabilityHint> = {}) {
         if (!("LocalTrackCount" in $$source)) {
             this["LocalTrackCount"] = 0;
+        }
+        if (!("CachedTrackCount" in $$source)) {
+            this["CachedTrackCount"] = 0;
         }
         if (!("ProviderOnlineTrackCount" in $$source)) {
             this["ProviderOnlineTrackCount"] = 0;
@@ -471,6 +479,7 @@ export class CatalogAggregateAvailabilityHint {
 export class CatalogTrackAvailabilityHint {
     "State": CatalogTrackAvailabilityState;
     "HasLocalSource": boolean;
+    "HasCachedLocal": boolean;
     "ProviderDeviceCount": number;
     "OnlineProviderDeviceCount": number;
 
@@ -481,6 +490,9 @@ export class CatalogTrackAvailabilityHint {
         }
         if (!("HasLocalSource" in $$source)) {
             this["HasLocalSource"] = false;
+        }
+        if (!("HasCachedLocal" in $$source)) {
+            this["HasCachedLocal"] = false;
         }
         if (!("ProviderDeviceCount" in $$source)) {
             this["ProviderDeviceCount"] = 0;
@@ -508,6 +520,7 @@ export enum CatalogTrackAvailabilityState {
     $zero = "",
 
     CatalogAvailabilityLocal = "LOCAL",
+    CatalogAvailabilityCached = "CACHED",
     CatalogAvailabilityProviderOnline = "PROVIDER_ONLINE",
     CatalogAvailabilityProviderOffline = "PROVIDER_OFFLINE",
     CatalogAvailabilityUnavailable = "UNAVAILABLE",

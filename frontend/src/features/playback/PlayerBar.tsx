@@ -45,6 +45,10 @@ export function PlayerBar() {
   const volume = snapshot?.volume ?? 80;
   const repeatMode = snapshot?.repeatMode ?? "off";
   const shuffle = snapshot?.shuffle ?? false;
+  const hasCurrent = Boolean(snapshot?.currentEntry);
+  const hasUpcoming = (snapshot?.upcomingEntries?.length ?? 0) > 0;
+  const canGoNext =
+    repeatMode === "one" ? hasCurrent : hasUpcoming;
 
   return (
     <footer className="player-bar fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[linear-gradient(180deg,rgba(10,12,19,0.85),rgba(6,8,14,0.98))] px-5 py-4 backdrop-blur-2xl">
@@ -104,6 +108,7 @@ export function PlayerBar() {
             </button>
             <button
               className="player-bar__transport"
+              disabled={!canGoNext}
               onClick={() => {
                 void next();
               }}

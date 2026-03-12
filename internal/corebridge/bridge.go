@@ -149,6 +149,10 @@ func (b *RuntimeBridge) ResolvePlaybackRecording(ctx context.Context, recordingI
 	return b.runtime.ResolvePlaybackRecording(ctx, recordingID, preferredProfile)
 }
 
+func (b *RuntimeBridge) ResolveArtworkRef(ctx context.Context, artwork apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error) {
+	return b.runtime.ResolveArtworkRef(ctx, artwork)
+}
+
 func (b *RuntimeBridge) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 	return b.runtime.InspectPlaybackRecording(ctx, recordingID, preferredProfile)
 }
@@ -227,6 +231,10 @@ func (b *UnavailableBridge) ListLikedRecordings(context.Context, apitypes.LikedR
 
 func (b *UnavailableBridge) ResolvePlaybackRecording(context.Context, string, string) (apitypes.PlaybackResolveResult, error) {
 	return apitypes.PlaybackResolveResult{}, b.err
+}
+
+func (b *UnavailableBridge) ResolveArtworkRef(context.Context, apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error) {
+	return apitypes.ArtworkResolveResult{}, b.err
 }
 
 func (b *UnavailableBridge) InspectPlaybackRecording(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error) {

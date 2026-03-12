@@ -87,6 +87,9 @@ Section
     SetOutPath $INSTDIR
     
     !insertmacro wails.files
+    !if /FileExists "..\..\..\bin\libmpv.dll"
+        File "..\..\..\bin\libmpv.dll"
+    !endif
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"

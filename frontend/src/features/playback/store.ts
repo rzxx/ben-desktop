@@ -26,12 +26,15 @@ type PlaybackStore = {
   setShuffle: (enabled: boolean) => Promise<void>;
   setRepeatMode: (mode: string) => Promise<void>;
   playAlbum: (albumId: string) => Promise<void>;
+  playAlbumTrack: (albumId: string, recordingId: string) => Promise<void>;
   queueAlbum: (albumId: string) => Promise<void>;
   playPlaylist: (playlistId: string) => Promise<void>;
+  playPlaylistTrack: (playlistId: string, itemId: string) => Promise<void>;
   queuePlaylist: (playlistId: string) => Promise<void>;
   playRecording: (recordingId: string) => Promise<void>;
   queueRecording: (recordingId: string) => Promise<void>;
   playLiked: () => Promise<void>;
+  playLikedTrack: (recordingId: string) => Promise<void>;
   selectEntry: (entryId: string) => Promise<void>;
   removeQueuedEntry: (entryId: string) => Promise<void>;
   clearQueue: () => Promise<void>;
@@ -182,6 +185,13 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       (error) => set({ error }),
     );
   },
+  playAlbumTrack: async (albumId, recordingId) => {
+    await applySnapshot(
+      () => PlaybackService.PlayAlbumTrack(albumId, recordingId),
+      get().setSnapshot,
+      (error) => set({ error }),
+    );
+  },
   queueAlbum: async (albumId) => {
     await applySnapshot(
       () => PlaybackService.QueueAlbum(albumId),
@@ -192,6 +202,13 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   playPlaylist: async (playlistId) => {
     await applySnapshot(
       () => PlaybackService.PlayPlaylist(playlistId),
+      get().setSnapshot,
+      (error) => set({ error }),
+    );
+  },
+  playPlaylistTrack: async (playlistId, itemId) => {
+    await applySnapshot(
+      () => PlaybackService.PlayPlaylistTrack(playlistId, itemId),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -220,6 +237,13 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   playLiked: async () => {
     await applySnapshot(
       () => PlaybackService.PlayLiked(),
+      get().setSnapshot,
+      (error) => set({ error }),
+    );
+  },
+  playLikedTrack: async (recordingId) => {
+    await applySnapshot(
+      () => PlaybackService.PlayLikedTrack(recordingId),
       get().setSnapshot,
       (error) => set({ error }),
     );

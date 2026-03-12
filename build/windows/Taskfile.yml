@@ -43,6 +43,8 @@ tasks:
     cmds:
       - task: generate:syso
       - go build {{.BUILD_FLAGS}} -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe"
+      - cmd: powershell -NoProfile -Command "if (Test-Path 'build/windows/runtime/libmpv.dll') { Copy-Item 'build/windows/runtime/libmpv.dll' '{{.BIN_DIR}}/libmpv.dll' -Force }"
+        platforms: [windows]
       - cmd: powershell Remove-item *.syso
         platforms: [windows]
       - cmd: rm -f *.syso
@@ -70,6 +72,8 @@ tasks:
     cmds:
       - task: generate:syso
       - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} {{.CROSS_IMAGE}} windows {{.DOCKER_ARCH}}
+      - cmd: powershell -NoProfile -Command "if (Test-Path 'build/windows/runtime/libmpv.dll') { Copy-Item 'build/windows/runtime/libmpv.dll' '{{.BIN_DIR}}/libmpv.dll' -Force }"
+        platforms: [windows]
       - docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
       - rm -f *.syso
     vars:

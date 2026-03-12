@@ -46,11 +46,45 @@ export function availabilityLabel(state?: string) {
   switch (state) {
     case "LOCAL":
       return "Local";
+    case "CACHED":
+      return "Cached";
     case "PROVIDER_ONLINE":
       return "Online";
     case "PROVIDER_OFFLINE":
       return "Offline";
     default:
       return "Unavailable";
+  }
+}
+
+export function aggregateAvailabilityLabel(availability?: {
+  LocalTrackCount?: number | null;
+  CachedTrackCount?: number | null;
+  ProviderOnlineTrackCount?: number | null;
+  ProviderOfflineTrackCount?: number | null;
+}) {
+  if ((availability?.LocalTrackCount ?? 0) > 0) {
+    return availabilityLabel("LOCAL");
+  }
+  if ((availability?.CachedTrackCount ?? 0) > 0) {
+    return availabilityLabel("CACHED");
+  }
+  if ((availability?.ProviderOnlineTrackCount ?? 0) > 0) {
+    return availabilityLabel("PROVIDER_ONLINE");
+  }
+  if ((availability?.ProviderOfflineTrackCount ?? 0) > 0) {
+    return availabilityLabel("PROVIDER_OFFLINE");
+  }
+  return availabilityLabel();
+}
+
+export function isCatalogTrackActionable(state?: string) {
+  switch (state) {
+    case "LOCAL":
+    case "CACHED":
+    case "PROVIDER_ONLINE":
+      return true;
+    default:
+      return false;
   }
 }

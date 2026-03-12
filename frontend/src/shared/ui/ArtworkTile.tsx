@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { artistLetter } from "../lib/format";
 
 type ArtworkTileProps = {
@@ -19,8 +20,15 @@ export function ArtworkTile({
   rounded = "soft",
   className = "",
 }: ArtworkTileProps) {
+  const [failedSrc, setFailedSrc] = useState("");
+
+  useEffect(() => {
+    setFailedSrc("");
+  }, [src]);
+
   const shape =
     rounded === "full" ? "rounded-full" : "rounded-[1.2rem] sm:rounded-[1.35rem]";
+  const visibleSrc = src && src !== failedSrc ? src : "";
 
   return (
     <div
@@ -31,12 +39,15 @@ export function ArtworkTile({
         className,
       ].join(" ")}
     >
-      {src ? (
+      {visibleSrc ? (
         <img
           alt={alt}
           className="h-full w-full object-cover"
           loading="lazy"
-          src={src}
+          onError={() => {
+            setFailedSrc(visibleSrc);
+          }}
+          src={visibleSrc}
         />
       ) : (
         <div className="artwork-tile__fallback flex h-full w-full flex-col justify-between bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.4),transparent_55%),linear-gradient(180deg,rgba(15,23,42,0.2),rgba(15,23,42,0.95))] p-4">

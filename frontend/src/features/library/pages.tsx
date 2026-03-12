@@ -33,11 +33,13 @@ import {
   listTracksPage,
 } from "../../shared/lib/desktop";
 import {
+  aggregateAvailabilityLabel,
   artistLetter,
   availabilityLabel,
   formatCount,
   formatDuration,
   formatRelativeDate,
+  isCatalogTrackActionable,
   joinArtists,
 } from "../../shared/lib/format";
 import { useThumbnailUrl } from "../../shared/lib/use-thumbnail-url";
@@ -83,6 +85,7 @@ function PageHeader({
 const EMPTY_THUMB: ArtworkRef = {
   BlobID: "",
   MIME: "",
+  FileExt: "",
   Variant: "",
   Width: 0,
   Height: 0,
@@ -137,6 +140,7 @@ function DetailHero({
   title,
   subtitle,
   thumb,
+  fallbackThumb,
   meta,
   actions,
 }: {
@@ -144,10 +148,13 @@ function DetailHero({
   title: string;
   subtitle: string;
   thumb?: ArtworkRef;
+  fallbackThumb?: ArtworkRef;
   meta?: ReactNode;
   actions?: ReactNode;
 }) {
   const artworkUrl = useThumbnailUrl(thumb);
+  const fallbackArtworkUrl = useThumbnailUrl(fallbackThumb);
+  const visibleArtworkUrl = artworkUrl || fallbackArtworkUrl;
 
   return (
     <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
@@ -155,7 +162,7 @@ function DetailHero({
         <ArtworkTile
           alt={title}
           className="h-52 w-52 shrink-0"
-          src={artworkUrl}
+          src={visibleArtworkUrl}
           title={title}
         />
         <div className="flex min-w-0 flex-1 flex-col justify-end">
@@ -205,9 +212,7 @@ function AlbumCard({ album }: { album: AlbumListItem }) {
         <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/35">
           <span>{formatCount(album.TrackCount, "track")}</span>
           <span>
-            {availabilityLabel(
-              album.Availability?.LocalTrackCount ? "LOCAL" : undefined,
-            )}
+            {aggregateAvailabilityLabel(album.Availability)}
           </span>
         </div>
       </div>
@@ -313,6 +318,8 @@ function TrackRow({
   onPlay: () => void;
   onQueue: () => void;
 }) {
+  const actionsEnabled = isCatalogTrackActionable(availabilityState);
+
   return (
     <div className="track-row flex h-full items-center gap-4 rounded-[1.1rem] px-3">
       <div className="flex w-16 shrink-0 justify-center text-xs uppercase tracking-[0.25em] text-white/30">
@@ -329,10 +336,20 @@ function TrackRow({
         {formatDuration(durationMs)}
       </div>
       <div className="flex shrink-0 gap-2">
-        <button className="row-action" onClick={onPlay} type="button">
+        <button
+          className={`row-action ${actionsEnabled ? "" : "cursor-not-allowed opacity-45"}`}
+          disabled={!actionsEnabled}
+          onClick={onPlay}
+          type="button"
+        >
           <Play className="h-4 w-4" />
         </button>
-        <button className="row-action" onClick={onQueue} type="button">
+        <button
+          className={`row-action ${actionsEnabled ? "" : "cursor-not-allowed opacity-45"}`}
+          disabled={!actionsEnabled}
+          onClick={onQueue}
+          type="button"
+        >
           <Plus className="h-4 w-4" />
         </button>
       </div>
@@ -537,8 +554,8 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
   const [selectedVariantId, setSelectedVariantId] = useState(albumId);
   const [error, setError] = useState("");
   const playAlbum = usePlaybackStore((state) => state.playAlbum);
+  const playAlbumTrack = usePlaybackStore((state) => state.playAlbumTrack);
   const queueAlbum = usePlaybackStore((state) => state.queueAlbum);
-  const playRecording = usePlaybackStore((state) => state.playRecording);
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
 
   useEffect(() => {
@@ -579,15 +596,12 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
 
   const heroTitle = activeVariant?.Title ?? detail?.Title ?? "Album";
   const heroArtists = activeVariant?.Artists ?? detail?.Artists ?? [];
-  const heroThumb =
-    activeVariant?.Thumb?.BlobID
-      ? activeVariant.Thumb
-      : detail?.Thumb?.BlobID
-        ? detail.Thumb
-        : EMPTY_THUMB;
+  const heroThumb = activeVariant?.Thumb ?? detail?.Thumb ?? EMPTY_THUMB;
+  const heroFallbackThumb = detail?.Thumb ?? EMPTY_THUMB;
   const heroAvailability = activeVariant?.Availability ??
     detail?.Availability ?? {
       LocalTrackCount: 0,
+      CachedTrackCount: 0,
       ProviderOnlineTrackCount: 0,
       ProviderOfflineTrackCount: 0,
       AvailableTrackCount: 0,
@@ -631,6 +645,7 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
           </>
         }
         thumb={heroThumb}
+        fallbackThumb={heroFallbackThumb}
         eyebrow="Album detail"
         meta={
           <>
@@ -684,7 +699,7 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
               durationMs={track.DurationMS}
               indexLabel={`${track.DiscNo}.${track.TrackNo}`}
               onPlay={() => {
-                void playRecording(track.RecordingID);
+                void playAlbumTrack(selectedVariantId, track.RecordingID);
               }}
               onQueue={() => {
                 void queueRecording(track.RecordingID);
@@ -790,7 +805,7 @@ export function PlaylistDetailPage({ playlistId }: { playlistId: string }) {
   const [error, setError] = useState("");
   const playPlaylist = usePlaybackStore((state) => state.playPlaylist);
   const queuePlaylist = usePlaybackStore((state) => state.queuePlaylist);
-  const playRecording = usePlaybackStore((state) => state.playRecording);
+  const playPlaylistTrack = usePlaybackStore((state) => state.playPlaylistTrack);
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
 
   useEffect(() => {
@@ -884,7 +899,7 @@ export function PlaylistDetailPage({ playlistId }: { playlistId: string }) {
               durationMs={track.DurationMS}
               indexLabel={String(index + 1).padStart(2, "0")}
               onPlay={() => {
-                void playRecording(track.RecordingID);
+                void playPlaylistTrack(playlistId, track.ItemID);
               }}
               onQueue={() => {
                 void queueRecording(track.RecordingID);
@@ -901,7 +916,7 @@ export function PlaylistDetailPage({ playlistId }: { playlistId: string }) {
 
 export function LikedPlaylistPage() {
   const playLiked = usePlaybackStore((state) => state.playLiked);
-  const playRecording = usePlaybackStore((state) => state.playRecording);
+  const playLikedTrack = usePlaybackStore((state) => state.playLikedTrack);
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
   const query = usePagedQuery({
     key: "liked",
@@ -951,7 +966,7 @@ export function LikedPlaylistPage() {
               durationMs={track.DurationMS}
               indexLabel={String(index + 1).padStart(2, "0")}
               onPlay={() => {
-                void playRecording(track.RecordingID);
+                void playLikedTrack(track.RecordingID);
               }}
               onQueue={() => {
                 void queueRecording(track.RecordingID);

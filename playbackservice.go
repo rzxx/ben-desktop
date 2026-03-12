@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"os"
@@ -256,31 +256,26 @@ func (s *PlaybackService) ResolveBlobURL(blobID string) (string, error) {
 }
 
 func (s *PlaybackService) ResolveThumbnailURL(artwork apitypes.ArtworkRef) (string, error) {
-	blobID := strings.TrimSpace(artwork.BlobID)
-	if blobID == "" {
+	artwork.BlobID = strings.TrimSpace(artwork.BlobID)
+	if artwork.BlobID == "" {
 		return "", nil
 	}
-	mimeType := strings.TrimSpace(artwork.MIME)
-	if mimeType == "" {
-		return "", fmt.Errorf("thumbnail mime is required")
-	}
-
-	s.mu.RLock()
-	blobRoot := s.blobRoot
-	s.mu.RUnlock()
-
-	path, ok, err := blobPathForID(blobRoot, blobID)
-	if err != nil || !ok {
-		return "", err
-	}
-	data, err := os.ReadFile(path)
+	resolved, err := s.requireBridge().ResolveArtworkRef(context.Background(), artwork)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
 		return "", err
 	}
-	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+	if !resolved.Available || strings.TrimSpace(resolved.LocalPath) == "" {
+		return "", nil
+	}
+	fileExt := normalizeArtworkFileExt(strings.TrimSpace(resolved.Artwork.FileExt), strings.TrimSpace(resolved.Artwork.MIME))
+	if fileExt == "" {
+		return "", fmt.Errorf("thumbnail file extension is required")
+	}
+	aliasPath, err := ensureTypedBlobAlias(resolved.LocalPath, fileExt)
+	if err != nil {
+		return "", err
+	}
+	return fileURLFromPath(aliasPath)
 }
 
 func (s *PlaybackService) ResolveRecordingArtworkURL(ctx context.Context, recordingID string, variant string) (string, error) {
@@ -456,6 +451,14 @@ func (s *PlaybackService) PlayAlbum(ctx context.Context, albumID string) (playba
 	return s.replaceContextAndPlay(ctx, contextInput)
 }
 
+func (s *PlaybackService) PlayAlbumTrack(ctx context.Context, albumID string, recordingID string) (playback.SessionSnapshot, error) {
+	contextInput, err := s.requireLoader().LoadAlbumTrackContext(ctx, albumID, recordingID)
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return s.replaceContextAndPlay(ctx, contextInput)
+}
+
 func (s *PlaybackService) QueueAlbum(ctx context.Context, albumID string) (playback.SessionSnapshot, error) {
 	contextInput, err := s.requireLoader().LoadAlbumContext(ctx, albumID)
 	if err != nil {
@@ -466,6 +469,14 @@ func (s *PlaybackService) QueueAlbum(ctx context.Context, albumID string) (playb
 
 func (s *PlaybackService) PlayPlaylist(ctx context.Context, playlistID string) (playback.SessionSnapshot, error) {
 	contextInput, err := s.requireLoader().LoadPlaylistContext(ctx, playlistID)
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return s.replaceContextAndPlay(ctx, contextInput)
+}
+
+func (s *PlaybackService) PlayPlaylistTrack(ctx context.Context, playlistID string, itemID string) (playback.SessionSnapshot, error) {
+	contextInput, err := s.requireLoader().LoadPlaylistTrackContext(ctx, playlistID, itemID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -498,6 +509,14 @@ func (s *PlaybackService) QueueRecording(ctx context.Context, recordingID string
 
 func (s *PlaybackService) PlayLiked(ctx context.Context) (playback.SessionSnapshot, error) {
 	contextInput, err := s.requireLoader().LoadLikedContext(ctx)
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return s.replaceContextAndPlay(ctx, contextInput)
+}
+
+func (s *PlaybackService) PlayLikedTrack(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
+	contextInput, err := s.requireLoader().LoadLikedTrackContext(ctx, recordingID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -612,6 +631,95 @@ func fileURLFromPath(path string) (string, error) {
 		Scheme: "file",
 		Path:   filepath.ToSlash(absPath),
 	}).String(), nil
+}
+
+func normalizeArtworkFileExt(fileExt string, mimeType string) string {
+	fileExt = strings.TrimSpace(strings.ToLower(fileExt))
+	if fileExt != "" {
+		if !strings.HasPrefix(fileExt, ".") {
+			fileExt = "." + fileExt
+		}
+		switch fileExt {
+		case ".jpeg", ".jpe":
+			return ".jpg"
+		default:
+			return fileExt
+		}
+	}
+
+	switch strings.TrimSpace(strings.ToLower(mimeType)) {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/webp":
+		return ".webp"
+	case "image/avif":
+		return ".avif"
+	case "image/gif":
+		return ".gif"
+	default:
+		return ""
+	}
+}
+
+func ensureTypedBlobAlias(path string, fileExt string) (string, error) {
+	path = strings.TrimSpace(path)
+	fileExt = normalizeArtworkFileExt(fileExt, "")
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if fileExt == "" {
+		return "", fmt.Errorf("file extension is required")
+	}
+
+	aliasPath := path + fileExt
+	if _, err := os.Stat(aliasPath); err == nil {
+		return aliasPath, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	if err := os.Link(path, aliasPath); err == nil {
+		return aliasPath, nil
+	}
+
+	src, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer src.Close()
+
+	tmpPath := aliasPath + ".tmp"
+	if err := os.MkdirAll(filepath.Dir(aliasPath), 0o755); err != nil {
+		return "", err
+	}
+	dst, err := os.Create(tmpPath)
+	if err != nil {
+		return "", err
+	}
+	copyErr := error(nil)
+	if _, err := io.Copy(dst, src); err != nil {
+		copyErr = err
+	}
+	closeErr := dst.Close()
+	if copyErr != nil {
+		_ = os.Remove(tmpPath)
+		return "", copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmpPath)
+		return "", closeErr
+	}
+	if err := os.Rename(tmpPath, aliasPath); err != nil {
+		if _, statErr := os.Stat(aliasPath); statErr == nil {
+			_ = os.Remove(tmpPath)
+			return aliasPath, nil
+		}
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+	return aliasPath, nil
 }
 
 type serviceLogger struct{}

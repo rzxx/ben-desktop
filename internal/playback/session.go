@@ -437,20 +437,15 @@ func (s *Session) TogglePlayback(ctx context.Context) (SessionSnapshot, error) {
 
 func (s *Session) Next(ctx context.Context) (SessionSnapshot, error) {
 	s.mu.Lock()
-	nextEntry, origin, queueIndex, ok := s.peekNextLocked(true)
 	current := cloneEntryPtr(s.snapshot.CurrentEntry)
+	if current != nil && s.snapshot.RepeatMode == RepeatOne {
+		s.mu.Unlock()
+		return s.SeekTo(ctx, 0)
+	}
+	nextEntry, origin, queueIndex, ok := s.peekNextLocked(true)
 	s.mu.Unlock()
 	if !ok {
-		s.mu.Lock()
-		s.snapshot.Status = StatusIdle
-		s.snapshot.PositionMS = 0
-		s.snapshot.DurationMS = currentDuration(currentItemFromEntry(s.snapshot.CurrentEntry))
-		s.touchLocked()
-		state := snapshotCopyLocked(&s.snapshot)
-		s.mu.Unlock()
-		_ = s.stopBackend()
-		s.publishSnapshot(state)
-		return state, nil
+		return s.Snapshot(), nil
 	}
 	return s.playEntry(ctx, nextEntry, origin, queueIndex, current, false)
 }
@@ -874,9 +869,13 @@ func (s *Session) handleTrackEOF() {
 
 	if !ok {
 		s.mu.Lock()
-		s.snapshot.Status = StatusIdle
+		s.snapshot.Status = StatusPaused
 		s.snapshot.PositionMS = 0
-		s.snapshot.DurationMS = nil
+		s.snapshot.DurationMS = currentDuration(currentItemFromEntry(s.snapshot.CurrentEntry))
+		s.loadedEntryID = ""
+		s.loadedURI = ""
+		s.clearNextPreparationStateLocked()
+		s.stopTickerLocked()
 		s.touchLocked()
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()

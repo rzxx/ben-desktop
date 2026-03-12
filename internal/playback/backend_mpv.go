@@ -1,4 +1,4 @@
-//go:build libmpv
+//go:build !nompv
 
 package playback
 
