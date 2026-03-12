@@ -1,0 +1,673 @@
+package desktopcore
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	apitypes "ben/core/api/types"
+)
+
+type CacheService struct {
+	app *App
+}
+
+type cacheBlobEntry struct {
+	BlobID           string
+	Kind             apitypes.CacheKind
+	SizeBytes        int64
+	LastAccessed     time.Time
+	Pinned           bool
+	PinCount         int
+	PinScopes        []apitypes.CachePinScopeRef
+	EncodingID       string
+	Profile          string
+	RecordingID      string
+	AlbumID          string
+	PlaylistID       string
+	ThumbnailScope   string
+	ThumbnailScopeID string
+}
+
+func (s *CacheService) GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.CacheOverview{}, err
+	}
+
+	entries, err := s.listEntries(ctx, local.LibraryID, local.DeviceID)
+	if err != nil {
+		return apitypes.CacheOverview{}, err
+	}
+
+	out := apitypes.CacheOverview{
+		LimitBytes: s.app.cfg.CacheBytes,
+		ByKind: []apitypes.CacheUsageBreakdown{
+			{Kind: apitypes.CacheKindOptimizedAudio},
+			{Kind: apitypes.CacheKindThumbnail},
+			{Kind: apitypes.CacheKindUnknown},
+		},
+	}
+	usage := map[apitypes.CacheKind]*apitypes.CacheUsageBreakdown{
+		apitypes.CacheKindOptimizedAudio: &out.ByKind[0],
+		apitypes.CacheKindThumbnail:      &out.ByKind[1],
+		apitypes.CacheKindUnknown:        &out.ByKind[2],
+	}
+	scopeSummary := make(map[string]*apitypes.CachePinScopeSummary)
+
+	for _, entry := range entries {
+		out.UsedBytes += entry.SizeBytes
+		out.EntryCount++
+		row, ok := usage[entry.Kind]
+		if !ok {
+			row = usage[apitypes.CacheKindUnknown]
+		}
+		row.Bytes += entry.SizeBytes
+		row.Entries++
+
+		if entry.Pinned {
+			out.PinnedBytes += entry.SizeBytes
+			out.PinnedEntries++
+			row.PinnedBytes += entry.SizeBytes
+		} else {
+			out.UnpinnedBytes += entry.SizeBytes
+			out.UnpinnedEntries++
+		}
+
+		for _, scope := range entry.PinScopes {
+			key := strings.TrimSpace(scope.Scope) + "|" + strings.TrimSpace(scope.ScopeID)
+			if key == "|" {
+				continue
+			}
+			summary, ok := scopeSummary[key]
+			if !ok {
+				summary = &apitypes.CachePinScopeSummary{
+					Scope:   strings.TrimSpace(scope.Scope),
+					ScopeID: strings.TrimSpace(scope.ScopeID),
+					Durable: scope.Durable,
+				}
+				scopeSummary[key] = summary
+			}
+			summary.BlobCount++
+			summary.Bytes += entry.SizeBytes
+		}
+	}
+
+	out.FreeBytes = maxInt64(0, out.LimitBytes-out.UsedBytes)
+	out.ReclaimableBytes = out.UnpinnedBytes
+
+	if len(scopeSummary) > 0 {
+		out.PinScopes = make([]apitypes.CachePinScopeSummary, 0, len(scopeSummary))
+		for _, item := range scopeSummary {
+			out.PinScopes = append(out.PinScopes, *item)
+		}
+		sort.Slice(out.PinScopes, func(i, j int) bool {
+			if out.PinScopes[i].Scope != out.PinScopes[j].Scope {
+				return out.PinScopes[i].Scope < out.PinScopes[j].Scope
+			}
+			return out.PinScopes[i].ScopeID < out.PinScopes[j].ScopeID
+		})
+	}
+
+	return out, nil
+}
+
+func (s *CacheService) ListCacheEntries(ctx context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.Page[apitypes.CacheEntryItem]{}, err
+	}
+
+	entries, err := s.listEntries(ctx, local.LibraryID, local.DeviceID)
+	if err != nil {
+		return apitypes.Page[apitypes.CacheEntryItem]{}, err
+	}
+
+	items := make([]apitypes.CacheEntryItem, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, apitypes.CacheEntryItem{
+			BlobID:           entry.BlobID,
+			Kind:             entry.Kind,
+			SizeBytes:        entry.SizeBytes,
+			LastAccessed:     entry.LastAccessed,
+			Pinned:           entry.Pinned,
+			PinCount:         entry.PinCount,
+			PinScopes:        append([]apitypes.CachePinScopeRef(nil), entry.PinScopes...),
+			EncodingID:       entry.EncodingID,
+			Profile:          entry.Profile,
+			RecordingID:      entry.RecordingID,
+			AlbumID:          entry.AlbumID,
+			PlaylistID:       entry.PlaylistID,
+			ThumbnailScope:   entry.ThumbnailScope,
+			ThumbnailScopeID: entry.ThumbnailScopeID,
+		})
+	}
+
+	return paginateItems(items, req.PageRequest), nil
+}
+
+func (s *CacheService) CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.CacheCleanupResult{}, err
+	}
+
+	entries, err := s.listEntries(ctx, local.LibraryID, local.DeviceID)
+	if err != nil {
+		return apitypes.CacheCleanupResult{}, err
+	}
+
+	var victims []cacheBlobEntry
+	switch req.Mode {
+	case apitypes.CacheCleanupOverLimitOnly:
+		usedBytes := int64(0)
+		for _, entry := range entries {
+			usedBytes += entry.SizeBytes
+		}
+		if s.app.cfg.CacheBytes <= 0 || usedBytes <= s.app.cfg.CacheBytes {
+			return apitypes.CacheCleanupResult{}, nil
+		}
+		unpinned := unpinnedEntries(entries)
+		var freed int64
+		for _, entry := range unpinned {
+			if usedBytes-freed <= s.app.cfg.CacheBytes {
+				break
+			}
+			victims = append(victims, entry)
+			freed += entry.SizeBytes
+		}
+	case apitypes.CacheCleanupAllUnpinned:
+		victims = unpinnedEntries(entries)
+	case apitypes.CacheCleanupBlobIDs:
+		want := make(map[string]struct{}, len(req.BlobIDs))
+		for _, blobID := range req.BlobIDs {
+			blobID = strings.TrimSpace(blobID)
+			if blobID != "" {
+				want[blobID] = struct{}{}
+			}
+		}
+		for _, entry := range entries {
+			if entry.Pinned {
+				continue
+			}
+			if _, ok := want[entry.BlobID]; ok {
+				victims = append(victims, entry)
+			}
+		}
+	default:
+		return apitypes.CacheCleanupResult{}, fmt.Errorf("unsupported cleanup mode %q", req.Mode)
+	}
+
+	result := apitypes.CacheCleanupResult{}
+	for _, victim := range victims {
+		deleted, err := s.cleanupEntry(ctx, local, victim)
+		if err != nil {
+			return apitypes.CacheCleanupResult{}, err
+		}
+		if deleted {
+			result.DeletedBlobs = append(result.DeletedBlobs, victim.BlobID)
+			result.DeletedBytes += victim.SizeBytes
+		}
+	}
+	sort.Strings(result.DeletedBlobs)
+
+	remaining, err := s.listEntries(ctx, local.LibraryID, local.DeviceID)
+	if err != nil {
+		return apitypes.CacheCleanupResult{}, err
+	}
+	for _, entry := range remaining {
+		result.RemainingBytes += entry.SizeBytes
+	}
+	return result, nil
+}
+
+func (s *CacheService) listEntries(ctx context.Context, libraryID, deviceID string) ([]cacheBlobEntry, error) {
+	entries := make(map[string]*cacheBlobEntry)
+	if err := s.addOptimizedEntries(ctx, entries, libraryID, deviceID); err != nil {
+		return nil, err
+	}
+	if err := s.addArtworkEntries(ctx, entries, libraryID); err != nil {
+		return nil, err
+	}
+	if err := s.applyOfflinePins(ctx, entries, libraryID, deviceID); err != nil {
+		return nil, err
+	}
+
+	out := make([]cacheBlobEntry, 0, len(entries))
+	for _, entry := range entries {
+		sort.Slice(entry.PinScopes, func(i, j int) bool {
+			if entry.PinScopes[i].Scope != entry.PinScopes[j].Scope {
+				return entry.PinScopes[i].Scope < entry.PinScopes[j].Scope
+			}
+			return entry.PinScopes[i].ScopeID < entry.PinScopes[j].ScopeID
+		})
+		entry.PinCount = len(entry.PinScopes)
+		entry.Pinned = entry.PinCount > 0
+		out = append(out, *entry)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].LastAccessed.Equal(out[j].LastAccessed) {
+			return out[i].BlobID < out[j].BlobID
+		}
+		return out[i].LastAccessed.After(out[j].LastAccessed)
+	})
+	return out, nil
+}
+
+func (s *CacheService) addOptimizedEntries(ctx context.Context, entries map[string]*cacheBlobEntry, libraryID, deviceID string) error {
+	type row struct {
+		BlobID           string
+		OptimizedAssetID string
+		Profile          string
+		TrackVariantID   string
+		AlbumVariantID   string
+		LastAccessed     string
+	}
+	query := `
+SELECT
+	oa.blob_id,
+	oa.optimized_asset_id AS optimized_asset_id,
+	oa.profile,
+	oa.track_variant_id,
+	COALESCE(MIN(at.album_variant_id), '') AS album_variant_id,
+	MAX(COALESCE(dac.last_verified_at, dac.updated_at, oa.updated_at)) AS last_accessed
+FROM device_asset_caches dac
+JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
+LEFT JOIN album_tracks at ON at.library_id = oa.library_id AND at.track_variant_id = oa.track_variant_id
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1
+GROUP BY oa.blob_id, oa.optimized_asset_id, oa.profile, oa.track_variant_id
+ORDER BY last_accessed DESC, oa.optimized_asset_id ASC`
+
+	var rows []row
+	if err := s.app.db.WithContext(ctx).Raw(query, libraryID, deviceID).Scan(&rows).Error; err != nil {
+		return err
+	}
+
+	for _, row := range rows {
+		sizeBytes, ok, err := s.blobSize(row.BlobID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+
+		lastAccessed := parseSQLiteTime(row.LastAccessed)
+		entry := ensureCacheEntry(entries, strings.TrimSpace(row.BlobID))
+		entry.Kind = apitypes.CacheKindOptimizedAudio
+		entry.SizeBytes = sizeBytes
+		if lastAccessed.After(entry.LastAccessed) {
+			entry.LastAccessed = lastAccessed
+		}
+		if strings.TrimSpace(entry.EncodingID) == "" {
+			entry.EncodingID = strings.TrimSpace(row.OptimizedAssetID)
+			entry.Profile = strings.TrimSpace(row.Profile)
+			entry.RecordingID = strings.TrimSpace(row.TrackVariantID)
+			entry.AlbumID = strings.TrimSpace(row.AlbumVariantID)
+		}
+	}
+
+	return nil
+}
+
+func (s *CacheService) addArtworkEntries(ctx context.Context, entries map[string]*cacheBlobEntry, libraryID string) error {
+	type row struct {
+		BlobID    string
+		ScopeType string
+		ScopeID   string
+		UpdatedAt time.Time
+	}
+	var rows []row
+	if err := s.app.db.WithContext(ctx).
+		Table("artwork_variants").
+		Select("blob_id, scope_type AS scope_type, scope_id, updated_at").
+		Where("library_id = ?", libraryID).
+		Order("updated_at DESC, scope_type ASC, scope_id ASC").
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+
+	for _, row := range rows {
+		sizeBytes, ok, err := s.blobSize(row.BlobID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+
+		entry := ensureCacheEntry(entries, strings.TrimSpace(row.BlobID))
+		if entry.Kind == "" || entry.Kind == apitypes.CacheKindUnknown {
+			entry.Kind = apitypes.CacheKindThumbnail
+		}
+		if sizeBytes > entry.SizeBytes {
+			entry.SizeBytes = sizeBytes
+		}
+		if row.UpdatedAt.After(entry.LastAccessed) {
+			entry.LastAccessed = row.UpdatedAt.UTC()
+		}
+		if strings.TrimSpace(entry.ThumbnailScope) == "" {
+			entry.ThumbnailScope = strings.TrimSpace(row.ScopeType)
+			entry.ThumbnailScopeID = strings.TrimSpace(row.ScopeID)
+		}
+		addPinScope(entry, apitypes.CachePinScopeRef{
+			Scope:   "thumbnail",
+			ScopeID: strings.TrimSpace(row.ScopeType) + ":" + strings.TrimSpace(row.ScopeID),
+			Durable: true,
+		})
+	}
+
+	return nil
+}
+
+func (s *CacheService) applyOfflinePins(ctx context.Context, entries map[string]*cacheBlobEntry, libraryID, deviceID string) error {
+	var pins []OfflinePin
+	if err := s.app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", libraryID, deviceID).
+		Order("scope ASC, scope_id ASC").
+		Find(&pins).Error; err != nil {
+		return err
+	}
+
+	for _, pin := range pins {
+		blobIDs, err := s.offlinePinBlobIDs(ctx, libraryID, deviceID, pin)
+		if err != nil {
+			return err
+		}
+		for _, blobID := range blobIDs {
+			entry, ok := entries[blobID]
+			if !ok {
+				continue
+			}
+			switch strings.TrimSpace(pin.Scope) {
+			case "recording":
+				if entry.RecordingID == "" {
+					entry.RecordingID = strings.TrimSpace(pin.ScopeID)
+				}
+			case "album":
+				if entry.AlbumID == "" {
+					entry.AlbumID = strings.TrimSpace(pin.ScopeID)
+				}
+			case "playlist":
+				if entry.PlaylistID == "" {
+					entry.PlaylistID = strings.TrimSpace(pin.ScopeID)
+				}
+			}
+			addPinScope(entry, apitypes.CachePinScopeRef{
+				Scope:   strings.TrimSpace(pin.Scope),
+				ScopeID: strings.TrimSpace(pin.ScopeID),
+				Durable: true,
+			})
+		}
+	}
+
+	return nil
+}
+
+func (s *CacheService) offlinePinBlobIDs(ctx context.Context, libraryID, deviceID string, pin OfflinePin) ([]string, error) {
+	scope := strings.TrimSpace(pin.Scope)
+	scopeID := strings.TrimSpace(pin.ScopeID)
+	profile := strings.TrimSpace(pin.Profile)
+	if scope == "" || scopeID == "" {
+		return nil, nil
+	}
+
+	type row struct {
+		BlobID string
+	}
+	var (
+		query string
+		args  []any
+		rows  []row
+	)
+
+	switch scope {
+	case "recording":
+		query = `
+SELECT DISTINCT oa.blob_id
+FROM device_asset_caches dac
+JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND oa.track_variant_id = ? AND (? = '' OR oa.profile = ?)
+ORDER BY oa.blob_id ASC`
+		args = []any{libraryID, deviceID, scopeID, profile, profile}
+	case "album":
+		query = `
+SELECT DISTINCT oa.blob_id
+FROM device_asset_caches dac
+JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
+JOIN album_tracks at ON at.library_id = oa.library_id AND at.track_variant_id = oa.track_variant_id
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND at.album_variant_id = ? AND (? = '' OR oa.profile = ?)
+ORDER BY oa.blob_id ASC`
+		args = []any{libraryID, deviceID, scopeID, profile, profile}
+	case "playlist":
+		query = `
+SELECT DISTINCT oa.blob_id
+FROM device_asset_caches dac
+JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
+JOIN playlist_items pi ON pi.library_id = oa.library_id AND pi.track_variant_id = oa.track_variant_id
+JOIN playlists p ON p.library_id = pi.library_id AND p.playlist_id = pi.playlist_id
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.deleted_at IS NULL AND (? = '' OR oa.profile = ?)
+ORDER BY oa.blob_id ASC`
+		args = []any{libraryID, deviceID, scopeID, profile, profile}
+	default:
+		return nil, nil
+	}
+
+	if err := s.app.db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		blobID := strings.TrimSpace(row.BlobID)
+		if blobID == "" {
+			continue
+		}
+		if _, ok := seen[blobID]; ok {
+			continue
+		}
+		seen[blobID] = struct{}{}
+		out = append(out, blobID)
+	}
+	return out, nil
+}
+
+func (s *CacheService) cleanupEntry(ctx context.Context, local apitypes.LocalContext, entry cacheBlobEntry) (bool, error) {
+	if entry.Pinned {
+		return false, nil
+	}
+
+	if entry.Kind == apitypes.CacheKindOptimizedAudio {
+		if err := s.markBlobEncodingsUncached(ctx, local.LibraryID, local.DeviceID, entry.BlobID); err != nil {
+			return false, err
+		}
+	}
+
+	retained, err := s.blobHasRetainedReferences(ctx, entry.BlobID)
+	if err != nil {
+		return false, err
+	}
+	if retained {
+		return false, nil
+	}
+
+	path, err := s.blobPath(entry.BlobID)
+	if err != nil {
+		return false, err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *CacheService) markBlobEncodingsUncached(ctx context.Context, libraryID, deviceID, blobID string) error {
+	type row struct {
+		OptimizedAssetID string
+	}
+	var rows []row
+	if err := s.app.db.WithContext(ctx).
+		Table("optimized_assets").
+		Select("optimized_asset_id AS optimized_asset_id").
+		Where("library_id = ? AND blob_id = ?", libraryID, strings.TrimSpace(blobID)).
+		Order("optimized_asset_id ASC").
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if strings.TrimSpace(row.OptimizedAssetID) != "" {
+			ids = append(ids, strings.TrimSpace(row.OptimizedAssetID))
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	return s.app.db.WithContext(ctx).
+		Model(&DeviceAssetCacheModel{}).
+		Where("library_id = ? AND device_id = ? AND optimized_asset_id IN ?", libraryID, deviceID, ids).
+		Updates(map[string]any{
+			"is_cached":        false,
+			"last_verified_at": &now,
+			"updated_at":       now,
+		}).Error
+}
+
+func (s *CacheService) blobHasRetainedReferences(ctx context.Context, blobID string) (bool, error) {
+	type countRow struct {
+		Count int64
+	}
+
+	var artwork countRow
+	if err := s.app.db.WithContext(ctx).
+		Table("artwork_variants").
+		Select("COUNT(1) AS count").
+		Where("blob_id = ?", strings.TrimSpace(blobID)).
+		Scan(&artwork).Error; err != nil {
+		return false, err
+	}
+	if artwork.Count > 0 {
+		return true, nil
+	}
+
+	var cached countRow
+	query := `
+SELECT COUNT(1) AS count
+FROM device_asset_caches dac
+JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
+WHERE oa.blob_id = ? AND dac.is_cached = 1`
+	if err := s.app.db.WithContext(ctx).Raw(query, strings.TrimSpace(blobID)).Scan(&cached).Error; err != nil {
+		return false, err
+	}
+	return cached.Count > 0, nil
+}
+
+func (s *CacheService) blobSize(blobID string) (int64, bool, error) {
+	path, err := s.blobPath(blobID)
+	if err != nil {
+		return 0, false, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return info.Size(), true, nil
+}
+
+func (s *CacheService) blobPath(blobID string) (string, error) {
+	parts := strings.SplitN(strings.TrimSpace(blobID), ":", 2)
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) != "b3" {
+		return "", fmt.Errorf("invalid blob id")
+	}
+	hashHex := strings.ToLower(strings.TrimSpace(parts[1]))
+	if len(hashHex) != 64 {
+		return "", fmt.Errorf("invalid blob id")
+	}
+	return filepath.Join(s.app.cfg.BlobRoot, "b3", hashHex[:2], hashHex[2:4], hashHex), nil
+}
+
+func ensureCacheEntry(entries map[string]*cacheBlobEntry, blobID string) *cacheBlobEntry {
+	if entry, ok := entries[blobID]; ok {
+		return entry
+	}
+	entry := &cacheBlobEntry{
+		BlobID: blobID,
+		Kind:   apitypes.CacheKindUnknown,
+	}
+	entries[blobID] = entry
+	return entry
+}
+
+func addPinScope(entry *cacheBlobEntry, scope apitypes.CachePinScopeRef) {
+	if entry == nil {
+		return
+	}
+	scope.Scope = strings.TrimSpace(scope.Scope)
+	scope.ScopeID = strings.TrimSpace(scope.ScopeID)
+	if scope.Scope == "" || scope.ScopeID == "" {
+		return
+	}
+	for _, existing := range entry.PinScopes {
+		if existing.Scope == scope.Scope && existing.ScopeID == scope.ScopeID {
+			return
+		}
+	}
+	entry.PinScopes = append(entry.PinScopes, scope)
+}
+
+func unpinnedEntries(entries []cacheBlobEntry) []cacheBlobEntry {
+	out := make([]cacheBlobEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Pinned {
+			continue
+		}
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].LastAccessed.Equal(out[j].LastAccessed) {
+			return out[i].BlobID < out[j].BlobID
+		}
+		return out[i].LastAccessed.Before(out[j].LastAccessed)
+	})
+	return out
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func parseSQLiteTime(raw string) time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed.UTC()
+		}
+	}
+	return time.Time{}
+}

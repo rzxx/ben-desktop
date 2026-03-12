@@ -16,6 +16,7 @@ type App struct {
 	jobs     *JobsService
 	library  *LibraryService
 	catalog  *CatalogService
+	cache    *CacheService
 	playlist *PlaylistService
 	playback *PlaybackService
 }
@@ -50,6 +51,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	}
 	app.library = &LibraryService{app: app}
 	app.catalog = &CatalogService{app: app}
+	app.cache = &CacheService{app: app}
 	app.playlist = &PlaylistService{app: app}
 	app.playback = newPlaybackService(app)
 
@@ -195,6 +197,18 @@ func (a *App) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordi
 
 func (a *App) CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
 	return a.playlist.CreatePlaylist(ctx, name, kind)
+}
+
+func (a *App) GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error) {
+	return a.cache.GetCacheOverview(ctx)
+}
+
+func (a *App) ListCacheEntries(ctx context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {
+	return a.cache.ListCacheEntries(ctx, req)
+}
+
+func (a *App) CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
+	return a.cache.CleanupCache(ctx, req)
 }
 
 func (a *App) RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error) {

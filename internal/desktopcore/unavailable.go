@@ -88,6 +88,18 @@ func (c *UnavailableCore) CreatePlaylist(context.Context, string, string) (apity
 	return apitypes.PlaylistRecord{}, c.err
 }
 
+func (c *UnavailableCore) GetCacheOverview(context.Context) (apitypes.CacheOverview, error) {
+	return apitypes.CacheOverview{}, c.err
+}
+
+func (c *UnavailableCore) ListCacheEntries(context.Context, apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {
+	return apitypes.Page[apitypes.CacheEntryItem]{}, c.err
+}
+
+func (c *UnavailableCore) CleanupCache(context.Context, apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
+	return apitypes.CacheCleanupResult{}, c.err
+}
+
 func (c *UnavailableCore) RenamePlaylist(context.Context, string, string) (apitypes.PlaylistRecord, error) {
 	return apitypes.PlaylistRecord{}, c.err
 }
