@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	apitypes "ben/core/api/types"
 	"ben/desktop/internal/desktopcore"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type facadeBase struct {
@@ -169,6 +171,9 @@ func (s *NetworkFacade) StartCompactCheckpoint(ctx context.Context, force bool) 
 
 type JobsFacade struct {
 	facadeBase
+
+	mu            sync.Mutex
+	stopListening func()
 }
 
 func NewJobsFacade(host *coreHost) *JobsFacade {
@@ -177,12 +182,59 @@ func NewJobsFacade(host *coreHost) *JobsFacade {
 
 func (s *JobsFacade) ServiceName() string { return "JobsFacade" }
 
+func (s *JobsFacade) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	if s.host == nil {
+		return nil
+	}
+	if err := s.host.Start(ctx); err != nil {
+		return err
+	}
+
+	app := application.Get()
+	if app == nil || app.Event == nil {
+		return nil
+	}
+
+	bridge := s.bridge()
+	subscriber, ok := bridge.(interface {
+		SubscribeJobSnapshots(func(desktopcore.JobSnapshot)) func()
+	})
+	if !ok {
+		return nil
+	}
+
+	stopListening := subscriber.SubscribeJobSnapshots(func(snapshot desktopcore.JobSnapshot) {
+		app.Event.Emit(desktopcore.EventJobSnapshotChanged, snapshot)
+	})
+
+	s.mu.Lock()
+	s.stopListening = stopListening
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *JobsFacade) ServiceShutdown() error {
+	s.mu.Lock()
+	stopListening := s.stopListening
+	s.stopListening = nil
+	s.mu.Unlock()
+
+	if stopListening != nil {
+		stopListening()
+	}
+	return nil
+}
+
 func (s *JobsFacade) ListJobs(ctx context.Context, libraryID string) ([]desktopcore.JobSnapshot, error) {
 	return s.bridge().ListJobs(ctx, libraryID)
 }
 
 func (s *JobsFacade) GetJob(ctx context.Context, jobID string) (desktopcore.JobSnapshot, bool, error) {
 	return s.bridge().GetJob(ctx, jobID)
+}
+
+func (s *JobsFacade) SubscribeJobEvents() string {
+	return desktopcore.EventJobSnapshotChanged
 }
 
 type CatalogFacade struct {

@@ -7,11 +7,15 @@ import type { Events } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import type * as desktopcore$0 from "../../../../../ben/desktop/internal/desktopcore/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import type * as playback$0 from "../../../../../ben/desktop/internal/playback/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "jobs:snapshot": desktopcore$0.JobSnapshot;
             "playback:snapshot": playback$0.SessionSnapshot;
         }
     }

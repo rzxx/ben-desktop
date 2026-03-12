@@ -296,6 +296,9 @@ func TestJobsFacadeForwardsToBridge(t *testing.T) {
 	if got, ok, err := facade.GetJob(ctx, "job-1"); err != nil || !ok || got.JobID != job.JobID {
 		t.Fatalf("get job = %+v, ok=%v, err=%v", got, ok, err)
 	}
+	if got := facade.SubscribeJobEvents(); got != desktopcore.EventJobSnapshotChanged {
+		t.Fatalf("subscribe job events = %q, want %q", got, desktopcore.EventJobSnapshotChanged)
+	}
 
 	want := []string{"list:lib-1", "get:job-1"}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {

@@ -108,6 +108,13 @@ func (a *App) Jobs() *JobsService {
 	return a.jobs
 }
 
+func (a *App) SubscribeJobSnapshots(listener func(JobSnapshot)) func() {
+	if a == nil || a.jobs == nil {
+		return func() {}
+	}
+	return a.jobs.Subscribe(listener)
+}
+
 func (a *App) ListJobs(_ context.Context, libraryID string) ([]JobSnapshot, error) {
 	if a == nil {
 		return nil, nil

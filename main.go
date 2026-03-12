@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/playback"
 	"embed"
 	"log"
@@ -17,6 +18,7 @@ import (
 var assets embed.FS
 
 func init() {
+	application.RegisterEvent[desktopcore.JobSnapshot](desktopcore.EventJobSnapshotChanged)
 	application.RegisterEvent[playback.SessionSnapshot](playback.EventSnapshotChanged)
 }
 

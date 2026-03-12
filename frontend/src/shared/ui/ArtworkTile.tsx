@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { artistLetter } from "../lib/format";
 
 type ArtworkTileProps = {
@@ -20,15 +20,14 @@ export function ArtworkTile({
   rounded = "soft",
   className = "",
 }: ArtworkTileProps) {
-  const [failedSrc, setFailedSrc] = useState("");
-
-  useEffect(() => {
-    setFailedSrc("");
-  }, [src]);
+  const [loadState, setLoadState] = useState<{ failed: boolean; src: string }>({
+    failed: false,
+    src: "",
+  });
 
   const shape =
     rounded === "full" ? "rounded-full" : "rounded-[1.2rem] sm:rounded-[1.35rem]";
-  const visibleSrc = src && src !== failedSrc ? src : "";
+  const visibleSrc = src && !(loadState.failed && loadState.src === src) ? src : "";
 
   return (
     <div
@@ -45,7 +44,10 @@ export function ArtworkTile({
           className="h-full w-full object-cover"
           loading="lazy"
           onError={() => {
-            setFailedSrc(visibleSrc);
+            setLoadState({
+              failed: true,
+              src: visibleSrc,
+            });
           }}
           src={visibleSrc}
         />

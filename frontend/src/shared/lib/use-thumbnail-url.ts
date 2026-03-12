@@ -50,24 +50,15 @@ function retryDelayMs(attempt: number) {
 }
 
 export function useThumbnailUrl(thumb?: ArtworkRef | null) {
-  const [state, setState] = useState<{ key: string; url: string }>({
+  const [state, setState] = useState<{ key: string; retryAttempt: number; url: string }>({
     key: "",
+    retryAttempt: 0,
     url: "",
   });
-  const [retryAttempt, setRetryAttempt] = useState(0);
 
   const cacheKey = thumbnailCacheKey(thumb);
   const cachedUrl = cacheKey ? (thumbnailUrlCache.get(cacheKey) ?? "") : "";
-
-  useEffect(() => {
-    if (!cacheKey || !thumb) {
-      setState({
-        key: "",
-        url: "",
-      });
-    }
-    setRetryAttempt(0);
-  }, [cacheKey, thumb]);
+  const retryAttempt = state.key === cacheKey ? state.retryAttempt : 0;
 
   useEffect(() => {
     if (!cacheKey || !thumb) {
@@ -80,25 +71,37 @@ export function useThumbnailUrl(thumb?: ArtworkRef | null) {
     )
       .then((value) => {
         if (active) {
-          setState({
+          setState((current) => ({
             key: cacheKey,
+            retryAttempt: current.key === cacheKey ? current.retryAttempt : 0,
             url: value,
-          });
+          }));
           if (!value) {
             retryTimer = setTimeout(() => {
-              setRetryAttempt((current) => current + 1);
+              setState((current) => ({
+                key: cacheKey,
+                retryAttempt:
+                  current.key === cacheKey ? current.retryAttempt + 1 : 1,
+                url: current.key === cacheKey ? current.url : "",
+              }));
             }, retryDelayMs(retryAttempt));
           }
         }
       })
       .catch(() => {
         if (active) {
-          setState({
+          setState((current) => ({
             key: cacheKey,
+            retryAttempt: current.key === cacheKey ? current.retryAttempt : 0,
             url: "",
-          });
+          }));
           retryTimer = setTimeout(() => {
-            setRetryAttempt((current) => current + 1);
+            setState((current) => ({
+              key: cacheKey,
+              retryAttempt:
+                current.key === cacheKey ? current.retryAttempt + 1 : 1,
+              url: "",
+            }));
           }, retryDelayMs(retryAttempt));
         }
       });

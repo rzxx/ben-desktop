@@ -20,6 +20,10 @@ func NewUnavailableCore(err error) *UnavailableCore {
 
 func (c *UnavailableCore) Close() error { return nil }
 
+func (c *UnavailableCore) SubscribeJobSnapshots(func(JobSnapshot)) func() {
+	return func() {}
+}
+
 func (c *UnavailableCore) EnsureLocalContext(context.Context) (apitypes.LocalContext, error) {
 	return apitypes.LocalContext{}, c.err
 }

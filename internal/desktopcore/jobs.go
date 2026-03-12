@@ -10,6 +10,8 @@ import (
 type JobPhase string
 
 const (
+	EventJobSnapshotChanged = "jobs:snapshot"
+
 	JobPhaseQueued    JobPhase = "queued"
 	JobPhaseRunning   JobPhase = "running"
 	JobPhaseCompleted JobPhase = "completed"
@@ -30,8 +32,10 @@ type JobSnapshot struct {
 }
 
 type JobsService struct {
-	mu   sync.RWMutex
-	jobs map[string]JobSnapshot
+	mu             sync.RWMutex
+	jobs           map[string]JobSnapshot
+	subscribers    map[uint64]func(JobSnapshot)
+	nextSubscriber uint64
 }
 
 type JobTracker struct {
@@ -42,7 +46,10 @@ type JobTracker struct {
 }
 
 func NewJobsService() *JobsService {
-	return &JobsService{jobs: make(map[string]JobSnapshot)}
+	return &JobsService{
+		jobs:        make(map[string]JobSnapshot),
+		subscribers: make(map[uint64]func(JobSnapshot)),
+	}
 }
 
 func (s *JobsService) Begin(jobID, kind, libraryID, message string) (JobSnapshot, bool) {
@@ -66,12 +73,15 @@ func (s *JobsService) Begin(jobID, kind, libraryID, message string) (JobSnapshot
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if existing, ok := s.jobs[jobID]; ok && isActiveJobPhase(existing.Phase) {
+		s.mu.Unlock()
 		return existing, false
 	}
 	s.jobs[jobID] = snapshot
+	subscribers := s.snapshotSubscribersLocked()
+	s.mu.Unlock()
+	notifyJobSubscribers(subscribers, snapshot)
 	return snapshot, true
 }
 
@@ -104,7 +114,6 @@ func (s *JobsService) Put(snapshot JobSnapshot) JobSnapshot {
 
 	now := time.Now().UTC()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if existing, ok := s.jobs[snapshot.JobID]; ok {
 		if snapshot.Kind == "" {
 			snapshot.Kind = existing.Kind
@@ -136,7 +145,29 @@ func (s *JobsService) Put(snapshot JobSnapshot) JobSnapshot {
 		snapshot.FinishedAt = time.Time{}
 	}
 	s.jobs[snapshot.JobID] = snapshot
+	subscribers := s.snapshotSubscribersLocked()
+	s.mu.Unlock()
+
+	notifyJobSubscribers(subscribers, snapshot)
 	return snapshot
+}
+
+func (s *JobsService) Subscribe(listener func(JobSnapshot)) func() {
+	if s == nil || listener == nil {
+		return func() {}
+	}
+
+	s.mu.Lock()
+	id := s.nextSubscriber
+	s.nextSubscriber++
+	s.subscribers[id] = listener
+	s.mu.Unlock()
+
+	return func() {
+		s.mu.Lock()
+		delete(s.subscribers, id)
+		s.mu.Unlock()
+	}
 }
 
 func (s *JobsService) Get(jobID string) (JobSnapshot, bool) {
@@ -233,4 +264,22 @@ func clampJobProgress(progress float64) float64 {
 
 func isActiveJobPhase(phase JobPhase) bool {
 	return phase == JobPhaseQueued || phase == JobPhaseRunning
+}
+
+func (s *JobsService) snapshotSubscribersLocked() []func(JobSnapshot) {
+	if len(s.subscribers) == 0 {
+		return nil
+	}
+
+	out := make([]func(JobSnapshot), 0, len(s.subscribers))
+	for _, subscriber := range s.subscribers {
+		out = append(out, subscriber)
+	}
+	return out
+}
+
+func notifyJobSubscribers(subscribers []func(JobSnapshot), snapshot JobSnapshot) {
+	for _, subscriber := range subscribers {
+		subscriber(snapshot)
+	}
 }

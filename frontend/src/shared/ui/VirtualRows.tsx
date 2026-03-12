@@ -25,6 +25,7 @@ export function VirtualRows<T>({
   renderRow,
 }: VirtualRowsProps<T>) {
   const parentRef = useRef<HTMLDivElement | null>(null);
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,

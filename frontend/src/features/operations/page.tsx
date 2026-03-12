@@ -1,3 +1,4 @@
+import { Events } from "@wailsio/runtime";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import {
   type ActivityStatus,
+  DesktopCoreModels,
   type JobSnapshot,
   type LibraryCheckpointStatus,
   type LibrarySummary,
@@ -24,6 +26,7 @@ import {
   startLibraryRescan,
   startPublishCheckpoint,
   startRootRescan,
+  subscribeJobEvents,
 } from "../../shared/lib/desktop";
 import { formatCount } from "../../shared/lib/format";
 
@@ -38,7 +41,8 @@ type OperationsState = {
   error: string;
 };
 
-const REFRESH_INTERVAL_MS = 2000;
+const SUMMARY_REFRESH_DEBOUNCE_MS = 400;
+const MAX_VISIBLE_JOBS = 12;
 
 const initialState: OperationsState = {
   loading: true,
@@ -90,6 +94,36 @@ function checkpointSummary(status: LibraryCheckpointStatus | null) {
     return "No published checkpoint";
   }
   return `${status.AckedDevices}/${status.TotalDevices} devices covered`;
+}
+
+function timeValue(value?: Date | string | null) {
+  if (!value) {
+    return 0;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  const timestamp = date.getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function sortJobs(jobs: JobSnapshot[]) {
+  return [...jobs].sort((left, right) => {
+    const updatedDiff = timeValue(right.updatedAt) - timeValue(left.updatedAt);
+    if (updatedDiff !== 0) {
+      return updatedDiff;
+    }
+    const createdDiff = timeValue(right.createdAt) - timeValue(left.createdAt);
+    if (createdDiff !== 0) {
+      return createdDiff;
+    }
+    return left.jobId.localeCompare(right.jobId);
+  });
+}
+
+function upsertJobSnapshot(jobs: JobSnapshot[], snapshot: JobSnapshot) {
+  return sortJobs([
+    snapshot,
+    ...jobs.filter((job) => job.jobId !== snapshot.jobId),
+  ]);
 }
 
 function jobKindLabel(kind: string) {
@@ -161,6 +195,8 @@ function JobRow({ job }: { job: JobSnapshot }) {
 
 export function OperationsPage() {
   const mountedRef = useRef(true);
+  const activeLibraryIdRef = useRef("");
+  const refreshTimerRef = useRef<number | null>(null);
   const [state, setState] = useState<OperationsState>(initialState);
   const [pendingAction, setPendingAction] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -178,6 +214,7 @@ export function OperationsPage() {
       }
 
       if (!found || !library.LibraryID) {
+        activeLibraryIdRef.current = "";
         setState({
           loading: false,
           library: null,
@@ -191,6 +228,7 @@ export function OperationsPage() {
         return;
       }
 
+      activeLibraryIdRef.current = library.LibraryID;
       const results = await Promise.allSettled([
         getScanRoots(),
         getCheckpointStatus(),
@@ -213,7 +251,7 @@ export function OperationsPage() {
         checkpoint:
           checkpointResult.status === "fulfilled" ? checkpointResult.value : null,
         activity: activityResult.status === "fulfilled" ? activityResult.value : null,
-        jobs: jobsResult.status === "fulfilled" ? jobsResult.value : [],
+        jobs: jobsResult.status === "fulfilled" ? sortJobs(jobsResult.value) : [],
         error: nextError?.status === "rejected" ? describeError(nextError.reason) : "",
       });
     } catch (error) {
@@ -228,17 +266,82 @@ export function OperationsPage() {
     }
   }, []);
 
+  const scheduleRefresh = useCallback(
+    (delay = SUMMARY_REFRESH_DEBOUNCE_MS) => {
+      if (!mountedRef.current) {
+        return;
+      }
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+      refreshTimerRef.current = window.setTimeout(() => {
+        refreshTimerRef.current = null;
+        void refresh();
+      }, Math.max(0, delay));
+    },
+    [refresh],
+  );
+
   useEffect(() => {
     mountedRef.current = true;
     void refresh();
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, REFRESH_INTERVAL_MS);
-    return () => {
-      mountedRef.current = false;
-      window.clearInterval(timer);
+
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+
+    void subscribeJobEvents()
+      .then((eventName) => {
+        if (disposed) {
+          return;
+        }
+        stopListening = Events.On(eventName, (event) => {
+          const snapshot = DesktopCoreModels.JobSnapshot.createFrom(event.data);
+          if (
+            !activeLibraryIdRef.current ||
+            snapshot.libraryId !== activeLibraryIdRef.current
+          ) {
+            return;
+          }
+          setState((current) => ({
+            ...current,
+            jobs: upsertJobSnapshot(current.jobs, snapshot),
+          }));
+          scheduleRefresh();
+        });
+      })
+      .catch((error) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        setState((current) => ({
+          ...current,
+          error: describeError(error),
+        }));
+      });
+
+    const handleWindowFocus = () => {
+      scheduleRefresh(0);
     };
-  }, [refresh]);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        scheduleRefresh(0);
+      }
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      disposed = true;
+      mountedRef.current = false;
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      stopListening?.();
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [refresh, scheduleRefresh]);
 
   const runAction = useCallback(
     async (key: string, action: () => Promise<JobSnapshot>, successLabel: string) => {
@@ -251,7 +354,13 @@ export function OperationsPage() {
           return;
         }
         setFeedback(`${successLabel}: ${jobKindLabel(job.kind)} queued`);
-        await refresh();
+        if (activeLibraryIdRef.current && job.libraryId === activeLibraryIdRef.current) {
+          setState((current) => ({
+            ...current,
+            jobs: upsertJobSnapshot(current.jobs, job),
+          }));
+        }
+        scheduleRefresh(0);
       } catch (error) {
         if (!mountedRef.current) {
           return;
@@ -263,14 +372,14 @@ export function OperationsPage() {
         }
       }
     },
-    [refresh],
+    [scheduleRefresh],
   );
 
   const role = state.local?.Role ?? "";
   const canScan = canProvideLocalMedia(role);
   const canCheckpoint = canManageLibrary(role);
   const scanPhase = state.activity?.Scan?.Phase || "idle";
-  const visibleJobs = state.jobs.slice(0, 12);
+  const visibleJobs = state.jobs.slice(0, MAX_VISIBLE_JOBS);
 
   if (state.loading) {
     return (
@@ -295,8 +404,8 @@ export function OperationsPage() {
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">
               Manual scan and checkpoint actions now use the async desktop-core job
-              API. Sync stays unwired here because the backend sync service is still
-              a stub.
+              API with Wails job events feeding this page. Sync stays unwired here
+              because the backend sync service is still a stub.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/52">
@@ -643,8 +752,7 @@ export function OperationsPage() {
                 <div>
                   <h2 className="text-lg font-semibold text-white">Recent jobs</h2>
                   <p className="text-sm text-white/48">
-                    Jobs refresh every {REFRESH_INTERVAL_MS / 1000} seconds for the active
-                    library.
+                    Jobs stream from desktop-core events for the active library.
                   </p>
                 </div>
               </div>

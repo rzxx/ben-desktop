@@ -41,6 +41,7 @@ Snapshot and events:
 
 - `GetPlaybackSnapshot`
 - `SubscribePlaybackEvents`
+- `JobsFacade.SubscribeJobEvents`
 
 Queue mutation:
 

@@ -22,6 +22,10 @@ export function ListJobs(libraryID: string): $CancellablePromise<desktopcore$0.J
     });
 }
 
+export function SubscribeJobEvents(): $CancellablePromise<string> {
+    return $Call.ByID(4271791156);
+}
+
 // Private type creation functions
 const $$createType0 = desktopcore$0.JobSnapshot.createFrom;
 const $$createType1 = $Create.Array($$createType0);

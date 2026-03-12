@@ -197,3 +197,7 @@ export async function getJob(jobId: string) {
   const [job, found] = await JobsFacade.GetJob(jobId);
   return { job, found };
 }
+
+export function subscribeJobEvents() {
+  return JobsFacade.SubscribeJobEvents();
+}

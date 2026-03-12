@@ -48,6 +48,7 @@ export function VirtualCardGrid<T>({
     Math.floor((Math.max(width, minColumnWidth) + gap) / (minColumnWidth + gap)),
   );
   const rowCount = Math.ceil(items.length / columnCount);
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,

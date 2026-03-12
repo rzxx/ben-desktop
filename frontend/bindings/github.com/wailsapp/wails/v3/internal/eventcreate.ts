@@ -8,15 +8,20 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as desktopcore$0 from "../../../../../ben/desktop/internal/desktopcore/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as playback$0 from "../../../../../ben/desktop/internal/playback/models.js";
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
-        "playback:snapshot": $$createType0,
+        "jobs:snapshot": $$createType0,
+        "playback:snapshot": $$createType1,
     }));
 }
 
 // Private type creation functions
-const $$createType0 = playback$0.SessionSnapshot.createFrom;
+const $$createType0 = desktopcore$0.JobSnapshot.createFrom;
+const $$createType1 = playback$0.SessionSnapshot.createFrom;
 
 configure();

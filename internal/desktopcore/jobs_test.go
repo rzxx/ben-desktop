@@ -86,3 +86,28 @@ func TestJobsServiceBeginReusesActiveJob(t *testing.T) {
 		t.Fatalf("third phase = %q, want queued", third.Phase)
 	}
 }
+
+func TestJobsServiceSubscribeReceivesJobSnapshots(t *testing.T) {
+	t.Parallel()
+
+	svc := NewJobsService()
+	events := make([]JobSnapshot, 0, 2)
+	stop := svc.Subscribe(func(snapshot JobSnapshot) {
+		events = append(events, snapshot)
+	})
+
+	svc.Begin("job-1", "scan", "lib-1", "queued")
+	svc.Put(JobSnapshot{JobID: "job-1", Kind: "scan", LibraryID: "lib-1", Phase: JobPhaseRunning, Progress: 0.5})
+	stop()
+	svc.Put(JobSnapshot{JobID: "job-1", Kind: "scan", LibraryID: "lib-1", Phase: JobPhaseCompleted, Progress: 1})
+
+	if len(events) != 2 {
+		t.Fatalf("events len = %d, want 2", len(events))
+	}
+	if events[0].Phase != JobPhaseQueued {
+		t.Fatalf("first event phase = %q, want queued", events[0].Phase)
+	}
+	if events[1].Phase != JobPhaseRunning {
+		t.Fatalf("second event phase = %q, want running", events[1].Phase)
+	}
+}
