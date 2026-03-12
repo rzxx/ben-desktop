@@ -130,20 +130,17 @@ func (s *PlaybackService) StartPreparePlaybackRecording(ctx context.Context, rec
 	profile := s.resolvePlaybackProfile(preferredProfile)
 	purpose = normalizePlaybackPreparationPurpose(purpose)
 	jobID := playbackPreparationJobID(local.LibraryID, recordingID, profile, purpose)
-	snapshot, started := s.app.jobs.Begin(jobID, jobKindPreparePlayback, local.LibraryID, "queued playback preparation")
-	if !started {
-		return snapshot, nil
-	}
-
-	runCtx, cleanup, err := s.app.activeLibraryTaskContext(ctx, local.LibraryID)
-	if err != nil {
-		return JobSnapshot{}, err
-	}
-	go func() {
-		defer cleanup()
-		_, _ = s.preparePlaybackRecordingForLocalContext(runCtx, local, recordingID, profile, purpose)
-	}()
-	return snapshot, nil
+	return s.app.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindPreparePlayback,
+		local.LibraryID,
+		"queued playback preparation",
+		"playback preparation canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			_, _ = s.preparePlaybackRecordingForLocalContext(runCtx, local, recordingID, profile, purpose)
+		},
+	)
 }
 
 func (s *PlaybackService) preparePlaybackRecordingForLocalContext(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {

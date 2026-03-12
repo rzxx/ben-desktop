@@ -146,20 +146,17 @@ func (s *IngestService) runTrackedScan(ctx context.Context, libraryID, deviceID 
 func (s *IngestService) startTrackedScan(ctx context.Context, libraryID, deviceID string, roots []string, jobKind, queuedMessage string) (JobSnapshot, error) {
 	normalized := normalizedWatcherRoots(roots)
 	jobID := scanJobID(libraryID, deviceID, normalized, jobKind)
-	snapshot, started := s.app.jobs.Begin(jobID, jobKind, libraryID, queuedMessage)
-	if !started {
-		return snapshot, nil
-	}
-
-	runCtx, cleanup, err := s.app.activeLibraryTaskContext(ctx, libraryID)
-	if err != nil {
-		return JobSnapshot{}, err
-	}
-	go func() {
-		defer cleanup()
-		_, _ = s.runTrackedScan(runCtx, libraryID, deviceID, normalized, jobKind)
-	}()
-	return snapshot, nil
+	return s.app.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKind,
+		libraryID,
+		queuedMessage,
+		"scan canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			_, _ = s.runTrackedScan(runCtx, libraryID, deviceID, normalized, jobKind)
+		},
+	)
 }
 
 func (a *App) beginScanFlight(libraryID string, roots []string) (*scanFlight, bool) {

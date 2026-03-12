@@ -106,3 +106,52 @@ func (a *App) activeLibraryTaskContext(ctx context.Context, libraryID string) (c
 		cancel()
 	}, nil
 }
+
+func (a *App) startActiveLibraryJob(
+	ctx context.Context,
+	jobID string,
+	kind string,
+	libraryID string,
+	queuedMessage string,
+	startupFailureMessage string,
+	run func(context.Context),
+) (JobSnapshot, error) {
+	if a == nil {
+		return JobSnapshot{}, fmt.Errorf("%w: app is nil", errActiveLibraryRuntimeStopped)
+	}
+
+	snapshot, started := a.jobs.Begin(jobID, kind, libraryID, queuedMessage)
+	if !started {
+		return snapshot, nil
+	}
+
+	runCtx, cleanup, err := a.activeLibraryTaskContext(ctx, libraryID)
+	if err != nil {
+		return a.failActiveLibraryJobStartup(jobID, kind, libraryID, startupFailureMessage, err), err
+	}
+
+	go func() {
+		defer cleanup()
+		run(runCtx)
+	}()
+	return snapshot, nil
+}
+
+func (a *App) failActiveLibraryJobStartup(jobID string, kind string, libraryID string, message string, err error) JobSnapshot {
+	job := a.jobs.Track(jobID, kind, libraryID)
+	if job == nil {
+		return JobSnapshot{}
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = "job failed to start"
+	}
+	switch {
+	case errors.Is(err, context.Canceled),
+		errors.Is(err, apitypes.ErrNoActiveLibrary),
+		errors.Is(err, errActiveLibraryRuntimeStopped):
+		return job.Fail(1, message, nil)
+	default:
+		return job.Fail(1, message, err)
+	}
+}

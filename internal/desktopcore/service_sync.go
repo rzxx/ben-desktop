@@ -92,20 +92,17 @@ func (a *App) StartSyncNow(ctx context.Context) (JobSnapshot, error) {
 	}
 
 	jobID := "sync:" + local.LibraryID
-	snapshot, started := a.jobs.Begin(jobID, jobKindSyncNow, local.LibraryID, "queued manual sync")
-	if !started {
-		return snapshot, nil
-	}
-
-	runCtx, cleanup, err := a.activeLibraryTaskContext(ctx, local.LibraryID)
-	if err != nil {
-		return JobSnapshot{}, err
-	}
-	go func() {
-		defer cleanup()
-		_ = a.syncNowForLocalContext(runCtx, local, a.jobs.Track(jobID, jobKindSyncNow, local.LibraryID))
-	}()
-	return snapshot, nil
+	return a.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindSyncNow,
+		local.LibraryID,
+		"queued manual sync",
+		"manual sync canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			_ = a.syncNowForLocalContext(runCtx, local, a.jobs.Track(jobID, jobKindSyncNow, local.LibraryID))
+		},
+	)
 }
 
 func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalContext, job *JobTracker) error {

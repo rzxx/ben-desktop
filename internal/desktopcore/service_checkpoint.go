@@ -56,20 +56,17 @@ func (a *App) StartPublishCheckpoint(ctx context.Context) (JobSnapshot, error) {
 	}
 
 	jobID := "checkpoint:publish:" + local.LibraryID
-	snapshot, started := a.jobs.Begin(jobID, jobKindPublishCheckpoint, local.LibraryID, "queued checkpoint publish")
-	if !started {
-		return snapshot, nil
-	}
-
-	runCtx, cleanup, err := a.activeLibraryTaskContext(ctx, local.LibraryID)
-	if err != nil {
-		return JobSnapshot{}, err
-	}
-	go func() {
-		defer cleanup()
-		_, _ = a.publishCheckpointForLocalContext(runCtx, local)
-	}()
-	return snapshot, nil
+	return a.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindPublishCheckpoint,
+		local.LibraryID,
+		"queued checkpoint publish",
+		"checkpoint publish canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			_, _ = a.publishCheckpointForLocalContext(runCtx, local)
+		},
+	)
 }
 
 func (a *App) publishCheckpointForLocalContext(ctx context.Context, local apitypes.LocalContext) (apitypes.LibraryCheckpointManifest, error) {
@@ -120,20 +117,17 @@ func (a *App) StartCompactCheckpoint(ctx context.Context, force bool) (JobSnapsh
 	}
 
 	jobID := "checkpoint:compact:" + local.LibraryID
-	snapshot, started := a.jobs.Begin(jobID, jobKindCompactCheckpoint, local.LibraryID, "queued checkpoint compaction")
-	if !started {
-		return snapshot, nil
-	}
-
-	runCtx, cleanup, err := a.activeLibraryTaskContext(ctx, local.LibraryID)
-	if err != nil {
-		return JobSnapshot{}, err
-	}
-	go func() {
-		defer cleanup()
-		_, _ = a.compactCheckpointForLocalContext(runCtx, local, force)
-	}()
-	return snapshot, nil
+	return a.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindCompactCheckpoint,
+		local.LibraryID,
+		"queued checkpoint compaction",
+		"checkpoint compaction canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			_, _ = a.compactCheckpointForLocalContext(runCtx, local, force)
+		},
+	)
 }
 
 func (a *App) compactCheckpointForLocalContext(ctx context.Context, local apitypes.LocalContext, force bool) (apitypes.CheckpointCompactionResult, error) {
