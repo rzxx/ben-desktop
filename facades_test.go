@@ -519,7 +519,8 @@ func TestInviteFacadeForwardsToBridge(t *testing.T) {
 	result := apitypes.JoinLibraryResult{LibraryID: "lib-1", DeviceID: "dev-join"}
 	request := apitypes.InviteJoinRequestRecord{RequestID: "req-1", LibraryID: "lib-1", Status: "pending"}
 	issued := apitypes.IssuedInviteRecord{InviteID: "invite-1", LibraryID: "lib-1", Status: "active"}
-	calls := make([]string, 0, 10)
+	job := desktopcore.JobSnapshot{JobID: "join-finalize:session-1", Kind: "finalize-join-session", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
+	calls := make([]string, 0, 11)
 	host := &coreHost{
 		started: true,
 		bridge: &passthroughBridgeStub{
@@ -547,6 +548,10 @@ func TestInviteFacadeForwardsToBridge(t *testing.T) {
 			finalizeJoinSessionFn: func(_ context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
 				calls = append(calls, "finalize:"+sessionID)
 				return result, nil
+			},
+			startFinalizeJoinSessionFn: func(_ context.Context, sessionID string) (desktopcore.JobSnapshot, error) {
+				calls = append(calls, "start-finalize:"+sessionID)
+				return job, nil
 			},
 			cancelJoinSessionFn: func(_ context.Context, sessionID string) error {
 				calls = append(calls, "cancel:"+sessionID)
@@ -586,6 +591,9 @@ func TestInviteFacadeForwardsToBridge(t *testing.T) {
 	if _, err := facade.FinalizeJoinSession(ctx, "session-1"); err != nil {
 		t.Fatalf("finalize join session: %v", err)
 	}
+	if got, err := facade.StartFinalizeJoinSession(ctx, "session-1"); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start finalize join session = %+v, err=%v", got, err)
+	}
 	if err := facade.CancelJoinSession(ctx, "session-1"); err != nil {
 		t.Fatalf("cancel join session: %v", err)
 	}
@@ -606,6 +614,7 @@ func TestInviteFacadeForwardsToBridge(t *testing.T) {
 		"start:code-1",
 		"get:session-1",
 		"finalize:session-1",
+		"start-finalize:session-1",
 		"cancel:session-1",
 		"requests:pending",
 		"approve:req-1:guest",

@@ -78,6 +78,7 @@ type hostBridge interface {
 	StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error)
 	GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error)
 	FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error)
+	StartFinalizeJoinSession(ctx context.Context, sessionID string) (desktopcore.JobSnapshot, error)
 	CancelJoinSession(ctx context.Context, sessionID string) error
 	ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error)
 	ApproveJoinRequest(ctx context.Context, requestID, role string) error

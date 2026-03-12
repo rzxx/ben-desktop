@@ -142,6 +142,65 @@ func TestJoinApprovalFinalizeFlow(t *testing.T) {
 	}
 }
 
+func TestStartFinalizeJoinSessionAsync(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "invite-join-async")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	code, err := app.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleMember, Uses: 1})
+	if err != nil {
+		t.Fatalf("create invite code: %v", err)
+	}
+
+	session, err := app.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{
+		InviteCode: code.InviteCode,
+		DeviceID:   "joiner-async-device",
+		DeviceName: "Joiner Async",
+	})
+	if err != nil {
+		t.Fatalf("start join from invite: %v", err)
+	}
+	if err := app.ApproveJoinRequest(ctx, session.RequestID, roleGuest); err != nil {
+		t.Fatalf("approve join request: %v", err)
+	}
+
+	job, err := app.StartFinalizeJoinSession(ctx, session.SessionID)
+	if err != nil {
+		t.Fatalf("start finalize join session: %v", err)
+	}
+	if job.JobID != finalizeJoinSessionJobID(session.SessionID) || job.Kind != jobKindFinalizeJoinSession || job.Phase != JobPhaseQueued {
+		t.Fatalf("unexpected queued finalize job: %+v", job)
+	}
+
+	final := waitForJobPhase(t, ctx, app, finalizeJoinSessionJobID(session.SessionID), JobPhaseCompleted)
+	if final.Kind != jobKindFinalizeJoinSession || final.LibraryID != library.LibraryID {
+		t.Fatalf("unexpected final finalize job: %+v", final)
+	}
+
+	joined, err := app.GetJoinSession(ctx, session.SessionID)
+	if err != nil {
+		t.Fatalf("get finalized join session: %v", err)
+	}
+	if joined.Status != joinSessionStatusCompleted || joined.Role != roleGuest {
+		t.Fatalf("finalized join session = %+v", joined)
+	}
+
+	var membership Membership
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", library.LibraryID, "joiner-async-device").
+		Take(&membership).Error; err != nil {
+		t.Fatalf("load async joined membership: %v", err)
+	}
+	if membership.Role != roleGuest {
+		t.Fatalf("membership role = %q, want %q", membership.Role, roleGuest)
+	}
+}
+
 func TestJoinRejectCancelAndInviteUseLimit(t *testing.T) {
 	t.Parallel()
 

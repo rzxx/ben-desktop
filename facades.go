@@ -385,6 +385,10 @@ func (s *InviteFacade) FinalizeJoinSession(ctx context.Context, sessionID string
 	return s.bridge().FinalizeJoinSession(ctx, sessionID)
 }
 
+func (s *InviteFacade) StartFinalizeJoinSession(ctx context.Context, sessionID string) (desktopcore.JobSnapshot, error) {
+	return s.bridge().StartFinalizeJoinSession(ctx, sessionID)
+}
+
 func (s *InviteFacade) CancelJoinSession(ctx context.Context, sessionID string) error {
 	return s.bridge().CancelJoinSession(ctx, sessionID)
 }

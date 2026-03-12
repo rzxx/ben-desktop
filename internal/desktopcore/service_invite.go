@@ -39,7 +39,8 @@ const (
 
 	defaultInviteExpiry = 24 * time.Hour
 
-	jobKindJoinSession = "join-session"
+	jobKindJoinSession         = "join-session"
+	jobKindFinalizeJoinSession = "finalize-join-session"
 )
 
 type InviteService struct {
@@ -473,6 +474,48 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 	return joinLibraryResultFromSession(session), nil
 }
 
+func (s *InviteService) StartFinalizeJoinSession(ctx context.Context, sessionID string) (JobSnapshot, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return JobSnapshot{}, fmt.Errorf("session id is required")
+	}
+
+	session, err := s.loadJoinSession(ctx, sessionID)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+	session, err = s.refreshJoinSession(ctx, session)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+
+	jobID := finalizeJoinSessionJobID(session.SessionID)
+	snapshot, started := s.app.jobs.Begin(jobID, jobKindFinalizeJoinSession, session.LibraryID, "queued join session finalization")
+	if !started {
+		return snapshot, nil
+	}
+
+	runCtx := context.WithoutCancel(ctx)
+	go func() {
+		job := s.app.jobs.Track(jobID, jobKindFinalizeJoinSession, session.LibraryID)
+		if job != nil {
+			job.Running(0.1, "finalizing join session")
+		}
+		_, err := s.FinalizeJoinSession(runCtx, sessionID)
+		if err != nil {
+			if job != nil {
+				job.Fail(1, "join session finalization failed", err)
+			}
+			return
+		}
+		if job != nil {
+			job.Complete(1, "join session finalized")
+		}
+	}()
+
+	return snapshot, nil
+}
+
 func (s *InviteService) CancelJoinSession(ctx context.Context, sessionID string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -861,7 +904,9 @@ func (s *InviteService) refreshJoinSession(ctx context.Context, session JoinSess
 		}
 	}
 
-	if strings.TrimSpace(session.RequestID) != "" {
+	if strings.TrimSpace(session.RequestID) != "" &&
+		strings.TrimSpace(session.Status) != joinSessionStatusCompleted &&
+		strings.TrimSpace(session.Status) != joinSessionStatusFailed {
 		var req InviteJoinRequest
 		if err := s.app.db.WithContext(ctx).Where("request_id = ?", session.RequestID).Take(&req).Error; err == nil {
 			req, changed := normalizeJoinRequestRecord(req, now)
@@ -999,6 +1044,10 @@ func joinLibraryResultFromSession(row JoinSession) apitypes.JoinLibraryResult {
 		OwnerPeerID:       strings.TrimSpace(row.OwnerPeerID),
 		OwnerFingerprint:  strings.TrimSpace(row.OwnerFingerprint),
 	}
+}
+
+func finalizeJoinSessionJobID(sessionID string) string {
+	return "join-finalize:" + strings.TrimSpace(sessionID)
 }
 
 func normalizeIssuedInviteStatus(status string) (string, bool) {

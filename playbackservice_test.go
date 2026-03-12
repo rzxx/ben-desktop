@@ -78,6 +78,7 @@ type passthroughBridgeStub struct {
 	startJoinFromInviteFn       func(context.Context, apitypes.JoinFromInviteInput) (apitypes.JoinSession, error)
 	getJoinSessionFn            func(context.Context, string) (apitypes.JoinSession, error)
 	finalizeJoinSessionFn       func(context.Context, string) (apitypes.JoinLibraryResult, error)
+	startFinalizeJoinSessionFn  func(context.Context, string) (desktopcore.JobSnapshot, error)
 	cancelJoinSessionFn         func(context.Context, string) error
 	listJoinRequestsFn          func(context.Context, string) ([]apitypes.InviteJoinRequestRecord, error)
 	approveJoinRequestFn        func(context.Context, string, string) error
@@ -360,6 +361,10 @@ func (b *passthroughBridgeStub) GetJoinSession(ctx context.Context, sessionID st
 
 func (b *passthroughBridgeStub) FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
 	return b.finalizeJoinSessionFn(ctx, sessionID)
+}
+
+func (b *passthroughBridgeStub) StartFinalizeJoinSession(ctx context.Context, sessionID string) (desktopcore.JobSnapshot, error) {
+	return b.startFinalizeJoinSessionFn(ctx, sessionID)
 }
 
 func (b *passthroughBridgeStub) CancelJoinSession(ctx context.Context, sessionID string) error {

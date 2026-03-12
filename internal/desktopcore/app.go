@@ -426,6 +426,10 @@ func (a *App) FinalizeJoinSession(ctx context.Context, sessionID string) (apityp
 	return a.invite.FinalizeJoinSession(ctx, sessionID)
 }
 
+func (a *App) StartFinalizeJoinSession(ctx context.Context, sessionID string) (JobSnapshot, error) {
+	return a.invite.StartFinalizeJoinSession(ctx, sessionID)
+}
+
 func (a *App) CancelJoinSession(ctx context.Context, sessionID string) error {
 	return a.invite.CancelJoinSession(ctx, sessionID)
 }

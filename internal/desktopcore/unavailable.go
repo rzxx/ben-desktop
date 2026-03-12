@@ -220,6 +220,10 @@ func (c *UnavailableCore) FinalizeJoinSession(context.Context, string) (apitypes
 	return apitypes.JoinLibraryResult{}, c.err
 }
 
+func (c *UnavailableCore) StartFinalizeJoinSession(context.Context, string) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
 func (c *UnavailableCore) CancelJoinSession(context.Context, string) error {
 	return c.err
 }
