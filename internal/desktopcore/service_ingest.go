@@ -28,7 +28,14 @@ func (s *IngestService) SetScanRoots(ctx context.Context, roots []string) error 
 		return err
 	}
 	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return setLibraryScanRootsTx(tx, local.LibraryID, local.DeviceID, normalized)
+		if err := setLibraryScanRootsTx(tx, local.LibraryID, local.DeviceID, normalized); err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, entityTypeScanRoots, scanRootsEntityID(local.DeviceID), "replace", scanRootsOplogPayload{
+			DeviceID: local.DeviceID,
+			Roots:    append([]string(nil), normalized...),
+		})
+		return err
 	}); err != nil {
 		return err
 	}
@@ -76,7 +83,14 @@ func (s *IngestService) RemoveScanRoots(ctx context.Context, roots []string) ([]
 	}
 
 	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return setLibraryScanRootsTx(tx, local.LibraryID, local.DeviceID, next)
+		if err := setLibraryScanRootsTx(tx, local.LibraryID, local.DeviceID, next); err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, entityTypeScanRoots, scanRootsEntityID(local.DeviceID), "replace", scanRootsOplogPayload{
+			DeviceID: local.DeviceID,
+			Roots:    append([]string(nil), next...),
+		})
+		return err
 	}); err != nil {
 		return nil, err
 	}

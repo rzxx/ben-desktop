@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -453,124 +452,38 @@ type ingestRecord struct {
 
 func (s *IngestService) upsertIngest(ctx context.Context, in ingestRecord) error {
 	now := time.Now().UTC()
-	recordingKey, albumKey, groupKey := normalizedRecordKeys(in.Tags)
-	trackVariantID := stableNameID("recording", recordingKey)
-	trackClusterID := stableNameID("track_cluster", recordingKey)
-	albumVariantID := stableNameID("album", albumKey)
-	albumClusterID := stableNameID("album_cluster", groupKey)
-
-	tagsSnapshot, err := json.Marshal(map[string]any{
-		"title":        in.Tags.Title,
-		"album":        in.Tags.Album,
-		"album_artist": in.Tags.AlbumArtist,
-		"artists":      in.Tags.Artists,
-		"track":        in.Tags.TrackNo,
-		"disc":         in.Tags.DiscNo,
-		"year":         in.Tags.Year,
-		"duration_ms":  in.Tags.DurationMS,
-		"bitrate":      in.Tags.Bitrate,
-		"sample_rate":  in.Tags.SampleRate,
-		"channels":     in.Tags.Channels,
-		"is_lossless":  in.Tags.IsLossless,
-		"quality_rank": in.Tags.QualityRank,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal tags: %w", err)
-	}
-
+	local := apitypes.LocalContext{LibraryID: in.LibraryID, DeviceID: in.DeviceID}
 	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		album := AlbumVariantModel{
-			LibraryID:      in.LibraryID,
-			AlbumVariantID: albumVariantID,
-			AlbumClusterID: albumClusterID,
-			Title:          in.Tags.Album,
-			KeyNorm:        albumKey,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		}
-		if in.Tags.Year > 0 {
-			year := in.Tags.Year
-			album.Year = &year
-		}
-		if err := tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "library_id"}, {Name: "key_norm"}},
-			DoUpdates: clause.AssignmentColumns([]string{"album_variant_id", "album_cluster_id", "title", "year", "updated_at"}),
-		}).Create(&album).Error; err != nil {
-			return err
-		}
-
-		recording := TrackVariantModel{
-			LibraryID:      in.LibraryID,
-			TrackVariantID: trackVariantID,
-			TrackClusterID: trackClusterID,
-			KeyNorm:        recordingKey,
-			Title:          in.Tags.Title,
-			DurationMS:     in.Tags.DurationMS,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		}
-		if err := tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "library_id"}, {Name: "key_norm"}},
-			DoUpdates: clause.AssignmentColumns([]string{"track_variant_id", "track_cluster_id", "title", "duration_ms", "updated_at"}),
-		}).Create(&recording).Error; err != nil {
-			return err
-		}
-
-		if err := tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "library_id"}, {Name: "album_variant_id"}, {Name: "track_variant_id"}, {Name: "disc_no"}, {Name: "track_no"}},
-			DoNothing: true,
-		}).Create(&AlbumTrack{
-			LibraryID:      in.LibraryID,
-			AlbumVariantID: albumVariantID,
-			TrackVariantID: trackVariantID,
-			DiscNo:         maxTrackNumber(in.Tags.DiscNo),
-			TrackNo:        maxTrackNumber(in.Tags.TrackNo),
-		}).Error; err != nil {
-			return err
-		}
-
-		if err := upsertArtistsAndCredits(tx, in.LibraryID, trackVariantID, albumVariantID, in.Tags.Artists, firstNonEmpty(in.Tags.AlbumArtist, firstArtist(in.Tags.Artists))); err != nil {
-			return err
-		}
-
 		pathKey := localPathKey(in.Path)
 		sourceFingerprint := in.HashAlgo + ":" + in.HashHex
-		if err := tx.
-			Where("library_id = ? AND device_id = ? AND path_key = ? AND source_fingerprint <> ?", in.LibraryID, in.DeviceID, pathKey, sourceFingerprint).
-			Delete(&SourceFileModel{}).Error; err != nil {
+		conflicts, err := conflictingPathSourceFilesTx(tx, in.LibraryID, in.DeviceID, pathKey, sourceFingerprint)
+		if err != nil {
 			return err
 		}
-
-		content := SourceFileModel{
-			LibraryID:         in.LibraryID,
-			DeviceID:          in.DeviceID,
-			SourceFileID:      in.SourceFileID,
-			TrackVariantID:    trackVariantID,
-			LocalPath:         filepath.Clean(in.Path),
-			PathKey:           pathKey,
-			SourceFingerprint: sourceFingerprint,
-			HashAlgo:          in.HashAlgo,
-			HashHex:           in.HashHex,
-			MTimeNS:           in.MTimeNS,
-			SizeBytes:         in.SizeBytes,
-			Container:         in.Tags.Container,
-			Codec:             in.Tags.Codec,
-			Bitrate:           in.Tags.Bitrate,
-			SampleRate:        in.Tags.SampleRate,
-			Channels:          in.Tags.Channels,
-			IsLossless:        in.Tags.IsLossless,
-			QualityRank:       in.Tags.QualityRank,
-			DurationMS:        in.Tags.DurationMS,
-			TagsJSON:          string(tagsSnapshot),
-			LastSeenAt:        now,
-			IsPresent:         true,
-			CreatedAt:         now,
-			UpdatedAt:         now,
+		for _, conflict := range conflicts {
+			if _, err := s.app.appendLocalOplogTx(tx, local, entityTypeSourceFile, sourceFileEntityID(conflict.DeviceID, conflict.SourceFileID), "delete", map[string]any{
+				"deviceId":     conflict.DeviceID,
+				"sourceFileId": conflict.SourceFileID,
+			}); err != nil {
+				return err
+			}
 		}
-		return tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "library_id"}, {Name: "device_id"}, {Name: "source_fingerprint"}},
-			DoUpdates: clause.AssignmentColumns([]string{"source_file_id", "track_variant_id", "local_path", "path_key", "hash_algo", "hash_hex", "m_time_ns", "size_bytes", "container", "codec", "bitrate", "sample_rate", "channels", "is_lossless", "quality_rank", "duration_ms", "tags_json", "last_seen_at", "is_present", "updated_at"}),
-		}).Create(&content).Error
+		if err := upsertIngestTx(tx, in, now, true); err != nil {
+			return err
+		}
+		_, err = s.app.appendLocalOplogTx(tx, local, entityTypeSourceFile, sourceFileEntityID(in.DeviceID, in.SourceFileID), "upsert", sourceFileOplogPayload{
+			DeviceID:     in.DeviceID,
+			SourceFileID: in.SourceFileID,
+			LibraryID:    in.LibraryID,
+			LocalPath:    filepath.Clean(in.Path),
+			MTimeNS:      in.MTimeNS,
+			SizeBytes:    in.SizeBytes,
+			HashAlgo:     in.HashAlgo,
+			HashHex:      in.HashHex,
+			Tags:         in.Tags,
+			IsPresent:    true,
+		})
+		return err
 	})
 }
 
@@ -672,16 +585,41 @@ func (s *IngestService) reconcileRootPresence(ctx context.Context, libraryID, de
 		return 0, nil
 	}
 
+	local := apitypes.LocalContext{LibraryID: libraryID, DeviceID: deviceID}
 	now := time.Now().UTC()
-	result := s.app.db.WithContext(ctx).
-		Model(&SourceFileModel{}).
-		Where("library_id = ? AND device_id = ? AND source_file_id IN ? AND is_present = ?", libraryID, deviceID, missingIDs, true).
-		Updates(map[string]any{
-			"is_present":   false,
-			"last_seen_at": now,
-			"updated_at":   now,
-		})
-	return result.RowsAffected, result.Error
+	var rowsAffected int64
+	err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.
+			Model(&SourceFileModel{}).
+			Where("library_id = ? AND device_id = ? AND source_file_id IN ? AND is_present = ?", libraryID, deviceID, missingIDs, true).
+			Updates(map[string]any{
+				"is_present":   false,
+				"last_seen_at": now,
+				"updated_at":   now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		rowsAffected = result.RowsAffected
+		for _, row := range rows {
+			if !pathWithinRoot(row.LocalPath, root) {
+				continue
+			}
+			if _, ok := seen[localPathKey(row.LocalPath)]; ok {
+				continue
+			}
+			payload, err := sourceFileOplogPayloadFromRow(row)
+			if err != nil {
+				return err
+			}
+			payload.IsPresent = false
+			if _, err := s.app.appendLocalOplogTx(tx, local, entityTypeSourceFile, sourceFileEntityID(row.DeviceID, row.SourceFileID), "upsert", payload); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return rowsAffected, err
 }
 
 func normalizedRecordKeys(tags Tags) (recordingKey, albumKey, groupKey string) {

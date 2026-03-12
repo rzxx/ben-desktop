@@ -656,6 +656,13 @@ func selectCheckpointTailOpsTx(tx *gorm.DB, libraryID string, baseClocks map[str
 
 func clearCheckpointManagedStateTx(tx *gorm.DB, libraryID string) error {
 	models := []any{
+		&ScanRoot{},
+		&Artist{},
+		&Credit{},
+		&AlbumVariantModel{},
+		&TrackVariantModel{},
+		&AlbumTrack{},
+		&SourceFileModel{},
 		&PlaylistItem{},
 		&Playlist{},
 		&DeviceClock{},

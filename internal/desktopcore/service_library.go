@@ -176,9 +176,18 @@ func (s *LibraryService) RenameLibrary(ctx context.Context, libraryID, name stri
 	if !canManageLibrary(local.Role) {
 		return apitypes.LibrarySummary{}, fmt.Errorf("library rename requires admin role")
 	}
-	if err := s.app.db.WithContext(ctx).Model(&Library{}).
-		Where("library_id = ?", libraryID).
-		Update("name", name).Error; err != nil {
+	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Library{}).
+			Where("library_id = ?", libraryID).
+			Update("name", name).Error; err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, entityTypeLibrary, libraryID, "upsert", libraryOplogPayload{
+			LibraryID: libraryID,
+			Name:      name,
+		})
+		return err
+	}); err != nil {
 		return apitypes.LibrarySummary{}, err
 	}
 	return s.SelectLibrary(ctx, libraryID)

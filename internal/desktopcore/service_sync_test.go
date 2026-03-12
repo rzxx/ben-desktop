@@ -3,6 +3,8 @@ package desktopcore
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -139,6 +141,208 @@ func TestSyncNowInstallsCheckpointWhenBacklogReachesCutover(t *testing.T) {
 	}
 	if peerState.LastApplied != 5001 || peerState.LastError != "" {
 		t.Fatalf("unexpected checkpoint peer sync state: %+v", peerState)
+	}
+}
+
+func TestConnectPeerAppliesIncrementalLibraryAndCatalogSync(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "sync-track.flac")
+	if err := os.WriteFile(audioPath, []byte("sync-audio"), 0o644); err != nil {
+		t.Fatalf("write sync audio: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Sync Track",
+				Album:       "Sync Album",
+				AlbumArtist: "Sync Artist",
+				Artists:     []string{"Sync Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  205000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	owner := openCacheTestAppWithTagReader(t, 1024, reader)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "shared-catalog")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, _ := seedSharedLibraryForSync(t, owner, joiner, library)
+	if err := owner.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set owner scan roots: %v", err)
+	}
+	if _, err := owner.RescanNow(ctx); err != nil {
+		t.Fatalf("owner rescan: %v", err)
+	}
+	if _, err := owner.RenameLibrary(ctx, library.LibraryID, "shared-catalog-renamed"); err != nil {
+		t.Fatalf("rename shared library: %v", err)
+	}
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	if err := joiner.ConnectPeer(ctx, "memory://owner"); err != nil {
+		t.Fatalf("connect peer: %v", err)
+	}
+
+	libraries, err := joiner.ListLibraries(ctx)
+	if err != nil {
+		t.Fatalf("list joiner libraries: %v", err)
+	}
+	if len(libraries) != 1 || libraries[0].Name != "shared-catalog-renamed" {
+		t.Fatalf("unexpected synced libraries: %+v", libraries)
+	}
+
+	recordings, err := joiner.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list synced recordings: %v", err)
+	}
+	if len(recordings.Items) != 1 || recordings.Items[0].Title != "Sync Track" {
+		t.Fatalf("unexpected synced recordings: %+v", recordings.Items)
+	}
+
+	var syncedRoots []ScanRoot
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", library.LibraryID, ownerLocal.DeviceID).
+		Order("root_path ASC").
+		Find(&syncedRoots).Error; err != nil {
+		t.Fatalf("load synced scan roots: %v", err)
+	}
+	if len(syncedRoots) != 1 || syncedRoots[0].RootPath != filepath.Clean(root) {
+		t.Fatalf("unexpected synced scan roots: %+v", syncedRoots)
+	}
+
+	var syncedSource SourceFileModel
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND is_present = ?", library.LibraryID, ownerLocal.DeviceID, true).
+		Take(&syncedSource).Error; err != nil {
+		t.Fatalf("load synced source file: %v", err)
+	}
+	if syncedSource.LocalPath != filepath.Clean(audioPath) {
+		t.Fatalf("synced source path = %q, want %q", syncedSource.LocalPath, filepath.Clean(audioPath))
+	}
+}
+
+func TestInstallCheckpointRecordReplaysLibraryAndCatalogState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "checkpoint-track.flac")
+	if err := os.WriteFile(audioPath, []byte("checkpoint-audio"), 0o644); err != nil {
+		t.Fatalf("write checkpoint audio: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Checkpoint Track",
+				Album:       "Checkpoint Album",
+				AlbumArtist: "Checkpoint Artist",
+				Artists:     []string{"Checkpoint Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  198000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	owner := openCacheTestAppWithTagReader(t, 1024, reader)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "checkpoint-catalog")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+	if err := owner.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set owner scan roots: %v", err)
+	}
+	if _, err := owner.RescanNow(ctx); err != nil {
+		t.Fatalf("owner rescan: %v", err)
+	}
+	if _, err := owner.RenameLibrary(ctx, library.LibraryID, "checkpoint-catalog-renamed"); err != nil {
+		t.Fatalf("rename shared library: %v", err)
+	}
+
+	manifest, err := owner.PublishCheckpoint(ctx)
+	if err != nil {
+		t.Fatalf("publish checkpoint: %v", err)
+	}
+	record, ok, err := owner.loadCheckpointTransferRecord(ctx, library.LibraryID, manifest.CheckpointID, false)
+	if err != nil {
+		t.Fatalf("load checkpoint transfer: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected checkpoint transfer record")
+	}
+
+	applied, err := joiner.installCheckpointRecord(ctx, joinerLocal.DeviceID, record)
+	if err != nil {
+		t.Fatalf("install checkpoint record: %v", err)
+	}
+	if applied == 0 {
+		t.Fatalf("expected checkpoint install to replay entries")
+	}
+
+	libraries, err := joiner.ListLibraries(ctx)
+	if err != nil {
+		t.Fatalf("list joiner libraries: %v", err)
+	}
+	if len(libraries) != 1 || libraries[0].Name != "checkpoint-catalog-renamed" {
+		t.Fatalf("unexpected checkpoint-installed libraries: %+v", libraries)
+	}
+
+	recordings, err := joiner.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list checkpoint-installed recordings: %v", err)
+	}
+	if len(recordings.Items) != 1 || recordings.Items[0].Title != "Checkpoint Track" {
+		t.Fatalf("unexpected checkpoint-installed recordings: %+v", recordings.Items)
+	}
+
+	var syncedRoots []ScanRoot
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", library.LibraryID, ownerLocal.DeviceID).
+		Order("root_path ASC").
+		Find(&syncedRoots).Error; err != nil {
+		t.Fatalf("load checkpoint-installed scan roots: %v", err)
+	}
+	if len(syncedRoots) != 1 || syncedRoots[0].RootPath != filepath.Clean(root) {
+		t.Fatalf("unexpected checkpoint-installed scan roots: %+v", syncedRoots)
+	}
+
+	var syncedSource SourceFileModel
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND is_present = ?", library.LibraryID, ownerLocal.DeviceID, true).
+		Take(&syncedSource).Error; err != nil {
+		t.Fatalf("load checkpoint-installed source file: %v", err)
+	}
+	if syncedSource.LocalPath != filepath.Clean(audioPath) {
+		t.Fatalf("checkpoint-installed source path = %q, want %q", syncedSource.LocalPath, filepath.Clean(audioPath))
 	}
 }
 

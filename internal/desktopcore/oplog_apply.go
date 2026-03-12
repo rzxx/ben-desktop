@@ -38,12 +38,118 @@ type playlistItemDeleteOplogPayload struct {
 
 func applyOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 	switch strings.TrimSpace(entry.EntityType) {
-	case "playlist":
+	case entityTypeLibrary:
+		return applyLibraryOplogEntryTx(tx, entry)
+	case entityTypeScanRoots:
+		return applyScanRootsOplogEntryTx(tx, entry)
+	case entityTypeSourceFile:
+		return applySourceFileOplogEntryTx(tx, entry)
+	case entityTypePlaylist:
 		return applyPlaylistOplogEntryTx(tx, entry)
-	case "playlist_item":
+	case entityTypePlaylistItem:
 		return applyPlaylistItemOplogEntryTx(tx, entry)
 	default:
 		return fmt.Errorf("unsupported entity type %q", strings.TrimSpace(entry.EntityType))
+	}
+}
+
+func applyLibraryOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
+	apply, err := shouldApplyLatestMutationTx(tx, entry)
+	if err != nil || !apply {
+		return err
+	}
+
+	if strings.TrimSpace(entry.OpKind) != "upsert" {
+		return fmt.Errorf("unsupported library op kind %q", strings.TrimSpace(entry.OpKind))
+	}
+
+	var payload libraryOplogPayload
+	if err := json.Unmarshal([]byte(entry.PayloadJSON), &payload); err != nil {
+		return fmt.Errorf("decode library oplog payload: %w", err)
+	}
+	libraryID := firstNonEmpty(payload.LibraryID, entry.EntityID)
+	if strings.TrimSpace(libraryID) == "" {
+		return fmt.Errorf("library id is required")
+	}
+	row := Library{
+		LibraryID: libraryID,
+		Name:      strings.TrimSpace(payload.Name),
+		CreatedAt: oplogMutationTime(entry),
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "library_id"}},
+		DoUpdates: clause.Assignments(map[string]any{"name": row.Name}),
+	}).Create(&row).Error
+}
+
+func applyScanRootsOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
+	apply, err := shouldApplyLatestMutationTx(tx, entry)
+	if err != nil || !apply {
+		return err
+	}
+
+	if strings.TrimSpace(entry.OpKind) != "replace" {
+		return fmt.Errorf("unsupported scan roots op kind %q", strings.TrimSpace(entry.OpKind))
+	}
+
+	var payload scanRootsOplogPayload
+	if err := json.Unmarshal([]byte(entry.PayloadJSON), &payload); err != nil {
+		return fmt.Errorf("decode scan roots oplog payload: %w", err)
+	}
+	deviceID := firstNonEmpty(payload.DeviceID, entry.EntityID)
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("scan roots device id is required")
+	}
+	roots, err := normalizeScanRoots(payload.Roots)
+	if err != nil {
+		return fmt.Errorf("normalize replayed scan roots: %w", err)
+	}
+	return setLibraryScanRootsTx(tx, entry.LibraryID, deviceID, roots)
+}
+
+func applySourceFileOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
+	apply, err := shouldApplyLatestMutationTx(tx, entry)
+	if err != nil || !apply {
+		return err
+	}
+
+	switch strings.TrimSpace(entry.OpKind) {
+	case "upsert":
+		var payload sourceFileOplogPayload
+		if err := json.Unmarshal([]byte(entry.PayloadJSON), &payload); err != nil {
+			return fmt.Errorf("decode source file oplog payload: %w", err)
+		}
+		if strings.TrimSpace(payload.DeviceID) == "" {
+			return fmt.Errorf("source file device id is required")
+		}
+		if strings.TrimSpace(payload.SourceFileID) == "" {
+			return fmt.Errorf("source file id is required")
+		}
+		return upsertIngestTx(tx, ingestRecord{
+			LibraryID:    entry.LibraryID,
+			DeviceID:     payload.DeviceID,
+			Path:         payload.LocalPath,
+			MTimeNS:      payload.MTimeNS,
+			SizeBytes:    payload.SizeBytes,
+			HashAlgo:     payload.HashAlgo,
+			HashHex:      payload.HashHex,
+			SourceFileID: payload.SourceFileID,
+			Tags:         payload.Tags,
+		}, oplogMutationTime(entry), payload.IsPresent)
+	case "delete":
+		var payload sourceFileOplogPayload
+		if strings.TrimSpace(entry.PayloadJSON) != "" {
+			if err := json.Unmarshal([]byte(entry.PayloadJSON), &payload); err != nil {
+				return fmt.Errorf("decode source file delete payload: %w", err)
+			}
+		}
+		deviceID, sourceFileID := sourceFileIdentityForEntry(entry, payload)
+		if deviceID == "" || sourceFileID == "" {
+			return fmt.Errorf("source file device id and source file id are required")
+		}
+		return tx.Where("library_id = ? AND device_id = ? AND source_file_id = ?", entry.LibraryID, deviceID, sourceFileID).Delete(&SourceFileModel{}).Error
+	default:
+		return fmt.Errorf("unsupported source file op kind %q", strings.TrimSpace(entry.OpKind))
 	}
 }
 
@@ -124,6 +230,24 @@ func applyPlaylistOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 	default:
 		return fmt.Errorf("unsupported playlist op kind %q", strings.TrimSpace(entry.OpKind))
 	}
+}
+
+func sourceFileIdentityForEntry(entry OplogEntry, payload sourceFileOplogPayload) (string, string) {
+	deviceID := strings.TrimSpace(payload.DeviceID)
+	sourceFileID := strings.TrimSpace(payload.SourceFileID)
+	if deviceID != "" && sourceFileID != "" {
+		return deviceID, sourceFileID
+	}
+	parts := strings.SplitN(strings.TrimSpace(entry.EntityID), ":", 2)
+	if len(parts) == 2 {
+		if deviceID == "" {
+			deviceID = strings.TrimSpace(parts[0])
+		}
+		if sourceFileID == "" {
+			sourceFileID = strings.TrimSpace(parts[1])
+		}
+	}
+	return deviceID, sourceFileID
 }
 
 func applyPlaylistItemOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
