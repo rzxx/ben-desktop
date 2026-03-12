@@ -8,6 +8,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as apitypes$0 from "../core/api/types/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as desktopcore$0 from "./internal/desktopcore/models.js";
 
 export function ActiveLibrary(): $CancellablePromise<[apitypes$0.LibrarySummary, boolean]> {
     return $Call.ByID(3730238604).then(($result: any) => {
@@ -64,6 +67,18 @@ export function RenameLibrary(libraryID: string, name: string): $CancellableProm
     });
 }
 
+export function RescanNow(): $CancellablePromise<apitypes$0.ScanStats> {
+    return $Call.ByID(671533405).then(($result: any) => {
+        return $$createType5($result);
+    });
+}
+
+export function RescanRoot(root: string): $CancellablePromise<apitypes$0.ScanStats> {
+    return $Call.ByID(2043530319, root).then(($result: any) => {
+        return $$createType5($result);
+    });
+}
+
 export function ScanRoots(): $CancellablePromise<string[]> {
     return $Call.ByID(4034686803).then(($result: any) => {
         return $$createType1($result);
@@ -80,6 +95,18 @@ export function SetScanRoots(roots: string[]): $CancellablePromise<void> {
     return $Call.ByID(2099880265, roots);
 }
 
+export function StartRescanNow(): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(3257783323).then(($result: any) => {
+        return $$createType6($result);
+    });
+}
+
+export function StartRescanRoot(root: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(2433872449, root).then(($result: any) => {
+        return $$createType6($result);
+    });
+}
+
 export function UpdateLibraryMemberRole(deviceID: string, role: string): $CancellablePromise<void> {
     return $Call.ByID(820385675, deviceID, role);
 }
@@ -90,3 +117,5 @@ const $$createType1 = $Create.Array($Create.Any);
 const $$createType2 = $Create.Array($$createType0);
 const $$createType3 = apitypes$0.LibraryMemberStatus.createFrom;
 const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = apitypes$0.ScanStats.createFrom;
+const $$createType6 = desktopcore$0.JobSnapshot.createFrom;

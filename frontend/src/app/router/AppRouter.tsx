@@ -9,6 +9,7 @@ import {
   PlaylistsPage,
   TracksPage,
 } from "../../features/library/pages";
+import { OperationsPage } from "../../features/operations/page";
 
 export function AppRouter() {
   return (
@@ -22,6 +23,7 @@ export function AppRouter() {
       <Route path="/artists/:artistId">
         {(params) => <ArtistDetailPage artistId={params.artistId} />}
       </Route>
+      <Route component={OperationsPage} path="/operations" />
       <Route component={TracksPage} path="/tracks" />
       <Route component={PlaylistsPage} path="/playlists" />
       <Route component={LikedPlaylistPage} path="/playlists/liked" />

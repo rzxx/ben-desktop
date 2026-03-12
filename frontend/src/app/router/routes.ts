@@ -5,6 +5,7 @@ export const routes = {
   album: (albumId: string) => `/albums/${albumId}`,
   artists: "/artists",
   artist: (artistId: string) => `/artists/${artistId}`,
+  operations: "/operations",
   tracks: "/tracks",
   playlists: "/playlists",
   playlist: (playlistId: string) => `/playlists/${playlistId}`,

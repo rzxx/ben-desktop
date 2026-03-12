@@ -1,20 +1,30 @@
 import * as CatalogFacade from "../../../bindings/ben/desktop/catalogfacade";
+import * as JobsFacade from "../../../bindings/ben/desktop/jobsfacade";
+import * as LibraryFacade from "../../../bindings/ben/desktop/libraryfacade";
+import * as NetworkFacade from "../../../bindings/ben/desktop/networkfacade";
 import * as PlaybackFacade from "../../../bindings/ben/desktop/playbackfacade";
 import * as Types from "../../../bindings/ben/core/api/types/models";
+import * as DesktopCoreModels from "../../../bindings/ben/desktop/internal/desktopcore/models";
 import * as PlaybackModels from "../../../bindings/ben/desktop/internal/playback/models";
 
-export { PlaybackModels, Types };
+export { DesktopCoreModels, PlaybackModels, Types };
 
 export type AlbumListItem = Types.AlbumListItem;
 export type AlbumVariantItem = Types.AlbumVariantItem;
 export type AlbumTrackItem = Types.AlbumTrackItem;
+export type ActivityStatus = Types.ActivityStatus;
 export type ArtworkRef = Types.ArtworkRef;
 export type ArtistListItem = Types.ArtistListItem;
+export type LibraryCheckpointStatus = Types.LibraryCheckpointStatus;
+export type LibrarySummary = Types.LibrarySummary;
 export type LikedRecordingItem = Types.LikedRecordingItem;
+export type LocalContext = Types.LocalContext;
 export type PageInfo = Types.PageInfo;
 export type PlaylistListItem = Types.PlaylistListItem;
 export type PlaylistTrackItem = Types.PlaylistTrackItem;
 export type RecordingListItem = Types.RecordingListItem;
+export type JobPhase = DesktopCoreModels.JobPhase;
+export type JobSnapshot = DesktopCoreModels.JobSnapshot;
 export type SessionEntry = PlaybackModels.SessionEntry;
 export type SessionItem = PlaybackModels.SessionItem;
 export type SessionSnapshot = PlaybackModels.SessionSnapshot;
@@ -140,4 +150,50 @@ export function resolveRecordingArtworkURL(
   variant = "320_webp",
 ) {
   return PlaybackFacade.ResolveRecordingArtworkURL(recordingId, variant);
+}
+
+export async function getActiveLibrary() {
+  const [library, found] = await LibraryFacade.ActiveLibrary();
+  return { library, found };
+}
+
+export function getLocalContext() {
+  return NetworkFacade.EnsureLocalContext();
+}
+
+export function getScanRoots() {
+  return LibraryFacade.ScanRoots();
+}
+
+export function getActivityStatus() {
+  return NetworkFacade.ActivityStatus();
+}
+
+export function getCheckpointStatus() {
+  return NetworkFacade.CheckpointStatus();
+}
+
+export function startLibraryRescan() {
+  return LibraryFacade.StartRescanNow();
+}
+
+export function startRootRescan(root: string) {
+  return LibraryFacade.StartRescanRoot(root);
+}
+
+export function startPublishCheckpoint() {
+  return NetworkFacade.StartPublishCheckpoint();
+}
+
+export function startCompactCheckpoint(force = false) {
+  return NetworkFacade.StartCompactCheckpoint(force);
+}
+
+export function listJobs(libraryId = "") {
+  return JobsFacade.ListJobs(libraryId);
+}
+
+export async function getJob(jobId: string) {
+  const [job, found] = await JobsFacade.GetJob(jobId);
+  return { job, found };
 }

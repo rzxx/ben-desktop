@@ -8,6 +8,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as apitypes$0 from "../core/api/types/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as desktopcore$0 from "./internal/desktopcore/models.js";
 
 export function ActivityStatus(): $CancellablePromise<apitypes$0.ActivityStatus> {
     return $Call.ByID(4144250115).then(($result: any) => {
@@ -21,34 +24,69 @@ export function CheckpointStatus(): $CancellablePromise<apitypes$0.LibraryCheckp
     });
 }
 
+export function CompactCheckpoint(force: boolean): $CancellablePromise<apitypes$0.CheckpointCompactionResult> {
+    return $Call.ByID(327409483, force).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+export function ConnectPeer(peerAddr: string): $CancellablePromise<void> {
+    return $Call.ByID(1053404146, peerAddr);
+}
+
 export function EnsureLocalContext(): $CancellablePromise<apitypes$0.LocalContext> {
     return $Call.ByID(924842624).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function Inspect(): $CancellablePromise<apitypes$0.InspectSummary> {
     return $Call.ByID(2261051216).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
 export function InspectLibraryOplog(libraryID: string): $CancellablePromise<apitypes$0.LibraryOplogDiagnostics> {
     return $Call.ByID(1282587142, libraryID).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
 export function NetworkStatus(): $CancellablePromise<apitypes$0.NetworkStatus> {
     return $Call.ByID(1494915484).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
+}
+
+export function PublishCheckpoint(): $CancellablePromise<apitypes$0.LibraryCheckpointManifest> {
+    return $Call.ByID(597119917).then(($result: any) => {
+        return $$createType7($result);
+    });
+}
+
+export function StartCompactCheckpoint(force: boolean): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(2841628975, force).then(($result: any) => {
+        return $$createType8($result);
+    });
+}
+
+export function StartPublishCheckpoint(): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(3017865945).then(($result: any) => {
+        return $$createType8($result);
+    });
+}
+
+export function SyncNow(): $CancellablePromise<void> {
+    return $Call.ByID(2443585449);
 }
 
 // Private type creation functions
 const $$createType0 = apitypes$0.ActivityStatus.createFrom;
 const $$createType1 = apitypes$0.LibraryCheckpointStatus.createFrom;
-const $$createType2 = apitypes$0.LocalContext.createFrom;
-const $$createType3 = apitypes$0.InspectSummary.createFrom;
-const $$createType4 = apitypes$0.LibraryOplogDiagnostics.createFrom;
-const $$createType5 = apitypes$0.NetworkStatus.createFrom;
+const $$createType2 = apitypes$0.CheckpointCompactionResult.createFrom;
+const $$createType3 = apitypes$0.LocalContext.createFrom;
+const $$createType4 = apitypes$0.InspectSummary.createFrom;
+const $$createType5 = apitypes$0.LibraryOplogDiagnostics.createFrom;
+const $$createType6 = apitypes$0.NetworkStatus.createFrom;
+const $$createType7 = apitypes$0.LibraryCheckpointManifest.createFrom;
+const $$createType8 = desktopcore$0.JobSnapshot.createFrom;

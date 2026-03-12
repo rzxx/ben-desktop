@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Window, Events } from "@wailsio/runtime";
 import {
+  Activity,
   Album,
   ChevronsUpDown,
   Disc3,
@@ -21,6 +22,7 @@ import { usePlaybackStore } from "../../features/playback/store";
 const navItems = [
   { href: routes.albums, label: "Albums", icon: Disc3 },
   { href: routes.artists, label: "Artists", icon: UsersRound },
+  { href: routes.operations, label: "Operations", icon: Activity },
   { href: routes.tracks, label: "Tracks", icon: Music4 },
   { href: routes.playlists, label: "Playlists", icon: LibraryBig },
 ];
@@ -117,7 +119,7 @@ function NavigationSidebar() {
         </p>
         <h2 className="mt-2 text-xl font-semibold text-white">Library</h2>
         <p className="mt-2 text-sm text-white/48">
-          Albums, artists, playlists, and the playback queue in one desktop shell.
+          Browse the catalog, inspect core operations, and keep playback in the same shell.
         </p>
       </div>
       <nav className="space-y-2">
@@ -142,7 +144,7 @@ function NavigationSidebar() {
           Host notes
         </p>
         <p className="mt-2 text-sm text-white/52">
-          Queue actions are live. Library edits stay out of this slice.
+          Queue actions are live. Operations now expose async scan and checkpoint jobs.
         </p>
       </div>
     </aside>

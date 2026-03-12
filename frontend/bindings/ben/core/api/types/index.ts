@@ -31,6 +31,7 @@ export {
     CatalogAggregateAvailabilityHint,
     CatalogTrackAvailabilityHint,
     CatalogTrackAvailabilityState,
+    CheckpointCompactionResult,
     CheckpointDeviceCoverage,
     InspectSummary,
     InviteCodeRequest,
@@ -40,6 +41,7 @@ export {
     JoinFromInviteInput,
     JoinLibraryResult,
     JoinSession,
+    LibraryCheckpointManifest,
     LibraryCheckpointStatus,
     LibraryMaterializedCounts,
     LibraryMemberStatus,
@@ -83,6 +85,7 @@ export {
     RecordingVariantItem,
     RecordingVariantListRequest,
     ScanActivityStatus,
+    ScanStats,
     TrackAvailabilitySummary,
     TranscodeActivityStatus,
     TranscodeOplogDiagnostics
