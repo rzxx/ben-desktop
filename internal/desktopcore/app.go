@@ -19,6 +19,9 @@ type App struct {
 	scanFlight *scanFlight
 	tagReader  TagReader
 
+	watcherMu   sync.Mutex
+	scanWatcher *activeScanWatcher
+
 	jobs     *JobsService
 	library  *LibraryService
 	ingest   *IngestService
@@ -75,6 +78,9 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	if _, err := app.ensureCurrentDevice(ctx); err != nil {
 		return nil, fmt.Errorf("ensure current device: %w", err)
 	}
+	if err := app.syncActiveScanWatcher(ctx); err != nil {
+		return nil, fmt.Errorf("configure active scan watcher: %w", err)
+	}
 
 	openOK = true
 	return app, nil
@@ -84,6 +90,7 @@ func (a *App) Close() error {
 	if a == nil || a.db == nil {
 		return nil
 	}
+	a.stopActiveScanWatcher()
 	return closeSQL(a.db)
 }
 

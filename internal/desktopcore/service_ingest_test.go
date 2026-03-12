@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	apitypes "ben/core/api/types"
 )
@@ -266,6 +267,202 @@ func TestRescanRootMarksMissingFilesAbsent(t *testing.T) {
 	if row.IsPresent {
 		t.Fatalf("expected removed source file to be marked absent: %+v", row)
 	}
+}
+
+func TestScanWatcherImportsNewFileForActiveLibrary(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "watch-track.flac")
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Watched Track",
+				Album:       "Watcher Album",
+				AlbumArtist: "Watcher Artist",
+				Artists:     []string{"Watcher Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  210000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	if _, err := app.CreateLibrary(ctx, "watch-import"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+
+	if err := os.WriteFile(audioPath, []byte("watch-audio"), 0o644); err != nil {
+		t.Fatalf("write watched audio file: %v", err)
+	}
+
+	recordings := waitForRecordingCount(t, ctx, app, 1)
+	if recordings[0].Title != "Watched Track" {
+		t.Fatalf("watched recording title = %q, want Watched Track", recordings[0].Title)
+	}
+}
+
+func TestScanWatcherFollowsActiveLibrarySelection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	audioA := filepath.Join(rootA, "inactive.flac")
+	audioB := filepath.Join(rootB, "active.flac")
+	audioA2 := filepath.Join(rootA, "reactivated.flac")
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioA): {
+				Title:       "Inactive Track",
+				Album:       "Library A",
+				AlbumArtist: "Artist A",
+				Artists:     []string{"Artist A"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(audioB): {
+				Title:       "Active Track",
+				Album:       "Library B",
+				AlbumArtist: "Artist B",
+				Artists:     []string{"Artist B"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(audioA2): {
+				Title:       "Reactivated Track",
+				Album:       "Library A",
+				AlbumArtist: "Artist A",
+				Artists:     []string{"Artist A"},
+				TrackNo:     2,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  181000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+
+	first, err := app.CreateLibrary(ctx, "watch-a")
+	if err != nil {
+		t.Fatalf("create first library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{rootA}); err != nil {
+		t.Fatalf("set first scan roots: %v", err)
+	}
+
+	second, err := app.CreateLibrary(ctx, "watch-b")
+	if err != nil {
+		t.Fatalf("create second library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{rootB}); err != nil {
+		t.Fatalf("set second scan roots: %v", err)
+	}
+
+	if err := os.WriteFile(audioA, []byte("inactive"), 0o644); err != nil {
+		t.Fatalf("write inactive audio: %v", err)
+	}
+	if err := os.WriteFile(audioB, []byte("active"), 0o644); err != nil {
+		t.Fatalf("write active audio: %v", err)
+	}
+
+	recordings := waitForRecordingCount(t, ctx, app, 1)
+	if recordings[0].Title != "Active Track" {
+		t.Fatalf("active library watched title = %q, want Active Track", recordings[0].Title)
+	}
+
+	if _, err := app.SelectLibrary(ctx, first.LibraryID); err != nil {
+		t.Fatalf("select first library: %v", err)
+	}
+	page, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list first library recordings: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("inactive library should not have auto-imported while deselected: %+v", page.Items)
+	}
+
+	if err := os.WriteFile(audioA2, []byte("reactivated"), 0o644); err != nil {
+		t.Fatalf("write reactivated audio: %v", err)
+	}
+	recordings = waitForRecordingCount(t, ctx, app, 2)
+	titles := map[string]bool{}
+	for _, item := range recordings {
+		titles[item.Title] = true
+	}
+	if !titles["Inactive Track"] || !titles["Reactivated Track"] {
+		t.Fatalf("reactivated watcher recordings = %+v, want Inactive Track and Reactivated Track", recordings)
+	}
+
+	if _, err := app.SelectLibrary(ctx, second.LibraryID); err != nil {
+		t.Fatalf("reselect second library: %v", err)
+	}
+	page, err = app.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list second library recordings: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Title != "Active Track" {
+		t.Fatalf("second library recordings = %+v, want only Active Track", page.Items)
+	}
+}
+
+func waitForRecordingCount(t *testing.T, ctx context.Context, app *App, want int) []apitypes.RecordingListItem {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		page, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
+		if err == nil && len(page.Items) == want {
+			return page.Items
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	page, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list recordings after wait: %v", err)
+	}
+	t.Fatalf("recordings count = %d, want %d", len(page.Items), want)
+	return nil
 }
 
 type staticTagReader struct {

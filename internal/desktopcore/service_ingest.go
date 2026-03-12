@@ -27,9 +27,12 @@ func (s *IngestService) SetScanRoots(ctx context.Context, roots []string) error 
 	if err != nil {
 		return err
 	}
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return setLibraryScanRootsTx(tx, local.LibraryID, local.DeviceID, normalized)
-	})
+	}); err != nil {
+		return err
+	}
+	return s.app.syncActiveScanWatcher(ctx)
 }
 
 func (s *IngestService) AddScanRoots(ctx context.Context, roots []string) ([]string, error) {

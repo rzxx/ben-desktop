@@ -110,6 +110,9 @@ func (s *LibraryService) CreateLibrary(ctx context.Context, name string) (apityp
 	}); err != nil {
 		return apitypes.LibrarySummary{}, err
 	}
+	if err := s.app.syncActiveScanWatcher(ctx); err != nil {
+		return apitypes.LibrarySummary{}, err
+	}
 	return apitypes.LibrarySummary{
 		LibraryID: libraryID,
 		Name:      name,
@@ -146,6 +149,9 @@ func (s *LibraryService) SelectLibrary(ctx context.Context, libraryID string) (a
 
 	var library Library
 	if err := s.app.db.WithContext(ctx).Where("library_id = ?", libraryID).Take(&library).Error; err != nil {
+		return apitypes.LibrarySummary{}, err
+	}
+	if err := s.app.syncActiveScanWatcher(ctx); err != nil {
 		return apitypes.LibrarySummary{}, err
 	}
 	return apitypes.LibrarySummary{
@@ -187,14 +193,17 @@ func (s *LibraryService) LeaveLibrary(ctx context.Context, libraryID string) err
 	if libraryID == "" {
 		return fmt.Errorf("library id is required")
 	}
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("library_id = ? AND device_id = ?", libraryID, device.DeviceID).Delete(&Membership{}).Error; err != nil {
 			return err
 		}
 		return tx.Model(&Device{}).
 			Where("device_id = ? AND active_library_id = ?", device.DeviceID, libraryID).
 			Update("active_library_id", nil).Error
-	})
+	}); err != nil {
+		return err
+	}
+	return s.app.syncActiveScanWatcher(ctx)
 }
 
 func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) error {
@@ -209,7 +218,7 @@ func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) er
 	if !canManageLibrary(local.Role) {
 		return fmt.Errorf("library delete requires admin role")
 	}
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&Device{}).Where("active_library_id = ?", libraryID).Update("active_library_id", nil).Error; err != nil {
 			return err
 		}
@@ -227,7 +236,10 @@ func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) er
 			}
 		}
 		return tx.Where("library_id = ?", libraryID).Delete(&Library{}).Error
-	})
+	}); err != nil {
+		return err
+	}
+	return s.app.syncActiveScanWatcher(ctx)
 }
 
 func (s *LibraryService) ListLibraryMembers(ctx context.Context) ([]apitypes.LibraryMemberStatus, error) {
@@ -236,15 +248,15 @@ func (s *LibraryService) ListLibraryMembers(ctx context.Context) ([]apitypes.Lib
 		return nil, err
 	}
 	type row struct {
-		LibraryID       string
-		DeviceID        string
-		Role            string
-		PeerID          string
-		LastSeenAt      *time.Time
-		LastAttemptAt   *time.Time
-		LastSuccessAt   *time.Time
-		LastError       string
-		LastApplied     int64
+		LibraryID     string
+		DeviceID      string
+		Role          string
+		PeerID        string
+		LastSeenAt    *time.Time
+		LastAttemptAt *time.Time
+		LastSuccessAt *time.Time
+		LastError     string
+		LastApplied   int64
 	}
 	var rows []row
 	query := `
@@ -296,9 +308,12 @@ func (s *LibraryService) UpdateLibraryMemberRole(ctx context.Context, deviceID, 
 	if !canManageLibrary(local.Role) {
 		return fmt.Errorf("member role update requires admin role")
 	}
-	return s.app.db.WithContext(ctx).Model(&Membership{}).
+	if err := s.app.db.WithContext(ctx).Model(&Membership{}).
 		Where("library_id = ? AND device_id = ?", local.LibraryID, deviceID).
-		Update("role", role).Error
+		Update("role", role).Error; err != nil {
+		return err
+	}
+	return s.app.syncActiveScanWatcher(ctx)
 }
 
 func (s *LibraryService) RemoveLibraryMember(ctx context.Context, deviceID string) error {
@@ -313,14 +328,17 @@ func (s *LibraryService) RemoveLibraryMember(ctx context.Context, deviceID strin
 	if !canManageLibrary(local.Role) {
 		return fmt.Errorf("member removal requires admin role")
 	}
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("library_id = ? AND device_id = ?", local.LibraryID, deviceID).Delete(&Membership{}).Error; err != nil {
 			return err
 		}
 		return tx.Model(&Device{}).
 			Where("device_id = ? AND active_library_id = ?", deviceID, local.LibraryID).
 			Update("active_library_id", nil).Error
-	})
+	}); err != nil {
+		return err
+	}
+	return s.app.syncActiveScanWatcher(ctx)
 }
 
 func (a *App) ensureCurrentDevice(ctx context.Context) (Device, error) {
