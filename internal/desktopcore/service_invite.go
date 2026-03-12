@@ -56,8 +56,12 @@ type inviteCodePayload struct {
 }
 
 type joinSessionMaterial struct {
-	RecoveryToken  string                 `json:"recoveryToken"`
-	MembershipCert membershipCertEnvelope `json:"membershipCert"`
+	LibraryName        string                        `json:"libraryName"`
+	RootPublicKey      string                        `json:"rootPublicKey"`
+	LibraryKey         string                        `json:"libraryKey"`
+	AdmissionAuthority *joinSessionAuthorityMaterial `json:"admissionAuthority,omitempty"`
+	RecoveryToken      string                        `json:"recoveryToken"`
+	MembershipCert     membershipCertEnvelope        `json:"membershipCert"`
 }
 
 type membershipCertEnvelope struct {
@@ -372,35 +376,11 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 
 	now := time.Now().UTC()
 	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "device_id"}},
-			DoUpdates: clause.Assignments(map[string]any{
-				"name":         session.DeviceName,
-				"peer_id":      session.LocalPeerID,
-				"last_seen_at": &now,
-			}),
-		}).Create(&Device{
-			DeviceID:   session.DeviceID,
-			Name:       session.DeviceName,
-			PeerID:     session.LocalPeerID,
-			JoinedAt:   now,
-			LastSeenAt: &now,
-		}).Error; err != nil {
+		if err := restoreJoinSessionMaterialTx(tx, session, material, now); err != nil {
 			return err
 		}
 
-		if err := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "library_id"}, {Name: "device_id"}},
-			DoUpdates: clause.Assignments(map[string]any{
-				"role": normalizeRole(session.Role),
-			}),
-		}).Create(&Membership{
-			LibraryID:        session.LibraryID,
-			DeviceID:         session.DeviceID,
-			Role:             normalizeRole(session.Role),
-			CapabilitiesJSON: "{}",
-			JoinedAt:         now,
-		}).Error; err != nil {
+		if err := upsertDeviceMembershipTx(tx, session.LibraryID, session.DeviceID, session.DeviceName, session.LocalPeerID, session.Role, now); err != nil {
 			return err
 		}
 
@@ -444,6 +424,10 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 			}
 		}
 
+		if err := upsertDeviceMembershipTx(tx, session.LibraryID, session.OwnerDeviceID, session.OwnerDeviceID, session.OwnerPeerID, session.OwnerRole, now); err != nil {
+			return err
+		}
+
 		current, err := s.app.ensureCurrentDeviceTx(tx)
 		if err != nil {
 			return err
@@ -473,6 +457,10 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 	})
 	if err != nil {
 		job.Fail(1, "failed to finalize join session", err)
+		return apitypes.JoinLibraryResult{}, err
+	}
+	if err := s.app.syncActiveScanWatcher(ctx); err != nil {
+		job.Fail(1, "failed to refresh active scan watcher", err)
 		return apitypes.JoinLibraryResult{}, err
 	}
 
@@ -635,22 +623,15 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 			approvedRole = normalizeRole(req.RequestedRole)
 		}
 		now := time.Now().UTC()
-		recoveryToken, err := randomToken()
+		material, err := s.buildJoinSessionMaterialTx(tx, req.LibraryID, req.DeviceID, req.PeerID, approvedRole, now)
 		if err != nil {
 			return err
 		}
-		cert, err := buildMembershipCert(req.LibraryID, req.DeviceID, req.PeerID, approvedRole)
+		encodedCert, err := json.Marshal(material.MembershipCert)
 		if err != nil {
 			return err
 		}
-		encodedCert, err := json.Marshal(cert)
-		if err != nil {
-			return err
-		}
-		materialJSON, err := json.Marshal(joinSessionMaterial{
-			RecoveryToken:  recoveryToken,
-			MembershipCert: cert,
-		})
+		materialJSON, err := json.Marshal(material)
 		if err != nil {
 			return err
 		}
@@ -1105,14 +1086,17 @@ func consumeInviteTokenRedemptionTx(tx *gorm.DB, libraryID, tokenID, requestID s
 	}).Error
 }
 
-func buildMembershipCert(libraryID, deviceID, peerID, role string) (membershipCertEnvelope, error) {
+func buildMembershipCert(libraryID, deviceID, peerID, role string, authorityVersion int64) (membershipCertEnvelope, error) {
 	now := time.Now().UTC()
+	if authorityVersion <= 0 {
+		authorityVersion = 1
+	}
 	cert := membershipCertEnvelope{
 		LibraryID:        strings.TrimSpace(libraryID),
 		DeviceID:         strings.TrimSpace(deviceID),
 		PeerID:           strings.TrimSpace(peerID),
 		Role:             normalizeRole(role),
-		AuthorityVersion: 1,
+		AuthorityVersion: authorityVersion,
 		Serial:           now.UnixNano(),
 		IssuedAt:         now.UnixNano(),
 		ExpiresAt:        now.Add(30 * 24 * time.Hour).UnixNano(),

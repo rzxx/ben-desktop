@@ -207,3 +207,103 @@ func TestJoinRejectCancelAndInviteUseLimit(t *testing.T) {
 		t.Fatalf("approve exhausted invite err = %v", err)
 	}
 }
+
+func TestFinalizeJoinSessionRestoresLibraryMaterialAndOwnerContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "restore-join-material")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	code, err := app.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleAdmin, Uses: 1})
+	if err != nil {
+		t.Fatalf("create invite code: %v", err)
+	}
+	session, err := app.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{
+		InviteCode: code.InviteCode,
+		DeviceID:   "restore-device",
+		DeviceName: "Restore Device",
+	})
+	if err != nil {
+		t.Fatalf("start join session: %v", err)
+	}
+	if err := app.ApproveJoinRequest(ctx, session.RequestID, roleAdmin); err != nil {
+		t.Fatalf("approve join request: %v", err)
+	}
+
+	if err := app.db.WithContext(ctx).Where("library_id = ?", library.LibraryID).Delete(&AdmissionAuthority{}).Error; err != nil {
+		t.Fatalf("delete admission authority: %v", err)
+	}
+	if err := app.db.WithContext(ctx).Where("library_id = ?", library.LibraryID).Delete(&Library{}).Error; err != nil {
+		t.Fatalf("delete library row: %v", err)
+	}
+	if err := app.db.WithContext(ctx).Where("device_id = ?", local.DeviceID).Delete(&Device{}).Error; err != nil {
+		t.Fatalf("delete owner device row: %v", err)
+	}
+	if err := app.db.WithContext(ctx).Where("library_id = ? AND device_id = ?", library.LibraryID, local.DeviceID).Delete(&Membership{}).Error; err != nil {
+		t.Fatalf("delete owner membership row: %v", err)
+	}
+
+	result, err := app.FinalizeJoinSession(ctx, session.SessionID)
+	if err != nil {
+		t.Fatalf("finalize join session: %v", err)
+	}
+	if result.LibraryID != library.LibraryID || result.Role != roleAdmin {
+		t.Fatalf("unexpected join result: %+v", result)
+	}
+
+	var restored Library
+	if err := app.db.WithContext(ctx).Where("library_id = ?", library.LibraryID).Take(&restored).Error; err != nil {
+		t.Fatalf("load restored library: %v", err)
+	}
+	if restored.Name != "restore-join-material" {
+		t.Fatalf("restored library name = %q, want %q", restored.Name, "restore-join-material")
+	}
+	if strings.TrimSpace(restored.RootPublicKey) == "" || strings.TrimSpace(restored.LibraryKey) == "" {
+		t.Fatalf("restored library material = %+v", restored)
+	}
+
+	var authority AdmissionAuthority
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ?", library.LibraryID).
+		Order("version DESC").
+		Take(&authority).Error; err != nil {
+		t.Fatalf("load restored admission authority: %v", err)
+	}
+	if authority.Version != 1 || strings.TrimSpace(authority.PublicKey) == "" {
+		t.Fatalf("restored admission authority = %+v", authority)
+	}
+
+	privateKey, err := localSettingValueTx(app.db.WithContext(ctx), admissionAuthorityPrivateKeyLocalSettingKey(library.LibraryID, authority.Version))
+	if err != nil {
+		t.Fatalf("load admission authority private key: %v", err)
+	}
+	if strings.TrimSpace(privateKey) == "" {
+		t.Fatalf("expected restored admission authority private key")
+	}
+
+	var ownerDevice Device
+	if err := app.db.WithContext(ctx).Where("device_id = ?", local.DeviceID).Take(&ownerDevice).Error; err != nil {
+		t.Fatalf("load restored owner device: %v", err)
+	}
+	if strings.TrimSpace(ownerDevice.PeerID) == "" {
+		t.Fatalf("restored owner device = %+v", ownerDevice)
+	}
+
+	var ownerMembership Membership
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", library.LibraryID, local.DeviceID).
+		Take(&ownerMembership).Error; err != nil {
+		t.Fatalf("load restored owner membership: %v", err)
+	}
+	if ownerMembership.Role != roleAdmin {
+		t.Fatalf("restored owner role = %q, want %q", ownerMembership.Role, roleAdmin)
+	}
+}
