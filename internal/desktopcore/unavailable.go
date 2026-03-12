@@ -40,8 +40,24 @@ func (c *UnavailableCore) NetworkStatus() apitypes.NetworkStatus {
 	return apitypes.NetworkStatus{}
 }
 
+func (c *UnavailableCore) SyncNow(context.Context) error {
+	return c.err
+}
+
+func (c *UnavailableCore) ConnectPeer(context.Context, string) error {
+	return c.err
+}
+
 func (c *UnavailableCore) CheckpointStatus(context.Context) (apitypes.LibraryCheckpointStatus, error) {
 	return apitypes.LibraryCheckpointStatus{}, c.err
+}
+
+func (c *UnavailableCore) PublishCheckpoint(context.Context) (apitypes.LibraryCheckpointManifest, error) {
+	return apitypes.LibraryCheckpointManifest{}, c.err
+}
+
+func (c *UnavailableCore) CompactCheckpoint(context.Context, bool) (apitypes.CheckpointCompactionResult, error) {
+	return apitypes.CheckpointCompactionResult{}, c.err
 }
 
 func (c *UnavailableCore) ListJobs(context.Context, string) ([]JobSnapshot, error) {

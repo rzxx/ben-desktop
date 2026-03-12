@@ -131,8 +131,24 @@ func (s *NetworkFacade) NetworkStatus() apitypes.NetworkStatus {
 	return s.bridge().NetworkStatus()
 }
 
+func (s *NetworkFacade) SyncNow(ctx context.Context) error {
+	return s.bridge().SyncNow(ctx)
+}
+
+func (s *NetworkFacade) ConnectPeer(ctx context.Context, peerAddr string) error {
+	return s.bridge().ConnectPeer(ctx, peerAddr)
+}
+
 func (s *NetworkFacade) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
 	return s.bridge().CheckpointStatus(ctx)
+}
+
+func (s *NetworkFacade) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error) {
+	return s.bridge().PublishCheckpoint(ctx)
+}
+
+func (s *NetworkFacade) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
+	return s.bridge().CompactCheckpoint(ctx, force)
 }
 
 type JobsFacade struct {

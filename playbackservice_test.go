@@ -19,7 +19,11 @@ type passthroughBridgeStub struct {
 	inspectLibraryOplogFn       func(context.Context, string) (apitypes.LibraryOplogDiagnostics, error)
 	activityStatusFn            func(context.Context) (apitypes.ActivityStatus, error)
 	networkStatusFn             func() apitypes.NetworkStatus
+	syncNowFn                   func(context.Context) error
+	connectPeerFn               func(context.Context, string) error
 	checkpointStatusFn          func(context.Context) (apitypes.LibraryCheckpointStatus, error)
+	publishCheckpointFn         func(context.Context) (apitypes.LibraryCheckpointManifest, error)
+	compactCheckpointFn         func(context.Context, bool) (apitypes.CheckpointCompactionResult, error)
 	listJobsFn                  func(context.Context, string) ([]desktopcore.JobSnapshot, error)
 	getJobFn                    func(context.Context, string) (desktopcore.JobSnapshot, bool, error)
 	listLibrariesFn             func(context.Context) ([]apitypes.LibrarySummary, error)
@@ -116,8 +120,24 @@ func (b *passthroughBridgeStub) NetworkStatus() apitypes.NetworkStatus {
 	return b.networkStatusFn()
 }
 
+func (b *passthroughBridgeStub) SyncNow(ctx context.Context) error {
+	return b.syncNowFn(ctx)
+}
+
+func (b *passthroughBridgeStub) ConnectPeer(ctx context.Context, peerAddr string) error {
+	return b.connectPeerFn(ctx, peerAddr)
+}
+
 func (b *passthroughBridgeStub) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
 	return b.checkpointStatusFn(ctx)
+}
+
+func (b *passthroughBridgeStub) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error) {
+	return b.publishCheckpointFn(ctx)
+}
+
+func (b *passthroughBridgeStub) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
+	return b.compactCheckpointFn(ctx, force)
 }
 
 func (b *passthroughBridgeStub) ListJobs(ctx context.Context, libraryID string) ([]desktopcore.JobSnapshot, error) {

@@ -143,7 +143,9 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	activity := apitypes.ActivityStatus{Scan: apitypes.ScanActivityStatus{Phase: "idle"}}
 	network := apitypes.NetworkStatus{LibraryID: "lib-1", DeviceID: "dev-1", ServiceTag: "ben-123"}
 	checkpoint := apitypes.LibraryCheckpointStatus{LibraryID: "lib-1", CheckpointID: "ckpt-1"}
-	calls := make([]string, 0, 6)
+	manifest := apitypes.LibraryCheckpointManifest{LibraryID: "lib-1", CheckpointID: "ckpt-1"}
+	compaction := apitypes.CheckpointCompactionResult{LibraryID: "lib-1", CheckpointID: "ckpt-1", Compactable: true}
+	calls := make([]string, 0, 10)
 	host := &coreHost{
 		started: true,
 		bridge: &passthroughBridgeStub{
@@ -168,9 +170,25 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 				calls = append(calls, "network")
 				return network
 			},
+			syncNowFn: func(context.Context) error {
+				calls = append(calls, "sync")
+				return nil
+			},
+			connectPeerFn: func(_ context.Context, peerAddr string) error {
+				calls = append(calls, "connect:"+peerAddr)
+				return nil
+			},
 			checkpointStatusFn: func(context.Context) (apitypes.LibraryCheckpointStatus, error) {
 				calls = append(calls, "checkpoint")
 				return checkpoint, nil
+			},
+			publishCheckpointFn: func(context.Context) (apitypes.LibraryCheckpointManifest, error) {
+				calls = append(calls, "publish")
+				return manifest, nil
+			},
+			compactCheckpointFn: func(_ context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
+				calls = append(calls, "compact:true")
+				return compaction, nil
 			},
 		},
 	}
@@ -191,11 +209,23 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	if got := facade.NetworkStatus(); got.ServiceTag != network.ServiceTag {
 		t.Fatalf("network status = %+v", got)
 	}
+	if err := facade.SyncNow(ctx); err != nil {
+		t.Fatalf("sync now: %v", err)
+	}
+	if err := facade.ConnectPeer(ctx, "peeraddr"); err != nil {
+		t.Fatalf("connect peer: %v", err)
+	}
 	if got, err := facade.CheckpointStatus(ctx); err != nil || got.CheckpointID != checkpoint.CheckpointID {
 		t.Fatalf("checkpoint status = %+v, err=%v", got, err)
 	}
+	if got, err := facade.PublishCheckpoint(ctx); err != nil || got.CheckpointID != manifest.CheckpointID {
+		t.Fatalf("publish checkpoint = %+v, err=%v", got, err)
+	}
+	if got, err := facade.CompactCheckpoint(ctx, true); err != nil || got.CheckpointID != compaction.CheckpointID {
+		t.Fatalf("compact checkpoint = %+v, err=%v", got, err)
+	}
 
-	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "checkpoint"}
+	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "sync", "connect:peeraddr", "checkpoint", "publish", "compact:true"}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("network facade calls = %v, want %v", calls, want)
 	}

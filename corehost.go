@@ -19,7 +19,11 @@ type hostBridge interface {
 	InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error)
 	ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error)
 	NetworkStatus() apitypes.NetworkStatus
+	SyncNow(ctx context.Context) error
+	ConnectPeer(ctx context.Context, peerAddr string) error
 	CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error)
+	PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error)
+	CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error)
 	ListJobs(ctx context.Context, libraryID string) ([]desktopcore.JobSnapshot, error)
 	GetJob(ctx context.Context, jobID string) (desktopcore.JobSnapshot, bool, error)
 	ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error)
