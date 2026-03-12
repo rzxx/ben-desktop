@@ -132,6 +132,46 @@ func (c *UnavailableCore) IsRecordingLiked(context.Context, string) (bool, error
 	return false, c.err
 }
 
+func (c *UnavailableCore) CreateInviteCode(context.Context, apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
+	return apitypes.InviteCodeResult{}, c.err
+}
+
+func (c *UnavailableCore) ListIssuedInvites(context.Context, string) ([]apitypes.IssuedInviteRecord, error) {
+	return nil, c.err
+}
+
+func (c *UnavailableCore) RevokeIssuedInvite(context.Context, string, string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) StartJoinFromInvite(context.Context, apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
+	return apitypes.JoinSession{}, c.err
+}
+
+func (c *UnavailableCore) GetJoinSession(context.Context, string) (apitypes.JoinSession, error) {
+	return apitypes.JoinSession{}, c.err
+}
+
+func (c *UnavailableCore) FinalizeJoinSession(context.Context, string) (apitypes.JoinLibraryResult, error) {
+	return apitypes.JoinLibraryResult{}, c.err
+}
+
+func (c *UnavailableCore) CancelJoinSession(context.Context, string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) ListJoinRequests(context.Context, string) ([]apitypes.InviteJoinRequestRecord, error) {
+	return nil, c.err
+}
+
+func (c *UnavailableCore) ApproveJoinRequest(context.Context, string, string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) RejectJoinRequest(context.Context, string, string) error {
+	return c.err
+}
+
 func (c *UnavailableCore) InspectPlaybackRecording(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error) {
 	return apitypes.PlaybackPreparationStatus{}, c.err
 }

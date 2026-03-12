@@ -53,6 +53,16 @@ type hostBridge interface {
 	LikeRecording(ctx context.Context, recordingID string) error
 	UnlikeRecording(ctx context.Context, recordingID string) error
 	IsRecordingLiked(ctx context.Context, recordingID string) (bool, error)
+	CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error)
+	ListIssuedInvites(ctx context.Context, status string) ([]apitypes.IssuedInviteRecord, error)
+	RevokeIssuedInvite(ctx context.Context, inviteID, reason string) error
+	StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error)
+	GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error)
+	FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error)
+	CancelJoinSession(ctx context.Context, sessionID string) error
+	ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error)
+	ApproveJoinRequest(ctx context.Context, requestID, role string) error
+	RejectJoinRequest(ctx context.Context, requestID, reason string) error
 	GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error)
 	ListCacheEntries(ctx context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error)
 	CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error)

@@ -313,6 +313,112 @@ func TestCatalogFacadeForwardsToBridge(t *testing.T) {
 	}
 }
 
+func TestInviteFacadeForwardsToBridge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	invite := apitypes.InviteCodeResult{LibraryID: "lib-1", InviteCode: "code-1", Role: "member"}
+	session := apitypes.JoinSession{SessionID: "session-1", RequestID: "req-1", Status: "pending", LibraryID: "lib-1", Pending: true}
+	result := apitypes.JoinLibraryResult{LibraryID: "lib-1", DeviceID: "dev-join"}
+	request := apitypes.InviteJoinRequestRecord{RequestID: "req-1", LibraryID: "lib-1", Status: "pending"}
+	issued := apitypes.IssuedInviteRecord{InviteID: "invite-1", LibraryID: "lib-1", Status: "active"}
+	calls := make([]string, 0, 10)
+	host := &coreHost{
+		started: true,
+		bridge: &passthroughBridgeStub{
+			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+			createInviteCodeFn: func(_ context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
+				calls = append(calls, "create:"+req.Role)
+				return invite, nil
+			},
+			listIssuedInvitesFn: func(_ context.Context, status string) ([]apitypes.IssuedInviteRecord, error) {
+				calls = append(calls, "issued:"+status)
+				return []apitypes.IssuedInviteRecord{issued}, nil
+			},
+			revokeIssuedInviteFn: func(_ context.Context, inviteID, reason string) error {
+				calls = append(calls, "revoke:"+inviteID+":"+reason)
+				return nil
+			},
+			startJoinFromInviteFn: func(_ context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
+				calls = append(calls, "start:"+req.InviteCode)
+				return session, nil
+			},
+			getJoinSessionFn: func(_ context.Context, sessionID string) (apitypes.JoinSession, error) {
+				calls = append(calls, "get:"+sessionID)
+				return session, nil
+			},
+			finalizeJoinSessionFn: func(_ context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
+				calls = append(calls, "finalize:"+sessionID)
+				return result, nil
+			},
+			cancelJoinSessionFn: func(_ context.Context, sessionID string) error {
+				calls = append(calls, "cancel:"+sessionID)
+				return nil
+			},
+			listJoinRequestsFn: func(_ context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
+				calls = append(calls, "requests:"+status)
+				return []apitypes.InviteJoinRequestRecord{request}, nil
+			},
+			approveJoinRequestFn: func(_ context.Context, requestID, role string) error {
+				calls = append(calls, "approve:"+requestID+":"+role)
+				return nil
+			},
+			rejectJoinRequestFn: func(_ context.Context, requestID, reason string) error {
+				calls = append(calls, "reject:"+requestID+":"+reason)
+				return nil
+			},
+		},
+	}
+	facade := NewInviteFacade(host)
+
+	if _, err := facade.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: "member"}); err != nil {
+		t.Fatalf("create invite code: %v", err)
+	}
+	if got, err := facade.ListIssuedInvites(ctx, "active"); err != nil || len(got) != 1 || got[0].InviteID != issued.InviteID {
+		t.Fatalf("list issued invites = %+v, err=%v", got, err)
+	}
+	if err := facade.RevokeIssuedInvite(ctx, "invite-1", "manual"); err != nil {
+		t.Fatalf("revoke issued invite: %v", err)
+	}
+	if _, err := facade.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: "code-1"}); err != nil {
+		t.Fatalf("start join from invite: %v", err)
+	}
+	if _, err := facade.GetJoinSession(ctx, "session-1"); err != nil {
+		t.Fatalf("get join session: %v", err)
+	}
+	if _, err := facade.FinalizeJoinSession(ctx, "session-1"); err != nil {
+		t.Fatalf("finalize join session: %v", err)
+	}
+	if err := facade.CancelJoinSession(ctx, "session-1"); err != nil {
+		t.Fatalf("cancel join session: %v", err)
+	}
+	if got, err := facade.ListJoinRequests(ctx, "pending"); err != nil || len(got) != 1 || got[0].RequestID != request.RequestID {
+		t.Fatalf("list join requests = %+v, err=%v", got, err)
+	}
+	if err := facade.ApproveJoinRequest(ctx, "req-1", "guest"); err != nil {
+		t.Fatalf("approve join request: %v", err)
+	}
+	if err := facade.RejectJoinRequest(ctx, "req-1", "no"); err != nil {
+		t.Fatalf("reject join request: %v", err)
+	}
+
+	want := []string{
+		"create:member",
+		"issued:active",
+		"revoke:invite-1:manual",
+		"start:code-1",
+		"get:session-1",
+		"finalize:session-1",
+		"cancel:session-1",
+		"requests:pending",
+		"approve:req-1:guest",
+		"reject:req-1:no",
+	}
+	if strings.Join(calls, "|") != strings.Join(want, "|") {
+		t.Fatalf("invite facade calls = %v, want %v", calls, want)
+	}
+}
+
 func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 	t.Parallel()
 

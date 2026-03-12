@@ -32,6 +32,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(NewLibraryFacade(host)),
 			application.NewService(NewCatalogFacade(host)),
+			application.NewService(NewInviteFacade(host)),
 			application.NewService(NewPlaybackFacade(host)),
 			application.NewService(NewCacheFacade(host)),
 			application.NewService(playbackService),

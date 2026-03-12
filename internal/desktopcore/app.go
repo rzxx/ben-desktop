@@ -20,6 +20,7 @@ type App struct {
 	cache    *CacheService
 	playlist *PlaylistService
 	playback *PlaybackService
+	invite   *InviteService
 }
 
 func Open(ctx context.Context, cfg Config) (*App, error) {
@@ -56,6 +57,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	app.cache = &CacheService{app: app}
 	app.playlist = &PlaylistService{app: app}
 	app.playback = newPlaybackService(app)
+	app.invite = &InviteService{app: app}
 
 	if _, err := app.ensureCurrentDevice(ctx); err != nil {
 		return nil, fmt.Errorf("ensure current device: %w", err)
@@ -331,4 +333,44 @@ func (a *App) GetRecordingAvailabilityOverview(ctx context.Context, recordingID,
 
 func (a *App) GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
 	return a.playback.GetAlbumAvailabilityOverview(ctx, albumID, preferredProfile)
+}
+
+func (a *App) CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
+	return a.invite.CreateInviteCode(ctx, req)
+}
+
+func (a *App) ListIssuedInvites(ctx context.Context, status string) ([]apitypes.IssuedInviteRecord, error) {
+	return a.invite.ListIssuedInvites(ctx, status)
+}
+
+func (a *App) RevokeIssuedInvite(ctx context.Context, inviteID, reason string) error {
+	return a.invite.RevokeIssuedInvite(ctx, inviteID, reason)
+}
+
+func (a *App) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
+	return a.invite.StartJoinFromInvite(ctx, req)
+}
+
+func (a *App) GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error) {
+	return a.invite.GetJoinSession(ctx, sessionID)
+}
+
+func (a *App) FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
+	return a.invite.FinalizeJoinSession(ctx, sessionID)
+}
+
+func (a *App) CancelJoinSession(ctx context.Context, sessionID string) error {
+	return a.invite.CancelJoinSession(ctx, sessionID)
+}
+
+func (a *App) ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
+	return a.invite.ListJoinRequests(ctx, status)
+}
+
+func (a *App) ApproveJoinRequest(ctx context.Context, requestID, role string) error {
+	return a.invite.ApproveJoinRequest(ctx, requestID, role)
+}
+
+func (a *App) RejectJoinRequest(ctx context.Context, requestID, reason string) error {
+	return a.invite.RejectJoinRequest(ctx, requestID, reason)
 }

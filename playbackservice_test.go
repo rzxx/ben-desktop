@@ -53,6 +53,16 @@ type passthroughBridgeStub struct {
 	likeRecordingFn             func(context.Context, string) error
 	unlikeRecordingFn           func(context.Context, string) error
 	isRecordingLikedFn          func(context.Context, string) (bool, error)
+	createInviteCodeFn          func(context.Context, apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error)
+	listIssuedInvitesFn         func(context.Context, string) ([]apitypes.IssuedInviteRecord, error)
+	revokeIssuedInviteFn        func(context.Context, string, string) error
+	startJoinFromInviteFn       func(context.Context, apitypes.JoinFromInviteInput) (apitypes.JoinSession, error)
+	getJoinSessionFn            func(context.Context, string) (apitypes.JoinSession, error)
+	finalizeJoinSessionFn       func(context.Context, string) (apitypes.JoinLibraryResult, error)
+	cancelJoinSessionFn         func(context.Context, string) error
+	listJoinRequestsFn          func(context.Context, string) ([]apitypes.InviteJoinRequestRecord, error)
+	approveJoinRequestFn        func(context.Context, string, string) error
+	rejectJoinRequestFn         func(context.Context, string, string) error
 	getCacheOverviewFn          func(context.Context) (apitypes.CacheOverview, error)
 	listCacheEntriesFn          func(context.Context, apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error)
 	cleanupCacheFn              func(context.Context, apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error)
@@ -230,6 +240,46 @@ func (b *passthroughBridgeStub) UnlikeRecording(ctx context.Context, recordingID
 
 func (b *passthroughBridgeStub) IsRecordingLiked(ctx context.Context, recordingID string) (bool, error) {
 	return b.isRecordingLikedFn(ctx, recordingID)
+}
+
+func (b *passthroughBridgeStub) CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
+	return b.createInviteCodeFn(ctx, req)
+}
+
+func (b *passthroughBridgeStub) ListIssuedInvites(ctx context.Context, status string) ([]apitypes.IssuedInviteRecord, error) {
+	return b.listIssuedInvitesFn(ctx, status)
+}
+
+func (b *passthroughBridgeStub) RevokeIssuedInvite(ctx context.Context, inviteID, reason string) error {
+	return b.revokeIssuedInviteFn(ctx, inviteID, reason)
+}
+
+func (b *passthroughBridgeStub) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
+	return b.startJoinFromInviteFn(ctx, req)
+}
+
+func (b *passthroughBridgeStub) GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error) {
+	return b.getJoinSessionFn(ctx, sessionID)
+}
+
+func (b *passthroughBridgeStub) FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
+	return b.finalizeJoinSessionFn(ctx, sessionID)
+}
+
+func (b *passthroughBridgeStub) CancelJoinSession(ctx context.Context, sessionID string) error {
+	return b.cancelJoinSessionFn(ctx, sessionID)
+}
+
+func (b *passthroughBridgeStub) ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
+	return b.listJoinRequestsFn(ctx, status)
+}
+
+func (b *passthroughBridgeStub) ApproveJoinRequest(ctx context.Context, requestID, role string) error {
+	return b.approveJoinRequestFn(ctx, requestID, role)
+}
+
+func (b *passthroughBridgeStub) RejectJoinRequest(ctx context.Context, requestID, reason string) error {
+	return b.rejectJoinRequestFn(ctx, requestID, reason)
 }
 
 func (b *passthroughBridgeStub) GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error) {

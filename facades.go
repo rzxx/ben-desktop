@@ -203,6 +203,56 @@ func (s *CatalogFacade) IsRecordingLiked(ctx context.Context, recordingID string
 	return s.bridge().IsRecordingLiked(ctx, recordingID)
 }
 
+type InviteFacade struct {
+	facadeBase
+}
+
+func NewInviteFacade(host *coreHost) *InviteFacade {
+	return &InviteFacade{facadeBase: facadeBase{host: host}}
+}
+
+func (s *InviteFacade) ServiceName() string { return "InviteFacade" }
+
+func (s *InviteFacade) CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
+	return s.bridge().CreateInviteCode(ctx, req)
+}
+
+func (s *InviteFacade) ListIssuedInvites(ctx context.Context, status string) ([]apitypes.IssuedInviteRecord, error) {
+	return s.bridge().ListIssuedInvites(ctx, status)
+}
+
+func (s *InviteFacade) RevokeIssuedInvite(ctx context.Context, inviteID, reason string) error {
+	return s.bridge().RevokeIssuedInvite(ctx, inviteID, reason)
+}
+
+func (s *InviteFacade) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
+	return s.bridge().StartJoinFromInvite(ctx, req)
+}
+
+func (s *InviteFacade) GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error) {
+	return s.bridge().GetJoinSession(ctx, sessionID)
+}
+
+func (s *InviteFacade) FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
+	return s.bridge().FinalizeJoinSession(ctx, sessionID)
+}
+
+func (s *InviteFacade) CancelJoinSession(ctx context.Context, sessionID string) error {
+	return s.bridge().CancelJoinSession(ctx, sessionID)
+}
+
+func (s *InviteFacade) ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
+	return s.bridge().ListJoinRequests(ctx, status)
+}
+
+func (s *InviteFacade) ApproveJoinRequest(ctx context.Context, requestID, role string) error {
+	return s.bridge().ApproveJoinRequest(ctx, requestID, role)
+}
+
+func (s *InviteFacade) RejectJoinRequest(ctx context.Context, requestID, reason string) error {
+	return s.bridge().RejectJoinRequest(ctx, requestID, reason)
+}
+
 type CacheFacade struct {
 	facadeBase
 }
