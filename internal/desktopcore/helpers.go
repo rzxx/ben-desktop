@@ -15,18 +15,19 @@ import (
 )
 
 const (
-	artistSeparator          = "|||"
+	artistSeparator           = "|||"
 	localSettingCurrentDevice = "current_device_id"
-	playlistKindLiked        = "liked"
-	roleOwner                = "owner"
-	roleAdmin                = "admin"
-	roleMember               = "member"
-	roleGuest                = "guest"
-	maxPageLimit             = 1000
-	availabilityOnlineWindow = 2 * time.Minute
-	defaultLibraryName       = "ben library"
-	defaultArtworkVariant320 = "320_webp"
-	defaultArtworkVariant96  = "96_jpeg"
+	playlistKindNormal        = "normal"
+	playlistKindLiked         = "liked"
+	roleOwner                 = "owner"
+	roleAdmin                 = "admin"
+	roleMember                = "member"
+	roleGuest                 = "guest"
+	maxPageLimit              = 1000
+	availabilityOnlineWindow  = 2 * time.Minute
+	defaultLibraryName        = "ben library"
+	defaultArtworkVariant320  = "320_webp"
+	defaultArtworkVariant96   = "96_jpeg"
 )
 
 func splitArtists(raw string) []string {

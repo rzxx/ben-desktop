@@ -84,6 +84,42 @@ func (c *UnavailableCore) ListLikedRecordings(context.Context, apitypes.LikedRec
 	return apitypes.Page[apitypes.LikedRecordingItem]{}, c.err
 }
 
+func (c *UnavailableCore) CreatePlaylist(context.Context, string, string) (apitypes.PlaylistRecord, error) {
+	return apitypes.PlaylistRecord{}, c.err
+}
+
+func (c *UnavailableCore) RenamePlaylist(context.Context, string, string) (apitypes.PlaylistRecord, error) {
+	return apitypes.PlaylistRecord{}, c.err
+}
+
+func (c *UnavailableCore) DeletePlaylist(context.Context, string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) AddPlaylistItem(context.Context, apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error) {
+	return apitypes.PlaylistItemRecord{}, c.err
+}
+
+func (c *UnavailableCore) MovePlaylistItem(context.Context, apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error) {
+	return apitypes.PlaylistItemRecord{}, c.err
+}
+
+func (c *UnavailableCore) RemovePlaylistItem(context.Context, string, string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) LikeRecording(context.Context, string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) UnlikeRecording(context.Context, string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) IsRecordingLiked(context.Context, string) (bool, error) {
+	return false, c.err
+}
+
 func (c *UnavailableCore) InspectPlaybackRecording(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error) {
 	return apitypes.PlaybackPreparationStatus{}, c.err
 }

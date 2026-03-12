@@ -1,0 +1,681 @@
+package desktopcore
+
+import (
+	"context"
+	"fmt"
+	"math/big"
+	"strings"
+	"time"
+
+	apitypes "ben/core/api/types"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+const (
+	positionKeyWidth  = 30
+	positionKeyStride = int64(1_000_000_000_000)
+)
+
+type PlaylistService struct {
+	app *App
+}
+
+func (s *PlaylistService) CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaylistRecord{}, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return apitypes.PlaylistRecord{}, fmt.Errorf("playlist name is required")
+	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		kind = playlistKindNormal
+	}
+	if kind != playlistKindNormal {
+		return apitypes.PlaylistRecord{}, fmt.Errorf("playlist kind %q is not supported", kind)
+	}
+
+	now := time.Now().UTC()
+	row := Playlist{
+		LibraryID:  local.LibraryID,
+		PlaylistID: uuid.NewString(),
+		Name:       name,
+		Kind:       kind,
+		CreatedBy:  local.DeviceID,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := s.app.db.WithContext(ctx).Create(&row).Error; err != nil {
+		return apitypes.PlaylistRecord{}, err
+	}
+	return s.toPlaylistRecord(ctx, row)
+}
+
+func (s *PlaylistService) RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaylistRecord{}, err
+	}
+	playlistID = strings.TrimSpace(playlistID)
+	name = strings.TrimSpace(name)
+	if playlistID == "" {
+		return apitypes.PlaylistRecord{}, fmt.Errorf("playlist id is required")
+	}
+	if name == "" {
+		return apitypes.PlaylistRecord{}, fmt.Errorf("playlist name is required")
+	}
+
+	row, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.PlaylistRecord{}, err
+	}
+	if !ok {
+		return apitypes.PlaylistRecord{}, fmt.Errorf("playlist %q does not exist", playlistID)
+	}
+	if isReservedPlaylist(row) {
+		return apitypes.PlaylistRecord{}, fmt.Errorf("reserved playlists are not renameable")
+	}
+	row.Name = name
+	row.UpdatedAt = time.Now().UTC()
+	if err := s.app.db.WithContext(ctx).
+		Model(&Playlist{}).
+		Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
+		Updates(map[string]any{"name": row.Name, "updated_at": row.UpdatedAt}).Error; err != nil {
+		return apitypes.PlaylistRecord{}, err
+	}
+	return s.toPlaylistRecord(ctx, row)
+}
+
+func (s *PlaylistService) DeletePlaylist(ctx context.Context, playlistID string) error {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return err
+	}
+	playlistID = strings.TrimSpace(playlistID)
+	if playlistID == "" {
+		return fmt.Errorf("playlist id is required")
+	}
+	row, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("playlist %q does not exist", playlistID)
+	}
+	if isReservedPlaylist(row) {
+		return fmt.Errorf("reserved playlists are not deletable")
+	}
+	now := time.Now().UTC()
+	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Playlist{}).
+			Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
+			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		return tx.Where("library_id = ? AND scope_type = ? AND scope_id = ?", local.LibraryID, "playlist", playlistID).
+			Delete(&ArtworkVariant{}).Error
+	})
+}
+
+func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaylistItemRecord{}, err
+	}
+	playlistID := strings.TrimSpace(req.PlaylistID)
+	recordingID := strings.TrimSpace(req.RecordingID)
+	if playlistID == "" {
+		return apitypes.PlaylistItemRecord{}, fmt.Errorf("playlist id is required")
+	}
+	if recordingID == "" {
+		return apitypes.PlaylistItemRecord{}, fmt.Errorf("recording id is required")
+	}
+	playlist, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.PlaylistItemRecord{}, err
+	}
+	if !ok {
+		return apitypes.PlaylistItemRecord{}, fmt.Errorf("playlist %q does not exist", playlistID)
+	}
+	if exists, err := s.recordingExists(ctx, local.LibraryID, recordingID); err != nil {
+		return apitypes.PlaylistItemRecord{}, err
+	} else if !exists {
+		return apitypes.PlaylistItemRecord{}, fmt.Errorf("recording %q does not exist", recordingID)
+	}
+	if isReservedPlaylist(playlist) {
+		if err := s.LikeRecording(ctx, recordingID); err != nil {
+			return apitypes.PlaylistItemRecord{}, err
+		}
+		item, ok, err := s.playlistItemByTrackVariant(ctx, local.LibraryID, playlistID, recordingID)
+		if err != nil {
+			return apitypes.PlaylistItemRecord{}, err
+		}
+		if !ok {
+			return apitypes.PlaylistItemRecord{}, fmt.Errorf("liked recording %q was not materialized", recordingID)
+		}
+		return toPlaylistItemRecord(item), nil
+	}
+
+	var item PlaylistItem
+	now := time.Now().UTC()
+	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		positionKey, err := playlistItemPositionKeyTx(tx, local.LibraryID, playlistID, req.AfterItemID, req.BeforeItemID, "")
+		if err != nil {
+			return err
+		}
+		item = PlaylistItem{
+			LibraryID:      local.LibraryID,
+			PlaylistID:     playlistID,
+			ItemID:         uuid.NewString(),
+			TrackVariantID: recordingID,
+			AddedAt:        now,
+			UpdatedAt:      now,
+			PositionKey:    positionKey,
+		}
+		return tx.Create(&item).Error
+	})
+	if err != nil {
+		return apitypes.PlaylistItemRecord{}, err
+	}
+	return toPlaylistItemRecord(item), nil
+}
+
+func (s *PlaylistService) MovePlaylistItem(ctx context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaylistItemRecord{}, err
+	}
+	playlistID := strings.TrimSpace(req.PlaylistID)
+	itemID := strings.TrimSpace(req.ItemID)
+	if playlistID == "" || itemID == "" {
+		return apitypes.PlaylistItemRecord{}, fmt.Errorf("playlist id and item id are required")
+	}
+	playlist, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.PlaylistItemRecord{}, err
+	}
+	if !ok {
+		return apitypes.PlaylistItemRecord{}, fmt.Errorf("playlist %q does not exist", playlistID)
+	}
+	if isReservedPlaylist(playlist) {
+		return apitypes.PlaylistItemRecord{}, fmt.Errorf("reserved playlists are not reorderable")
+	}
+
+	var item PlaylistItem
+	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		current, ok, err := playlistItemByIDTx(tx, local.LibraryID, playlistID, itemID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("playlist item %q does not exist", itemID)
+		}
+		positionKey, err := playlistItemPositionKeyTx(tx, local.LibraryID, playlistID, req.AfterItemID, req.BeforeItemID, itemID)
+		if err != nil {
+			return err
+		}
+		current.PositionKey = positionKey
+		current.UpdatedAt = time.Now().UTC()
+		if err := tx.Model(&PlaylistItem{}).
+			Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, playlistID, itemID).
+			Updates(map[string]any{"position_key": current.PositionKey, "updated_at": current.UpdatedAt}).Error; err != nil {
+			return err
+		}
+		item = current
+		return nil
+	})
+	if err != nil {
+		return apitypes.PlaylistItemRecord{}, err
+	}
+	return toPlaylistItemRecord(item), nil
+}
+
+func (s *PlaylistService) RemovePlaylistItem(ctx context.Context, playlistID, itemID string) error {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return err
+	}
+	playlistID = strings.TrimSpace(playlistID)
+	itemID = strings.TrimSpace(itemID)
+	if playlistID == "" {
+		return fmt.Errorf("playlist id is required")
+	}
+	if itemID == "" {
+		return fmt.Errorf("item id is required")
+	}
+	playlist, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("playlist %q does not exist", playlistID)
+	}
+	item, ok, err := s.playlistItemByID(ctx, local.LibraryID, playlistID, itemID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("playlist item %q does not exist", itemID)
+	}
+	if isReservedPlaylist(playlist) {
+		return s.UnlikeRecording(ctx, item.TrackVariantID)
+	}
+	now := time.Now().UTC()
+	return s.app.db.WithContext(ctx).
+		Model(&PlaylistItem{}).
+		Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, playlistID, itemID).
+		Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error
+}
+
+func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string) error {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return err
+	}
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return fmt.Errorf("recording id is required")
+	}
+	if exists, err := s.recordingExists(ctx, local.LibraryID, recordingID); err != nil {
+		return err
+	} else if !exists {
+		return fmt.Errorf("recording %q does not exist", recordingID)
+	}
+
+	likedPlaylistID := likedPlaylistIDForLibrary(local.LibraryID)
+	active, err := s.isRecordingLikedInLibrary(ctx, local.LibraryID, recordingID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	item := PlaylistItem{
+		LibraryID:      local.LibraryID,
+		PlaylistID:     likedPlaylistID,
+		ItemID:         likedItemID(likedPlaylistID, recordingID),
+		TrackVariantID: recordingID,
+		AddedAt:        now,
+		UpdatedAt:      now,
+		PositionKey:    defaultPositionKey(),
+	}
+	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := ensureLikedPlaylistTx(tx, local.LibraryID, local.DeviceID, now); err != nil {
+			return err
+		}
+		return tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "library_id"},
+				{Name: "playlist_id"},
+				{Name: "item_id"},
+			},
+			DoUpdates: clause.Assignments(map[string]any{
+				"track_variant_id": item.TrackVariantID,
+				"added_at":         item.AddedAt,
+				"updated_at":       item.UpdatedAt,
+				"position_key":     item.PositionKey,
+				"deleted_at":       nil,
+			}),
+		}).Create(&item).Error
+	})
+}
+
+func (s *PlaylistService) UnlikeRecording(ctx context.Context, recordingID string) error {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return err
+	}
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return fmt.Errorf("recording id is required")
+	}
+	item, ok, err := s.playlistItemByTrackVariant(ctx, local.LibraryID, likedPlaylistIDForLibrary(local.LibraryID), recordingID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if err := s.ensureLikedPlaylist(ctx, local.LibraryID, local.DeviceID); err != nil {
+			return err
+		}
+		return nil
+	}
+	now := time.Now().UTC()
+	return s.app.db.WithContext(ctx).
+		Model(&PlaylistItem{}).
+		Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, item.PlaylistID, item.ItemID).
+		Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error
+}
+
+func (s *PlaylistService) IsRecordingLiked(ctx context.Context, recordingID string) (bool, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return false, err
+	}
+	return s.isRecordingLikedInLibrary(ctx, local.LibraryID, strings.TrimSpace(recordingID))
+}
+
+func (s *PlaylistService) toPlaylistRecord(ctx context.Context, row Playlist) (apitypes.PlaylistRecord, error) {
+	record := apitypes.PlaylistRecord{
+		LibraryID:  strings.TrimSpace(row.LibraryID),
+		PlaylistID: strings.TrimSpace(row.PlaylistID),
+		Name:       strings.TrimSpace(row.Name),
+		Kind:       apitypes.PlaylistKind(strings.TrimSpace(row.Kind)),
+		IsReserved: isReservedPlaylist(row),
+		CreatedBy:  strings.TrimSpace(row.CreatedBy),
+		CreatedAt:  row.CreatedAt,
+		UpdatedAt:  row.UpdatedAt,
+	}
+	if record.IsReserved {
+		return record, nil
+	}
+	thumb, ok, err := s.app.catalog.loadPlaylistArtworkRef(ctx, row.LibraryID, row.PlaylistID)
+	if err != nil {
+		return apitypes.PlaylistRecord{}, err
+	}
+	record.Thumb = thumb
+	record.HasCustomCover = ok
+	return record, nil
+}
+
+func (s *PlaylistService) playlistByID(ctx context.Context, libraryID, playlistID string) (Playlist, bool, error) {
+	var row Playlist
+	err := s.app.db.WithContext(ctx).
+		Where("library_id = ? AND playlist_id = ? AND deleted_at IS NULL", libraryID, playlistID).
+		Take(&row).Error
+	if err == gorm.ErrRecordNotFound {
+		return Playlist{}, false, nil
+	}
+	if err != nil {
+		return Playlist{}, false, err
+	}
+	return row, true, nil
+}
+
+func (s *PlaylistService) playlistItemByID(ctx context.Context, libraryID, playlistID, itemID string) (PlaylistItem, bool, error) {
+	return playlistItemByIDTx(s.app.db.WithContext(ctx), libraryID, playlistID, itemID)
+}
+
+func (s *PlaylistService) playlistItemByTrackVariant(ctx context.Context, libraryID, playlistID, recordingID string) (PlaylistItem, bool, error) {
+	var row PlaylistItem
+	err := s.app.db.WithContext(ctx).
+		Where("library_id = ? AND playlist_id = ? AND track_variant_id = ? AND deleted_at IS NULL", libraryID, playlistID, recordingID).
+		Order("updated_at DESC, added_at DESC, item_id DESC").
+		Take(&row).Error
+	if err == gorm.ErrRecordNotFound {
+		return PlaylistItem{}, false, nil
+	}
+	if err != nil {
+		return PlaylistItem{}, false, err
+	}
+	return row, true, nil
+}
+
+func (s *PlaylistService) recordingExists(ctx context.Context, libraryID, recordingID string) (bool, error) {
+	var count int64
+	if err := s.app.db.WithContext(ctx).
+		Model(&TrackVariantModel{}).
+		Where("library_id = ? AND track_variant_id = ?", libraryID, recordingID).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *PlaylistService) ensureLikedPlaylist(ctx context.Context, libraryID, deviceID string) error {
+	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return ensureLikedPlaylistTx(tx, libraryID, deviceID, time.Now().UTC())
+	})
+}
+
+func (s *PlaylistService) isRecordingLikedInLibrary(ctx context.Context, libraryID, recordingID string) (bool, error) {
+	var count int64
+	if err := s.app.db.WithContext(ctx).
+		Table("playlist_items AS pi").
+		Joins("JOIN track_variants tv ON tv.library_id = pi.library_id AND tv.track_variant_id = pi.track_variant_id").
+		Where("pi.library_id = ? AND pi.playlist_id = ? AND pi.track_variant_id = ? AND pi.deleted_at IS NULL",
+			libraryID, likedPlaylistIDForLibrary(libraryID), recordingID).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func toPlaylistItemRecord(row PlaylistItem) apitypes.PlaylistItemRecord {
+	return apitypes.PlaylistItemRecord{
+		LibraryID:   strings.TrimSpace(row.LibraryID),
+		PlaylistID:  strings.TrimSpace(row.PlaylistID),
+		ItemID:      strings.TrimSpace(row.ItemID),
+		RecordingID: strings.TrimSpace(row.TrackVariantID),
+		AddedAt:     row.AddedAt,
+		UpdatedAt:   row.UpdatedAt,
+	}
+}
+
+func ensureLikedPlaylistTx(tx *gorm.DB, libraryID, deviceID string, now time.Time) error {
+	libraryID = strings.TrimSpace(libraryID)
+	deviceID = strings.TrimSpace(deviceID)
+	if libraryID == "" {
+		return fmt.Errorf("library id is required")
+	}
+	if deviceID == "" {
+		return fmt.Errorf("device id is required")
+	}
+	row := Playlist{
+		LibraryID:  libraryID,
+		PlaylistID: likedPlaylistIDForLibrary(libraryID),
+		Name:       "Liked",
+		Kind:       playlistKindLiked,
+		CreatedBy:  deviceID,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "library_id"},
+			{Name: "playlist_id"},
+		},
+		DoUpdates: clause.Assignments(map[string]any{
+			"name":       row.Name,
+			"kind":       row.Kind,
+			"created_by": row.CreatedBy,
+			"deleted_at": nil,
+		}),
+	}).Create(&row).Error
+}
+
+func isReservedPlaylist(row Playlist) bool {
+	return strings.EqualFold(strings.TrimSpace(row.Kind), playlistKindLiked)
+}
+
+func likedItemID(playlistID, recordingID string) string {
+	return stableNameID("liked_item", strings.TrimSpace(playlistID)+":"+strings.TrimSpace(recordingID))
+}
+
+func playlistItemByIDTx(tx *gorm.DB, libraryID, playlistID, itemID string) (PlaylistItem, bool, error) {
+	var row PlaylistItem
+	err := tx.
+		Where("library_id = ? AND playlist_id = ? AND item_id = ? AND deleted_at IS NULL", libraryID, playlistID, itemID).
+		Take(&row).Error
+	if err == gorm.ErrRecordNotFound {
+		return PlaylistItem{}, false, nil
+	}
+	if err != nil {
+		return PlaylistItem{}, false, err
+	}
+	return row, true, nil
+}
+
+func playlistItemPositionKeyTx(tx *gorm.DB, libraryID, playlistID, afterItemID, beforeItemID, movingItemID string) (string, error) {
+	items, err := orderedPlaylistItemsTx(tx, libraryID, playlistID, movingItemID)
+	if err != nil {
+		return "", err
+	}
+	return playlistItemPositionKeyFromItemsTx(tx, libraryID, playlistID, items, afterItemID, beforeItemID, movingItemID, true)
+}
+
+func playlistItemPositionKeyFromItemsTx(tx *gorm.DB, libraryID, playlistID string, items []PlaylistItem, afterItemID, beforeItemID, movingItemID string, allowRebalance bool) (string, error) {
+	afterItemID = strings.TrimSpace(afterItemID)
+	beforeItemID = strings.TrimSpace(beforeItemID)
+	movingItemID = strings.TrimSpace(movingItemID)
+	if afterItemID != "" && beforeItemID != "" && afterItemID == beforeItemID {
+		return "", fmt.Errorf("after and before anchors must be different")
+	}
+	if movingItemID != "" && (afterItemID == movingItemID || beforeItemID == movingItemID) {
+		return "", fmt.Errorf("playlist item cannot be anchored relative to itself")
+	}
+
+	indexByID := make(map[string]int, len(items))
+	for i, item := range items {
+		indexByID[strings.TrimSpace(item.ItemID)] = i
+	}
+
+	prevIdx := -1
+	nextIdx := len(items)
+	if afterItemID != "" {
+		idx, ok := indexByID[afterItemID]
+		if !ok {
+			return "", fmt.Errorf("after item %q does not exist", afterItemID)
+		}
+		prevIdx = idx
+		nextIdx = idx + 1
+	}
+	if beforeItemID != "" {
+		idx, ok := indexByID[beforeItemID]
+		if !ok {
+			return "", fmt.Errorf("before item %q does not exist", beforeItemID)
+		}
+		nextIdx = idx
+		if afterItemID == "" {
+			prevIdx = idx - 1
+		}
+	}
+	if afterItemID != "" && beforeItemID != "" && prevIdx >= nextIdx {
+		return "", fmt.Errorf("after item must sort before before item")
+	}
+	if afterItemID == "" && beforeItemID == "" {
+		prevIdx = len(items) - 1
+		nextIdx = len(items)
+	}
+
+	prevKey := ""
+	nextKey := ""
+	if prevIdx >= 0 {
+		prevKey = items[prevIdx].PositionKey
+	}
+	if nextIdx >= 0 && nextIdx < len(items) {
+		nextKey = items[nextIdx].PositionKey
+	}
+	if key, ok := midpointPositionKey(prevKey, nextKey); ok {
+		return key, nil
+	}
+	if !allowRebalance {
+		return "", fmt.Errorf("unable to allocate playlist position")
+	}
+	if err := rebalancePlaylistPositionKeysTx(tx, libraryID, playlistID); err != nil {
+		return "", err
+	}
+	itemsAfter, err := orderedPlaylistItemsTx(tx, libraryID, playlistID, movingItemID)
+	if err != nil {
+		return "", err
+	}
+	return playlistItemPositionKeyFromItemsTx(tx, libraryID, playlistID, itemsAfter, afterItemID, beforeItemID, movingItemID, false)
+}
+
+func orderedPlaylistItemsTx(tx *gorm.DB, libraryID, playlistID, excludeItemID string) ([]PlaylistItem, error) {
+	var items []PlaylistItem
+	query := tx.Where("library_id = ? AND playlist_id = ? AND deleted_at IS NULL", libraryID, playlistID)
+	if excludeItemID = strings.TrimSpace(excludeItemID); excludeItemID != "" {
+		query = query.Where("item_id <> ?", excludeItemID)
+	}
+	if err := query.Order("position_key ASC, item_id ASC").Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func rebalancePlaylistPositionKeysTx(tx *gorm.DB, libraryID, playlistID string) error {
+	items, err := orderedPlaylistItemsTx(tx, libraryID, playlistID, "")
+	if err != nil {
+		return err
+	}
+	for i, item := range items {
+		key := positionKeyForIndex(i + 1)
+		if err := tx.Model(&PlaylistItem{}).
+			Where("library_id = ? AND playlist_id = ? AND item_id = ?", libraryID, playlistID, item.ItemID).
+			Update("position_key", key).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func defaultPositionKey() string {
+	return positionKeyForIndex(1)
+}
+
+func positionKeyForIndex(index int) string {
+	if index < 1 {
+		index = 1
+	}
+	value := big.NewInt(int64(index))
+	value.Mul(value, big.NewInt(positionKeyStride))
+	return formatPositionKey(value)
+}
+
+func midpointPositionKey(prevKey, nextKey string) (string, bool) {
+	prev, ok := parsePositionKey(prevKey)
+	if !ok {
+		prev = big.NewInt(0)
+	}
+	next := maxPositionKeyValue()
+	if strings.TrimSpace(nextKey) != "" {
+		parsed, ok := parsePositionKey(nextKey)
+		if !ok {
+			return "", false
+		}
+		next = parsed
+	}
+	if next.Cmp(prev) <= 0 {
+		return "", false
+	}
+	diff := new(big.Int).Sub(next, prev)
+	if diff.Cmp(big.NewInt(1)) <= 0 {
+		return "", false
+	}
+	half := new(big.Int).Div(diff, big.NewInt(2))
+	mid := new(big.Int).Add(prev, half)
+	if mid.Cmp(prev) <= 0 || mid.Cmp(next) >= 0 {
+		return "", false
+	}
+	return formatPositionKey(mid), true
+}
+
+func parsePositionKey(v string) (*big.Int, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil, false
+	}
+	n, ok := new(big.Int).SetString(v, 10)
+	return n, ok
+}
+
+func formatPositionKey(v *big.Int) string {
+	s := strings.TrimSpace(v.String())
+	if len(s) >= positionKeyWidth {
+		return s
+	}
+	return strings.Repeat("0", positionKeyWidth-len(s)) + s
+}
+
+func maxPositionKeyValue() *big.Int {
+	max := new(big.Int)
+	max.Exp(big.NewInt(10), big.NewInt(positionKeyWidth), nil)
+	max.Sub(max, big.NewInt(1))
+	return max
+}

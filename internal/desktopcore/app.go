@@ -16,6 +16,7 @@ type App struct {
 	jobs     *JobsService
 	library  *LibraryService
 	catalog  *CatalogService
+	playlist *PlaylistService
 	playback *PlaybackService
 }
 
@@ -49,6 +50,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	}
 	app.library = &LibraryService{app: app}
 	app.catalog = &CatalogService{app: app}
+	app.playlist = &PlaylistService{app: app}
 	app.playback = newPlaybackService(app)
 
 	if _, err := app.ensureCurrentDevice(ctx); err != nil {
@@ -189,6 +191,42 @@ func (a *App) ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrack
 
 func (a *App) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
 	return a.catalog.ListLikedRecordings(ctx, req)
+}
+
+func (a *App) CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
+	return a.playlist.CreatePlaylist(ctx, name, kind)
+}
+
+func (a *App) RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error) {
+	return a.playlist.RenamePlaylist(ctx, playlistID, name)
+}
+
+func (a *App) DeletePlaylist(ctx context.Context, playlistID string) error {
+	return a.playlist.DeletePlaylist(ctx, playlistID)
+}
+
+func (a *App) AddPlaylistItem(ctx context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error) {
+	return a.playlist.AddPlaylistItem(ctx, req)
+}
+
+func (a *App) MovePlaylistItem(ctx context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error) {
+	return a.playlist.MovePlaylistItem(ctx, req)
+}
+
+func (a *App) RemovePlaylistItem(ctx context.Context, playlistID, itemID string) error {
+	return a.playlist.RemovePlaylistItem(ctx, playlistID, itemID)
+}
+
+func (a *App) LikeRecording(ctx context.Context, recordingID string) error {
+	return a.playlist.LikeRecording(ctx, recordingID)
+}
+
+func (a *App) UnlikeRecording(ctx context.Context, recordingID string) error {
+	return a.playlist.UnlikeRecording(ctx, recordingID)
+}
+
+func (a *App) IsRecordingLiked(ctx context.Context, recordingID string) (bool, error) {
+	return a.playlist.IsRecordingLiked(ctx, recordingID)
 }
 
 func (a *App) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
