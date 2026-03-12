@@ -40,6 +40,10 @@ type passthroughBridgeStub struct {
 	listLibraryMembersFn        func(context.Context) ([]apitypes.LibraryMemberStatus, error)
 	updateLibraryMemberRoleFn   func(context.Context, string, string) error
 	removeLibraryMemberFn       func(context.Context, string) error
+	setScanRootsFn              func(context.Context, []string) error
+	addScanRootsFn              func(context.Context, []string) ([]string, error)
+	removeScanRootsFn           func(context.Context, []string) ([]string, error)
+	scanRootsFn                 func(context.Context) ([]string, error)
 	listRecordingVariantsFn     func(context.Context, apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error)
 	setPreferredRecordingFn     func(context.Context, string, string) error
 	setPreferredAlbumFn         func(context.Context, string, string) error
@@ -111,6 +115,22 @@ func (b *passthroughBridgeStub) UpdateLibraryMemberRole(ctx context.Context, dev
 
 func (b *passthroughBridgeStub) RemoveLibraryMember(ctx context.Context, deviceID string) error {
 	return b.removeLibraryMemberFn(ctx, deviceID)
+}
+
+func (b *passthroughBridgeStub) SetScanRoots(ctx context.Context, roots []string) error {
+	return b.setScanRootsFn(ctx, roots)
+}
+
+func (b *passthroughBridgeStub) AddScanRoots(ctx context.Context, roots []string) ([]string, error) {
+	return b.addScanRootsFn(ctx, roots)
+}
+
+func (b *passthroughBridgeStub) RemoveScanRoots(ctx context.Context, roots []string) ([]string, error) {
+	return b.removeScanRootsFn(ctx, roots)
+}
+
+func (b *passthroughBridgeStub) ScanRoots(ctx context.Context) ([]string, error) {
+	return b.scanRootsFn(ctx)
 }
 
 func (b *passthroughBridgeStub) ListRecordingVariants(ctx context.Context, req apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error) {
@@ -507,6 +527,64 @@ func TestPlaybackServiceLibraryMethodsForwardToBridge(t *testing.T) {
 	for i := range want {
 		if calls[i] != want[i] {
 			t.Fatalf("library call %d = %q, want %q", i, calls[i], want[i])
+		}
+	}
+}
+
+func TestPlaybackServiceScanRootMethodsForwardToBridge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	calls := make([]string, 0, 4)
+	wantRoots := []string{`C:\music\a`, `C:\music\b`}
+
+	service := &PlaybackService{
+		bridge: &passthroughBridgeStub{
+			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+			setScanRootsFn: func(_ context.Context, roots []string) error {
+				calls = append(calls, "set:"+strings.Join(roots, ","))
+				return nil
+			},
+			addScanRootsFn: func(_ context.Context, roots []string) ([]string, error) {
+				calls = append(calls, "add:"+strings.Join(roots, ","))
+				return append([]string(nil), wantRoots...), nil
+			},
+			removeScanRootsFn: func(_ context.Context, roots []string) ([]string, error) {
+				calls = append(calls, "remove:"+strings.Join(roots, ","))
+				return []string{wantRoots[0]}, nil
+			},
+			scanRootsFn: func(context.Context) ([]string, error) {
+				calls = append(calls, "list")
+				return append([]string(nil), wantRoots...), nil
+			},
+		},
+	}
+
+	if err := service.SetScanRoots(ctx, []string{wantRoots[0]}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	if roots, err := service.AddScanRoots(ctx, []string{wantRoots[1]}); err != nil || len(roots) != 2 {
+		t.Fatalf("add scan roots = %v, err=%v", roots, err)
+	}
+	if roots, err := service.RemoveScanRoots(ctx, []string{wantRoots[1]}); err != nil || len(roots) != 1 || roots[0] != wantRoots[0] {
+		t.Fatalf("remove scan roots = %v, err=%v", roots, err)
+	}
+	if roots, err := service.ScanRoots(ctx); err != nil || len(roots) != 2 {
+		t.Fatalf("scan roots = %v, err=%v", roots, err)
+	}
+
+	want := []string{
+		"set:" + wantRoots[0],
+		"add:" + wantRoots[1],
+		"remove:" + wantRoots[1],
+		"list",
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("scan root call count = %d, want %d (%v)", len(calls), len(want), calls)
+	}
+	for i := range want {
+		if calls[i] != want[i] {
+			t.Fatalf("scan root call %d = %q, want %q", i, calls[i], want[i])
 		}
 	}
 }

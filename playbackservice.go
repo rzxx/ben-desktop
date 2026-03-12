@@ -32,6 +32,10 @@ type hostBridge interface {
 	ListLibraryMembers(ctx context.Context) ([]apitypes.LibraryMemberStatus, error)
 	UpdateLibraryMemberRole(ctx context.Context, deviceID, role string) error
 	RemoveLibraryMember(ctx context.Context, deviceID string) error
+	SetScanRoots(ctx context.Context, roots []string) error
+	AddScanRoots(ctx context.Context, roots []string) ([]string, error)
+	RemoveScanRoots(ctx context.Context, roots []string) ([]string, error)
+	ScanRoots(ctx context.Context) ([]string, error)
 	ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error)
 	GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error)
 	ListArtistAlbums(ctx context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
@@ -269,6 +273,22 @@ func (s *PlaybackService) UpdateLibraryMemberRole(ctx context.Context, deviceID,
 
 func (s *PlaybackService) RemoveLibraryMember(ctx context.Context, deviceID string) error {
 	return s.requireBridge().RemoveLibraryMember(ctx, deviceID)
+}
+
+func (s *PlaybackService) SetScanRoots(ctx context.Context, roots []string) error {
+	return s.requireBridge().SetScanRoots(ctx, roots)
+}
+
+func (s *PlaybackService) AddScanRoots(ctx context.Context, roots []string) ([]string, error) {
+	return s.requireBridge().AddScanRoots(ctx, roots)
+}
+
+func (s *PlaybackService) RemoveScanRoots(ctx context.Context, roots []string) ([]string, error) {
+	return s.requireBridge().RemoveScanRoots(ctx, roots)
+}
+
+func (s *PlaybackService) ScanRoots(ctx context.Context) ([]string, error) {
+	return s.requireBridge().ScanRoots(ctx)
 }
 
 func (s *PlaybackService) GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error) {

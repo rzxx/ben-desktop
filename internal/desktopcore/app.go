@@ -15,6 +15,7 @@ type App struct {
 
 	jobs     *JobsService
 	library  *LibraryService
+	ingest   *IngestService
 	catalog  *CatalogService
 	cache    *CacheService
 	playlist *PlaylistService
@@ -50,6 +51,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 		jobs: NewJobsService(),
 	}
 	app.library = &LibraryService{app: app}
+	app.ingest = &IngestService{app: app}
 	app.catalog = &CatalogService{app: app}
 	app.cache = &CacheService{app: app}
 	app.playlist = &PlaylistService{app: app}
@@ -129,6 +131,22 @@ func (a *App) UpdateLibraryMemberRole(ctx context.Context, deviceID, role string
 
 func (a *App) RemoveLibraryMember(ctx context.Context, deviceID string) error {
 	return a.library.RemoveLibraryMember(ctx, deviceID)
+}
+
+func (a *App) SetScanRoots(ctx context.Context, roots []string) error {
+	return a.ingest.SetScanRoots(ctx, roots)
+}
+
+func (a *App) AddScanRoots(ctx context.Context, roots []string) ([]string, error) {
+	return a.ingest.AddScanRoots(ctx, roots)
+}
+
+func (a *App) RemoveScanRoots(ctx context.Context, roots []string) ([]string, error) {
+	return a.ingest.RemoveScanRoots(ctx, roots)
+}
+
+func (a *App) ScanRoots(ctx context.Context) ([]string, error) {
+	return a.ingest.ScanRoots(ctx)
 }
 
 func (a *App) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {

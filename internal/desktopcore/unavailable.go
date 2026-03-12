@@ -243,3 +243,19 @@ func (c *UnavailableCore) UpdateLibraryMemberRole(context.Context, string, strin
 func (c *UnavailableCore) RemoveLibraryMember(context.Context, string) error {
 	return c.err
 }
+
+func (c *UnavailableCore) SetScanRoots(context.Context, []string) error {
+	return c.err
+}
+
+func (c *UnavailableCore) AddScanRoots(context.Context, []string) ([]string, error) {
+	return nil, c.err
+}
+
+func (c *UnavailableCore) RemoveScanRoots(context.Context, []string) ([]string, error) {
+	return nil, c.err
+}
+
+func (c *UnavailableCore) ScanRoots(context.Context) ([]string, error) {
+	return nil, c.err
+}
