@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 
-	apitypes "ben/core/api/types"
 	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/platform"
 	"ben/desktop/internal/playback"
@@ -25,11 +24,10 @@ type PlaybackService struct {
 
 	app      *application.App
 	host     *coreHost
-	bridge   hostBridge
+	bridge   playback.CorePlaybackBridge
 	session  *playback.Session
 	platform playback.PlatformController
 	store    interface{ Close() error }
-	blobRoot string
 }
 
 func NewPlaybackService() *PlaybackService {
@@ -95,7 +93,6 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 	s.session = session
 	s.platform = controller
 	s.store = store
-	s.blobRoot = host.BlobRoot()
 	s.mu.Unlock()
 
 	s.handlePlaybackSnapshot(session.Snapshot())
@@ -155,254 +152,6 @@ func (s *PlaybackService) GetPlaybackSnapshot() (playback.SessionSnapshot, error
 
 func (s *PlaybackService) SubscribePlaybackEvents() string {
 	return playback.EventSnapshotChanged
-}
-
-func (s *PlaybackService) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
-	return s.requireBridge().ListArtists(ctx, req)
-}
-
-func (s *PlaybackService) ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error) {
-	return s.requireBridge().ListLibraries(ctx)
-}
-
-func (s *PlaybackService) ActiveLibrary(ctx context.Context) (apitypes.LibrarySummary, bool, error) {
-	return s.requireBridge().ActiveLibrary(ctx)
-}
-
-func (s *PlaybackService) CreateLibrary(ctx context.Context, name string) (apitypes.LibrarySummary, error) {
-	return s.requireBridge().CreateLibrary(ctx, name)
-}
-
-func (s *PlaybackService) SelectLibrary(ctx context.Context, libraryID string) (apitypes.LibrarySummary, error) {
-	return s.requireBridge().SelectLibrary(ctx, libraryID)
-}
-
-func (s *PlaybackService) RenameLibrary(ctx context.Context, libraryID, name string) (apitypes.LibrarySummary, error) {
-	return s.requireBridge().RenameLibrary(ctx, libraryID, name)
-}
-
-func (s *PlaybackService) LeaveLibrary(ctx context.Context, libraryID string) error {
-	return s.requireBridge().LeaveLibrary(ctx, libraryID)
-}
-
-func (s *PlaybackService) DeleteLibrary(ctx context.Context, libraryID string) error {
-	return s.requireBridge().DeleteLibrary(ctx, libraryID)
-}
-
-func (s *PlaybackService) ListLibraryMembers(ctx context.Context) ([]apitypes.LibraryMemberStatus, error) {
-	return s.requireBridge().ListLibraryMembers(ctx)
-}
-
-func (s *PlaybackService) UpdateLibraryMemberRole(ctx context.Context, deviceID, role string) error {
-	return s.requireBridge().UpdateLibraryMemberRole(ctx, deviceID, role)
-}
-
-func (s *PlaybackService) RemoveLibraryMember(ctx context.Context, deviceID string) error {
-	return s.requireBridge().RemoveLibraryMember(ctx, deviceID)
-}
-
-func (s *PlaybackService) SetScanRoots(ctx context.Context, roots []string) error {
-	return s.requireBridge().SetScanRoots(ctx, roots)
-}
-
-func (s *PlaybackService) AddScanRoots(ctx context.Context, roots []string) ([]string, error) {
-	return s.requireBridge().AddScanRoots(ctx, roots)
-}
-
-func (s *PlaybackService) RemoveScanRoots(ctx context.Context, roots []string) ([]string, error) {
-	return s.requireBridge().RemoveScanRoots(ctx, roots)
-}
-
-func (s *PlaybackService) ScanRoots(ctx context.Context) ([]string, error) {
-	return s.requireBridge().ScanRoots(ctx)
-}
-
-func (s *PlaybackService) GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error) {
-	return s.requireBridge().GetArtist(ctx, artistID)
-}
-
-func (s *PlaybackService) ListArtistAlbums(ctx context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
-	return s.requireBridge().ListArtistAlbums(ctx, req)
-}
-
-func (s *PlaybackService) ListAlbums(ctx context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
-	return s.requireBridge().ListAlbums(ctx, req)
-}
-
-func (s *PlaybackService) GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error) {
-	return s.requireBridge().GetAlbum(ctx, albumID)
-}
-
-func (s *PlaybackService) ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
-	return s.requireBridge().ListRecordings(ctx, req)
-}
-
-func (s *PlaybackService) GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error) {
-	return s.requireBridge().GetRecording(ctx, recordingID)
-}
-
-func (s *PlaybackService) ListRecordingVariants(ctx context.Context, req apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error) {
-	return s.requireBridge().ListRecordingVariants(ctx, req)
-}
-
-func (s *PlaybackService) ListAlbumVariants(ctx context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error) {
-	return s.requireBridge().ListAlbumVariants(ctx, req)
-}
-
-func (s *PlaybackService) SetPreferredRecordingVariant(ctx context.Context, recordingID, variantRecordingID string) error {
-	return s.requireBridge().SetPreferredRecordingVariant(ctx, recordingID, variantRecordingID)
-}
-
-func (s *PlaybackService) SetPreferredAlbumVariant(ctx context.Context, albumID, variantAlbumID string) error {
-	return s.requireBridge().SetPreferredAlbumVariant(ctx, albumID, variantAlbumID)
-}
-
-func (s *PlaybackService) ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
-	return s.requireBridge().ListAlbumTracks(ctx, req)
-}
-
-func (s *PlaybackService) ListPlaylists(ctx context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error) {
-	return s.requireBridge().ListPlaylists(ctx, req)
-}
-
-func (s *PlaybackService) GetPlaylistSummary(ctx context.Context, playlistID string) (apitypes.PlaylistListItem, error) {
-	return s.requireBridge().GetPlaylistSummary(ctx, playlistID)
-}
-
-func (s *PlaybackService) ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {
-	return s.requireBridge().ListPlaylistTracks(ctx, req)
-}
-
-func (s *PlaybackService) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
-	return s.requireBridge().ListLikedRecordings(ctx, req)
-}
-
-func (s *PlaybackService) CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
-	return s.requireBridge().CreatePlaylist(ctx, name, kind)
-}
-
-func (s *PlaybackService) RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error) {
-	return s.requireBridge().RenamePlaylist(ctx, playlistID, name)
-}
-
-func (s *PlaybackService) DeletePlaylist(ctx context.Context, playlistID string) error {
-	return s.requireBridge().DeletePlaylist(ctx, playlistID)
-}
-
-func (s *PlaybackService) AddPlaylistItem(ctx context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error) {
-	return s.requireBridge().AddPlaylistItem(ctx, req)
-}
-
-func (s *PlaybackService) MovePlaylistItem(ctx context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error) {
-	return s.requireBridge().MovePlaylistItem(ctx, req)
-}
-
-func (s *PlaybackService) RemovePlaylistItem(ctx context.Context, playlistID, itemID string) error {
-	return s.requireBridge().RemovePlaylistItem(ctx, playlistID, itemID)
-}
-
-func (s *PlaybackService) LikeRecording(ctx context.Context, recordingID string) error {
-	return s.requireBridge().LikeRecording(ctx, recordingID)
-}
-
-func (s *PlaybackService) UnlikeRecording(ctx context.Context, recordingID string) error {
-	return s.requireBridge().UnlikeRecording(ctx, recordingID)
-}
-
-func (s *PlaybackService) IsRecordingLiked(ctx context.Context, recordingID string) (bool, error) {
-	return s.requireBridge().IsRecordingLiked(ctx, recordingID)
-}
-
-func (s *PlaybackService) GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error) {
-	return s.requireBridge().GetCacheOverview(ctx)
-}
-
-func (s *PlaybackService) ListCacheEntries(ctx context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {
-	return s.requireBridge().ListCacheEntries(ctx, req)
-}
-
-func (s *PlaybackService) CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
-	return s.requireBridge().CleanupCache(ctx, req)
-}
-
-func (s *PlaybackService) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
-	return s.requireBridge().PinRecordingOffline(ctx, recordingID, preferredProfile)
-}
-
-func (s *PlaybackService) UnpinRecordingOffline(ctx context.Context, recordingID string) error {
-	return s.requireBridge().UnpinRecordingOffline(ctx, recordingID)
-}
-
-func (s *PlaybackService) PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return s.requireBridge().PinAlbumOffline(ctx, albumID, preferredProfile)
-}
-
-func (s *PlaybackService) UnpinAlbumOffline(ctx context.Context, albumID string) error {
-	return s.requireBridge().UnpinAlbumOffline(ctx, albumID)
-}
-
-func (s *PlaybackService) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return s.requireBridge().PinPlaylistOffline(ctx, playlistID, preferredProfile)
-}
-
-func (s *PlaybackService) UnpinPlaylistOffline(ctx context.Context, playlistID string) error {
-	return s.requireBridge().UnpinPlaylistOffline(ctx, playlistID)
-}
-
-func (s *PlaybackService) PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return s.requireBridge().PinLikedOffline(ctx, preferredProfile)
-}
-
-func (s *PlaybackService) UnpinLikedOffline(ctx context.Context) error {
-	return s.requireBridge().UnpinLikedOffline(ctx)
-}
-
-func (s *PlaybackService) ResolveBlobURL(blobID string) (string, error) {
-	s.mu.RLock()
-	blobRoot := s.blobRoot
-	host := s.host
-	s.mu.RUnlock()
-	if blobRoot == "" && host != nil {
-		blobRoot = host.BlobRoot()
-	}
-
-	path, ok, err := blobPathForID(blobRoot, blobID)
-	if err != nil || !ok {
-		return "", err
-	}
-	return fileURLFromPath(path)
-}
-
-func (s *PlaybackService) ResolveThumbnailURL(artwork apitypes.ArtworkRef) (string, error) {
-	artwork.BlobID = strings.TrimSpace(artwork.BlobID)
-	if artwork.BlobID == "" {
-		return "", nil
-	}
-	resolved, err := s.requireBridge().ResolveArtworkRef(context.Background(), artwork)
-	if err != nil {
-		return "", err
-	}
-	if !resolved.Available || strings.TrimSpace(resolved.LocalPath) == "" {
-		return "", nil
-	}
-	fileExt := normalizeArtworkFileExt(strings.TrimSpace(resolved.Artwork.FileExt), strings.TrimSpace(resolved.Artwork.MIME))
-	if fileExt == "" {
-		return "", fmt.Errorf("thumbnail file extension is required")
-	}
-	aliasPath, err := ensureTypedBlobAlias(resolved.LocalPath, fileExt)
-	if err != nil {
-		return "", err
-	}
-	return fileURLFromPath(aliasPath)
-}
-
-func (s *PlaybackService) ResolveRecordingArtworkURL(ctx context.Context, recordingID string, variant string) (string, error) {
-	bridge := s.requireBridge()
-	result, err := bridge.ResolveRecordingArtwork(ctx, recordingID, variant)
-	if err != nil {
-		return "", err
-	}
-	return s.ResolveThumbnailURL(result.Artwork)
 }
 
 func (s *PlaybackService) SetPlaybackContext(input playback.PlaybackContextInput) (playback.SessionSnapshot, error) {
@@ -641,38 +390,6 @@ func (s *PlaybackService) PlayLikedTrack(ctx context.Context, recordingID string
 	return s.replaceContextAndPlay(ctx, contextInput)
 }
 
-func (s *PlaybackService) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
-	return s.requireBridge().InspectPlaybackRecording(ctx, recordingID, preferredProfile)
-}
-
-func (s *PlaybackService) PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
-	return s.requireBridge().PreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
-}
-
-func (s *PlaybackService) GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
-	return s.requireBridge().GetPlaybackPreparation(ctx, recordingID, preferredProfile)
-}
-
-func (s *PlaybackService) ResolvePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error) {
-	return s.requireBridge().ResolvePlaybackRecording(ctx, recordingID, preferredProfile)
-}
-
-func (s *PlaybackService) ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {
-	return s.requireBridge().ListRecordingAvailability(ctx, recordingID, preferredProfile)
-}
-
-func (s *PlaybackService) GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {
-	return s.requireBridge().GetRecordingAvailabilityOverview(ctx, recordingID, preferredProfile)
-}
-
-func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
-	return s.requireBridge().GetRecordingAvailability(ctx, recordingID, preferredProfile)
-}
-
-func (s *PlaybackService) GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
-	return s.requireBridge().GetAlbumAvailabilityOverview(ctx, albumID, preferredProfile)
-}
-
 func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapshot) {
 	s.mu.RLock()
 	app := s.app
@@ -699,10 +416,10 @@ func (s *PlaybackService) replaceContextAndPlay(ctx context.Context, input playb
 }
 
 func (s *PlaybackService) requireLoader() *playback.CatalogLoader {
-	return playback.NewCatalogLoader(s.requireBridge())
+	return playback.NewCatalogLoader(s.requirePlaybackBridge())
 }
 
-func (s *PlaybackService) requireBridge() hostBridge {
+func (s *PlaybackService) requirePlaybackBridge() playback.CorePlaybackBridge {
 	s.mu.RLock()
 	bridge := s.bridge
 	host := s.host
@@ -711,7 +428,7 @@ func (s *PlaybackService) requireBridge() hostBridge {
 		if host != nil {
 			return host.Bridge()
 		}
-		return newCoreHost().Bridge()
+		return desktopcore.NewUnavailableCore(fmt.Errorf("core playback bridge is not available"))
 	}
 	return bridge
 }
