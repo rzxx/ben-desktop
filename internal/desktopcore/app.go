@@ -331,6 +331,10 @@ func (a *App) PreparePlaybackRecording(ctx context.Context, recordingID, preferr
 	return a.playback.PreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
 }
 
+func (a *App) StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (JobSnapshot, error) {
+	return a.playback.StartPreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
+}
+
 func (a *App) GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 	return a.playback.GetPlaybackPreparation(ctx, recordingID, preferredProfile)
 }

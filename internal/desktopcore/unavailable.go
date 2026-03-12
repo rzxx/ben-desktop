@@ -244,6 +244,10 @@ func (c *UnavailableCore) PreparePlaybackRecording(context.Context, string, stri
 	return apitypes.PlaybackPreparationStatus{}, c.err
 }
 
+func (c *UnavailableCore) StartPreparePlaybackRecording(context.Context, string, string, apitypes.PlaybackPreparationPurpose) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
 func (c *UnavailableCore) GetPlaybackPreparation(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error) {
 	return apitypes.PlaybackPreparationStatus{}, c.err
 }

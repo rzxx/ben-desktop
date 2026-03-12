@@ -441,6 +441,10 @@ func (s *PlaybackFacade) PreparePlaybackRecording(ctx context.Context, recording
 	return s.bridge().PreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
 }
 
+func (s *PlaybackFacade) StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error) {
+	return s.bridge().StartPreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
+}
+
 func (s *PlaybackFacade) GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 	return s.bridge().GetPlaybackPreparation(ctx, recordingID, preferredProfile)
 }

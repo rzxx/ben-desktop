@@ -20,6 +20,7 @@ export type LibrarySummary = Types.LibrarySummary;
 export type LikedRecordingItem = Types.LikedRecordingItem;
 export type LocalContext = Types.LocalContext;
 export type PageInfo = Types.PageInfo;
+export type PlaybackPreparationStatus = Types.PlaybackPreparationStatus;
 export type PlaylistListItem = Types.PlaylistListItem;
 export type PlaylistTrackItem = Types.PlaylistTrackItem;
 export type RecordingListItem = Types.RecordingListItem;
@@ -191,6 +192,18 @@ export function startCompactCheckpoint(force = false) {
 
 export function startSyncNow() {
   return NetworkFacade.StartSyncNow();
+}
+
+export function startPreparePlaybackRecording(
+  recordingId: string,
+  preferredProfile = "",
+  purpose = Types.PlaybackPreparationPurpose.PlayNow,
+) {
+  return PlaybackFacade.StartPreparePlaybackRecording(
+    recordingId,
+    preferredProfile,
+    purpose,
+  );
 }
 
 export function listJobs(libraryId = "") {

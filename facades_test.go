@@ -631,6 +631,7 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 	availability := apitypes.RecordingPlaybackAvailability{RecordingID: "rec-1", PreferredProfile: "default"}
 	recordingOverview := apitypes.RecordingAvailabilityOverview{RecordingID: "rec-1", PreferredProfile: "default"}
 	albumOverview := apitypes.AlbumAvailabilityOverview{AlbumID: "album-1", PreferredProfile: "default"}
+	job := desktopcore.JobSnapshot{JobID: "job-prepare", Kind: "prepare-playback", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
 	blobRoot := t.TempDir()
 	hashHex := strings.Repeat("b", 64)
 	blobPath := filepath.Join(blobRoot, "b3", hashHex[:2], hashHex[2:4], hashHex)
@@ -658,6 +659,9 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 			},
 			preparePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
 				return status, nil
+			},
+			startPreparePlaybackFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error) {
+				return job, nil
 			},
 			getPlaybackPreparationFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 				return status, nil
@@ -710,6 +714,9 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 	}
 	if _, err := playbackFacade.PreparePlaybackRecording(ctx, "rec-1", "default", apitypes.PlaybackPreparationPlayNow); err != nil {
 		t.Fatalf("prepare playback recording: %v", err)
+	}
+	if got, err := playbackFacade.StartPreparePlaybackRecording(ctx, "rec-1", "default", apitypes.PlaybackPreparationPlayNow); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start prepare playback recording = %+v, err=%v", got, err)
 	}
 	if _, err := playbackFacade.GetPlaybackPreparation(ctx, "rec-1", "default"); err != nil {
 		t.Fatalf("get playback preparation: %v", err)

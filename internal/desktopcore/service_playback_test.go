@@ -131,6 +131,55 @@ func TestPreparePlaybackRecordingPublishesCompletedJob(t *testing.T) {
 	}
 }
 
+func TestStartPreparePlaybackRecordingQueuesAsyncJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "prepare-playback-async")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	blobID := testBlobID("a")
+	seedCacheRecording(t, app, library.LibraryID, local.DeviceID, cacheSeedInput{
+		RecordingID:    "rec-async",
+		AlbumID:        "album-async",
+		SourceFileID:   "src-async",
+		EncodingID:     "enc-async",
+		BlobID:         blobID,
+		Profile:        "desktop",
+		LastVerifiedAt: time.Now().UTC(),
+	})
+	writeCacheBlob(t, app, blobID, 256)
+
+	job, err := app.StartPreparePlaybackRecording(ctx, "rec-async", "desktop", apitypes.PlaybackPreparationPlayNow)
+	if err != nil {
+		t.Fatalf("start prepare playback recording: %v", err)
+	}
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindPreparePlayback {
+		t.Fatalf("unexpected queued playback job: %+v", job)
+	}
+
+	jobID := playbackPreparationJobID(local.LibraryID, "rec-async", "desktop", apitypes.PlaybackPreparationPlayNow)
+	final := waitForJobPhase(t, ctx, app, jobID, JobPhaseCompleted)
+	if final.Kind != jobKindPreparePlayback || final.LibraryID != library.LibraryID {
+		t.Fatalf("unexpected final playback job: %+v", final)
+	}
+
+	status, err := app.GetPlaybackPreparation(ctx, "rec-async", "desktop")
+	if err != nil {
+		t.Fatalf("get playback preparation: %v", err)
+	}
+	if status.Phase != apitypes.PlaybackPreparationReady {
+		t.Fatalf("playback preparation phase = %q, want %q", status.Phase, apitypes.PlaybackPreparationReady)
+	}
+}
+
 func TestPinAlbumOfflineAggregatesCachedTracks(t *testing.T) {
 	t.Parallel()
 

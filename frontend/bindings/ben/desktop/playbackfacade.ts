@@ -8,6 +8,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as apitypes$0 from "../core/api/types/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as desktopcore$0 from "./internal/desktopcore/models.js";
 
 export function GetAlbumAvailabilityOverview(albumID: string, preferredProfile: string): $CancellablePromise<apitypes$0.AlbumAvailabilityOverview> {
     return $Call.ByID(274627466, albumID, preferredProfile).then(($result: any) => {
@@ -93,6 +96,12 @@ export function ResolveThumbnailURL(artwork: apitypes$0.ArtworkRef): $Cancellabl
     return $Call.ByID(3935617254, artwork);
 }
 
+export function StartPreparePlaybackRecording(recordingID: string, preferredProfile: string, purpose: apitypes$0.PlaybackPreparationPurpose): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(1507550790, recordingID, preferredProfile, purpose).then(($result: any) => {
+        return $$createType9($result);
+    });
+}
+
 export function UnpinAlbumOffline(albumID: string): $CancellablePromise<void> {
     return $Call.ByID(2040256123, albumID);
 }
@@ -119,3 +128,4 @@ const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = apitypes$0.PlaybackBatchResult.createFrom;
 const $$createType7 = apitypes$0.PlaybackRecordingResult.createFrom;
 const $$createType8 = apitypes$0.PlaybackResolveResult.createFrom;
+const $$createType9 = desktopcore$0.JobSnapshot.createFrom;

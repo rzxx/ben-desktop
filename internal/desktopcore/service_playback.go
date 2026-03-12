@@ -117,10 +117,33 @@ func (s *PlaybackService) PreparePlaybackRecording(ctx context.Context, recordin
 	if err != nil {
 		return apitypes.PlaybackPreparationStatus{}, err
 	}
-	profile := s.resolvePlaybackProfile(preferredProfile)
-	if purpose == "" {
-		purpose = apitypes.PlaybackPreparationPlayNow
+	return s.preparePlaybackRecordingForLocalContext(ctx, local, recordingID, preferredProfile, purpose)
+}
+
+func (s *PlaybackService) StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (JobSnapshot, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return JobSnapshot{}, err
 	}
+
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	purpose = normalizePlaybackPreparationPurpose(purpose)
+	jobID := playbackPreparationJobID(local.LibraryID, recordingID, profile, purpose)
+	snapshot, started := s.app.jobs.Begin(jobID, jobKindPreparePlayback, local.LibraryID, "queued playback preparation")
+	if !started {
+		return snapshot, nil
+	}
+
+	runCtx := context.WithoutCancel(ctx)
+	go func() {
+		_, _ = s.preparePlaybackRecordingForLocalContext(runCtx, local, recordingID, profile, purpose)
+	}()
+	return snapshot, nil
+}
+
+func (s *PlaybackService) preparePlaybackRecordingForLocalContext(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	purpose = normalizePlaybackPreparationPurpose(purpose)
 	job := s.app.jobs.Track(playbackPreparationJobID(local.LibraryID, recordingID, profile, purpose), jobKindPreparePlayback, local.LibraryID)
 	job.Queued(0, "queued playback preparation")
 	job.Running(0.35, "inspecting playback availability")
@@ -140,6 +163,13 @@ func (s *PlaybackService) PreparePlaybackRecording(ctx context.Context, recordin
 		job.Fail(1, playbackPreparationUnavailableMessage(status), nil)
 	}
 	return status, nil
+}
+
+func normalizePlaybackPreparationPurpose(purpose apitypes.PlaybackPreparationPurpose) apitypes.PlaybackPreparationPurpose {
+	if purpose == "" {
+		return apitypes.PlaybackPreparationPlayNow
+	}
+	return purpose
 }
 
 func (s *PlaybackService) GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {

@@ -95,6 +95,7 @@ type passthroughBridgeStub struct {
 	unpinLikedOfflineFn         func(context.Context) error
 	inspectPlaybackRecordingFn  func(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error)
 	preparePlaybackRecordingFn  func(context.Context, string, string, apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error)
+	startPreparePlaybackFn      func(context.Context, string, string, apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error)
 	getPlaybackPreparationFn    func(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error)
 	resolvePlaybackRecordingFn  func(context.Context, string, string) (apitypes.PlaybackResolveResult, error)
 	resolveArtworkRefFn         func(context.Context, apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error)
@@ -427,6 +428,10 @@ func (b *passthroughBridgeStub) InspectPlaybackRecording(ctx context.Context, re
 
 func (b *passthroughBridgeStub) PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
 	return b.preparePlaybackRecordingFn(ctx, recordingID, preferredProfile, purpose)
+}
+
+func (b *passthroughBridgeStub) StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error) {
+	return b.startPreparePlaybackFn(ctx, recordingID, preferredProfile, purpose)
 }
 
 func (b *passthroughBridgeStub) GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
