@@ -40,23 +40,6 @@ type checkpointChunk struct {
 	Entries     []checkpointOplogEntry
 }
 
-func (a *App) SyncNow(ctx context.Context) error {
-	if _, err := a.requireActiveContext(ctx); err != nil {
-		return err
-	}
-	return fmt.Errorf("sync service is not implemented in desktop core yet")
-}
-
-func (a *App) ConnectPeer(ctx context.Context, peerAddr string) error {
-	if _, err := a.requireActiveContext(ctx); err != nil {
-		return err
-	}
-	if strings.TrimSpace(peerAddr) == "" {
-		return fmt.Errorf("peer address is required")
-	}
-	return fmt.Errorf("peer transport is not implemented in desktop core yet")
-}
-
 func (a *App) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error) {
 	local, err := a.requireCheckpointAdminContext(ctx, "checkpoint publish")
 	if err != nil {

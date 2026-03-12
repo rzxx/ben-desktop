@@ -22,6 +22,8 @@ type App struct {
 	watcherMu   sync.Mutex
 	scanWatcher *activeScanWatcher
 
+	transport SyncTransport
+
 	jobs     *JobsService
 	library  *LibraryService
 	ingest   *IngestService

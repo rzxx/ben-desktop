@@ -14,6 +14,7 @@ const (
 	entityTypeOptimizedAsset   = "optimized_asset"
 	entityTypeDeviceAsset      = "device_asset_cache"
 	checkpointAckSourceCovered = "covered"
+	checkpointAckSourceInstalled = "installed"
 )
 
 func (a *App) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error) {
@@ -171,7 +172,7 @@ func (a *App) NetworkStatus() apitypes.NetworkStatus {
 	}
 
 	out := apitypes.NetworkStatus{
-		Running:   false,
+		Running:   a.transport != nil,
 		LibraryID: strings.TrimSpace(local.LibraryID),
 		DeviceID:  strings.TrimSpace(local.DeviceID),
 		PeerID:    strings.TrimSpace(local.PeerID),
