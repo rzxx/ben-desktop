@@ -22,6 +22,16 @@ import (
 
 type hostBridge interface {
 	playback.CorePlaybackBridge
+	ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error)
+	ActiveLibrary(ctx context.Context) (apitypes.LibrarySummary, bool, error)
+	CreateLibrary(ctx context.Context, name string) (apitypes.LibrarySummary, error)
+	SelectLibrary(ctx context.Context, libraryID string) (apitypes.LibrarySummary, error)
+	RenameLibrary(ctx context.Context, libraryID, name string) (apitypes.LibrarySummary, error)
+	LeaveLibrary(ctx context.Context, libraryID string) error
+	DeleteLibrary(ctx context.Context, libraryID string) error
+	ListLibraryMembers(ctx context.Context) ([]apitypes.LibraryMemberStatus, error)
+	UpdateLibraryMemberRole(ctx context.Context, deviceID, role string) error
+	RemoveLibraryMember(ctx context.Context, deviceID string) error
 	ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error)
 	GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error)
 	ListArtistAlbums(ctx context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
@@ -29,12 +39,28 @@ type hostBridge interface {
 	GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error)
 	ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error)
 	GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error)
+	ListRecordingVariants(ctx context.Context, req apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error)
 	ListAlbumVariants(ctx context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error)
+	SetPreferredRecordingVariant(ctx context.Context, recordingID, variantRecordingID string) error
+	SetPreferredAlbumVariant(ctx context.Context, albumID, variantAlbumID string) error
 	ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error)
 	ListPlaylists(ctx context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error)
 	GetPlaylistSummary(ctx context.Context, playlistID string) (apitypes.PlaylistListItem, error)
 	ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error)
 	ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error)
+	CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error)
+	RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error)
+	DeletePlaylist(ctx context.Context, playlistID string) error
+	AddPlaylistItem(ctx context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error)
+	MovePlaylistItem(ctx context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error)
+	RemovePlaylistItem(ctx context.Context, playlistID, itemID string) error
+	LikeRecording(ctx context.Context, recordingID string) error
+	UnlikeRecording(ctx context.Context, recordingID string) error
+	IsRecordingLiked(ctx context.Context, recordingID string) (bool, error)
+	GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error)
+	ListCacheEntries(ctx context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error)
+	CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error)
+	ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error)
 }
 
 type PlaybackService struct {
@@ -195,6 +221,46 @@ func (s *PlaybackService) ListArtists(ctx context.Context, req apitypes.ArtistLi
 	return s.requireBridge().ListArtists(ctx, req)
 }
 
+func (s *PlaybackService) ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error) {
+	return s.requireBridge().ListLibraries(ctx)
+}
+
+func (s *PlaybackService) ActiveLibrary(ctx context.Context) (apitypes.LibrarySummary, bool, error) {
+	return s.requireBridge().ActiveLibrary(ctx)
+}
+
+func (s *PlaybackService) CreateLibrary(ctx context.Context, name string) (apitypes.LibrarySummary, error) {
+	return s.requireBridge().CreateLibrary(ctx, name)
+}
+
+func (s *PlaybackService) SelectLibrary(ctx context.Context, libraryID string) (apitypes.LibrarySummary, error) {
+	return s.requireBridge().SelectLibrary(ctx, libraryID)
+}
+
+func (s *PlaybackService) RenameLibrary(ctx context.Context, libraryID, name string) (apitypes.LibrarySummary, error) {
+	return s.requireBridge().RenameLibrary(ctx, libraryID, name)
+}
+
+func (s *PlaybackService) LeaveLibrary(ctx context.Context, libraryID string) error {
+	return s.requireBridge().LeaveLibrary(ctx, libraryID)
+}
+
+func (s *PlaybackService) DeleteLibrary(ctx context.Context, libraryID string) error {
+	return s.requireBridge().DeleteLibrary(ctx, libraryID)
+}
+
+func (s *PlaybackService) ListLibraryMembers(ctx context.Context) ([]apitypes.LibraryMemberStatus, error) {
+	return s.requireBridge().ListLibraryMembers(ctx)
+}
+
+func (s *PlaybackService) UpdateLibraryMemberRole(ctx context.Context, deviceID, role string) error {
+	return s.requireBridge().UpdateLibraryMemberRole(ctx, deviceID, role)
+}
+
+func (s *PlaybackService) RemoveLibraryMember(ctx context.Context, deviceID string) error {
+	return s.requireBridge().RemoveLibraryMember(ctx, deviceID)
+}
+
 func (s *PlaybackService) GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error) {
 	return s.requireBridge().GetArtist(ctx, artistID)
 }
@@ -219,8 +285,20 @@ func (s *PlaybackService) GetRecording(ctx context.Context, recordingID string) 
 	return s.requireBridge().GetRecording(ctx, recordingID)
 }
 
+func (s *PlaybackService) ListRecordingVariants(ctx context.Context, req apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error) {
+	return s.requireBridge().ListRecordingVariants(ctx, req)
+}
+
 func (s *PlaybackService) ListAlbumVariants(ctx context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error) {
 	return s.requireBridge().ListAlbumVariants(ctx, req)
+}
+
+func (s *PlaybackService) SetPreferredRecordingVariant(ctx context.Context, recordingID, variantRecordingID string) error {
+	return s.requireBridge().SetPreferredRecordingVariant(ctx, recordingID, variantRecordingID)
+}
+
+func (s *PlaybackService) SetPreferredAlbumVariant(ctx context.Context, albumID, variantAlbumID string) error {
+	return s.requireBridge().SetPreferredAlbumVariant(ctx, albumID, variantAlbumID)
 }
 
 func (s *PlaybackService) ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
@@ -241,6 +319,54 @@ func (s *PlaybackService) ListPlaylistTracks(ctx context.Context, req apitypes.P
 
 func (s *PlaybackService) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
 	return s.requireBridge().ListLikedRecordings(ctx, req)
+}
+
+func (s *PlaybackService) CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
+	return s.requireBridge().CreatePlaylist(ctx, name, kind)
+}
+
+func (s *PlaybackService) RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error) {
+	return s.requireBridge().RenamePlaylist(ctx, playlistID, name)
+}
+
+func (s *PlaybackService) DeletePlaylist(ctx context.Context, playlistID string) error {
+	return s.requireBridge().DeletePlaylist(ctx, playlistID)
+}
+
+func (s *PlaybackService) AddPlaylistItem(ctx context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error) {
+	return s.requireBridge().AddPlaylistItem(ctx, req)
+}
+
+func (s *PlaybackService) MovePlaylistItem(ctx context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error) {
+	return s.requireBridge().MovePlaylistItem(ctx, req)
+}
+
+func (s *PlaybackService) RemovePlaylistItem(ctx context.Context, playlistID, itemID string) error {
+	return s.requireBridge().RemovePlaylistItem(ctx, playlistID, itemID)
+}
+
+func (s *PlaybackService) LikeRecording(ctx context.Context, recordingID string) error {
+	return s.requireBridge().LikeRecording(ctx, recordingID)
+}
+
+func (s *PlaybackService) UnlikeRecording(ctx context.Context, recordingID string) error {
+	return s.requireBridge().UnlikeRecording(ctx, recordingID)
+}
+
+func (s *PlaybackService) IsRecordingLiked(ctx context.Context, recordingID string) (bool, error) {
+	return s.requireBridge().IsRecordingLiked(ctx, recordingID)
+}
+
+func (s *PlaybackService) GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error) {
+	return s.requireBridge().GetCacheOverview(ctx)
+}
+
+func (s *PlaybackService) ListCacheEntries(ctx context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {
+	return s.requireBridge().ListCacheEntries(ctx, req)
+}
+
+func (s *PlaybackService) CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
+	return s.requireBridge().CleanupCache(ctx, req)
 }
 
 func (s *PlaybackService) ResolveBlobURL(blobID string) (string, error) {
@@ -521,6 +647,30 @@ func (s *PlaybackService) PlayLikedTrack(ctx context.Context, recordingID string
 		return playback.SessionSnapshot{}, err
 	}
 	return s.replaceContextAndPlay(ctx, contextInput)
+}
+
+func (s *PlaybackService) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+	return s.requireBridge().InspectPlaybackRecording(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackService) PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+	return s.requireBridge().PreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
+}
+
+func (s *PlaybackService) GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+	return s.requireBridge().GetPlaybackPreparation(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackService) ResolvePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error) {
+	return s.requireBridge().ResolvePlaybackRecording(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackService) ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {
+	return s.requireBridge().ListRecordingAvailability(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
+	return s.requireBridge().GetRecordingAvailability(ctx, recordingID, preferredProfile)
 }
 
 func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapshot) {

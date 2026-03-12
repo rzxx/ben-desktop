@@ -435,6 +435,360 @@ export class ArtworkRef {
     }
 }
 
+export enum CacheCleanupMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    CacheCleanupOverLimitOnly = "over_limit_only",
+    CacheCleanupAllUnpinned = "all_unpinned",
+    CacheCleanupBlobIDs = "blob_ids",
+};
+
+export class CacheCleanupRequest {
+    "Mode": CacheCleanupMode;
+    "BlobIDs": string[];
+
+    /** Creates a new CacheCleanupRequest instance. */
+    constructor($$source: Partial<CacheCleanupRequest> = {}) {
+        if (!("Mode" in $$source)) {
+            this["Mode"] = CacheCleanupMode.$zero;
+        }
+        if (!("BlobIDs" in $$source)) {
+            this["BlobIDs"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CacheCleanupRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CacheCleanupRequest {
+        const $$createField1_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("BlobIDs" in $$parsedSource) {
+            $$parsedSource["BlobIDs"] = $$createField1_0($$parsedSource["BlobIDs"]);
+        }
+        return new CacheCleanupRequest($$parsedSource as Partial<CacheCleanupRequest>);
+    }
+}
+
+export class CacheCleanupResult {
+    "DeletedBlobs": string[];
+    "DeletedBytes": number;
+    "RemainingBytes": number;
+
+    /** Creates a new CacheCleanupResult instance. */
+    constructor($$source: Partial<CacheCleanupResult> = {}) {
+        if (!("DeletedBlobs" in $$source)) {
+            this["DeletedBlobs"] = [];
+        }
+        if (!("DeletedBytes" in $$source)) {
+            this["DeletedBytes"] = 0;
+        }
+        if (!("RemainingBytes" in $$source)) {
+            this["RemainingBytes"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CacheCleanupResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CacheCleanupResult {
+        const $$createField0_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("DeletedBlobs" in $$parsedSource) {
+            $$parsedSource["DeletedBlobs"] = $$createField0_0($$parsedSource["DeletedBlobs"]);
+        }
+        return new CacheCleanupResult($$parsedSource as Partial<CacheCleanupResult>);
+    }
+}
+
+export class CacheEntryItem {
+    "BlobID": string;
+    "Kind": CacheKind;
+    "SizeBytes": number;
+    "LastAccessed": time$0.Time;
+    "Pinned": boolean;
+    "PinCount": number;
+    "PinScopes": CachePinScopeRef[];
+    "EncodingID": string;
+    "Profile": string;
+    "RecordingID": string;
+    "AlbumID": string;
+    "PlaylistID": string;
+    "ThumbnailScope": string;
+    "ThumbnailScopeID": string;
+
+    /** Creates a new CacheEntryItem instance. */
+    constructor($$source: Partial<CacheEntryItem> = {}) {
+        if (!("BlobID" in $$source)) {
+            this["BlobID"] = "";
+        }
+        if (!("Kind" in $$source)) {
+            this["Kind"] = CacheKind.$zero;
+        }
+        if (!("SizeBytes" in $$source)) {
+            this["SizeBytes"] = 0;
+        }
+        if (!("LastAccessed" in $$source)) {
+            this["LastAccessed"] = null;
+        }
+        if (!("Pinned" in $$source)) {
+            this["Pinned"] = false;
+        }
+        if (!("PinCount" in $$source)) {
+            this["PinCount"] = 0;
+        }
+        if (!("PinScopes" in $$source)) {
+            this["PinScopes"] = [];
+        }
+        if (!("EncodingID" in $$source)) {
+            this["EncodingID"] = "";
+        }
+        if (!("Profile" in $$source)) {
+            this["Profile"] = "";
+        }
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
+        }
+        if (!("PlaylistID" in $$source)) {
+            this["PlaylistID"] = "";
+        }
+        if (!("ThumbnailScope" in $$source)) {
+            this["ThumbnailScope"] = "";
+        }
+        if (!("ThumbnailScopeID" in $$source)) {
+            this["ThumbnailScopeID"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CacheEntryItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CacheEntryItem {
+        const $$createField6_0 = $$createType5;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("PinScopes" in $$parsedSource) {
+            $$parsedSource["PinScopes"] = $$createField6_0($$parsedSource["PinScopes"]);
+        }
+        return new CacheEntryItem($$parsedSource as Partial<CacheEntryItem>);
+    }
+}
+
+export class CacheEntryListRequest {
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new CacheEntryListRequest instance. */
+    constructor($$source: Partial<CacheEntryListRequest> = {}) {
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CacheEntryListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CacheEntryListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CacheEntryListRequest($$parsedSource as Partial<CacheEntryListRequest>);
+    }
+}
+
+export enum CacheKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    CacheKindOptimizedAudio = "optimized_audio",
+    CacheKindThumbnail = "thumbnail",
+    CacheKindUnknown = "unknown",
+};
+
+export class CacheOverview {
+    "LimitBytes": number;
+    "UsedBytes": number;
+    "FreeBytes": number;
+    "EntryCount": number;
+    "PinnedBytes": number;
+    "UnpinnedBytes": number;
+    "PinnedEntries": number;
+    "UnpinnedEntries": number;
+    "ReclaimableBytes": number;
+    "ByKind": CacheUsageBreakdown[];
+    "PinScopes": CachePinScopeSummary[];
+
+    /** Creates a new CacheOverview instance. */
+    constructor($$source: Partial<CacheOverview> = {}) {
+        if (!("LimitBytes" in $$source)) {
+            this["LimitBytes"] = 0;
+        }
+        if (!("UsedBytes" in $$source)) {
+            this["UsedBytes"] = 0;
+        }
+        if (!("FreeBytes" in $$source)) {
+            this["FreeBytes"] = 0;
+        }
+        if (!("EntryCount" in $$source)) {
+            this["EntryCount"] = 0;
+        }
+        if (!("PinnedBytes" in $$source)) {
+            this["PinnedBytes"] = 0;
+        }
+        if (!("UnpinnedBytes" in $$source)) {
+            this["UnpinnedBytes"] = 0;
+        }
+        if (!("PinnedEntries" in $$source)) {
+            this["PinnedEntries"] = 0;
+        }
+        if (!("UnpinnedEntries" in $$source)) {
+            this["UnpinnedEntries"] = 0;
+        }
+        if (!("ReclaimableBytes" in $$source)) {
+            this["ReclaimableBytes"] = 0;
+        }
+        if (!("ByKind" in $$source)) {
+            this["ByKind"] = [];
+        }
+        if (!("PinScopes" in $$source)) {
+            this["PinScopes"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CacheOverview instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CacheOverview {
+        const $$createField9_0 = $$createType7;
+        const $$createField10_0 = $$createType9;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("ByKind" in $$parsedSource) {
+            $$parsedSource["ByKind"] = $$createField9_0($$parsedSource["ByKind"]);
+        }
+        if ("PinScopes" in $$parsedSource) {
+            $$parsedSource["PinScopes"] = $$createField10_0($$parsedSource["PinScopes"]);
+        }
+        return new CacheOverview($$parsedSource as Partial<CacheOverview>);
+    }
+}
+
+export class CachePinScopeRef {
+    "Scope": string;
+    "ScopeID": string;
+    "Durable": boolean;
+
+    /** Creates a new CachePinScopeRef instance. */
+    constructor($$source: Partial<CachePinScopeRef> = {}) {
+        if (!("Scope" in $$source)) {
+            this["Scope"] = "";
+        }
+        if (!("ScopeID" in $$source)) {
+            this["ScopeID"] = "";
+        }
+        if (!("Durable" in $$source)) {
+            this["Durable"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CachePinScopeRef instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CachePinScopeRef {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CachePinScopeRef($$parsedSource as Partial<CachePinScopeRef>);
+    }
+}
+
+export class CachePinScopeSummary {
+    "Scope": string;
+    "ScopeID": string;
+    "Durable": boolean;
+    "BlobCount": number;
+    "Bytes": number;
+
+    /** Creates a new CachePinScopeSummary instance. */
+    constructor($$source: Partial<CachePinScopeSummary> = {}) {
+        if (!("Scope" in $$source)) {
+            this["Scope"] = "";
+        }
+        if (!("ScopeID" in $$source)) {
+            this["ScopeID"] = "";
+        }
+        if (!("Durable" in $$source)) {
+            this["Durable"] = false;
+        }
+        if (!("BlobCount" in $$source)) {
+            this["BlobCount"] = 0;
+        }
+        if (!("Bytes" in $$source)) {
+            this["Bytes"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CachePinScopeSummary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CachePinScopeSummary {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CachePinScopeSummary($$parsedSource as Partial<CachePinScopeSummary>);
+    }
+}
+
+export class CacheUsageBreakdown {
+    "Kind": CacheKind;
+    "Bytes": number;
+    "Entries": number;
+    "PinnedBytes": number;
+
+    /** Creates a new CacheUsageBreakdown instance. */
+    constructor($$source: Partial<CacheUsageBreakdown> = {}) {
+        if (!("Kind" in $$source)) {
+            this["Kind"] = CacheKind.$zero;
+        }
+        if (!("Bytes" in $$source)) {
+            this["Bytes"] = 0;
+        }
+        if (!("Entries" in $$source)) {
+            this["Entries"] = 0;
+        }
+        if (!("PinnedBytes" in $$source)) {
+            this["PinnedBytes"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CacheUsageBreakdown instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CacheUsageBreakdown {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CacheUsageBreakdown($$parsedSource as Partial<CacheUsageBreakdown>);
+    }
+}
+
 export class CatalogAggregateAvailabilityHint {
     "LocalTrackCount": number;
     "CachedTrackCount": number;
@@ -525,6 +879,96 @@ export enum CatalogTrackAvailabilityState {
     CatalogAvailabilityProviderOffline = "PROVIDER_OFFLINE",
     CatalogAvailabilityUnavailable = "UNAVAILABLE",
 };
+
+export class LibraryMemberStatus {
+    "LibraryID": string;
+    "DeviceID": string;
+    "Role": string;
+    "PeerID": string;
+    "LastSeenAt": time$0.Time | null;
+    "LastSeq": number;
+    "LastSyncAttemptAt": time$0.Time | null;
+    "LastSyncSuccessAt": time$0.Time | null;
+    "LastSyncError": string;
+
+    /** Creates a new LibraryMemberStatus instance. */
+    constructor($$source: Partial<LibraryMemberStatus> = {}) {
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("DeviceID" in $$source)) {
+            this["DeviceID"] = "";
+        }
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("PeerID" in $$source)) {
+            this["PeerID"] = "";
+        }
+        if (!("LastSeenAt" in $$source)) {
+            this["LastSeenAt"] = null;
+        }
+        if (!("LastSeq" in $$source)) {
+            this["LastSeq"] = 0;
+        }
+        if (!("LastSyncAttemptAt" in $$source)) {
+            this["LastSyncAttemptAt"] = null;
+        }
+        if (!("LastSyncSuccessAt" in $$source)) {
+            this["LastSyncSuccessAt"] = null;
+        }
+        if (!("LastSyncError" in $$source)) {
+            this["LastSyncError"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LibraryMemberStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LibraryMemberStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LibraryMemberStatus($$parsedSource as Partial<LibraryMemberStatus>);
+    }
+}
+
+export class LibrarySummary {
+    "LibraryID": string;
+    "Name": string;
+    "Role": string;
+    "JoinedAt": time$0.Time;
+    "IsActive": boolean;
+
+    /** Creates a new LibrarySummary instance. */
+    constructor($$source: Partial<LibrarySummary> = {}) {
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("Name" in $$source)) {
+            this["Name"] = "";
+        }
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("JoinedAt" in $$source)) {
+            this["JoinedAt"] = null;
+        }
+        if (!("IsActive" in $$source)) {
+            this["IsActive"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LibrarySummary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LibrarySummary {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LibrarySummary($$parsedSource as Partial<LibrarySummary>);
+    }
+}
 
 export class LikedRecordingItem {
     "RecordingID": string;
@@ -622,8 +1066,8 @@ export class Page<T> {
      * of the generic class Page.
      */
     static createFrom<T = any>($$createParamT: (source: any) => T): ($$source?: any) => Page<T> {
-        const $$createField0_0 = $$createType4($$createParamT);
-        const $$createField1_0 = $$createType5;
+        const $$createField0_0 = $$createType10($$createParamT);
+        const $$createField1_0 = $$createType11;
         return ($$source: any = {}) => {
             let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
             if ("Items" in $$parsedSource) {
@@ -743,6 +1187,55 @@ export class PlaybackPreparationStatus {
     }
 }
 
+export class PlaybackResolveResult {
+    "RecordingID": string;
+    "State": RecordingAvailabilityState;
+    "SourceKind": PlaybackSourceKind;
+    "Reason": PlaybackUnavailableReason;
+    "PlayableURI": string;
+    "EncodingID": string;
+    "BlobID": string;
+    "Profile": string;
+
+    /** Creates a new PlaybackResolveResult instance. */
+    constructor($$source: Partial<PlaybackResolveResult> = {}) {
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("State" in $$source)) {
+            this["State"] = RecordingAvailabilityState.$zero;
+        }
+        if (!("SourceKind" in $$source)) {
+            this["SourceKind"] = PlaybackSourceKind.$zero;
+        }
+        if (!("Reason" in $$source)) {
+            this["Reason"] = PlaybackUnavailableReason.$zero;
+        }
+        if (!("PlayableURI" in $$source)) {
+            this["PlayableURI"] = "";
+        }
+        if (!("EncodingID" in $$source)) {
+            this["EncodingID"] = "";
+        }
+        if (!("BlobID" in $$source)) {
+            this["BlobID"] = "";
+        }
+        if (!("Profile" in $$source)) {
+            this["Profile"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaybackResolveResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaybackResolveResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaybackResolveResult($$parsedSource as Partial<PlaybackResolveResult>);
+    }
+}
+
 export enum PlaybackSourceKind {
     /**
      * The Go zero value for the underlying type of the enum.
@@ -765,6 +1258,80 @@ export enum PlaybackUnavailableReason {
     PlaybackUnavailableNoPath = "no_path",
     PlaybackUnavailableNetworkOff = "network_off",
 };
+
+export class PlaylistAddItemRequest {
+    "PlaylistID": string;
+    "RecordingID": string;
+    "AfterItemID": string;
+    "BeforeItemID": string;
+
+    /** Creates a new PlaylistAddItemRequest instance. */
+    constructor($$source: Partial<PlaylistAddItemRequest> = {}) {
+        if (!("PlaylistID" in $$source)) {
+            this["PlaylistID"] = "";
+        }
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("AfterItemID" in $$source)) {
+            this["AfterItemID"] = "";
+        }
+        if (!("BeforeItemID" in $$source)) {
+            this["BeforeItemID"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistAddItemRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistAddItemRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaylistAddItemRequest($$parsedSource as Partial<PlaylistAddItemRequest>);
+    }
+}
+
+export class PlaylistItemRecord {
+    "LibraryID": string;
+    "PlaylistID": string;
+    "ItemID": string;
+    "RecordingID": string;
+    "AddedAt": time$0.Time;
+    "UpdatedAt": time$0.Time;
+
+    /** Creates a new PlaylistItemRecord instance. */
+    constructor($$source: Partial<PlaylistItemRecord> = {}) {
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("PlaylistID" in $$source)) {
+            this["PlaylistID"] = "";
+        }
+        if (!("ItemID" in $$source)) {
+            this["ItemID"] = "";
+        }
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("AddedAt" in $$source)) {
+            this["AddedAt"] = null;
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistItemRecord instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistItemRecord {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaylistItemRecord($$parsedSource as Partial<PlaylistItemRecord>);
+    }
+}
 
 export enum PlaylistKind {
     /**
@@ -858,6 +1425,100 @@ export class PlaylistListRequest {
     }
 }
 
+export class PlaylistMoveItemRequest {
+    "PlaylistID": string;
+    "ItemID": string;
+    "AfterItemID": string;
+    "BeforeItemID": string;
+
+    /** Creates a new PlaylistMoveItemRequest instance. */
+    constructor($$source: Partial<PlaylistMoveItemRequest> = {}) {
+        if (!("PlaylistID" in $$source)) {
+            this["PlaylistID"] = "";
+        }
+        if (!("ItemID" in $$source)) {
+            this["ItemID"] = "";
+        }
+        if (!("AfterItemID" in $$source)) {
+            this["AfterItemID"] = "";
+        }
+        if (!("BeforeItemID" in $$source)) {
+            this["BeforeItemID"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistMoveItemRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistMoveItemRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaylistMoveItemRequest($$parsedSource as Partial<PlaylistMoveItemRequest>);
+    }
+}
+
+export class PlaylistRecord {
+    "LibraryID": string;
+    "PlaylistID": string;
+    "Name": string;
+    "Kind": PlaylistKind;
+    "IsReserved": boolean;
+    "Thumb": ArtworkRef;
+    "HasCustomCover": boolean;
+    "CreatedBy": string;
+    "CreatedAt": time$0.Time;
+    "UpdatedAt": time$0.Time;
+
+    /** Creates a new PlaylistRecord instance. */
+    constructor($$source: Partial<PlaylistRecord> = {}) {
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("PlaylistID" in $$source)) {
+            this["PlaylistID"] = "";
+        }
+        if (!("Name" in $$source)) {
+            this["Name"] = "";
+        }
+        if (!("Kind" in $$source)) {
+            this["Kind"] = PlaylistKind.$zero;
+        }
+        if (!("IsReserved" in $$source)) {
+            this["IsReserved"] = false;
+        }
+        if (!("Thumb" in $$source)) {
+            this["Thumb"] = (new ArtworkRef());
+        }
+        if (!("HasCustomCover" in $$source)) {
+            this["HasCustomCover"] = false;
+        }
+        if (!("CreatedBy" in $$source)) {
+            this["CreatedBy"] = "";
+        }
+        if (!("CreatedAt" in $$source)) {
+            this["CreatedAt"] = null;
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistRecord instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistRecord {
+        const $$createField5_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Thumb" in $$parsedSource) {
+            $$parsedSource["Thumb"] = $$createField5_0($$parsedSource["Thumb"]);
+        }
+        return new PlaylistRecord($$parsedSource as Partial<PlaylistRecord>);
+    }
+}
+
 export class PlaylistTrackItem {
     "ItemID": string;
     "RecordingID": string;
@@ -939,6 +1600,71 @@ export class PlaylistTrackListRequest {
         return new PlaylistTrackListRequest($$parsedSource as Partial<PlaylistTrackListRequest>);
     }
 }
+
+export class RecordingAvailabilityItem {
+    "DeviceID": string;
+    "Role": string;
+    "PeerID": string;
+    "LastSeenAt": time$0.Time | null;
+    "LastSyncSuccessAt": time$0.Time | null;
+    "SourcePresent": boolean;
+    "OptimizedPresent": boolean;
+    "CachedOptimized": boolean;
+
+    /** Creates a new RecordingAvailabilityItem instance. */
+    constructor($$source: Partial<RecordingAvailabilityItem> = {}) {
+        if (!("DeviceID" in $$source)) {
+            this["DeviceID"] = "";
+        }
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("PeerID" in $$source)) {
+            this["PeerID"] = "";
+        }
+        if (!("LastSeenAt" in $$source)) {
+            this["LastSeenAt"] = null;
+        }
+        if (!("LastSyncSuccessAt" in $$source)) {
+            this["LastSyncSuccessAt"] = null;
+        }
+        if (!("SourcePresent" in $$source)) {
+            this["SourcePresent"] = false;
+        }
+        if (!("OptimizedPresent" in $$source)) {
+            this["OptimizedPresent"] = false;
+        }
+        if (!("CachedOptimized" in $$source)) {
+            this["CachedOptimized"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingAvailabilityItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingAvailabilityItem {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecordingAvailabilityItem($$parsedSource as Partial<RecordingAvailabilityItem>);
+    }
+}
+
+export enum RecordingAvailabilityState {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    AvailabilityPlayableLocalFile = "PLAYABLE:LOCAL_FILE",
+    AvailabilityPlayableCachedOpt = "PLAYABLE:CACHED_OPT",
+    AvailabilityPlayableRemoteOpt = "PLAYABLE:REMOTE_OPT",
+    AvailabilityWaitingProviderTranscode = "WAITING:PROVIDER_TRANSCODE",
+    AvailabilityWaitingTranscode = "WAITING:PROVIDER_TRANSCODE",
+    AvailabilityUnavailableProvider = "UNAVAILABLE:PROVIDER_OFFLINE",
+    AvailabilityUnavailableOwner = "UNAVAILABLE:PROVIDER_OFFLINE",
+    AvailabilityUnavailableNoPath = "UNAVAILABLE:NO_PATH",
+};
 
 export class RecordingListItem {
     "TrackClusterID": string;
@@ -1022,10 +1748,203 @@ export class RecordingListRequest {
     }
 }
 
+export class RecordingPlaybackAvailability {
+    "RecordingID": string;
+    "PreferredProfile": string;
+    "State": RecordingAvailabilityState;
+    "SourceKind": PlaybackSourceKind;
+    "LocalPath": string;
+    "Reason": PlaybackUnavailableReason;
+
+    /** Creates a new RecordingPlaybackAvailability instance. */
+    constructor($$source: Partial<RecordingPlaybackAvailability> = {}) {
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("PreferredProfile" in $$source)) {
+            this["PreferredProfile"] = "";
+        }
+        if (!("State" in $$source)) {
+            this["State"] = RecordingAvailabilityState.$zero;
+        }
+        if (!("SourceKind" in $$source)) {
+            this["SourceKind"] = PlaybackSourceKind.$zero;
+        }
+        if (!("LocalPath" in $$source)) {
+            this["LocalPath"] = "";
+        }
+        if (!("Reason" in $$source)) {
+            this["Reason"] = PlaybackUnavailableReason.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingPlaybackAvailability instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingPlaybackAvailability {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecordingPlaybackAvailability($$parsedSource as Partial<RecordingPlaybackAvailability>);
+    }
+}
+
+export class RecordingVariantItem {
+    "RecordingID": string;
+    "TrackClusterID": string;
+    "ContentID": string;
+    "Title": string;
+    "DurationMS": number;
+    "Artists": string[];
+    "AlbumID": string;
+    "AlbumTitle": string;
+    "TrackNo": number;
+    "DiscNo": number;
+    "Container": string;
+    "Codec": string;
+    "Bitrate": number;
+    "SampleRate": number;
+    "Channels": number;
+    "IsLossless": boolean;
+    "QualityRank": number;
+    "IsPreferred": boolean;
+    "IsExplicitPreferred": boolean;
+    "IsPresentLocal": boolean;
+    "IsCachedLocal": boolean;
+    "LocalPath": string;
+    "Availability": CatalogTrackAvailabilityHint;
+
+    /** Creates a new RecordingVariantItem instance. */
+    constructor($$source: Partial<RecordingVariantItem> = {}) {
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("TrackClusterID" in $$source)) {
+            this["TrackClusterID"] = "";
+        }
+        if (!("ContentID" in $$source)) {
+            this["ContentID"] = "";
+        }
+        if (!("Title" in $$source)) {
+            this["Title"] = "";
+        }
+        if (!("DurationMS" in $$source)) {
+            this["DurationMS"] = 0;
+        }
+        if (!("Artists" in $$source)) {
+            this["Artists"] = [];
+        }
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
+        }
+        if (!("AlbumTitle" in $$source)) {
+            this["AlbumTitle"] = "";
+        }
+        if (!("TrackNo" in $$source)) {
+            this["TrackNo"] = 0;
+        }
+        if (!("DiscNo" in $$source)) {
+            this["DiscNo"] = 0;
+        }
+        if (!("Container" in $$source)) {
+            this["Container"] = "";
+        }
+        if (!("Codec" in $$source)) {
+            this["Codec"] = "";
+        }
+        if (!("Bitrate" in $$source)) {
+            this["Bitrate"] = 0;
+        }
+        if (!("SampleRate" in $$source)) {
+            this["SampleRate"] = 0;
+        }
+        if (!("Channels" in $$source)) {
+            this["Channels"] = 0;
+        }
+        if (!("IsLossless" in $$source)) {
+            this["IsLossless"] = false;
+        }
+        if (!("QualityRank" in $$source)) {
+            this["QualityRank"] = 0;
+        }
+        if (!("IsPreferred" in $$source)) {
+            this["IsPreferred"] = false;
+        }
+        if (!("IsExplicitPreferred" in $$source)) {
+            this["IsExplicitPreferred"] = false;
+        }
+        if (!("IsPresentLocal" in $$source)) {
+            this["IsPresentLocal"] = false;
+        }
+        if (!("IsCachedLocal" in $$source)) {
+            this["IsCachedLocal"] = false;
+        }
+        if (!("LocalPath" in $$source)) {
+            this["LocalPath"] = "";
+        }
+        if (!("Availability" in $$source)) {
+            this["Availability"] = (new CatalogTrackAvailabilityHint());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingVariantItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingVariantItem {
+        const $$createField5_0 = $$createType0;
+        const $$createField22_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Artists" in $$parsedSource) {
+            $$parsedSource["Artists"] = $$createField5_0($$parsedSource["Artists"]);
+        }
+        if ("Availability" in $$parsedSource) {
+            $$parsedSource["Availability"] = $$createField22_0($$parsedSource["Availability"]);
+        }
+        return new RecordingVariantItem($$parsedSource as Partial<RecordingVariantItem>);
+    }
+}
+
+export class RecordingVariantListRequest {
+    "RecordingID": string;
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new RecordingVariantListRequest instance. */
+    constructor($$source: Partial<RecordingVariantListRequest> = {}) {
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingVariantListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingVariantListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecordingVariantListRequest($$parsedSource as Partial<RecordingVariantListRequest>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = ArtworkRef.createFrom;
 const $$createType2 = CatalogAggregateAvailabilityHint.createFrom;
 const $$createType3 = CatalogTrackAvailabilityHint.createFrom;
-const $$createType4 = ($$createParamT: any) => $Create.Array($$createParamT);
-const $$createType5 = PageInfo.createFrom;
+const $$createType4 = CachePinScopeRef.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = CacheUsageBreakdown.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = CachePinScopeSummary.createFrom;
+const $$createType9 = $Create.Array($$createType8);
+const $$createType10 = ($$createParamT: any) => $Create.Array($$createParamT);
+const $$createType11 = PageInfo.createFrom;
