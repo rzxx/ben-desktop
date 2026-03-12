@@ -19,8 +19,10 @@ type App struct {
 	scanFlight *scanFlight
 	tagReader  TagReader
 
-	watcherMu   sync.Mutex
-	scanWatcher *activeScanWatcher
+	runtimeMu     sync.Mutex
+	activeRuntime *activeLibraryRuntime
+	watcherMu     sync.Mutex
+	scanWatcher   *activeScanWatcher
 
 	transport SyncTransport
 
@@ -93,6 +95,7 @@ func (a *App) Close() error {
 		return nil
 	}
 	a.stopActiveScanWatcher()
+	a.clearActiveLibraryRuntime()
 	return closeSQL(a.db)
 }
 

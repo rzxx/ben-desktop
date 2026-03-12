@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -271,6 +272,124 @@ func TestStartRescanNowQueuesAsyncJob(t *testing.T) {
 	}
 	if len(recordings.Items) != 1 || recordings.Items[0].Title != "Async Track" {
 		t.Fatalf("unexpected recordings page: %+v", recordings)
+	}
+}
+
+func TestStartRescanNowCancelsWhenActiveLibraryChanges(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	audioA1 := filepath.Join(rootA, "async-one.flac")
+	audioA2 := filepath.Join(rootA, "async-two.flac")
+	if err := os.WriteFile(audioA1, []byte("fake-audio-1"), 0o644); err != nil {
+		t.Fatalf("write first audio file: %v", err)
+	}
+	if err := os.WriteFile(audioA2, []byte("fake-audio-2"), 0o644); err != nil {
+		t.Fatalf("write second audio file: %v", err)
+	}
+
+	release := make(chan struct{})
+	started := make(chan string, 2)
+	reader := blockingTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioA1): {
+				Title:       "Cancelable Track One",
+				Album:       "Cancelable Album",
+				AlbumArtist: "Cancelable Artist",
+				Artists:     []string{"Cancelable Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(audioA2): {
+				Title:       "Cancelable Track Two",
+				Album:       "Cancelable Album",
+				AlbumArtist: "Cancelable Artist",
+				Artists:     []string{"Cancelable Artist"},
+				TrackNo:     2,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  181000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+		started: started,
+		release: release,
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+
+	first, err := app.CreateLibrary(ctx, "scan-cancel-a")
+	if err != nil {
+		t.Fatalf("create first library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{rootA}); err != nil {
+		t.Fatalf("set first scan roots: %v", err)
+	}
+	second, err := app.CreateLibrary(ctx, "scan-cancel-b")
+	if err != nil {
+		t.Fatalf("create second library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{rootB}); err != nil {
+		t.Fatalf("set second scan roots: %v", err)
+	}
+	if _, err := app.SelectLibrary(ctx, first.LibraryID); err != nil {
+		t.Fatalf("reselect first library: %v", err)
+	}
+
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	job, err := app.StartRescanNow(ctx)
+	if err != nil {
+		t.Fatalf("start rescan now: %v", err)
+	}
+	if job.Phase != JobPhaseQueued {
+		t.Fatalf("unexpected queued scan job: %+v", job)
+	}
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for scan ingest to start")
+	}
+
+	if _, err := app.SelectLibrary(ctx, second.LibraryID); err != nil {
+		t.Fatalf("switch active library: %v", err)
+	}
+	close(release)
+
+	jobID := scanJobID(first.LibraryID, local.DeviceID, []string{filepath.Clean(rootA)}, jobKindRescanAll)
+	final := waitForJobPhase(t, ctx, app, jobID, JobPhaseFailed)
+	if !strings.Contains(final.Message, "no longer active") {
+		t.Fatalf("expected cancellation message, got %+v", final)
+	}
+
+	if _, err := app.SelectLibrary(ctx, first.LibraryID); err != nil {
+		t.Fatalf("reselect first library after cancellation: %v", err)
+	}
+	recordings, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list partially scanned recordings: %v", err)
+	}
+	if len(recordings.Items) >= 2 {
+		t.Fatalf("expected library switch to stop the old scan before both tracks imported, got %+v", recordings.Items)
 	}
 }
 
@@ -561,6 +680,30 @@ type staticTagReader struct {
 
 func (r staticTagReader) Read(path string) (Tags, error) {
 	path = filepath.Clean(path)
+	tags, ok := r.tagsByPath[path]
+	if !ok {
+		return Tags{}, errors.New("missing test tags for " + path)
+	}
+	return tags, nil
+}
+
+type blockingTagReader struct {
+	tagsByPath map[string]Tags
+	started    chan<- string
+	release    <-chan struct{}
+}
+
+func (r blockingTagReader) Read(path string) (Tags, error) {
+	path = filepath.Clean(path)
+	if r.started != nil {
+		select {
+		case r.started <- path:
+		default:
+		}
+	}
+	if r.release != nil {
+		<-r.release
+	}
 	tags, ok := r.tagsByPath[path]
 	if !ok {
 		return Tags{}, errors.New("missing test tags for " + path)

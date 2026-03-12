@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -60,8 +61,12 @@ func (a *App) StartPublishCheckpoint(ctx context.Context) (JobSnapshot, error) {
 		return snapshot, nil
 	}
 
-	runCtx := context.WithoutCancel(ctx)
+	runCtx, cleanup, err := a.activeLibraryTaskContext(ctx, local.LibraryID)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
 	go func() {
+		defer cleanup()
 		_, _ = a.publishCheckpointForLocalContext(runCtx, local)
 	}()
 	return snapshot, nil
@@ -86,6 +91,10 @@ func (a *App) publishCheckpointForLocalContext(ctx context.Context, local apityp
 	manifest, err := a.publishCheckpoint(ctx, local.LibraryID, local.DeviceID, job)
 	if err != nil {
 		if job != nil {
+			if errors.Is(err, context.Canceled) {
+				job.Fail(1, "checkpoint publish canceled because the library is no longer active", nil)
+				return apitypes.LibraryCheckpointManifest{}, err
+			}
 			job.Fail(1, "checkpoint publish failed", err)
 		}
 		return apitypes.LibraryCheckpointManifest{}, err
@@ -116,8 +125,12 @@ func (a *App) StartCompactCheckpoint(ctx context.Context, force bool) (JobSnapsh
 		return snapshot, nil
 	}
 
-	runCtx := context.WithoutCancel(ctx)
+	runCtx, cleanup, err := a.activeLibraryTaskContext(ctx, local.LibraryID)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
 	go func() {
+		defer cleanup()
 		_, _ = a.compactCheckpointForLocalContext(runCtx, local, force)
 	}()
 	return snapshot, nil
@@ -141,6 +154,10 @@ func (a *App) compactCheckpointForLocalContext(ctx context.Context, local apityp
 	result, err := a.compactCheckpoint(ctx, local.LibraryID, force, job)
 	if err != nil {
 		if job != nil {
+			if errors.Is(err, context.Canceled) {
+				job.Fail(1, "checkpoint compaction canceled because the library is no longer active", nil)
+				return apitypes.CheckpointCompactionResult{}, err
+			}
 			job.Fail(1, "checkpoint compaction failed", err)
 		}
 		return apitypes.CheckpointCompactionResult{}, err

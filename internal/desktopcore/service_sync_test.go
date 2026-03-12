@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -207,6 +208,51 @@ func TestStartSyncNowQueuesAsyncJob(t *testing.T) {
 	}
 	if joinerLocal.LibraryID != library.LibraryID {
 		t.Fatalf("joiner active library = %q, want %q", joinerLocal.LibraryID, library.LibraryID)
+	}
+}
+
+func TestStartSyncNowCancelsWhenActiveLibraryChanges(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	first, err := app.CreateLibrary(ctx, "sync-cancel-a")
+	if err != nil {
+		t.Fatalf("create first library: %v", err)
+	}
+	second, err := app.CreateLibrary(ctx, "sync-cancel-b")
+	if err != nil {
+		t.Fatalf("create second library: %v", err)
+	}
+	if _, err := app.SelectLibrary(ctx, first.LibraryID); err != nil {
+		t.Fatalf("select first library: %v", err)
+	}
+
+	transport := &blockingSyncTransport{started: make(chan struct{}, 1)}
+	app.SetSyncTransport(transport)
+
+	job, err := app.StartSyncNow(ctx)
+	if err != nil {
+		t.Fatalf("start sync now: %v", err)
+	}
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindSyncNow {
+		t.Fatalf("unexpected queued sync job: %+v", job)
+	}
+
+	select {
+	case <-transport.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for sync transport to start")
+	}
+
+	if _, err := app.SelectLibrary(ctx, second.LibraryID); err != nil {
+		t.Fatalf("switch active library: %v", err)
+	}
+
+	final := waitForJobPhase(t, ctx, app, "sync:"+first.LibraryID, JobPhaseFailed)
+	if !strings.Contains(final.Message, "no longer active") {
+		t.Fatalf("expected canceled sync job message, got %+v", final)
 	}
 }
 
@@ -912,6 +958,25 @@ func (t *memorySyncTransport) ResolvePeer(_ context.Context, _ apitypes.LocalCon
 		return nil, fmt.Errorf("peer %q not found", peerAddr)
 	}
 	return &memorySyncPeer{addr: peerAddr, app: app}, nil
+}
+
+type blockingSyncTransport struct {
+	started chan struct{}
+}
+
+func (t *blockingSyncTransport) ListPeers(ctx context.Context, local apitypes.LocalContext) ([]SyncPeer, error) {
+	if t.started != nil {
+		select {
+		case t.started <- struct{}{}:
+		default:
+		}
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (t *blockingSyncTransport) ResolvePeer(ctx context.Context, local apitypes.LocalContext, peerAddr string) (SyncPeer, error) {
+	return nil, fmt.Errorf("resolve peer not implemented for blocking sync transport")
 }
 
 type memorySyncPeer struct {

@@ -2,6 +2,7 @@ package desktopcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -134,8 +135,12 @@ func (s *PlaybackService) StartPreparePlaybackRecording(ctx context.Context, rec
 		return snapshot, nil
 	}
 
-	runCtx := context.WithoutCancel(ctx)
+	runCtx, cleanup, err := s.app.activeLibraryTaskContext(ctx, local.LibraryID)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
 	go func() {
+		defer cleanup()
 		_, _ = s.preparePlaybackRecordingForLocalContext(runCtx, local, recordingID, profile, purpose)
 	}()
 	return snapshot, nil
@@ -150,6 +155,10 @@ func (s *PlaybackService) preparePlaybackRecordingForLocalContext(ctx context.Co
 
 	status, err := s.inspectPlaybackRecording(ctx, local, recordingID, profile)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			job.Fail(1, "playback preparation canceled because the library is no longer active", nil)
+			return apitypes.PlaybackPreparationStatus{}, err
+		}
 		job.Fail(1, "playback preparation failed", err)
 		return apitypes.PlaybackPreparationStatus{}, err
 	}

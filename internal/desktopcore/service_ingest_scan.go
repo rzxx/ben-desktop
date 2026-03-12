@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -101,7 +102,7 @@ func (s *IngestService) StartRescanRoot(ctx context.Context, root string) (JobSn
 
 func (s *IngestService) runTrackedScan(ctx context.Context, libraryID, deviceID string, roots []string, jobKind string) (apitypes.ScanStats, error) {
 	normalized := normalizedWatcherRoots(roots)
-	flight, leader := s.app.beginScanFlight(normalized)
+	flight, leader := s.app.beginScanFlight(libraryID, normalized)
 	if !leader {
 		if err := waitForScanFlight(ctx, flight); err != nil {
 			return apitypes.ScanStats{}, err
@@ -125,6 +126,10 @@ func (s *IngestService) runTrackedScan(ctx context.Context, libraryID, deviceID 
 			return
 		}
 		if runErr != nil {
+			if errors.Is(runErr, context.Canceled) {
+				job.Fail(1, "scan canceled because the library is no longer active", nil)
+				return
+			}
 			job.Fail(1, "scan failed", runErr)
 			return
 		}
@@ -146,18 +151,22 @@ func (s *IngestService) startTrackedScan(ctx context.Context, libraryID, deviceI
 		return snapshot, nil
 	}
 
-	runCtx := context.WithoutCancel(ctx)
+	runCtx, cleanup, err := s.app.activeLibraryTaskContext(ctx, libraryID)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
 	go func() {
+		defer cleanup()
 		_, _ = s.runTrackedScan(runCtx, libraryID, deviceID, normalized, jobKind)
 	}()
 	return snapshot, nil
 }
 
-func (a *App) beginScanFlight(roots []string) (*scanFlight, bool) {
+func (a *App) beginScanFlight(libraryID string, roots []string) (*scanFlight, bool) {
 	a.activityMu.Lock()
 	defer a.activityMu.Unlock()
 
-	if a.scanFlight != nil {
+	if a.scanFlight != nil && strings.TrimSpace(a.scanFlight.libraryID) == strings.TrimSpace(libraryID) {
 		for _, root := range roots {
 			a.scanFlight.roots[scanRootKey(root)] = root
 		}
@@ -165,8 +174,9 @@ func (a *App) beginScanFlight(roots []string) (*scanFlight, bool) {
 	}
 
 	flight := &scanFlight{
-		roots: make(map[string]string, len(roots)),
-		done:  make(chan struct{}),
+		libraryID: strings.TrimSpace(libraryID),
+		roots:     make(map[string]string, len(roots)),
+		done:      make(chan struct{}),
 	}
 	for _, root := range roots {
 		flight.roots[scanRootKey(root)] = root
@@ -210,6 +220,9 @@ func (s *IngestService) runScanCycle(ctx context.Context, libraryID, deviceID st
 	pathsByRoot := make(map[string][]string, len(roots))
 	totalTracks := 0
 	for _, root := range roots {
+		if err := ctx.Err(); err != nil {
+			return apitypes.ScanStats{}, err
+		}
 		s.app.updateScanActivity(func(status *apitypes.ScanActivityStatus) {
 			status.Phase = "enumerating"
 			status.CurrentRoot = root
@@ -218,7 +231,7 @@ func (s *IngestService) runScanCycle(ctx context.Context, libraryID, deviceID st
 		if job != nil {
 			job.Running(0.05, "enumerating "+root)
 		}
-		paths, err := enumerateAudioPaths(root)
+		paths, err := enumerateAudioPaths(ctx, root)
 		if err != nil {
 			s.app.setScanActivity(apitypes.ScanActivityStatus{
 				Phase:       "failed",
@@ -246,9 +259,15 @@ func (s *IngestService) runScanCycle(ctx context.Context, libraryID, deviceID st
 		rootsDone  int
 	)
 	for _, root := range roots {
+		if err := ctx.Err(); err != nil {
+			return combined, err
+		}
 		paths := pathsByRoot[root]
 		sort.Strings(paths)
 		for _, path := range paths {
+			if err := ctx.Err(); err != nil {
+				return combined, err
+			}
 			s.app.updateScanActivity(func(status *apitypes.ScanActivityStatus) {
 				status.Phase = "ingesting"
 				status.RootsDone = rootsDone
@@ -335,7 +354,7 @@ func (s *IngestService) runScanCycle(ctx context.Context, libraryID, deviceID st
 	return combined, nil
 }
 
-func enumerateAudioPaths(root string) ([]string, error) {
+func enumerateAudioPaths(ctx context.Context, root string) ([]string, error) {
 	root = filepath.Clean(strings.TrimSpace(root))
 	if root == "" {
 		return nil, nil
@@ -353,6 +372,9 @@ func enumerateAudioPaths(root string) ([]string, error) {
 
 	paths := make([]string, 0, 64)
 	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}

@@ -8,10 +8,11 @@ import (
 )
 
 type scanFlight struct {
-	roots map[string]string
-	stats apitypes.ScanStats
-	err   error
-	done  chan struct{}
+	libraryID string
+	roots     map[string]string
+	stats     apitypes.ScanStats
+	err       error
+	done      chan struct{}
 }
 
 func newActivityStatus() apitypes.ActivityStatus {

@@ -3,6 +3,7 @@ package desktopcore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -96,8 +97,12 @@ func (a *App) StartSyncNow(ctx context.Context) (JobSnapshot, error) {
 		return snapshot, nil
 	}
 
-	runCtx := context.WithoutCancel(ctx)
+	runCtx, cleanup, err := a.activeLibraryTaskContext(ctx, local.LibraryID)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
 	go func() {
+		defer cleanup()
 		_ = a.syncNowForLocalContext(runCtx, local, a.jobs.Track(jobID, jobKindSyncNow, local.LibraryID))
 	}()
 	return snapshot, nil
@@ -107,6 +112,10 @@ func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalCo
 	local, err := a.ensureLocalPeerContext(ctx, local)
 	if err != nil {
 		if job != nil {
+			if errors.Is(err, context.Canceled) {
+				job.Fail(1, "manual sync canceled because the library is no longer active", nil)
+				return err
+			}
 			job.Fail(1, "manual sync failed", err)
 		}
 		return err
@@ -127,6 +136,10 @@ func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalCo
 	peers, err := a.transport.ListPeers(ctx, local)
 	if err != nil {
 		if job != nil {
+			if errors.Is(err, context.Canceled) {
+				job.Fail(1, "manual sync canceled because the library is no longer active", nil)
+				return err
+			}
 			job.Fail(1, "manual sync failed", err)
 		}
 		return err
@@ -180,6 +193,10 @@ func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalCo
 	if successes == 0 {
 		if firstErr != nil {
 			if job != nil {
+				if errors.Is(firstErr, context.Canceled) {
+					job.Fail(1, "manual sync canceled because the library is no longer active", nil)
+					return firstErr
+				}
 				job.Fail(1, "manual sync failed", firstErr)
 			}
 			return firstErr
@@ -267,7 +284,9 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 
 	for round := 0; round < maxSyncCatchupRounds; round++ {
 		if err := ctx.Err(); err != nil {
-			a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+			if !errors.Is(err, context.Canceled) {
+				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+			}
 			return totalApplied, err
 		}
 
@@ -279,7 +298,9 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 
 		resp, err := peer.Sync(ctx, req)
 		if err != nil {
-			a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+			if !errors.Is(err, context.Canceled) {
+				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+			}
 			return totalApplied, err
 		}
 		if strings.TrimSpace(resp.LibraryID) != strings.TrimSpace(local.LibraryID) {
@@ -298,12 +319,16 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 			}
 			record, err := peer.FetchCheckpoint(ctx, local.LibraryID, resp.Checkpoint.CheckpointID)
 			if err != nil {
-				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+				if !errors.Is(err, context.Canceled) {
+					a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+				}
 				return totalApplied, err
 			}
 			applied, err := a.installCheckpointRecord(ctx, local.DeviceID, record)
 			if err != nil {
-				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+				if !errors.Is(err, context.Canceled) {
+					a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+				}
 				return totalApplied, err
 			}
 			totalApplied += applied
@@ -313,7 +338,9 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 
 		applied, err := a.applyRemoteOps(ctx, local.LibraryID, resp.Ops)
 		if err != nil {
-			a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+			if !errors.Is(err, context.Canceled) {
+				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+			}
 			return totalApplied, err
 		}
 		totalApplied += applied

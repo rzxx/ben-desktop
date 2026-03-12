@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	apitypes "ben/core/api/types"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -203,13 +202,13 @@ func (a *App) syncActiveScanWatcher(ctx context.Context) error {
 		return nil
 	}
 
-	local, err := a.requireActiveContext(ctx)
+	local, ok, err := a.syncActiveLibraryRuntime(ctx)
 	if err != nil {
-		if errors.Is(err, apitypes.ErrNoActiveLibrary) {
-			a.stopActiveScanWatcher()
-			return nil
-		}
 		return err
+	}
+	if !ok {
+		a.stopActiveScanWatcher()
+		return nil
 	}
 
 	roots, err := a.scanRootsForDevice(ctx, local.LibraryID, local.DeviceID)
