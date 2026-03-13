@@ -272,19 +272,31 @@ func TestCleanupCacheKeepsBlobFileWhenAnotherLibraryStillCachesIt(t *testing.T) 
 }
 
 func openCacheTestApp(t *testing.T, cacheBytes int64) *App {
-	return openCacheTestAppWithTagReader(t, cacheBytes, nil)
+	return openCacheTestAppWithDependencies(t, cacheBytes, nil, nil)
 }
 
 func openCacheTestAppWithTagReader(t *testing.T, cacheBytes int64, reader TagReader) *App {
+	return openCacheTestAppWithDependencies(t, cacheBytes, reader, nil)
+}
+
+func openCacheTestAppWithTranscodeBuilder(t *testing.T, cacheBytes int64, builder AACTranscodeBuilder) *App {
+	return openCacheTestAppWithDependencies(t, cacheBytes, nil, builder)
+}
+
+func openCacheTestAppWithDependencies(t *testing.T, cacheBytes int64, reader TagReader, builder AACTranscodeBuilder) *App {
 	t.Helper()
 
 	root := t.TempDir()
+	if builder == nil {
+		builder = &fakeAACBuilder{result: []byte("test-encoded")}
+	}
 	app, err := Open(context.Background(), Config{
-		DBPath:          filepath.Join(root, "library.db"),
-		BlobRoot:        filepath.Join(root, "blobs"),
-		IdentityKeyPath: filepath.Join(root, "identity.key"),
-		CacheBytes:      cacheBytes,
-		TagReader:       reader,
+		DBPath:           filepath.Join(root, "library.db"),
+		BlobRoot:         filepath.Join(root, "blobs"),
+		IdentityKeyPath:  filepath.Join(root, "identity.key"),
+		CacheBytes:       cacheBytes,
+		TagReader:        reader,
+		TranscodeBuilder: builder,
 	})
 	if err != nil {
 		t.Fatalf("open app: %v", err)

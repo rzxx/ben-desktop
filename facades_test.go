@@ -635,6 +635,9 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 		Page:  apitypes.PageInfo{Returned: 1, Total: 1},
 	}
 	cleanup := apitypes.CacheCleanupResult{DeletedBytes: 64}
+	encodingBatch := apitypes.EnsureEncodingBatchResult{Recordings: 2, Created: 1, Skipped: 1}
+	playbackResult := apitypes.PlaybackRecordingResult{EncodingID: "enc-1", BlobID: "b3:" + strings.Repeat("c", 64), SourceKind: apitypes.PlaybackSourceCachedOpt}
+	playbackBatch := apitypes.PlaybackBatchResult{Tracks: 2, TotalBytes: 512, LocalHits: 2}
 	status := apitypes.PlaybackPreparationStatus{RecordingID: "rec-1", PreferredProfile: "default"}
 	resolve := apitypes.PlaybackResolveResult{RecordingID: "rec-1", PlayableURI: "file:///track.m4a"}
 	availability := apitypes.RecordingPlaybackAvailability{RecordingID: "rec-1", PreferredProfile: "default"}
@@ -662,6 +665,18 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 			},
 			cleanupCacheFn: func(_ context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
 				return cleanup, nil
+			},
+			ensureRecordingEncodingFn: func(_ context.Context, recordingID, preferredProfile string) (bool, error) {
+				return true, nil
+			},
+			ensureAlbumEncodingsFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+				return encodingBatch, nil
+			},
+			ensurePlaylistEncodingsFn: func(_ context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+				return encodingBatch, nil
+			},
+			ensurePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+				return playbackResult, nil
 			},
 			inspectPlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 				return status, nil
@@ -697,6 +712,12 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 					Available: true,
 				}, nil
 			},
+			ensurePlaybackAlbumFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+				return playbackBatch, nil
+			},
+			ensurePlaybackPlaylistFn: func(_ context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+				return playbackBatch, nil
+			},
 			resolveRecordingArtworkFn: func(_ context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error) {
 				return apitypes.RecordingArtworkResult{
 					RecordingID: recordingID,
@@ -718,6 +739,18 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 	}
 
 	playbackFacade := NewPlaybackFacade(host)
+	if created, err := playbackFacade.EnsureRecordingEncoding(ctx, "rec-1", "default"); err != nil || !created {
+		t.Fatalf("ensure recording encoding = %v, err=%v", created, err)
+	}
+	if got, err := playbackFacade.EnsureAlbumEncodings(ctx, "album-1", "default"); err != nil || got.Recordings != encodingBatch.Recordings {
+		t.Fatalf("ensure album encodings = %+v, err=%v", got, err)
+	}
+	if got, err := playbackFacade.EnsurePlaylistEncodings(ctx, "playlist-1", "default"); err != nil || got.Created != encodingBatch.Created {
+		t.Fatalf("ensure playlist encodings = %+v, err=%v", got, err)
+	}
+	if got, err := playbackFacade.EnsurePlaybackRecording(ctx, "rec-1", "default"); err != nil || got.EncodingID != playbackResult.EncodingID {
+		t.Fatalf("ensure playback recording = %+v, err=%v", got, err)
+	}
 	if _, err := playbackFacade.InspectPlaybackRecording(ctx, "rec-1", "default"); err != nil {
 		t.Fatalf("inspect playback recording: %v", err)
 	}
@@ -732,6 +765,12 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 	}
 	if _, err := playbackFacade.ResolvePlaybackRecording(ctx, "rec-1", "default"); err != nil {
 		t.Fatalf("resolve playback recording: %v", err)
+	}
+	if got, err := playbackFacade.EnsurePlaybackAlbum(ctx, "album-1", "default"); err != nil || got.Tracks != playbackBatch.Tracks {
+		t.Fatalf("ensure playback album = %+v, err=%v", got, err)
+	}
+	if got, err := playbackFacade.EnsurePlaybackPlaylist(ctx, "playlist-1", "default"); err != nil || got.TotalBytes != playbackBatch.TotalBytes {
+		t.Fatalf("ensure playback playlist = %+v, err=%v", got, err)
 	}
 	if got, err := playbackFacade.ResolveBlobURL("b3:" + hashHex); err != nil || !strings.HasPrefix(got, "file:") {
 		t.Fatalf("resolve blob url = %q, err=%v", got, err)

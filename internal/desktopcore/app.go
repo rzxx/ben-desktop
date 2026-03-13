@@ -26,15 +26,17 @@ type App struct {
 	transportMu   sync.RWMutex
 	transport     SyncTransport
 
-	jobs             *JobsService
-	library          *LibraryService
-	ingest           *IngestService
-	catalog          *CatalogService
-	cache            *CacheService
-	playlist         *PlaylistService
-	playback         *PlaybackService
-	invite           *InviteService
-	transportService *TransportService
+	jobs              *JobsService
+	library           *LibraryService
+	ingest            *IngestService
+	catalog           *CatalogService
+	cache             *CacheService
+	transcode         *TranscodeService
+	playlist          *PlaylistService
+	playback          *PlaybackService
+	invite            *InviteService
+	transportService  *TransportService
+	transcodeActivity map[string]apitypes.TranscodeActivityStatus
 }
 
 func Open(ctx context.Context, cfg Config) (*App, error) {
@@ -76,6 +78,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	app.ingest = &IngestService{app: app}
 	app.catalog = &CatalogService{app: app}
 	app.cache = &CacheService{app: app}
+	app.transcode = newTranscodeService(app)
 	app.playlist = &PlaylistService{app: app}
 	app.playback = newPlaybackService(app)
 	app.invite = &InviteService{app: app}
@@ -335,6 +338,22 @@ func (a *App) InspectPlaybackRecording(ctx context.Context, recordingID, preferr
 	return a.playback.InspectPlaybackRecording(ctx, recordingID, preferredProfile)
 }
 
+func (a *App) EnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (bool, error) {
+	return a.playback.EnsureRecordingEncoding(ctx, recordingID, preferredProfile)
+}
+
+func (a *App) EnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+	return a.playback.EnsureAlbumEncodings(ctx, albumID, preferredProfile)
+}
+
+func (a *App) EnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+	return a.playback.EnsurePlaylistEncodings(ctx, playlistID, preferredProfile)
+}
+
+func (a *App) EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+	return a.playback.EnsurePlaybackRecording(ctx, recordingID, preferredProfile)
+}
+
 func (a *App) PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
 	return a.playback.PreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
 }
@@ -361,6 +380,14 @@ func (a *App) ResolveRecordingArtwork(ctx context.Context, recordingID, variant 
 
 func (a *App) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
 	return a.playback.PinRecordingOffline(ctx, recordingID, preferredProfile)
+}
+
+func (a *App) EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return a.playback.EnsurePlaybackAlbum(ctx, albumID, preferredProfile)
+}
+
+func (a *App) EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return a.playback.EnsurePlaybackPlaylist(ctx, playlistID, preferredProfile)
 }
 
 func (a *App) UnpinRecordingOffline(ctx context.Context, recordingID string) error {

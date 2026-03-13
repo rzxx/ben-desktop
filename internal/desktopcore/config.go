@@ -21,6 +21,7 @@ type Config struct {
 	TranscodeProfile string
 	CacheBytes       int64
 	TagReader        TagReader
+	TranscodeBuilder AACTranscodeBuilder
 	Logger           apitypes.Logger
 }
 

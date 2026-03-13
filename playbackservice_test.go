@@ -86,8 +86,14 @@ type passthroughBridgeStub struct {
 	getCacheOverviewFn          func(context.Context) (apitypes.CacheOverview, error)
 	listCacheEntriesFn          func(context.Context, apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error)
 	cleanupCacheFn              func(context.Context, apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error)
+	ensureRecordingEncodingFn   func(context.Context, string, string) (bool, error)
+	ensureAlbumEncodingsFn      func(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error)
+	ensurePlaylistEncodingsFn   func(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error)
+	ensurePlaybackRecordingFn   func(context.Context, string, string) (apitypes.PlaybackRecordingResult, error)
 	pinRecordingOfflineFn       func(context.Context, string, string) (apitypes.PlaybackRecordingResult, error)
 	unpinRecordingOfflineFn     func(context.Context, string) error
+	ensurePlaybackAlbumFn       func(context.Context, string, string) (apitypes.PlaybackBatchResult, error)
+	ensurePlaybackPlaylistFn    func(context.Context, string, string) (apitypes.PlaybackBatchResult, error)
 	pinAlbumOfflineFn           func(context.Context, string, string) (apitypes.PlaybackBatchResult, error)
 	unpinAlbumOfflineFn         func(context.Context, string) error
 	pinPlaylistOfflineFn        func(context.Context, string, string) (apitypes.PlaybackBatchResult, error)
@@ -395,8 +401,32 @@ func (b *passthroughBridgeStub) CleanupCache(ctx context.Context, req apitypes.C
 	return b.cleanupCacheFn(ctx, req)
 }
 
+func (b *passthroughBridgeStub) EnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (bool, error) {
+	return b.ensureRecordingEncodingFn(ctx, recordingID, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) EnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+	return b.ensureAlbumEncodingsFn(ctx, albumID, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) EnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+	return b.ensurePlaylistEncodingsFn(ctx, playlistID, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+	return b.ensurePlaybackRecordingFn(ctx, recordingID, preferredProfile)
+}
+
 func (b *passthroughBridgeStub) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
 	return b.pinRecordingOfflineFn(ctx, recordingID, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return b.ensurePlaybackAlbumFn(ctx, albumID, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return b.ensurePlaybackPlaylistFn(ctx, playlistID, preferredProfile)
 }
 
 func (b *passthroughBridgeStub) UnpinRecordingOffline(ctx context.Context, recordingID string) error {

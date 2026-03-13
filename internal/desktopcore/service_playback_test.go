@@ -329,11 +329,11 @@ func TestAvailabilityOverviewsReflectLocalAndRemoteDevices(t *testing.T) {
 	if albumOverview.Availability.LocalTrackCount != 1 {
 		t.Fatalf("local track count = %d, want 1", albumOverview.Availability.LocalTrackCount)
 	}
-	if albumOverview.Availability.AvailableTrackCount != 1 {
-		t.Fatalf("available track count = %d, want 1", albumOverview.Availability.AvailableTrackCount)
+	if albumOverview.Availability.AvailableTrackCount != 2 {
+		t.Fatalf("available track count = %d, want 2", albumOverview.Availability.AvailableTrackCount)
 	}
-	if albumOverview.Availability.UnavailableTrackCount != 1 {
-		t.Fatalf("unavailable track count = %d, want 1", albumOverview.Availability.UnavailableTrackCount)
+	if albumOverview.Availability.UnavailableTrackCount != 0 {
+		t.Fatalf("unavailable track count = %d, want 0", albumOverview.Availability.UnavailableTrackCount)
 	}
 	if albumOverview.Availability.RemoteTrackCount != 2 {
 		t.Fatalf("remote track count = %d, want 2", albumOverview.Availability.RemoteTrackCount)

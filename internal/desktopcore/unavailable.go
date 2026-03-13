@@ -244,6 +244,22 @@ func (c *UnavailableCore) InspectPlaybackRecording(context.Context, string, stri
 	return apitypes.PlaybackPreparationStatus{}, c.err
 }
 
+func (c *UnavailableCore) EnsureRecordingEncoding(context.Context, string, string) (bool, error) {
+	return false, c.err
+}
+
+func (c *UnavailableCore) EnsureAlbumEncodings(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error) {
+	return apitypes.EnsureEncodingBatchResult{}, c.err
+}
+
+func (c *UnavailableCore) EnsurePlaylistEncodings(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error) {
+	return apitypes.EnsureEncodingBatchResult{}, c.err
+}
+
+func (c *UnavailableCore) EnsurePlaybackRecording(context.Context, string, string) (apitypes.PlaybackRecordingResult, error) {
+	return apitypes.PlaybackRecordingResult{}, c.err
+}
+
 func (c *UnavailableCore) PreparePlaybackRecording(context.Context, string, string, apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
 	return apitypes.PlaybackPreparationStatus{}, c.err
 }
@@ -270,6 +286,14 @@ func (c *UnavailableCore) ResolveRecordingArtwork(context.Context, string, strin
 
 func (c *UnavailableCore) PinRecordingOffline(context.Context, string, string) (apitypes.PlaybackRecordingResult, error) {
 	return apitypes.PlaybackRecordingResult{}, c.err
+}
+
+func (c *UnavailableCore) EnsurePlaybackAlbum(context.Context, string, string) (apitypes.PlaybackBatchResult, error) {
+	return apitypes.PlaybackBatchResult{}, c.err
+}
+
+func (c *UnavailableCore) EnsurePlaybackPlaylist(context.Context, string, string) (apitypes.PlaybackBatchResult, error) {
+	return apitypes.PlaybackBatchResult{}, c.err
 }
 
 func (c *UnavailableCore) UnpinRecordingOffline(context.Context, string) error {

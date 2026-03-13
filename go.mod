@@ -14,6 +14,7 @@ require (
 	go.senan.xyz/taglib v0.11.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
+	lukechampine.com/blake3 v1.4.1
 	modernc.org/sqlite v1.46.1
 )
 

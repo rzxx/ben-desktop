@@ -31,6 +31,219 @@ func newPlaybackService(app *App) *PlaybackService {
 	}
 }
 
+func (s *PlaybackService) EnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (bool, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return false, err
+	}
+	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
+	if err != nil {
+		return false, err
+	}
+	return s.app.transcode.EnsureRecordingEncoding(ctx, local, resolvedRecordingID, profile)
+}
+
+func (s *PlaybackService) EnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.EnsureEncodingBatchResult{}, err
+	}
+	albumID = strings.TrimSpace(albumID)
+	if albumID == "" {
+		return apitypes.EnsureEncodingBatchResult{}, fmt.Errorf("album id is required")
+	}
+	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, albumID)
+	if err != nil {
+		return apitypes.EnsureEncodingBatchResult{}, err
+	}
+	return s.ensureScopeEncodings(ctx, recordingIDs, preferredProfile)
+}
+
+func (s *PlaybackService) EnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.EnsureEncodingBatchResult{}, err
+	}
+	playlistID = strings.TrimSpace(playlistID)
+	if playlistID == "" {
+		return apitypes.EnsureEncodingBatchResult{}, fmt.Errorf("playlist id is required")
+	}
+	recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.EnsureEncodingBatchResult{}, err
+	}
+	return s.ensureScopeEncodings(ctx, recordingIDs, preferredProfile)
+}
+
+func (s *PlaybackService) ensureScopeEncodings(ctx context.Context, recordingIDs []string, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+	out := apitypes.EnsureEncodingBatchResult{}
+	seen := make(map[string]struct{}, len(recordingIDs))
+	for _, recordingID := range recordingIDs {
+		recordingID = strings.TrimSpace(recordingID)
+		if recordingID == "" {
+			continue
+		}
+		if _, ok := seen[recordingID]; ok {
+			continue
+		}
+		seen[recordingID] = struct{}{}
+		out.Recordings++
+		created, err := s.EnsureRecordingEncoding(ctx, recordingID, preferredProfile)
+		if err != nil {
+			return apitypes.EnsureEncodingBatchResult{}, err
+		}
+		if created {
+			out.Created++
+		} else {
+			out.Skipped++
+		}
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
+	if err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, resolvedRecordingID, profile); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+
+	blobID, encodingID, ok, err := s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile)
+	if err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	if ok {
+		path, err := s.pathForBlob(blobID)
+		if err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		}
+		var asset OptimizedAssetModel
+		if err := s.app.db.WithContext(ctx).
+			Where("library_id = ? AND optimized_asset_id = ?", local.LibraryID, encodingID).
+			Take(&asset).Error; err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		}
+		return apitypes.PlaybackRecordingResult{
+			EncodingID: encodingID,
+			BlobID:     blobID,
+			Profile:    strings.TrimSpace(asset.Profile),
+			Bitrate:    asset.Bitrate,
+			Bytes:      int(info.Size()),
+			FromLocal:  true,
+			SourceKind: apitypes.PlaybackSourceCachedOpt,
+		}, nil
+	}
+
+	if localPath, ok, err := s.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID); err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	} else if ok {
+		info, err := os.Stat(localPath)
+		if err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		}
+		return apitypes.PlaybackRecordingResult{
+			Profile:    profile,
+			Bytes:      int(info.Size()),
+			FromLocal:  true,
+			SourceKind: apitypes.PlaybackSourceLocalFile,
+			LocalPath:  localPath,
+		}, nil
+	}
+
+	availability, err := s.GetRecordingAvailability(ctx, resolvedRecordingID, profile)
+	if err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	switch availability.State {
+	case apitypes.AvailabilityPlayableRemoteOpt:
+		return apitypes.PlaybackRecordingResult{
+			Profile:    profile,
+			SourceKind: apitypes.PlaybackSourceRemoteOpt,
+			Reason:     apitypes.PlaybackUnavailableNetworkOff,
+		}, fmt.Errorf("recording %s requires remote optimized fetch", resolvedRecordingID)
+	case apitypes.AvailabilityWaitingProviderTranscode:
+		return apitypes.PlaybackRecordingResult{
+			Profile:    profile,
+			SourceKind: apitypes.PlaybackSourceRemoteOpt,
+			Reason:     apitypes.PlaybackUnavailableNetworkOff,
+		}, fmt.Errorf("recording %s requires provider transcode", resolvedRecordingID)
+	default:
+		return apitypes.PlaybackRecordingResult{
+			Profile: profile,
+			Reason:  availability.Reason,
+		}, fmt.Errorf("recording %s is not available for playback", resolvedRecordingID)
+	}
+}
+
+func (s *PlaybackService) EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	albumID = strings.TrimSpace(albumID)
+	if albumID == "" {
+		return apitypes.PlaybackBatchResult{}, fmt.Errorf("album id is required")
+	}
+	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, albumID)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	return s.ensurePlaybackScope(ctx, recordingIDs, preferredProfile)
+}
+
+func (s *PlaybackService) EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	playlistID = strings.TrimSpace(playlistID)
+	if playlistID == "" {
+		return apitypes.PlaybackBatchResult{}, fmt.Errorf("playlist id is required")
+	}
+	recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	return s.ensurePlaybackScope(ctx, recordingIDs, preferredProfile)
+}
+
+func (s *PlaybackService) ensurePlaybackScope(ctx context.Context, recordingIDs []string, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	out := apitypes.PlaybackBatchResult{}
+	seen := make(map[string]struct{}, len(recordingIDs))
+	for _, recordingID := range recordingIDs {
+		recordingID = strings.TrimSpace(recordingID)
+		if recordingID == "" {
+			continue
+		}
+		if _, ok := seen[recordingID]; ok {
+			continue
+		}
+		seen[recordingID] = struct{}{}
+		result, err := s.EnsurePlaybackRecording(ctx, recordingID, preferredProfile)
+		if err != nil {
+			return apitypes.PlaybackBatchResult{}, err
+		}
+		out.Tracks++
+		out.TotalBytes += int64(result.Bytes)
+		if result.FromLocal {
+			out.LocalHits++
+		} else {
+			out.RemoteFetches++
+		}
+	}
+	return out, nil
+}
+
 func (s *PlaybackService) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 	local, err := s.app.requireActiveContext(ctx)
 	if err != nil {
@@ -304,6 +517,7 @@ func (s *PlaybackService) ListRecordingAvailability(ctx context.Context, recordi
 	if err != nil {
 		return nil, err
 	}
+	aliasProfile := normalizedPlaybackProfileAlias(profile)
 	type row struct {
 		DeviceID         string
 		Role             string
@@ -327,12 +541,12 @@ SELECT
 	) THEN 1 ELSE 0 END AS source_present,
 	CASE WHEN EXISTS (
 		SELECT 1 FROM optimized_assets oa
-		WHERE oa.library_id = m.library_id AND oa.created_by_device_id = m.device_id AND oa.track_variant_id = ? AND (? = '' OR oa.profile = ?)
+		WHERE oa.library_id = m.library_id AND oa.created_by_device_id = m.device_id AND oa.track_variant_id = ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
 	) THEN 1 ELSE 0 END AS optimized_present,
 	CASE WHEN EXISTS (
 		SELECT 1 FROM device_asset_caches dac
 		JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
-		WHERE dac.library_id = m.library_id AND dac.device_id = m.device_id AND dac.is_cached = 1 AND oa.track_variant_id = ? AND (? = '' OR oa.profile = ?)
+		WHERE dac.library_id = m.library_id AND dac.device_id = m.device_id AND dac.is_cached = 1 AND oa.track_variant_id = ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
 	) THEN 1 ELSE 0 END AS cached_optimized
 FROM memberships m
 LEFT JOIN devices d ON d.device_id = m.device_id
@@ -342,8 +556,8 @@ ORDER BY CASE WHEN m.device_id = ? THEN 0 ELSE 1 END, m.device_id ASC`
 	var rows []row
 	if err := s.app.db.WithContext(ctx).Raw(query,
 		resolvedRecordingID,
-		resolvedRecordingID, profile, profile,
-		resolvedRecordingID, profile, profile,
+		resolvedRecordingID, profile, profile, aliasProfile,
+		resolvedRecordingID, profile, profile, aliasProfile,
 		local.LibraryID, local.DeviceID,
 	).Scan(&rows).Error; err != nil {
 		return nil, err
@@ -397,11 +611,16 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 		return apitypes.RecordingPlaybackAvailability{}, err
 	}
 	hasRemoteCached := false
+	remoteCachedOnline := false
 	providerFound := false
 	providerOnline := false
+	networkRunning := s.app.NetworkStatus().Running
 	for _, item := range items {
 		if item.DeviceID != local.DeviceID && item.CachedOptimized {
 			hasRemoteCached = true
+			if item.LastSeenAt != nil && item.LastSeenAt.UTC().After(time.Now().UTC().Add(-availabilityOnlineWindow)) {
+				remoteCachedOnline = true
+			}
 		}
 		if item.DeviceID == local.DeviceID {
 			continue
@@ -414,9 +633,18 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 		}
 	}
 	switch {
+	case hasRemoteCached && remoteCachedOnline && networkRunning:
+		out.State = apitypes.AvailabilityPlayableRemoteOpt
+		out.SourceKind = apitypes.PlaybackSourceRemoteOpt
+	case hasRemoteCached && !remoteCachedOnline:
+		out.State = apitypes.AvailabilityUnavailableProvider
+		out.Reason = apitypes.PlaybackUnavailableProviderOffline
 	case hasRemoteCached:
 		out.State = apitypes.AvailabilityUnavailableProvider
 		out.Reason = apitypes.PlaybackUnavailableNetworkOff
+	case providerFound && providerOnline && networkRunning:
+		out.State = apitypes.AvailabilityWaitingProviderTranscode
+		out.SourceKind = apitypes.PlaybackSourceRemoteOpt
 	case !providerFound:
 		out.State = apitypes.AvailabilityUnavailableNoPath
 		out.Reason = apitypes.PlaybackUnavailableNoPath
@@ -702,6 +930,7 @@ LIMIT 1`
 }
 
 func (s *PlaybackService) bestCachedEncoding(ctx context.Context, libraryID, deviceID, recordingID, profile string) (string, string, bool, error) {
+	aliasProfile := normalizedPlaybackProfileAlias(profile)
 	type encodingRow struct {
 		BlobID           string
 		OptimizedAssetID string
@@ -715,11 +944,11 @@ JOIN source_files sf ON sf.library_id = e.library_id AND sf.source_file_id = e.s
 JOIN track_variants req ON req.library_id = e.library_id AND req.track_variant_id = ?
 JOIN track_variants cand ON cand.library_id = sf.library_id AND cand.track_variant_id = sf.track_variant_id
 LEFT JOIN device_asset_caches de ON de.library_id = ? AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
-WHERE e.library_id = ? AND cand.track_cluster_id = req.track_cluster_id AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ?)
+WHERE e.library_id = ? AND cand.track_cluster_id = req.track_cluster_id AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
 ORDER BY CASE WHEN sf.track_variant_id = ? THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC
 LIMIT 1`
 	var result encodingRow
-	if err := s.app.db.WithContext(ctx).Raw(query, recordingID, libraryID, deviceID, libraryID, profile, profile, recordingID).Scan(&result).Error; err != nil {
+	if err := s.app.db.WithContext(ctx).Raw(query, recordingID, libraryID, deviceID, libraryID, profile, profile, aliasProfile, recordingID).Scan(&result).Error; err != nil {
 		return "", "", false, err
 	}
 	if strings.TrimSpace(result.BlobID) == "" {
@@ -790,20 +1019,8 @@ func (s *PlaybackService) pinOfflineScope(ctx context.Context, local apitypes.Lo
 }
 
 func (s *PlaybackService) prepareRecordingOfflineResult(ctx context.Context, local apitypes.LocalContext, recordingID, profile string) (apitypes.PlaybackRecordingResult, error) {
-	if localPath, ok, err := s.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, recordingID); err != nil {
+	if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, recordingID, profile); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
 		return apitypes.PlaybackRecordingResult{}, err
-	} else if ok {
-		info, err := os.Stat(localPath)
-		if err != nil {
-			return apitypes.PlaybackRecordingResult{}, err
-		}
-		return apitypes.PlaybackRecordingResult{
-			Profile:    profile,
-			Bytes:      int(info.Size()),
-			FromLocal:  true,
-			SourceKind: apitypes.PlaybackSourceLocalFile,
-			LocalPath:  localPath,
-		}, nil
 	}
 
 	blobID, encodingID, ok, err := s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, profile)
@@ -833,6 +1050,22 @@ func (s *PlaybackService) prepareRecordingOfflineResult(ctx context.Context, loc
 			Bytes:      int(info.Size()),
 			FromLocal:  true,
 			SourceKind: apitypes.PlaybackSourceCachedOpt,
+		}, nil
+	}
+
+	if localPath, ok, err := s.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, recordingID); err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	} else if ok {
+		info, err := os.Stat(localPath)
+		if err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		}
+		return apitypes.PlaybackRecordingResult{
+			Profile:    profile,
+			Bytes:      int(info.Size()),
+			FromLocal:  true,
+			SourceKind: apitypes.PlaybackSourceLocalFile,
+			LocalPath:  localPath,
 		}, nil
 	}
 
@@ -1040,4 +1273,13 @@ func aggregateAvailabilitySummaries(items []apitypes.TrackAvailabilitySummary) a
 		}
 	}
 	return out
+}
+
+func normalizedPlaybackProfileAlias(profile string) string {
+	switch strings.TrimSpace(profile) {
+	case "desktop":
+		return audioProfileVBRHigh
+	default:
+		return strings.TrimSpace(profile)
+	}
 }

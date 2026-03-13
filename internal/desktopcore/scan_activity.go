@@ -73,3 +73,54 @@ func (a *App) updateScanActivity(apply func(*apitypes.ScanActivityStatus)) {
 	a.activity.Scan.UpdatedAt = time.Now().UTC()
 	a.activity.UpdatedAt = a.activity.Scan.UpdatedAt
 }
+
+func (a *App) setTranscodeActivity(key string, status apitypes.TranscodeActivityStatus) {
+	if a == nil {
+		return
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	if strings.TrimSpace(status.Phase) == "" {
+		status.Phase = "running"
+	}
+	a.activityMu.Lock()
+	defer a.activityMu.Unlock()
+	if a.transcodeActivity == nil {
+		a.transcodeActivity = make(map[string]apitypes.TranscodeActivityStatus)
+	}
+	a.transcodeActivity[key] = status
+	a.rebuildTranscodeActivityLocked()
+}
+
+func (a *App) clearTranscodeActivity(key string) {
+	if a == nil {
+		return
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	a.activityMu.Lock()
+	defer a.activityMu.Unlock()
+	if len(a.transcodeActivity) == 0 {
+		return
+	}
+	delete(a.transcodeActivity, key)
+	a.rebuildTranscodeActivityLocked()
+}
+
+func (a *App) rebuildTranscodeActivityLocked() {
+	if len(a.transcodeActivity) == 0 {
+		a.activity.Transcodes = nil
+		a.activity.UpdatedAt = time.Now().UTC()
+		return
+	}
+	items := make([]apitypes.TranscodeActivityStatus, 0, len(a.transcodeActivity))
+	for _, status := range a.transcodeActivity {
+		items = append(items, status)
+	}
+	a.activity.Transcodes = items
+	a.activity.UpdatedAt = time.Now().UTC()
+}

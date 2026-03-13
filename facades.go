@@ -457,6 +457,22 @@ func NewPlaybackFacade(host *coreHost) *PlaybackFacade {
 
 func (s *PlaybackFacade) ServiceName() string { return "PlaybackFacade" }
 
+func (s *PlaybackFacade) EnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (bool, error) {
+	return s.playback().EnsureRecordingEncoding(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackFacade) EnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+	return s.playback().EnsureAlbumEncodings(ctx, albumID, preferredProfile)
+}
+
+func (s *PlaybackFacade) EnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+	return s.playback().EnsurePlaylistEncodings(ctx, playlistID, preferredProfile)
+}
+
+func (s *PlaybackFacade) EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+	return s.playback().EnsurePlaybackRecording(ctx, recordingID, preferredProfile)
+}
+
 func (s *PlaybackFacade) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 	return s.playback().InspectPlaybackRecording(ctx, recordingID, preferredProfile)
 }
@@ -520,6 +536,14 @@ func (s *PlaybackFacade) ResolveRecordingArtworkURL(ctx context.Context, recordi
 
 func (s *PlaybackFacade) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
 	return s.playback().PinRecordingOffline(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackFacade) EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return s.playback().EnsurePlaybackAlbum(ctx, albumID, preferredProfile)
+}
+
+func (s *PlaybackFacade) EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+	return s.playback().EnsurePlaybackPlaylist(ctx, playlistID, preferredProfile)
 }
 
 func (s *PlaybackFacade) UnpinRecordingOffline(ctx context.Context, recordingID string) error {
