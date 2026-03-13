@@ -24,7 +24,7 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 	calls := make([]string, 0, 14)
 	host := &coreHost{
 		started: true,
-		bridge: &passthroughBridgeStub{
+		runtime: &passthroughBridgeStub{
 			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 			listLibrariesFn: func(context.Context) ([]apitypes.LibrarySummary, error) {
 				calls = append(calls, "list")
@@ -166,7 +166,7 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	calls := make([]string, 0, 13)
 	host := &coreHost{
 		started: true,
-		bridge: &passthroughBridgeStub{
+		runtime: &passthroughBridgeStub{
 			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 			ensureLocalContextFn: func(context.Context) (apitypes.LocalContext, error) {
 				calls = append(calls, "local")
@@ -283,7 +283,7 @@ func TestJobsFacadeForwardsToBridge(t *testing.T) {
 	calls := make([]string, 0, 2)
 	host := &coreHost{
 		started: true,
-		bridge: &passthroughBridgeStub{
+		runtime: &passthroughBridgeStub{
 			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 			listJobsFn: func(_ context.Context, libraryID string) ([]desktopcore.JobSnapshot, error) {
 				calls = append(calls, "list:"+libraryID)
@@ -327,7 +327,7 @@ func TestCatalogFacadeForwardsToBridge(t *testing.T) {
 	calls := make([]string, 0, 18)
 	host := &coreHost{
 		started: true,
-		bridge: &passthroughBridgeStub{
+		runtime: &passthroughBridgeStub{
 			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 			listArtistsFn: func(_ context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
 				calls = append(calls, "list-artists")
@@ -523,7 +523,7 @@ func TestInviteFacadeForwardsToBridge(t *testing.T) {
 	calls := make([]string, 0, 11)
 	host := &coreHost{
 		started: true,
-		bridge: &passthroughBridgeStub{
+		runtime: &passthroughBridgeStub{
 			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 			createInviteCodeFn: func(_ context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
 				calls = append(calls, "create:"+req.Role)
@@ -654,7 +654,7 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 	host := &coreHost{
 		started:  true,
 		blobRoot: blobRoot,
-		bridge: &passthroughBridgeStub{
+		runtime: &passthroughBridgeStub{
 			UnavailableCore:    desktopcore.NewUnavailableCore(errors.New("unused")),
 			getCacheOverviewFn: func(context.Context) (apitypes.CacheOverview, error) { return overview, nil },
 			listCacheEntriesFn: func(_ context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {

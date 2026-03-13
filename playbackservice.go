@@ -62,10 +62,10 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		_ = store.Close()
 		return err
 	}
-	playbackBridge := host.Bridge()
+	playbackRuntime := host.Runtime()
 
 	session := playback.NewSession(
-		playbackBridge,
+		playbackRuntime,
 		playback.NewBackend(),
 		store,
 		host.PreferredProfile(),
@@ -74,22 +74,22 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 	session.SetSnapshotEmitter(s.handlePlaybackSnapshot)
 	if err := session.Start(ctx); err != nil {
 		_ = store.Close()
-		_ = playbackBridge.Close()
+		_ = playbackRuntime.Close()
 		return err
 	}
 
-	controller := platform.NewController(app, session, playbackBridge)
+	controller := platform.NewController(app, session, playbackRuntime)
 	if err := controller.Start(); err != nil {
 		_ = session.Close()
 		_ = store.Close()
-		_ = playbackBridge.Close()
+		_ = playbackRuntime.Close()
 		return err
 	}
 
 	s.mu.Lock()
 	s.app = app
 	s.host = host
-	s.bridge = playbackBridge
+	s.bridge = playbackRuntime
 	s.session = session
 	s.platform = controller
 	s.store = store
@@ -426,7 +426,7 @@ func (s *PlaybackService) requirePlaybackBridge() playback.CorePlaybackBridge {
 	s.mu.RUnlock()
 	if bridge == nil {
 		if host != nil {
-			return host.Bridge()
+			return host.Runtime()
 		}
 		return desktopcore.NewUnavailableCore(fmt.Errorf("core playback bridge is not available"))
 	}

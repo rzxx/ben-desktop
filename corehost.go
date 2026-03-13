@@ -6,105 +6,15 @@ import (
 	"log"
 	"sync"
 
-	apitypes "ben/core/api/types"
 	"ben/desktop/internal/desktopcore"
-	"ben/desktop/internal/playback"
 	"ben/desktop/internal/settings"
 )
-
-type hostBridge interface {
-	playback.CorePlaybackBridge
-	EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error)
-	Inspect(ctx context.Context) (apitypes.InspectSummary, error)
-	InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error)
-	ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error)
-	NetworkStatus() apitypes.NetworkStatus
-	SyncNow(ctx context.Context) error
-	StartSyncNow(ctx context.Context) (desktopcore.JobSnapshot, error)
-	ConnectPeer(ctx context.Context, peerAddr string) error
-	CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error)
-	PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error)
-	StartPublishCheckpoint(ctx context.Context) (desktopcore.JobSnapshot, error)
-	CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error)
-	StartCompactCheckpoint(ctx context.Context, force bool) (desktopcore.JobSnapshot, error)
-	ListJobs(ctx context.Context, libraryID string) ([]desktopcore.JobSnapshot, error)
-	GetJob(ctx context.Context, jobID string) (desktopcore.JobSnapshot, bool, error)
-	ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error)
-	ActiveLibrary(ctx context.Context) (apitypes.LibrarySummary, bool, error)
-	CreateLibrary(ctx context.Context, name string) (apitypes.LibrarySummary, error)
-	SelectLibrary(ctx context.Context, libraryID string) (apitypes.LibrarySummary, error)
-	RenameLibrary(ctx context.Context, libraryID, name string) (apitypes.LibrarySummary, error)
-	LeaveLibrary(ctx context.Context, libraryID string) error
-	DeleteLibrary(ctx context.Context, libraryID string) error
-	ListLibraryMembers(ctx context.Context) ([]apitypes.LibraryMemberStatus, error)
-	UpdateLibraryMemberRole(ctx context.Context, deviceID, role string) error
-	RemoveLibraryMember(ctx context.Context, deviceID string) error
-	SetScanRoots(ctx context.Context, roots []string) error
-	AddScanRoots(ctx context.Context, roots []string) ([]string, error)
-	RemoveScanRoots(ctx context.Context, roots []string) ([]string, error)
-	ScanRoots(ctx context.Context) ([]string, error)
-	RescanNow(ctx context.Context) (apitypes.ScanStats, error)
-	StartRescanNow(ctx context.Context) (desktopcore.JobSnapshot, error)
-	RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error)
-	StartRescanRoot(ctx context.Context, root string) (desktopcore.JobSnapshot, error)
-	ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error)
-	GetArtist(ctx context.Context, artistID string) (apitypes.ArtistListItem, error)
-	ListArtistAlbums(ctx context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
-	ListAlbums(ctx context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
-	GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error)
-	ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error)
-	GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error)
-	ListRecordingVariants(ctx context.Context, req apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error)
-	ListAlbumVariants(ctx context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error)
-	SetPreferredRecordingVariant(ctx context.Context, recordingID, variantRecordingID string) error
-	SetPreferredAlbumVariant(ctx context.Context, albumID, variantAlbumID string) error
-	ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error)
-	ListPlaylists(ctx context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error)
-	GetPlaylistSummary(ctx context.Context, playlistID string) (apitypes.PlaylistListItem, error)
-	ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error)
-	ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error)
-	CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error)
-	RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error)
-	DeletePlaylist(ctx context.Context, playlistID string) error
-	AddPlaylistItem(ctx context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error)
-	MovePlaylistItem(ctx context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error)
-	RemovePlaylistItem(ctx context.Context, playlistID, itemID string) error
-	LikeRecording(ctx context.Context, recordingID string) error
-	UnlikeRecording(ctx context.Context, recordingID string) error
-	IsRecordingLiked(ctx context.Context, recordingID string) (bool, error)
-	CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error)
-	ListIssuedInvites(ctx context.Context, status string) ([]apitypes.IssuedInviteRecord, error)
-	RevokeIssuedInvite(ctx context.Context, inviteID, reason string) error
-	StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error)
-	GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error)
-	FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error)
-	StartFinalizeJoinSession(ctx context.Context, sessionID string) (desktopcore.JobSnapshot, error)
-	CancelJoinSession(ctx context.Context, sessionID string) error
-	ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error)
-	ApproveJoinRequest(ctx context.Context, requestID, role string) error
-	RejectJoinRequest(ctx context.Context, requestID, reason string) error
-	GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error)
-	ListCacheEntries(ctx context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error)
-	CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error)
-	PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error)
-	UnpinRecordingOffline(ctx context.Context, recordingID string) error
-	PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error)
-	UnpinAlbumOffline(ctx context.Context, albumID string) error
-	PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error)
-	UnpinPlaylistOffline(ctx context.Context, playlistID string) error
-	PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error)
-	UnpinLikedOffline(ctx context.Context) error
-	StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error)
-	ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error)
-	GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error)
-	GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error)
-}
 
 type coreHost struct {
 	mu sync.RWMutex
 
 	started          bool
-	bridge           hostBridge
+	runtime          desktopcore.Runtime
 	blobRoot         string
 	preferredProfile string
 }
@@ -125,7 +35,7 @@ func (h *coreHost) Start(ctx context.Context) error {
 	}
 
 	coreSettings := loadCoreRuntimeSettings()
-	h.bridge = openCoreBridge(ctx, coreSettings)
+	h.runtime = openCoreRuntime(ctx, coreSettings)
 	h.blobRoot = resolvedBlobRoot(coreSettings)
 	h.preferredProfile = preferredProfile(coreSettings)
 	h.started = true
@@ -138,31 +48,31 @@ func (h *coreHost) Close() error {
 	}
 
 	h.mu.Lock()
-	bridge := h.bridge
-	h.bridge = nil
+	runtime := h.runtime
+	h.runtime = nil
 	h.blobRoot = ""
 	h.preferredProfile = ""
 	h.started = false
 	h.mu.Unlock()
 
-	if bridge == nil {
+	if runtime == nil {
 		return nil
 	}
-	return bridge.Close()
+	return runtime.Close()
 }
 
-func (h *coreHost) Bridge() hostBridge {
+func (h *coreHost) Runtime() desktopcore.Runtime {
 	if h == nil {
-		return desktopcore.NewUnavailableCore(fmt.Errorf("core bridge is not available"))
+		return desktopcore.NewUnavailableCore(fmt.Errorf("core runtime is not available"))
 	}
 
 	h.mu.RLock()
-	bridge := h.bridge
+	runtime := h.runtime
 	h.mu.RUnlock()
-	if bridge == nil {
-		return desktopcore.NewUnavailableCore(fmt.Errorf("core bridge is not available"))
+	if runtime == nil {
+		return desktopcore.NewUnavailableCore(fmt.Errorf("core runtime is not available"))
 	}
-	return bridge
+	return runtime
 }
 
 func (h *coreHost) BlobRoot() string {
@@ -213,11 +123,11 @@ func loadCoreRuntimeSettings() settings.CoreRuntimeSettings {
 	return state.Core
 }
 
-func openCoreBridge(ctx context.Context, coreSettings settings.CoreRuntimeSettings) hostBridge {
-	bridge, err := desktopcore.OpenFromSettings(ctx, coreSettings)
+func openCoreRuntime(ctx context.Context, coreSettings settings.CoreRuntimeSettings) desktopcore.Runtime {
+	runtime, err := desktopcore.OpenFromSettings(ctx, coreSettings)
 	if err != nil {
-		log.Printf("playback: core bridge unavailable: %v", err)
+		log.Printf("playback: desktop core runtime unavailable: %v", err)
 		return desktopcore.NewUnavailableCore(err)
 	}
-	return bridge
+	return runtime
 }
