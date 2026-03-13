@@ -88,6 +88,42 @@ func TestConnectPeerAppliesIncrementalPlaylistSync(t *testing.T) {
 	}
 }
 
+func TestVerifyTransportPeerAuthRejectsTamperedMembershipCert(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openPlaylistTestApp(t)
+	joiner := openPlaylistTestApp(t)
+
+	library, err := owner.CreateLibrary(ctx, "auth-verify")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	_, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	certRow, ok, err := joiner.loadMembershipCert(ctx, library.LibraryID, joinerLocal.DeviceID)
+	if err != nil {
+		t.Fatalf("load joiner membership cert: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected joiner membership cert")
+	}
+	authorityRows, err := joiner.loadAdmissionAuthorityChain(ctx, library.LibraryID)
+	if err != nil {
+		t.Fatalf("load joiner authority chain: %v", err)
+	}
+	auth := transportPeerAuth{
+		Cert:           membershipCertEnvelopeFromRow(certRow),
+		AuthorityChain: admissionAuthorityChainFromRows(authorityRows),
+	}
+	auth.Cert.Sig = []byte("tampered")
+
+	_, err = owner.verifyTransportPeerAuth(ctx, library.LibraryID, joinerLocal.DeviceID, joinerLocal.PeerID, joinerLocal.PeerID, auth)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "membership certificate") {
+		t.Fatalf("expected membership certificate verification error, got %v", err)
+	}
+}
+
 func TestSyncNowInstallsCheckpointWhenBacklogReachesCutover(t *testing.T) {
 	t.Parallel()
 
@@ -767,6 +803,11 @@ func seedSharedLibraryForSync(t *testing.T, owner, joiner *App, library apitypes
 	now := time.Now().UTC()
 
 	if err := owner.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		libraryRow, _, _, err := ensureLibraryJoinMaterialTx(tx, library.LibraryID, now)
+		if err != nil {
+			return err
+		}
+		library.Name = libraryRow.Name
 		if err := tx.Create(&Device{
 			DeviceID:   joinerDevice.DeviceID,
 			Name:       joinerDevice.Name,
@@ -776,24 +817,53 @@ func seedSharedLibraryForSync(t *testing.T, owner, joiner *App, library apitypes
 		}).Error; err != nil {
 			return err
 		}
-		return tx.Create(&Membership{
+		if err := tx.Create(&Membership{
 			LibraryID:        library.LibraryID,
 			DeviceID:         joinerDevice.DeviceID,
 			Role:             roleMember,
 			CapabilitiesJSON: "{}",
 			JoinedAt:         now,
-		}).Error
+		}).Error; err != nil {
+			return err
+		}
+		_, err = issueMembershipCertTx(tx, library.LibraryID, joinerDevice.DeviceID, joinerPeerID, roleMember, defaultMembershipCertTTL)
+		return err
 	}); err != nil {
 		t.Fatalf("seed owner membership: %v", err)
 	}
 
 	if err := joiner.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var ownerLibrary Library
+		if err := owner.db.WithContext(ctx).Where("library_id = ?", library.LibraryID).Take(&ownerLibrary).Error; err != nil {
+			return err
+		}
+		var authorityRows []AdmissionAuthority
+		if err := owner.db.WithContext(ctx).
+			Where("library_id = ?", library.LibraryID).
+			Order("version ASC").
+			Find(&authorityRows).Error; err != nil {
+			return err
+		}
+		joinerCert, ok, err := joinerPeerMembershipCert(owner, ctx, library.LibraryID, joinerDevice.DeviceID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("joiner membership certificate not found")
+		}
 		if err := tx.Create(&Library{
-			LibraryID: library.LibraryID,
-			Name:      library.Name,
-			CreatedAt: now,
+			LibraryID:     library.LibraryID,
+			Name:          ownerLibrary.Name,
+			RootPublicKey: ownerLibrary.RootPublicKey,
+			LibraryKey:    ownerLibrary.LibraryKey,
+			CreatedAt:     now,
 		}).Error; err != nil {
 			return err
+		}
+		if len(authorityRows) > 0 {
+			if err := tx.Create(&authorityRows).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Create(&Device{
 			DeviceID:   ownerLocal.DeviceID,
@@ -830,6 +900,9 @@ func seedSharedLibraryForSync(t *testing.T, owner, joiner *App, library apitypes
 			}).Error; err != nil {
 			return err
 		}
+		if err := saveMembershipCertTx(tx, joinerCert); err != nil {
+			return err
+		}
 		return ensureLikedPlaylistTx(tx, library.LibraryID, joinerDevice.DeviceID, now)
 	}); err != nil {
 		t.Fatalf("seed joiner library: %v", err)
@@ -841,6 +914,14 @@ func seedSharedLibraryForSync(t *testing.T, owner, joiner *App, library apitypes
 	}
 	joinerLocal.PeerID = joinerPeerID
 	return ownerLocal, joinerLocal
+}
+
+func joinerPeerMembershipCert(owner *App, ctx context.Context, libraryID, deviceID string) (membershipCertEnvelope, bool, error) {
+	row, ok, err := owner.loadMembershipCert(ctx, libraryID, deviceID)
+	if err != nil || !ok {
+		return membershipCertEnvelope{}, ok, err
+	}
+	return membershipCertEnvelopeFromRow(row), true, nil
 }
 
 func seedCheckpointBacklog(t *testing.T, app *App, libraryID, deviceID string, totalOps int) (string, apitypes.LibraryCheckpointManifest) {
@@ -1007,16 +1088,15 @@ func (p *memorySyncPeer) PeerID() string {
 }
 
 func (p *memorySyncPeer) Sync(ctx context.Context, req SyncRequest) (SyncResponse, error) {
+	if _, err := p.app.verifyTransportPeerAuth(ctx, req.LibraryID, req.DeviceID, req.PeerID, req.PeerID, req.Auth); err != nil {
+		return SyncResponse{}, err
+	}
 	return p.app.buildSyncResponse(ctx, req)
 }
 
-func (p *memorySyncPeer) FetchCheckpoint(ctx context.Context, libraryID, checkpointID string) (checkpointTransferRecord, error) {
-	record, ok, err := p.app.loadCheckpointTransferRecord(ctx, libraryID, checkpointID, false)
-	if err != nil {
-		return checkpointTransferRecord{}, err
+func (p *memorySyncPeer) FetchCheckpoint(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error) {
+	if _, err := p.app.verifyTransportPeerAuth(ctx, req.LibraryID, req.Auth.Cert.DeviceID, req.Auth.Cert.PeerID, req.Auth.Cert.PeerID, req.Auth); err != nil {
+		return CheckpointFetchResponse{}, err
 	}
-	if !ok {
-		return checkpointTransferRecord{}, fmt.Errorf("checkpoint %q not found", checkpointID)
-	}
-	return record, nil
+	return p.app.buildCheckpointFetchResponse(ctx, req)
 }

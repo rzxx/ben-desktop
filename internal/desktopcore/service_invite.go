@@ -1135,30 +1135,6 @@ func consumeInviteTokenRedemptionTx(tx *gorm.DB, libraryID, tokenID, requestID s
 	}).Error
 }
 
-func buildMembershipCert(libraryID, deviceID, peerID, role string, authorityVersion int64) (membershipCertEnvelope, error) {
-	now := time.Now().UTC()
-	if authorityVersion <= 0 {
-		authorityVersion = 1
-	}
-	cert := membershipCertEnvelope{
-		LibraryID:        strings.TrimSpace(libraryID),
-		DeviceID:         strings.TrimSpace(deviceID),
-		PeerID:           strings.TrimSpace(peerID),
-		Role:             normalizeRole(role),
-		AuthorityVersion: authorityVersion,
-		Serial:           now.UnixNano(),
-		IssuedAt:         now.UnixNano(),
-		ExpiresAt:        now.Add(30 * 24 * time.Hour).UnixNano(),
-	}
-	body, err := json.Marshal(cert)
-	if err != nil {
-		return membershipCertEnvelope{}, err
-	}
-	sum := sha256.Sum256(body)
-	cert.Sig = append([]byte(nil), sum[:]...)
-	return cert, nil
-}
-
 func encodeInviteCode(payload inviteCodePayload) (string, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -1280,14 +1256,22 @@ func (a *App) ensureDevicePeerID(ctx context.Context, deviceID, deviceName strin
 		return "", fmt.Errorf("device id is required")
 	}
 
+	expectedPeerID := ""
+	current, currentErr := a.ensureCurrentDevice(ctx)
+	if currentErr == nil && strings.TrimSpace(current.DeviceID) == deviceID {
+		if peerID, err := a.transportIdentityPeerID(); err == nil {
+			expectedPeerID = strings.TrimSpace(peerID)
+		}
+	}
+
 	now := time.Now().UTC()
 	var device Device
 	err := a.db.WithContext(ctx).Where("device_id = ?", deviceID).Take(&device).Error
 	if err == nil {
-		if strings.TrimSpace(device.PeerID) != "" {
+		if strings.TrimSpace(device.PeerID) != "" && (expectedPeerID == "" || strings.TrimSpace(device.PeerID) == expectedPeerID) {
 			return strings.TrimSpace(device.PeerID), nil
 		}
-		peerID := pseudoPeerID(deviceID)
+		peerID := firstNonEmpty(expectedPeerID, pseudoPeerID(deviceID))
 		if err := a.db.WithContext(ctx).Model(&Device{}).
 			Where("device_id = ?", deviceID).
 			Updates(map[string]any{
@@ -1303,7 +1287,7 @@ func (a *App) ensureDevicePeerID(ctx context.Context, deviceID, deviceName strin
 		return "", err
 	}
 
-	peerID := pseudoPeerID(deviceID)
+	peerID := firstNonEmpty(expectedPeerID, pseudoPeerID(deviceID))
 	if err := a.db.WithContext(ctx).Create(&Device{
 		DeviceID:   deviceID,
 		Name:       chooseDeviceName("", deviceName, deviceID),

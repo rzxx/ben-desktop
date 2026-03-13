@@ -1,8 +1,7 @@
 package desktopcore
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/ed25519"
 	"fmt"
 	"strings"
 	"time"
@@ -36,7 +35,7 @@ func (s *InviteService) buildJoinSessionMaterialTx(tx *gorm.DB, libraryID, devic
 		return joinSessionMaterial{}, err
 	}
 
-	cert, err := buildMembershipCert(libraryID, deviceID, peerID, role, authority.Version)
+	cert, err := issueMembershipCertTx(tx, libraryID, deviceID, peerID, role, defaultMembershipCertTTL)
 	if err != nil {
 		return joinSessionMaterial{}, err
 	}
@@ -82,20 +81,16 @@ func ensureLibraryJoinMaterialTx(tx *gorm.DB, libraryID string, now time.Time) (
 		updates["name"] = library.Name
 	}
 	if strings.TrimSpace(library.RootPublicKey) == "" {
-		token, err := randomToken()
+		publicKey, privateKey, err := generateSigningKeyPair()
 		if err != nil {
 			return Library{}, AdmissionAuthority{}, "", err
 		}
-		library.RootPublicKey = token
+		library.RootPublicKey = publicKey
+		library.RootPrivateKey = privateKey
 		updates["root_public_key"] = library.RootPublicKey
-	}
-	if strings.TrimSpace(library.RootPrivateKey) == "" {
-		token, err := randomToken()
-		if err != nil {
-			return Library{}, AdmissionAuthority{}, "", err
-		}
-		library.RootPrivateKey = token
 		updates["root_private_key"] = library.RootPrivateKey
+	} else if strings.TrimSpace(library.RootPrivateKey) == "" {
+		return Library{}, AdmissionAuthority{}, "", fmt.Errorf("library root private key missing")
 	}
 	if strings.TrimSpace(library.LibraryKey) == "" {
 		token, err := randomToken()
@@ -117,21 +112,33 @@ func ensureLibraryJoinMaterialTx(tx *gorm.DB, libraryID string, now time.Time) (
 		if err != gorm.ErrRecordNotFound {
 			return Library{}, AdmissionAuthority{}, "", err
 		}
-		publicKey, err := randomToken()
+		publicKey, privateKey, err := generateSigningKeyPair()
 		if err != nil {
 			return Library{}, AdmissionAuthority{}, "", err
 		}
-		privateKey, err := randomToken()
+		rootPrivateKey, err := decodeEd25519PrivateKey(library.RootPrivateKey)
 		if err != nil {
 			return Library{}, AdmissionAuthority{}, "", err
 		}
-		authority = AdmissionAuthority{
-			LibraryID:    libraryID,
+		authorityEnvelope := admissionAuthorityEnvelope{
 			Version:      1,
 			PublicKey:    publicKey,
 			PrevVersion:  0,
 			SignedByKind: admissionAuthoritySignedByRoot,
-			Sig:          pseudoAuthoritySignature(libraryID, publicKey, 1, 0, admissionAuthoritySignedByRoot, now),
+			CreatedAt:    now.UTC().UnixNano(),
+		}
+		payload, err := admissionAuthoritySigningPayload(libraryID, authorityEnvelope)
+		if err != nil {
+			return Library{}, AdmissionAuthority{}, "", err
+		}
+		authorityEnvelope.Sig = ed25519.Sign(ed25519.PrivateKey(rootPrivateKey), payload)
+		authority = AdmissionAuthority{
+			LibraryID:    libraryID,
+			Version:      authorityEnvelope.Version,
+			PublicKey:    authorityEnvelope.PublicKey,
+			PrevVersion:  authorityEnvelope.PrevVersion,
+			SignedByKind: authorityEnvelope.SignedByKind,
+			Sig:          authorityEnvelope.Sig,
 			CreatedAt:    now.UTC(),
 		}
 		if err := tx.Create(&authority).Error; err != nil {
@@ -148,13 +155,7 @@ func ensureLibraryJoinMaterialTx(tx *gorm.DB, libraryID string, now time.Time) (
 		return Library{}, AdmissionAuthority{}, "", err
 	}
 	if strings.TrimSpace(privateKey) == "" {
-		privateKey, err = randomToken()
-		if err != nil {
-			return Library{}, AdmissionAuthority{}, "", err
-		}
-		if err := upsertLocalSettingTx(tx, admissionAuthorityPrivateKeyLocalSettingKey(libraryID, authority.Version), privateKey, now); err != nil {
-			return Library{}, AdmissionAuthority{}, "", err
-		}
+		return Library{}, AdmissionAuthority{}, "", fmt.Errorf("current admission authority private key missing")
 	}
 	return library, authority, privateKey, nil
 }
@@ -291,19 +292,4 @@ func admissionAuthorityPrivateKeyLocalSettingKey(libraryID string, version int64
 		return ""
 	}
 	return fmt.Sprintf("admission_authority_private:%s:%d", libraryID, version)
-}
-
-func pseudoAuthoritySignature(libraryID, publicKey string, version, prevVersion int64, signedByKind string, createdAt time.Time) []byte {
-	sum := sha256.Sum256([]byte(fmt.Sprintf(
-		"%s|%s|%d|%d|%s|%d",
-		strings.TrimSpace(libraryID),
-		strings.TrimSpace(publicKey),
-		version,
-		prevVersion,
-		strings.TrimSpace(signedByKind),
-		createdAt.UTC().UnixNano(),
-	)))
-	out := make([]byte, hex.EncodedLen(len(sum)))
-	hex.Encode(out, sum[:])
-	return out
 }

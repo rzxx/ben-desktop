@@ -550,6 +550,54 @@ func pruneSupersededCheckpointsTx(tx *gorm.DB, libraryID, keepCheckpointID strin
 	return tx.Where("library_id = ? AND checkpoint_id <> ?", libraryID, keepCheckpointID).Delete(&DeviceCheckpointAck{}).Error
 }
 
+func (a *App) backgroundCheckpointMaintenance(ctx context.Context, libraryID string) error {
+	libraryID = strings.TrimSpace(libraryID)
+	if libraryID == "" {
+		return nil
+	}
+
+	checkpoint, baseClocks, hasPublished, err := a.loadPublishedCheckpoint(ctx, libraryID)
+	if err != nil {
+		return err
+	}
+	if hasPublished {
+		_, compactable, err := a.pendingCheckpointDevices(ctx, libraryID, checkpoint.CheckpointID)
+		if err != nil {
+			return err
+		}
+		if compactable {
+			_, err := a.CompactCheckpoint(ctx, false)
+			return err
+		}
+	}
+
+	backlog, err := a.checkpointBacklogCount(ctx, libraryID, baseClocks)
+	if err != nil {
+		return err
+	}
+	if backlog >= incrementalSyncBacklogCutover {
+		_, err := a.PublishCheckpoint(ctx)
+		return err
+	}
+	return nil
+}
+
+func (a *App) checkpointBacklogCount(ctx context.Context, libraryID string, baseClocks map[string]int64) (int64, error) {
+	clocks, err := a.listDeviceClocks(ctx, libraryID)
+	if err != nil {
+		return 0, err
+	}
+	var backlog int64
+	for _, clock := range clocks {
+		deviceID := strings.TrimSpace(clock.DeviceID)
+		missing := clock.LastSeqSeen - baseClocks[deviceID]
+		if missing > 0 {
+			backlog += missing
+		}
+	}
+	return backlog, nil
+}
+
 func sortCheckpointDevices(devices []apitypes.CheckpointDeviceCoverage) {
 	sort.Slice(devices, func(i, j int) bool {
 		return devices[i].DeviceID < devices[j].DeviceID

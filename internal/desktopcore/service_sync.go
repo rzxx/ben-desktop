@@ -32,13 +32,14 @@ type SyncPeer interface {
 	DeviceID() string
 	PeerID() string
 	Sync(ctx context.Context, req SyncRequest) (SyncResponse, error)
-	FetchCheckpoint(ctx context.Context, libraryID, checkpointID string) (checkpointTransferRecord, error)
+	FetchCheckpoint(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error)
 }
 
 type SyncRequest struct {
 	LibraryID             string
 	DeviceID              string
 	PeerID                string
+	Auth                  transportPeerAuth
 	Clocks                map[string]int64
 	InstalledCheckpointID string
 	MaxOps                int
@@ -48,11 +49,24 @@ type SyncResponse struct {
 	LibraryID      string
 	DeviceID       string
 	PeerID         string
+	Auth           transportPeerAuth
 	Ops            []checkpointOplogEntry
 	HasMore        bool
 	RemainingOps   int64
 	NeedCheckpoint bool
 	Checkpoint     *apitypes.LibraryCheckpointManifest
+}
+
+type CheckpointFetchRequest struct {
+	LibraryID    string
+	CheckpointID string
+	Auth         transportPeerAuth
+}
+
+type CheckpointFetchResponse struct {
+	Record checkpointTransferRecord
+	Auth   transportPeerAuth
+	Error  string
 }
 
 type syncBatch struct {
@@ -123,22 +137,11 @@ func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalCo
 		}
 		return err
 	}
-	transport := a.activeSyncTransport()
-	if transport == nil {
-		err := fmt.Errorf("peer transport is not configured")
-		if job != nil {
-			job.Fail(1, "manual sync failed", err)
-		}
-		return err
-	}
-
 	if job != nil {
 		job.Queued(0, "queued manual sync")
 		job.Running(0.05, "discovering peers")
 	}
-
-	peers, err := transport.ListPeers(ctx, local)
-	if err != nil {
+	if err := a.catchupAllPeers(ctx, local, apitypes.NetworkSyncReasonManual, job, true); err != nil {
 		if job != nil {
 			if errors.Is(err, context.Canceled) {
 				job.Fail(1, "manual sync canceled because the library is no longer active", nil)
@@ -148,12 +151,27 @@ func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalCo
 		}
 		return err
 	}
-	if len(peers) == 0 {
-		err := fmt.Errorf("no connected peers")
-		if job != nil {
-			job.Fail(1, "manual sync failed", err)
-		}
+	if job != nil {
+		job.Complete(1, "manual sync completed")
+	}
+	return nil
+}
+
+func (a *App) catchupAllPeers(ctx context.Context, local apitypes.LocalContext, reason apitypes.NetworkSyncReason, job *JobTracker, failIfNoPeers bool) error {
+	transport := a.activeSyncTransport()
+	if transport == nil {
+		return fmt.Errorf("peer transport is not configured")
+	}
+
+	peers, err := transport.ListPeers(ctx, local)
+	if err != nil {
 		return err
+	}
+	if len(peers) == 0 {
+		if failIfNoPeers {
+			return fmt.Errorf("no connected peers")
+		}
+		return nil
 	}
 
 	successes := 0
@@ -184,7 +202,7 @@ func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalCo
 			}
 			job.Running(progress, syncPeerJobMessage(processed, totalPeers, peer))
 		}
-		if _, err := a.syncPeerCatchup(ctx, local, peer, apitypes.NetworkSyncReasonManual); err != nil {
+		if _, err := a.syncPeerCatchup(ctx, local, peer, reason); err != nil {
 			failures++
 			if firstErr == nil {
 				firstErr = err
@@ -196,30 +214,15 @@ func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalCo
 
 	if successes == 0 {
 		if firstErr != nil {
-			if job != nil {
-				if errors.Is(firstErr, context.Canceled) {
-					job.Fail(1, "manual sync canceled because the library is no longer active", nil)
-					return firstErr
-				}
-				job.Fail(1, "manual sync failed", firstErr)
-			}
 			return firstErr
 		}
-		err := fmt.Errorf("all peer sync attempts failed")
-		if job != nil {
-			job.Fail(1, "manual sync failed", err)
+		if failIfNoPeers {
+			return fmt.Errorf("all peer sync attempts failed")
 		}
-		return err
+		return nil
 	}
-	if failures > 0 && firstErr != nil {
-		err := fmt.Errorf("%d peer sync attempts failed: %w", failures, firstErr)
-		if job != nil {
-			job.Fail(1, "manual sync failed", err)
-		}
-		return err
-	}
-	if job != nil {
-		job.Complete(1, syncJobCompletionMessage(successes, failures))
+	if failures > 0 && firstErr != nil && failIfNoPeers {
+		return fmt.Errorf("%d peer sync attempts failed: %w", failures, firstErr)
 	}
 	return nil
 }
@@ -313,6 +316,10 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 			a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 			return totalApplied, err
 		}
+		if _, err := a.verifyTransportPeerAuth(ctx, local.LibraryID, resp.DeviceID, resp.PeerID, firstNonEmpty(peer.PeerID(), remotePeerID), resp.Auth); err != nil {
+			a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+			return totalApplied, err
+		}
 		remoteDeviceID = firstNonEmpty(resp.DeviceID, remoteDeviceID)
 		remotePeerID = firstNonEmpty(resp.PeerID, remotePeerID)
 		_ = a.updateDevicePeerID(ctx, local.LibraryID, remoteDeviceID, remotePeerID, remoteDeviceID)
@@ -323,14 +330,22 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 				return totalApplied, err
 			}
-			record, err := peer.FetchCheckpoint(ctx, local.LibraryID, resp.Checkpoint.CheckpointID)
+			fetchResp, err := peer.FetchCheckpoint(ctx, CheckpointFetchRequest{
+				LibraryID:    local.LibraryID,
+				CheckpointID: resp.Checkpoint.CheckpointID,
+				Auth:         req.Auth,
+			})
 			if err != nil {
 				if !errors.Is(err, context.Canceled) {
 					a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 				}
 				return totalApplied, err
 			}
-			applied, err := a.installCheckpointRecord(ctx, local.DeviceID, record)
+			if _, err := a.verifyTransportPeerAuth(ctx, local.LibraryID, remoteDeviceID, remotePeerID, firstNonEmpty(peer.PeerID(), remotePeerID), fetchResp.Auth); err != nil {
+				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+				return totalApplied, err
+			}
+			applied, err := a.installCheckpointRecord(ctx, local.DeviceID, fetchResp.Record)
 			if err != nil {
 				if !errors.Is(err, context.Canceled) {
 					a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
@@ -399,6 +414,16 @@ func (a *App) buildSyncRequest(ctx context.Context, libraryID, deviceID, peerID 
 	if ok {
 		req.InstalledCheckpointID = strings.TrimSpace(ack.CheckpointID)
 	}
+	auth, err := a.ensureLocalTransportMembershipAuth(ctx, apitypes.LocalContext{
+		LibraryID: libraryID,
+		DeviceID:  deviceID,
+		Role:      firstNonEmpty(a.membershipRole(ctx, libraryID, deviceID), roleMember),
+		PeerID:    peerID,
+	}, peerID)
+	if err != nil {
+		return SyncRequest{}, fmt.Errorf("build local transport auth: %w", err)
+	}
+	req.Auth = auth
 	return req, nil
 }
 
@@ -413,9 +438,6 @@ func (a *App) buildSyncResponse(ctx context.Context, req SyncRequest) (SyncRespo
 	}
 	if strings.TrimSpace(req.LibraryID) != strings.TrimSpace(local.LibraryID) {
 		return SyncResponse{}, fmt.Errorf("remote library mismatch")
-	}
-	if !a.isLibraryMember(ctx, req.LibraryID, req.DeviceID) {
-		return SyncResponse{}, fmt.Errorf("device not allowed")
 	}
 
 	published, hasPublished, err := a.loadCheckpointTransferRecord(ctx, req.LibraryID, "", true)
@@ -453,6 +475,11 @@ func (a *App) buildSyncResponse(ctx context.Context, req SyncRequest) (SyncRespo
 		HasMore:      batch.HasMore,
 		RemainingOps: batch.RemainingOps,
 	}
+	auth, err := a.ensureLocalTransportMembershipAuth(ctx, local, local.PeerID)
+	if err != nil {
+		return SyncResponse{}, fmt.Errorf("build local transport auth: %w", err)
+	}
+	resp.Auth = auth
 	if hasPublished && (requesterNeedsCheckpoint(req.Clocks, published.Manifest.BaseClocks) || batch.TotalMissing >= incrementalSyncBacklogCutover) {
 		resp.Ops = nil
 		resp.HasMore = true
@@ -461,6 +488,44 @@ func (a *App) buildSyncResponse(ctx context.Context, req SyncRequest) (SyncRespo
 		resp.RemainingOps = 0
 	}
 	return resp, nil
+}
+
+func (a *App) buildCheckpointFetchResponse(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error) {
+	local, err := a.requireActiveContext(ctx)
+	if err != nil {
+		return CheckpointFetchResponse{}, err
+	}
+	local, err = a.ensureLocalPeerContext(ctx, local)
+	if err != nil {
+		return CheckpointFetchResponse{}, err
+	}
+	if strings.TrimSpace(req.LibraryID) != strings.TrimSpace(local.LibraryID) {
+		return CheckpointFetchResponse{}, fmt.Errorf("remote library mismatch")
+	}
+
+	record, ok, err := a.loadCheckpointTransferRecord(ctx, req.LibraryID, req.CheckpointID, false)
+	if err != nil {
+		return CheckpointFetchResponse{}, err
+	}
+	if !ok {
+		return CheckpointFetchResponse{}, fmt.Errorf("checkpoint not found")
+	}
+	auth, err := a.ensureLocalTransportMembershipAuth(ctx, local, local.PeerID)
+	if err != nil {
+		return CheckpointFetchResponse{}, fmt.Errorf("build local transport auth: %w", err)
+	}
+	return CheckpointFetchResponse{Record: record, Auth: auth}, nil
+}
+
+func (a *App) membershipRole(ctx context.Context, libraryID, deviceID string) string {
+	var row Membership
+	if err := a.db.WithContext(ctx).
+		Select("role").
+		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).
+		Take(&row).Error; err != nil {
+		return ""
+	}
+	return normalizeRole(row.Role)
 }
 
 func (a *App) listDeviceClocks(ctx context.Context, libraryID string) ([]DeviceClock, error) {

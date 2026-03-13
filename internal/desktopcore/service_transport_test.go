@@ -89,11 +89,40 @@ func TestTransportServiceStartsAndStopsWithActiveLibrarySelection(t *testing.T) 
 }
 
 func TestLibp2pTransportConnectPeerAppliesIncrementalSync(t *testing.T) {
-	t.Parallel()
-
 	ctx := context.Background()
 	owner := openPlaylistTestApp(t)
 	joiner := openPlaylistTestApp(t)
+	owner.transportService.backgroundInterval = 0
+	joiner.transportService.backgroundInterval = 0
+
+	var (
+		ownerMu     sync.Mutex
+		joinerMu    sync.Mutex
+		ownerWraps  []*countingManagedTransport
+		joinerWraps []*countingManagedTransport
+	)
+	owner.transportService.factory = func(ctx context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
+		base, err := owner.newLibp2pSyncTransport(ctx, local)
+		if err != nil {
+			return nil, err
+		}
+		wrapped := &countingManagedTransport{managedSyncTransport: base}
+		ownerMu.Lock()
+		ownerWraps = append(ownerWraps, wrapped)
+		ownerMu.Unlock()
+		return wrapped, nil
+	}
+	joiner.transportService.factory = func(ctx context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
+		base, err := joiner.newLibp2pSyncTransport(ctx, local)
+		if err != nil {
+			return nil, err
+		}
+		wrapped := &countingManagedTransport{managedSyncTransport: base}
+		joinerMu.Lock()
+		joinerWraps = append(joinerWraps, wrapped)
+		joinerMu.Unlock()
+		return wrapped, nil
+	}
 
 	library, err := owner.CreateLibrary(ctx, "libp2p-sync")
 	if err != nil {
@@ -148,7 +177,69 @@ func TestLibp2pTransportConnectPeerAppliesIncrementalSync(t *testing.T) {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	t.Fatal("timed out waiting for peer sync state to reflect libp2p sync")
+	second, err := owner.CreateLibrary(ctx, "libp2p-switch")
+	if err != nil {
+		t.Fatalf("create second owner library: %v", err)
+	}
+	seedSharedLibraryForSync(t, owner, joiner, second)
+	if err := joiner.syncActiveRuntimeServices(ctx); err != nil {
+		t.Fatalf("switch joiner runtime services: %v", err)
+	}
+	seedPlaylistRecording(t, owner, second.LibraryID, "rec-switch", "Switch")
+	switchPlaylist, err := owner.CreatePlaylist(ctx, "Queue Switch", "")
+	if err != nil {
+		t.Fatalf("create switch playlist: %v", err)
+	}
+	if _, err := owner.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{
+		PlaylistID:  switchPlaylist.PlaylistID,
+		RecordingID: "rec-switch",
+	}); err != nil {
+		t.Fatalf("add switch playlist item: %v", err)
+	}
+
+	ownerMu.Lock()
+	if len(ownerWraps) < 2 {
+		t.Fatalf("owner transport instances = %d, want at least 2", len(ownerWraps))
+	}
+	ownerFirst := ownerWraps[0]
+	ownerSecond := ownerWraps[1]
+	ownerMu.Unlock()
+	joinerMu.Lock()
+	if len(joinerWraps) < 2 {
+		t.Fatalf("joiner transport instances = %d, want at least 2", len(joinerWraps))
+	}
+	joinerFirst := joinerWraps[0]
+	joinerSecond := joinerWraps[1]
+	joinerMu.Unlock()
+	if ownerFirst.closed != 1 {
+		t.Fatalf("owner first transport close count = %d, want 1 after switching libraries", ownerFirst.closed)
+	}
+	if joinerFirst.closed != 1 {
+		t.Fatalf("joiner first transport close count = %d, want 1 after switching libraries", joinerFirst.closed)
+	}
+
+	addresses = owner.transportService.ListenAddrs()
+	if len(addresses) == 0 {
+		t.Fatal("owner switched transport did not expose any listen addresses")
+	}
+	if err := joiner.ConnectPeer(ctx, addresses[0]); err != nil {
+		t.Fatalf("connect peer after switch: %v", err)
+	}
+	var switched Playlist
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND playlist_id = ? AND deleted_at IS NULL", second.LibraryID, switchPlaylist.PlaylistID).
+		Take(&switched).Error; err != nil {
+		t.Fatalf("load switched playlist: %v", err)
+	}
+	if switched.Name != switchPlaylist.Name {
+		t.Fatalf("switched playlist name = %q, want %q", switched.Name, switchPlaylist.Name)
+	}
+	if ownerSecond.closed != 0 {
+		t.Fatalf("owner second transport close count = %d, want 0 while second library is active", ownerSecond.closed)
+	}
+	if joinerSecond.closed != 0 {
+		t.Fatalf("joiner second transport close count = %d, want 0 while second library is active", joinerSecond.closed)
+	}
 }
 
 type fakeManagedTransport struct {
@@ -180,4 +271,14 @@ func (f *fakeManagedTransport) ListenAddrs() []string {
 func (f *fakeManagedTransport) Close() error {
 	f.closed++
 	return nil
+}
+
+type countingManagedTransport struct {
+	managedSyncTransport
+	closed int
+}
+
+func (c *countingManagedTransport) Close() error {
+	c.closed++
+	return c.managedSyncTransport.Close()
 }

@@ -164,52 +164,19 @@ func (a *App) ActivityStatus(context.Context) (apitypes.ActivityStatus, error) {
 }
 
 func (a *App) NetworkStatus() apitypes.NetworkStatus {
+	if a != nil && a.transportService != nil && !a.hasTransportOverride() {
+		return a.transportService.NetworkStatus()
+	}
 	local, err := a.EnsureLocalContext(context.Background())
 	if err != nil {
 		return apitypes.NetworkStatus{}
 	}
-
-	out := apitypes.NetworkStatus{
+	return apitypes.NetworkStatus{
 		Running:   a.transportRunning(),
 		LibraryID: strings.TrimSpace(local.LibraryID),
 		DeviceID:  strings.TrimSpace(local.DeviceID),
 		PeerID:    strings.TrimSpace(local.PeerID),
 	}
-	if out.LibraryID == "" {
-		return out
-	}
-	out.ServiceTag = serviceTagForLibrary(out.LibraryID)
-	out.Mode = apitypes.NetworkSyncModeIdle
-
-	type row struct {
-		PeerID        string
-		LastAttemptAt *time.Time
-		LastSuccessAt *time.Time
-		LastError     string
-		LastApplied   int64
-	}
-	var latest row
-	err = a.db.WithContext(context.Background()).
-		Table("peer_sync_states").
-		Select("peer_id, last_attempt_at, last_success_at, last_error, last_applied").
-		Where("library_id = ?", out.LibraryID).
-		Order("updated_at DESC, last_applied DESC, peer_id ASC").
-		Limit(1).
-		Scan(&latest).Error
-	if err != nil {
-		return out
-	}
-	out.ActivePeerID = strings.TrimSpace(latest.PeerID)
-	out.LastBatchApplied = int(latest.LastApplied)
-	out.LastSyncError = strings.TrimSpace(latest.LastError)
-	out.CompletedAt = cloneTimePtr(latest.LastSuccessAt)
-	if latest.LastAttemptAt != nil && (latest.LastSuccessAt == nil || latest.LastAttemptAt.After(*latest.LastSuccessAt)) {
-		out.StartedAt = cloneTimePtr(latest.LastAttemptAt)
-		out.Activity = apitypes.NetworkSyncActivityOps
-		out.Reason = apitypes.NetworkSyncReasonManual
-	}
-
-	return out
 }
 
 func (a *App) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {

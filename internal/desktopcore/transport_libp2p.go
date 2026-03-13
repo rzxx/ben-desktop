@@ -53,16 +53,6 @@ type wireSyncResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
-type checkpointFetchRequest struct {
-	LibraryID    string `json:"libraryId"`
-	CheckpointID string `json:"checkpointId"`
-}
-
-type checkpointFetchResponse struct {
-	Record checkpointTransferRecord `json:"record"`
-	Error  string                   `json:"error,omitempty"`
-}
-
 func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
 	local.LibraryID = strings.TrimSpace(local.LibraryID)
 	local.DeviceID = strings.TrimSpace(local.DeviceID)
@@ -249,28 +239,26 @@ func (p *libp2pSyncPeer) Sync(ctx context.Context, req SyncRequest) (SyncRespons
 	return resp.SyncResponse, nil
 }
 
-func (p *libp2pSyncPeer) FetchCheckpoint(ctx context.Context, libraryID, checkpointID string) (checkpointTransferRecord, error) {
+func (p *libp2pSyncPeer) FetchCheckpoint(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error) {
 	stream, err := p.openStream(ctx, desktopCheckpointProtocolID)
 	if err != nil {
-		return checkpointTransferRecord{}, err
+		return CheckpointFetchResponse{}, err
 	}
 	defer stream.Close()
 
-	req := checkpointFetchRequest{
-		LibraryID:    strings.TrimSpace(libraryID),
-		CheckpointID: strings.TrimSpace(checkpointID),
-	}
+	req.LibraryID = strings.TrimSpace(req.LibraryID)
+	req.CheckpointID = strings.TrimSpace(req.CheckpointID)
 	if err := json.NewEncoder(stream).Encode(req); err != nil {
-		return checkpointTransferRecord{}, fmt.Errorf("write checkpoint request: %w", err)
+		return CheckpointFetchResponse{}, fmt.Errorf("write checkpoint request: %w", err)
 	}
-	var resp checkpointFetchResponse
+	var resp CheckpointFetchResponse
 	if err := json.NewDecoder(stream).Decode(&resp); err != nil {
-		return checkpointTransferRecord{}, fmt.Errorf("read checkpoint response: %w", err)
+		return CheckpointFetchResponse{}, fmt.Errorf("read checkpoint response: %w", err)
 	}
 	if strings.TrimSpace(resp.Error) != "" {
-		return checkpointTransferRecord{}, fmt.Errorf("%s", strings.TrimSpace(resp.Error))
+		return CheckpointFetchResponse{}, fmt.Errorf("%s", strings.TrimSpace(resp.Error))
 	}
-	return resp.Record, nil
+	return resp, nil
 }
 
 func (p *libp2pSyncPeer) openStream(ctx context.Context, protocolID protocol.ID) (network.Stream, error) {
@@ -301,8 +289,9 @@ func (t *libp2pSyncTransport) handleSyncStream(stream network.Stream) {
 		t.writeSyncError(stream, "library mismatch")
 		return
 	}
-	if req.DeviceID != "" && req.PeerID != "" {
-		_ = t.app.updateDevicePeerID(ctx, t.libraryID, req.DeviceID, req.PeerID, req.DeviceID)
+	if _, err := t.app.verifyTransportPeerAuth(ctx, t.libraryID, req.DeviceID, req.PeerID, stream.Conn().RemotePeer().String(), req.Auth); err != nil {
+		t.writeSyncError(stream, err.Error())
+		return
 	}
 
 	resp, err := t.app.buildSyncResponse(ctx, req)
@@ -322,7 +311,7 @@ func (t *libp2pSyncTransport) handleCheckpointStream(stream network.Stream) {
 	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
 	defer cancel()
 
-	var req checkpointFetchRequest
+	var req CheckpointFetchRequest
 	if err := json.NewDecoder(stream).Decode(&req); err != nil {
 		t.writeCheckpointError(stream, fmt.Sprintf("decode request: %v", err))
 		return
@@ -331,17 +320,17 @@ func (t *libp2pSyncTransport) handleCheckpointStream(stream network.Stream) {
 		t.writeCheckpointError(stream, "library mismatch")
 		return
 	}
+	if _, err := t.app.verifyTransportPeerAuth(ctx, t.libraryID, req.Auth.Cert.DeviceID, req.Auth.Cert.PeerID, stream.Conn().RemotePeer().String(), req.Auth); err != nil {
+		t.writeCheckpointError(stream, err.Error())
+		return
+	}
 
-	record, ok, err := t.app.loadCheckpointTransferRecord(ctx, req.LibraryID, req.CheckpointID, false)
+	resp, err := t.app.buildCheckpointFetchResponse(ctx, req)
 	if err != nil {
 		t.writeCheckpointError(stream, err.Error())
 		return
 	}
-	if !ok {
-		t.writeCheckpointError(stream, "checkpoint not found")
-		return
-	}
-	if err := json.NewEncoder(stream).Encode(checkpointFetchResponse{Record: record}); err != nil {
+	if err := json.NewEncoder(stream).Encode(resp); err != nil {
 		t.app.logf("desktopcore: write checkpoint response failed: %v", err)
 	}
 }
@@ -351,7 +340,7 @@ func (t *libp2pSyncTransport) writeSyncError(stream network.Stream, message stri
 }
 
 func (t *libp2pSyncTransport) writeCheckpointError(stream network.Stream, message string) {
-	_ = json.NewEncoder(stream).Encode(checkpointFetchResponse{Error: strings.TrimSpace(message)})
+	_ = json.NewEncoder(stream).Encode(CheckpointFetchResponse{Error: strings.TrimSpace(message)})
 }
 
 type desktopMDNSNotifee struct {
