@@ -74,6 +74,36 @@ func (a *App) updateScanActivity(apply func(*apitypes.ScanActivityStatus)) {
 	a.activity.UpdatedAt = a.activity.Scan.UpdatedAt
 }
 
+func (a *App) setArtworkActivity(status apitypes.ArtworkActivityStatus) {
+	if a == nil {
+		return
+	}
+	a.activityMu.Lock()
+	defer a.activityMu.Unlock()
+
+	if strings.TrimSpace(status.Phase) == "" {
+		status.Phase = "idle"
+	}
+	status.UpdatedAt = time.Now().UTC()
+	a.activity.Artwork = status
+	a.activity.UpdatedAt = status.UpdatedAt
+}
+
+func (a *App) updateArtworkActivity(apply func(*apitypes.ArtworkActivityStatus)) {
+	if a == nil || apply == nil {
+		return
+	}
+	a.activityMu.Lock()
+	defer a.activityMu.Unlock()
+
+	apply(&a.activity.Artwork)
+	if strings.TrimSpace(a.activity.Artwork.Phase) == "" {
+		a.activity.Artwork.Phase = "idle"
+	}
+	a.activity.Artwork.UpdatedAt = time.Now().UTC()
+	a.activity.UpdatedAt = a.activity.Artwork.UpdatedAt
+}
+
 func (a *App) setTranscodeActivity(key string, status apitypes.TranscodeActivityStatus) {
 	if a == nil {
 		return

@@ -22,6 +22,7 @@ type Config struct {
 	CacheBytes       int64
 	TagReader        TagReader
 	TranscodeBuilder AACTranscodeBuilder
+	ArtworkBuilder   ArtworkBuilder
 	Logger           apitypes.Logger
 }
 

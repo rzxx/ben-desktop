@@ -32,6 +32,7 @@ type App struct {
 	catalog           *CatalogService
 	cache             *CacheService
 	transcode         *TranscodeService
+	artwork           *ArtworkService
 	playlist          *PlaylistService
 	playback          *PlaybackService
 	invite            *InviteService
@@ -79,6 +80,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	app.catalog = &CatalogService{app: app}
 	app.cache = &CacheService{app: app}
 	app.transcode = newTranscodeService(app)
+	app.artwork = newArtworkService(app)
 	app.playlist = &PlaylistService{app: app}
 	app.playback = newPlaybackService(app)
 	app.invite = &InviteService{app: app}

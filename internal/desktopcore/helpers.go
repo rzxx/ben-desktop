@@ -28,6 +28,7 @@ const (
 	defaultLibraryName        = "ben library"
 	defaultArtworkVariant320  = "320_webp"
 	defaultArtworkVariant96   = "96_jpeg"
+	defaultArtworkVariant1024 = "1024_avif"
 )
 
 func splitArtists(raw string) []string {
