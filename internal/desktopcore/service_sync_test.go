@@ -137,7 +137,7 @@ func TestSyncNowInstallsCheckpointWhenBacklogReachesCutover(t *testing.T) {
 	}
 	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
 
-	playlistID, manifest := seedCheckpointBacklog(t, owner, library.LibraryID, ownerLocal.DeviceID, 1)
+	playlistID, manifest := seedCheckpointBacklog(t, owner, library.LibraryID, ownerLocal.DeviceID, 5001)
 	if manifest.EntryCount != 5001 {
 		t.Fatalf("checkpoint entry count = %d, want 5001", manifest.EntryCount)
 	}
