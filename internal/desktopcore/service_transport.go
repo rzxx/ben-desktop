@@ -35,6 +35,7 @@ type activeTransportRuntime struct {
 	transport managedSyncTransport
 	ctx       context.Context
 	cancel    context.CancelFunc
+	state     apitypes.NetworkSyncState
 }
 
 func newTransportService(app *App) *TransportService {
@@ -132,6 +133,9 @@ func (s *TransportService) syncActive(ctx context.Context) error {
 		transport: next,
 		ctx:       runtimeCtx,
 		cancel:    cancel,
+		state: apitypes.NetworkSyncState{
+			Mode: apitypes.NetworkSyncModeIdle,
+		},
 	}
 	s.current = nextRuntime
 	s.mu.Unlock()
@@ -182,8 +186,12 @@ func (s *TransportService) runCatchupAndCheckpoint(runtime *activeTransportRunti
 	if !ok {
 		return
 	}
+	s.beginRuntimeSync(runtime, reason)
 	if err := s.app.catchupAllPeers(runtime.ctx, local, reason, nil, false); err != nil && s.app.cfg.Logger != nil && runtime.ctx.Err() == nil {
+		s.finishRuntimeSync(runtime, err)
 		s.app.cfg.Logger.Errorf("desktopcore: background catch-up failed for %s: %v", local.LibraryID, err)
+	} else {
+		s.finishRuntimeSync(runtime, nil)
 	}
 	if !canManageLibrary(local.Role) || runtime.ctx.Err() != nil {
 		return
@@ -235,6 +243,14 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 	out.ServiceTag = serviceTagForLibrary(out.LibraryID)
 	out.Mode = apitypes.NetworkSyncModeIdle
 
+	if current != nil {
+		state := current.state
+		out.NetworkSyncState = cloneNetworkSyncState(state)
+		if out.Mode == "" {
+			out.Mode = apitypes.NetworkSyncModeIdle
+		}
+	}
+
 	type row struct {
 		PeerID        string
 		LastAttemptAt *time.Time
@@ -253,16 +269,120 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 	if err != nil {
 		return out
 	}
-	out.ActivePeerID = strings.TrimSpace(latest.PeerID)
-	out.LastBatchApplied = int(latest.LastApplied)
-	out.LastSyncError = strings.TrimSpace(latest.LastError)
-	out.CompletedAt = cloneTimePtr(latest.LastSuccessAt)
-	if latest.LastAttemptAt != nil && (latest.LastSuccessAt == nil || latest.LastAttemptAt.After(*latest.LastSuccessAt)) {
+	if out.ActivePeerID == "" {
+		out.ActivePeerID = strings.TrimSpace(latest.PeerID)
+	}
+	if out.LastBatchApplied == 0 {
+		out.LastBatchApplied = int(latest.LastApplied)
+	}
+	if out.LastSyncError == "" {
+		out.LastSyncError = strings.TrimSpace(latest.LastError)
+	}
+	if out.CompletedAt == nil {
+		out.CompletedAt = cloneTimePtr(latest.LastSuccessAt)
+	}
+	if out.StartedAt == nil && latest.LastAttemptAt != nil && (latest.LastSuccessAt == nil || latest.LastAttemptAt.After(*latest.LastSuccessAt)) {
 		out.StartedAt = cloneTimePtr(latest.LastAttemptAt)
-		out.Activity = apitypes.NetworkSyncActivityOps
-		out.Reason = apitypes.NetworkSyncReasonManual
+		if out.Activity == "" {
+			out.Activity = apitypes.NetworkSyncActivityOps
+		}
+		if out.Reason == "" {
+			out.Reason = apitypes.NetworkSyncReasonManual
+		}
 	}
 	return out
+}
+
+func (s *TransportService) beginRuntimeSync(runtime *activeTransportRuntime, reason apitypes.NetworkSyncReason) {
+	if s == nil || runtime == nil {
+		return
+	}
+	startedAt := time.Now().UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.current != runtime {
+		return
+	}
+	runtime.state.Mode = syncModeForReason(reason)
+	runtime.state.Activity = apitypes.NetworkSyncActivityOps
+	runtime.state.Reason = reason
+	runtime.state.StartedAt = cloneTimePtr(&startedAt)
+	runtime.state.CompletedAt = nil
+	runtime.state.LastSyncError = ""
+	runtime.state.ActivePeerID = ""
+	runtime.state.BacklogEstimate = 0
+}
+
+func (s *TransportService) noteRuntimeSyncPeer(libraryID, peerID string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.current == nil || strings.TrimSpace(s.current.libraryID) != strings.TrimSpace(libraryID) {
+		return
+	}
+	s.current.state.ActivePeerID = strings.TrimSpace(peerID)
+}
+
+func (s *TransportService) noteRuntimeSyncProgress(libraryID, peerID string, activity apitypes.NetworkSyncActivity, backlog int64, applied int) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.current == nil || strings.TrimSpace(s.current.libraryID) != strings.TrimSpace(libraryID) {
+		return
+	}
+	if strings.TrimSpace(peerID) != "" {
+		s.current.state.ActivePeerID = strings.TrimSpace(peerID)
+	}
+	if activity != "" {
+		s.current.state.Activity = activity
+	}
+	if backlog >= 0 {
+		s.current.state.BacklogEstimate = backlog
+	}
+	if applied >= 0 {
+		s.current.state.LastBatchApplied = applied
+	}
+}
+
+func (s *TransportService) finishRuntimeSync(runtime *activeTransportRuntime, syncErr error) {
+	if s == nil || runtime == nil {
+		return
+	}
+	completedAt := time.Now().UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.current != runtime {
+		return
+	}
+	runtime.state.CompletedAt = cloneTimePtr(&completedAt)
+	runtime.state.ActivePeerID = ""
+	runtime.state.BacklogEstimate = 0
+	runtime.state.Activity = ""
+	if syncErr != nil {
+		runtime.state.LastSyncError = strings.TrimSpace(syncErr.Error())
+	} else {
+		runtime.state.LastSyncError = ""
+	}
+	runtime.state.Mode = apitypes.NetworkSyncModeIdle
+}
+
+func syncModeForReason(reason apitypes.NetworkSyncReason) apitypes.NetworkSyncMode {
+	if reason == apitypes.NetworkSyncReasonTimer {
+		return apitypes.NetworkSyncModePeriodic
+	}
+	return apitypes.NetworkSyncModeCatchup
+}
+
+func cloneNetworkSyncState(state apitypes.NetworkSyncState) apitypes.NetworkSyncState {
+	state.ActivePeerID = strings.TrimSpace(state.ActivePeerID)
+	state.LastSyncError = strings.TrimSpace(state.LastSyncError)
+	state.StartedAt = cloneTimePtr(state.StartedAt)
+	state.CompletedAt = cloneTimePtr(state.CompletedAt)
+	return state
 }
 
 func (a *App) syncActiveRuntimeServices(ctx context.Context) error {

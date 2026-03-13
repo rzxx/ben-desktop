@@ -25,6 +25,7 @@ import (
 const (
 	desktopSyncProtocolID       = protocol.ID("/ben/desktop/sync/1.0.0")
 	desktopCheckpointProtocolID = protocol.ID("/ben/desktop/checkpoint/1.0.0")
+	desktopMembershipProtocolID = protocol.ID("/ben/desktop/membership-refresh/1.0.0")
 	transportStreamTimeout      = 20 * time.Second
 	transportConnectTimeout     = 10 * time.Second
 )
@@ -87,6 +88,7 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 	}
 	hostNode.SetStreamHandler(desktopSyncProtocolID, transport.handleSyncStream)
 	hostNode.SetStreamHandler(desktopCheckpointProtocolID, transport.handleCheckpointStream)
+	hostNode.SetStreamHandler(desktopMembershipProtocolID, transport.handleMembershipRefreshStream)
 
 	service := mdns.NewMdnsService(hostNode, serviceTagForLibrary(local.LibraryID), &desktopMDNSNotifee{
 		host:   hostNode,
@@ -261,6 +263,26 @@ func (p *libp2pSyncPeer) FetchCheckpoint(ctx context.Context, req CheckpointFetc
 	return resp, nil
 }
 
+func (p *libp2pSyncPeer) RefreshMembership(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {
+	stream, err := p.openStream(ctx, desktopMembershipProtocolID)
+	if err != nil {
+		return MembershipRefreshResponse{}, err
+	}
+	defer stream.Close()
+
+	if err := json.NewEncoder(stream).Encode(req); err != nil {
+		return MembershipRefreshResponse{}, fmt.Errorf("write membership refresh request: %w", err)
+	}
+	var resp MembershipRefreshResponse
+	if err := json.NewDecoder(stream).Decode(&resp); err != nil {
+		return MembershipRefreshResponse{}, fmt.Errorf("read membership refresh response: %w", err)
+	}
+	if strings.TrimSpace(resp.Error) != "" {
+		return MembershipRefreshResponse{}, fmt.Errorf("%s", strings.TrimSpace(resp.Error))
+	}
+	return resp, nil
+}
+
 func (p *libp2pSyncPeer) openStream(ctx context.Context, protocolID protocol.ID) (network.Stream, error) {
 	if p == nil || p.transport == nil || p.transport.host == nil {
 		return nil, fmt.Errorf("peer transport is not available")
@@ -335,12 +357,46 @@ func (t *libp2pSyncTransport) handleCheckpointStream(stream network.Stream) {
 	}
 }
 
+func (t *libp2pSyncTransport) handleMembershipRefreshStream(stream network.Stream) {
+	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
+	defer cancel()
+
+	var req MembershipRefreshRequest
+	if err := json.NewDecoder(stream).Decode(&req); err != nil {
+		t.writeMembershipRefreshError(stream, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if strings.TrimSpace(req.LibraryID) != strings.TrimSpace(t.libraryID) {
+		t.writeMembershipRefreshError(stream, "library mismatch")
+		return
+	}
+	if strings.TrimSpace(req.PeerID) == "" {
+		req.PeerID = stream.Conn().RemotePeer().String()
+	}
+
+	resp, err := t.app.buildMembershipRefreshResponse(ctx, req)
+	if err != nil {
+		t.writeMembershipRefreshError(stream, err.Error())
+		return
+	}
+	if err := json.NewEncoder(stream).Encode(resp); err != nil {
+		t.app.logf("desktopcore: write membership refresh response failed: %v", err)
+	}
+}
+
 func (t *libp2pSyncTransport) writeSyncError(stream network.Stream, message string) {
 	_ = json.NewEncoder(stream).Encode(wireSyncResponse{Error: strings.TrimSpace(message)})
 }
 
 func (t *libp2pSyncTransport) writeCheckpointError(stream network.Stream, message string) {
 	_ = json.NewEncoder(stream).Encode(CheckpointFetchResponse{Error: strings.TrimSpace(message)})
+}
+
+func (t *libp2pSyncTransport) writeMembershipRefreshError(stream network.Stream, message string) {
+	_ = json.NewEncoder(stream).Encode(MembershipRefreshResponse{Error: strings.TrimSpace(message)})
 }
 
 type desktopMDNSNotifee struct {

@@ -68,6 +68,7 @@ type MembershipCertRevocation struct {
 	LibraryID string    `gorm:"primaryKey;size:64"`
 	DeviceID  string    `gorm:"primaryKey;size:64"`
 	Serial    int64     `gorm:"primaryKey"`
+	PeerID    string    `gorm:"size:256;not null"`
 	Reason    string    `gorm:"size:512;not null"`
 	RevokedAt time.Time `gorm:"not null;index"`
 }
@@ -318,16 +319,23 @@ type PlaylistItem struct {
 }
 
 type OplogEntry struct {
-	LibraryID   string `gorm:"primaryKey;size:64;uniqueIndex:idx_oplog_device_seq,priority:1;index"`
-	OpID        string `gorm:"primaryKey;size:128"`
-	DeviceID    string `gorm:"size:64;not null;uniqueIndex:idx_oplog_device_seq,priority:2;index"`
-	Seq         int64  `gorm:"not null;uniqueIndex:idx_oplog_device_seq,priority:3"`
-	TSNS        int64  `gorm:"not null;index"`
-	EntityType  string `gorm:"size:64;not null;index"`
-	EntityID    string `gorm:"size:128;not null;index"`
-	OpKind      string `gorm:"size:64;not null"`
-	PayloadJSON string `gorm:"type:TEXT;not null"`
-	Sig         []byte
+	LibraryID              string `gorm:"primaryKey;size:64;uniqueIndex:idx_oplog_device_seq,priority:1;index"`
+	OpID                   string `gorm:"primaryKey;size:128"`
+	DeviceID               string `gorm:"size:64;not null;uniqueIndex:idx_oplog_device_seq,priority:2;index"`
+	Seq                    int64  `gorm:"not null;uniqueIndex:idx_oplog_device_seq,priority:3"`
+	TSNS                   int64  `gorm:"not null;index"`
+	EntityType             string `gorm:"size:64;not null;index"`
+	EntityID               string `gorm:"size:128;not null;index"`
+	OpKind                 string `gorm:"size:64;not null"`
+	PayloadJSON            string `gorm:"type:TEXT;not null"`
+	SignerPeerID           string `gorm:"size:256;not null;default:''"`
+	SignerAuthorityVersion int64  `gorm:"not null;default:0"`
+	SignerCertSerial       int64  `gorm:"not null;default:0"`
+	SignerRole             string `gorm:"size:32;not null;default:''"`
+	SignerIssuedAt         int64  `gorm:"not null;default:0"`
+	SignerExpiresAt        int64  `gorm:"not null;default:0"`
+	SignerCertSig          []byte
+	Sig                    []byte
 }
 
 type DeviceClock struct {

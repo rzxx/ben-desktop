@@ -226,6 +226,48 @@ func verifyMembershipCert(cert membershipCertEnvelope, chain []admissionAuthorit
 	return nil
 }
 
+func verifyHistoricalMembershipCert(cert membershipCertEnvelope, chain []admissionAuthorityEnvelope, rootPublicKey string, _ int64, libraryID, deviceID, actualPeerID string) error {
+	if strings.TrimSpace(cert.LibraryID) != strings.TrimSpace(libraryID) {
+		return fmt.Errorf("membership certificate library mismatch")
+	}
+	if strings.TrimSpace(cert.DeviceID) != strings.TrimSpace(deviceID) {
+		return fmt.Errorf("membership certificate device mismatch")
+	}
+	if strings.TrimSpace(cert.PeerID) == "" || strings.TrimSpace(cert.PeerID) != strings.TrimSpace(actualPeerID) {
+		return fmt.Errorf("membership certificate peer mismatch")
+	}
+	if cert.Serial <= 0 || cert.AuthorityVersion <= 0 {
+		return fmt.Errorf("membership certificate is invalid")
+	}
+	if _, err := verifyAdmissionAuthorityChain(libraryID, chain, rootPublicKey); err != nil {
+		return err
+	}
+	var authority admissionAuthorityEnvelope
+	found := false
+	for _, candidate := range chain {
+		if candidate.Version == cert.AuthorityVersion {
+			authority = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("membership certificate authority not found")
+	}
+	pub, err := decodeEd25519PublicKey(authority.PublicKey)
+	if err != nil {
+		return fmt.Errorf("decode membership authority key: %w", err)
+	}
+	payload, err := membershipCertSigningPayload(cert)
+	if err != nil {
+		return err
+	}
+	if !ed25519.Verify(ed25519.PublicKey(pub), payload, cert.Sig) {
+		return fmt.Errorf("invalid membership certificate signature")
+	}
+	return nil
+}
+
 func admissionAuthorityEnvelopeFromRow(row AdmissionAuthority) admissionAuthorityEnvelope {
 	return admissionAuthorityEnvelope{
 		Version:      row.Version,
@@ -358,6 +400,7 @@ func issueMembershipCertTx(tx *gorm.DB, libraryID, deviceID, peerID, role string
 		return membershipCertEnvelope{}, fmt.Errorf("decode admission authority private key: %w", err)
 	}
 
+	now := time.Now().UTC()
 	serial := int64(1)
 	var existing MembershipCert
 	err = tx.Where("library_id = ? AND device_id = ?", libraryID, deviceID).Take(&existing).Error
@@ -366,11 +409,22 @@ func issueMembershipCertTx(tx *gorm.DB, libraryID, deviceID, peerID, role string
 		if existing.Serial >= serial {
 			serial = existing.Serial + 1
 		}
+		if existing.Serial > 0 && strings.TrimSpace(existing.PeerID) != "" {
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&MembershipCertRevocation{
+				LibraryID: libraryID,
+				DeviceID:  deviceID,
+				Serial:    existing.Serial,
+				PeerID:    strings.TrimSpace(existing.PeerID),
+				Reason:    "superseded",
+				RevokedAt: now.UTC(),
+			}).Error; err != nil {
+				return membershipCertEnvelope{}, err
+			}
+		}
 	case err != nil && err != gorm.ErrRecordNotFound:
 		return membershipCertEnvelope{}, err
 	}
 
-	now := time.Now().UTC()
 	cert := membershipCertEnvelope{
 		LibraryID:        libraryID,
 		DeviceID:         deviceID,
@@ -474,47 +528,62 @@ func (a *App) ensureLocalTransportMembershipAuth(ctx context.Context, local apit
 	switch {
 	case ok:
 		cert = membershipCertEnvelopeFromRow(row)
-	case !ok && canManageLibrary(local.Role):
-		if err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			if _, _, _, err := ensureLibraryJoinMaterialTx(tx, local.LibraryID, time.Now().UTC()); err != nil {
-				return err
+	case !ok:
+		refreshed, refreshErr := transportPeerAuth{}, fmt.Errorf("membership certificate missing")
+		if canManageLibrary(local.Role) {
+			refreshErr = a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+				if _, _, _, err := ensureLibraryJoinMaterialTx(tx, local.LibraryID, time.Now().UTC()); err != nil {
+					return err
+				}
+				issued, err := issueMembershipCertTx(tx, local.LibraryID, local.DeviceID, transportPeerID, local.Role, defaultMembershipCertTTL)
+				if err != nil {
+					return err
+				}
+				cert = issued
+				return nil
+			})
+		}
+		if refreshErr != nil {
+			refreshed, refreshErr = a.requestMembershipRefresh(ctx, local, transportPeerID)
+			if refreshErr != nil {
+				return transportPeerAuth{}, fmt.Errorf("refresh local membership certificate: %w", refreshErr)
 			}
-			issued, err := issueMembershipCertTx(tx, local.LibraryID, local.DeviceID, transportPeerID, local.Role, defaultMembershipCertTTL)
-			if err != nil {
-				return err
-			}
-			cert = issued
-			return nil
-		}); err != nil {
-			return transportPeerAuth{}, fmt.Errorf("issue local membership certificate: %w", err)
+			cert = refreshed.Cert
+			chain = append([]admissionAuthorityEnvelope(nil), refreshed.AuthorityChain...)
 		}
 		rows, err = a.loadAdmissionAuthorityChain(ctx, local.LibraryID)
 		if err != nil {
 			return transportPeerAuth{}, fmt.Errorf("reload admission authority chain: %w", err)
 		}
 		chain = admissionAuthorityChainFromRows(rows)
-		headVersion = chain[len(chain)-1].Version
-	default:
-		return transportPeerAuth{}, fmt.Errorf("membership certificate missing")
+		if len(chain) > 0 {
+			headVersion = chain[len(chain)-1].Version
+		}
 	}
 
 	needsReissue := cert.Serial <= 0 || cert.ExpiresAt <= nowNS || cert.PeerID != transportPeerID || cert.AuthorityVersion < headVersion || normalizeRole(cert.Role) != normalizeRole(local.Role)
 	if needsReissue {
-		if !canManageLibrary(local.Role) {
-			return transportPeerAuth{}, fmt.Errorf("membership certificate requires refresh")
+		refreshErr := fmt.Errorf("membership certificate requires refresh")
+		if canManageLibrary(local.Role) {
+			refreshErr = a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+				if _, _, _, err := ensureLibraryJoinMaterialTx(tx, local.LibraryID, time.Now().UTC()); err != nil {
+					return err
+				}
+				issued, err := issueMembershipCertTx(tx, local.LibraryID, local.DeviceID, transportPeerID, local.Role, defaultMembershipCertTTL)
+				if err != nil {
+					return err
+				}
+				cert = issued
+				return nil
+			})
 		}
-		if err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			if _, _, _, err := ensureLibraryJoinMaterialTx(tx, local.LibraryID, time.Now().UTC()); err != nil {
-				return err
-			}
-			issued, err := issueMembershipCertTx(tx, local.LibraryID, local.DeviceID, transportPeerID, local.Role, defaultMembershipCertTTL)
+		if refreshErr != nil {
+			refreshed, err := a.requestMembershipRefresh(ctx, local, transportPeerID)
 			if err != nil {
-				return err
+				return transportPeerAuth{}, fmt.Errorf("refresh local membership certificate: %w", err)
 			}
-			cert = issued
-			return nil
-		}); err != nil {
-			return transportPeerAuth{}, fmt.Errorf("refresh local membership certificate: %w", err)
+			cert = refreshed.Cert
+			chain = append([]admissionAuthorityEnvelope(nil), refreshed.AuthorityChain...)
 		}
 		rows, err = a.loadAdmissionAuthorityChain(ctx, local.LibraryID)
 		if err != nil {
@@ -547,14 +616,11 @@ func (a *App) verifyTransportPeerAuth(ctx context.Context, libraryID, claimedDev
 		return membershipCertEnvelope{}, fmt.Errorf("device not allowed")
 	}
 
-	var library Library
-	if err := a.db.WithContext(ctx).Select("root_public_key").Where("library_id = ?", libraryID).Take(&library).Error; err != nil {
-		return membershipCertEnvelope{}, fmt.Errorf("load library root public key: %w", err)
+	rootPublicKey, err := a.libraryRootPublicKey(ctx, libraryID)
+	if err != nil {
+		return membershipCertEnvelope{}, err
 	}
-	if strings.TrimSpace(library.RootPublicKey) == "" {
-		return membershipCertEnvelope{}, fmt.Errorf("library root public key missing")
-	}
-	if err := verifyMembershipCert(auth.Cert, auth.AuthorityChain, library.RootPublicKey, time.Now().UTC(), libraryID, claimedDeviceID, actualPeerID); err != nil {
+	if err := verifyMembershipCert(auth.Cert, auth.AuthorityChain, rootPublicKey, time.Now().UTC(), libraryID, claimedDeviceID, actualPeerID); err != nil {
 		return membershipCertEnvelope{}, err
 	}
 

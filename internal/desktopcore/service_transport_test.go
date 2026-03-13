@@ -88,6 +88,55 @@ func TestTransportServiceStartsAndStopsWithActiveLibrarySelection(t *testing.T) 
 	}
 }
 
+func TestNetworkStatusReflectsRuntimeSyncState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	library, err := app.CreateLibrary(ctx, "network-state")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	app.transportService.Stop()
+	runtime := &activeTransportRuntime{
+		libraryID: library.LibraryID,
+		deviceID:  local.DeviceID,
+		transport: &fakeManagedTransport{
+			libraryID: library.LibraryID,
+			deviceID:  local.DeviceID,
+			peerID:    "peer-" + library.LibraryID,
+		},
+	}
+	app.transportService.mu.Lock()
+	app.transportService.current = runtime
+	app.transportService.mu.Unlock()
+
+	app.transportService.beginRuntimeSync(runtime, apitypes.NetworkSyncReasonStartup)
+	app.transportService.noteRuntimeSyncProgress(library.LibraryID, "peer-remote", apitypes.NetworkSyncActivityCheckpointInstall, 42, 7)
+
+	status := app.NetworkStatus()
+	if status.Mode != apitypes.NetworkSyncModeCatchup || status.Reason != apitypes.NetworkSyncReasonStartup {
+		t.Fatalf("unexpected sync mode/reason: %+v", status.NetworkSyncState)
+	}
+	if status.Activity != apitypes.NetworkSyncActivityCheckpointInstall || status.ActivePeerID != "peer-remote" {
+		t.Fatalf("unexpected runtime sync activity: %+v", status.NetworkSyncState)
+	}
+	if status.BacklogEstimate != 42 || status.LastBatchApplied != 7 || status.StartedAt == nil {
+		t.Fatalf("unexpected runtime sync progress: %+v", status.NetworkSyncState)
+	}
+
+	app.transportService.finishRuntimeSync(runtime, nil)
+	status = app.NetworkStatus()
+	if status.Mode != apitypes.NetworkSyncModeIdle || status.CompletedAt == nil || status.LastSyncError != "" {
+		t.Fatalf("unexpected completed runtime status: %+v", status.NetworkSyncState)
+	}
+}
+
 func TestLibp2pTransportConnectPeerAppliesIncrementalSync(t *testing.T) {
 	ctx := context.Background()
 	owner := openPlaylistTestApp(t)

@@ -24,14 +24,22 @@ const (
 )
 
 type checkpointOplogEntry struct {
-	OpID        string          `json:"opId"`
-	DeviceID    string          `json:"deviceId"`
-	Seq         int64           `json:"seq"`
-	TSNS        int64           `json:"tsns"`
-	EntityType  string          `json:"entityType"`
-	EntityID    string          `json:"entityId"`
-	OpKind      string          `json:"opKind"`
-	PayloadJSON json.RawMessage `json:"payloadJson,omitempty"`
+	OpID                   string          `json:"opId"`
+	DeviceID               string          `json:"deviceId"`
+	Seq                    int64           `json:"seq"`
+	TSNS                   int64           `json:"tsns"`
+	EntityType             string          `json:"entityType"`
+	EntityID               string          `json:"entityId"`
+	OpKind                 string          `json:"opKind"`
+	PayloadJSON            json.RawMessage `json:"payloadJson,omitempty"`
+	SignerPeerID           string          `json:"signerPeerId,omitempty"`
+	SignerAuthorityVersion int64           `json:"signerAuthorityVersion,omitempty"`
+	SignerCertSerial       int64           `json:"signerCertSerial,omitempty"`
+	SignerRole             string          `json:"signerRole,omitempty"`
+	SignerIssuedAt         int64           `json:"signerIssuedAt,omitempty"`
+	SignerExpiresAt        int64           `json:"signerExpiresAt,omitempty"`
+	SignerCertSig          []byte          `json:"signerCertSig,omitempty"`
+	Sig                    []byte          `json:"sig,omitempty"`
 }
 
 type checkpointChunk struct {
@@ -178,6 +186,13 @@ func (a *App) requireCheckpointAdminContext(ctx context.Context, action string) 
 }
 
 func (a *App) publishCheckpoint(ctx context.Context, libraryID, deviceID string, job *JobTracker) (apitypes.LibraryCheckpointManifest, error) {
+	local, err := a.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.LibraryCheckpointManifest{}, err
+	}
+	if err := a.ensureLocalOplogSignatures(ctx, local); err != nil {
+		return apitypes.LibraryCheckpointManifest{}, fmt.Errorf("ensure local oplog signatures: %w", err)
+	}
 	entries, err := a.listCheckpointEntries(ctx, libraryID)
 	if err != nil {
 		return apitypes.LibraryCheckpointManifest{}, err
@@ -361,19 +376,7 @@ func (a *App) listCheckpointEntries(ctx context.Context, libraryID string) ([]ch
 
 	out := make([]checkpointOplogEntry, 0, len(rows))
 	for _, row := range rows {
-		entry := checkpointOplogEntry{
-			OpID:       strings.TrimSpace(row.OpID),
-			DeviceID:   strings.TrimSpace(row.DeviceID),
-			Seq:        row.Seq,
-			TSNS:       row.TSNS,
-			EntityType: strings.TrimSpace(row.EntityType),
-			EntityID:   strings.TrimSpace(row.EntityID),
-			OpKind:     strings.TrimSpace(row.OpKind),
-		}
-		if payload := strings.TrimSpace(row.PayloadJSON); payload != "" {
-			entry.PayloadJSON = json.RawMessage(payload)
-		}
-		out = append(out, entry)
+		out = append(out, checkpointEntryFromRow(row))
 	}
 	return out, nil
 }

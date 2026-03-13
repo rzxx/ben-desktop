@@ -1100,3 +1100,7 @@ func (p *memorySyncPeer) FetchCheckpoint(ctx context.Context, req CheckpointFetc
 	}
 	return p.app.buildCheckpointFetchResponse(ctx, req)
 }
+
+func (p *memorySyncPeer) RefreshMembership(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {
+	return p.app.buildMembershipRefreshResponse(ctx, req)
+}

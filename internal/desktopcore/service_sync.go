@@ -33,6 +33,7 @@ type SyncPeer interface {
 	PeerID() string
 	Sync(ctx context.Context, req SyncRequest) (SyncResponse, error)
 	FetchCheckpoint(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error)
+	RefreshMembership(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error)
 }
 
 type SyncRequest struct {
@@ -303,6 +304,7 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 			a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 			return totalApplied, err
 		}
+		a.noteNetworkSyncPeer(local.LibraryID, firstNonEmpty(peer.PeerID(), remotePeerID))
 
 		resp, err := peer.Sync(ctx, req)
 		if err != nil {
@@ -325,6 +327,11 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 		_ = a.updateDevicePeerID(ctx, local.LibraryID, remoteDeviceID, remotePeerID, remoteDeviceID)
 
 		if resp.NeedCheckpoint {
+			backlogEstimate := int64(0)
+			if resp.Checkpoint != nil {
+				backlogEstimate = int64(resp.Checkpoint.EntryCount)
+			}
+			a.noteNetworkSyncProgress(local.LibraryID, remotePeerID, apitypes.NetworkSyncActivityCheckpointInstall, backlogEstimate, totalApplied)
 			if resp.Checkpoint == nil || strings.TrimSpace(resp.Checkpoint.CheckpointID) == "" {
 				err := fmt.Errorf("remote checkpoint response missing checkpoint summary")
 				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
@@ -353,10 +360,12 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 				return totalApplied, err
 			}
 			totalApplied += applied
+			a.noteNetworkSyncProgress(local.LibraryID, remotePeerID, apitypes.NetworkSyncActivityCheckpointInstall, 0, applied)
 			a.recordPeerSyncSuccess(ctx, local.LibraryID, remoteDeviceID, remotePeerID, int64(applied))
 			continue
 		}
 
+		a.noteNetworkSyncProgress(local.LibraryID, remotePeerID, apitypes.NetworkSyncActivityOps, resp.RemainingOps+int64(len(resp.Ops)), totalApplied)
 		applied, err := a.applyRemoteOps(ctx, local.LibraryID, resp.Ops)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
@@ -365,6 +374,7 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 			return totalApplied, err
 		}
 		totalApplied += applied
+		a.noteNetworkSyncProgress(local.LibraryID, remotePeerID, apitypes.NetworkSyncActivityOps, resp.RemainingOps, applied)
 		a.recordPeerSyncSuccess(ctx, local.LibraryID, remoteDeviceID, remotePeerID, int64(applied))
 
 		if !resp.HasMore || (len(resp.Ops) == 0 && applied == 0) {
@@ -377,6 +387,20 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 	err := fmt.Errorf("catch-up session budget exhausted")
 	a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 	return totalApplied, err
+}
+
+func (a *App) noteNetworkSyncPeer(libraryID, peerID string) {
+	if a == nil || a.transportService == nil {
+		return
+	}
+	a.transportService.noteRuntimeSyncPeer(libraryID, peerID)
+}
+
+func (a *App) noteNetworkSyncProgress(libraryID, peerID string, activity apitypes.NetworkSyncActivity, backlog int64, applied int) {
+	if a == nil || a.transportService == nil {
+		return
+	}
+	a.transportService.noteRuntimeSyncProgress(libraryID, peerID, activity, backlog, applied)
 }
 
 func (a *App) ensureLocalPeerContext(ctx context.Context, local apitypes.LocalContext) (apitypes.LocalContext, error) {
@@ -435,6 +459,9 @@ func (a *App) buildSyncResponse(ctx context.Context, req SyncRequest) (SyncRespo
 	local, err = a.ensureLocalPeerContext(ctx, local)
 	if err != nil {
 		return SyncResponse{}, err
+	}
+	if err := a.ensureLocalOplogSignatures(ctx, local); err != nil {
+		return SyncResponse{}, fmt.Errorf("ensure local oplog signatures: %w", err)
 	}
 	if strings.TrimSpace(req.LibraryID) != strings.TrimSpace(local.LibraryID) {
 		return SyncResponse{}, fmt.Errorf("remote library mismatch")
@@ -651,19 +678,7 @@ func (a *App) listOplogByDevice(ctx context.Context, libraryID, deviceID string,
 	}
 	out := make([]checkpointOplogEntry, 0, len(rows))
 	for _, row := range rows {
-		entry := checkpointOplogEntry{
-			OpID:       strings.TrimSpace(row.OpID),
-			DeviceID:   strings.TrimSpace(row.DeviceID),
-			Seq:        row.Seq,
-			TSNS:       row.TSNS,
-			EntityType: strings.TrimSpace(row.EntityType),
-			EntityID:   strings.TrimSpace(row.EntityID),
-			OpKind:     strings.TrimSpace(row.OpKind),
-		}
-		if payload := strings.TrimSpace(row.PayloadJSON); payload != "" {
-			entry.PayloadJSON = json.RawMessage(payload)
-		}
-		out = append(out, entry)
+		out = append(out, checkpointEntryFromRow(row))
 	}
 	return out, nil
 }
@@ -883,20 +898,31 @@ func insertCheckpointOpsTx(tx *gorm.DB, libraryID string, chunks []checkpointChu
 		entries := append([]checkpointOplogEntry(nil), chunk.Entries...)
 		sortCheckpointEntries(entries)
 		for _, entry := range entries {
+			if err := verifyCheckpointOplogEntryTx(tx, libraryID, entry); err != nil {
+				return err
+			}
 			payloadJSON := "{}"
 			if len(entry.PayloadJSON) > 0 {
 				payloadJSON = string(entry.PayloadJSON)
 			}
 			if err := tx.Create(&OplogEntry{
-				LibraryID:   strings.TrimSpace(libraryID),
-				OpID:        strings.TrimSpace(entry.OpID),
-				DeviceID:    strings.TrimSpace(entry.DeviceID),
-				Seq:         entry.Seq,
-				TSNS:        entry.TSNS,
-				EntityType:  strings.TrimSpace(entry.EntityType),
-				EntityID:    strings.TrimSpace(entry.EntityID),
-				OpKind:      strings.TrimSpace(entry.OpKind),
-				PayloadJSON: payloadJSON,
+				LibraryID:              strings.TrimSpace(libraryID),
+				OpID:                   strings.TrimSpace(entry.OpID),
+				DeviceID:               strings.TrimSpace(entry.DeviceID),
+				Seq:                    entry.Seq,
+				TSNS:                   entry.TSNS,
+				EntityType:             strings.TrimSpace(entry.EntityType),
+				EntityID:               strings.TrimSpace(entry.EntityID),
+				OpKind:                 strings.TrimSpace(entry.OpKind),
+				PayloadJSON:            payloadJSON,
+				SignerPeerID:           strings.TrimSpace(entry.SignerPeerID),
+				SignerAuthorityVersion: entry.SignerAuthorityVersion,
+				SignerCertSerial:       entry.SignerCertSerial,
+				SignerRole:             normalizeRole(entry.SignerRole),
+				SignerIssuedAt:         entry.SignerIssuedAt,
+				SignerExpiresAt:        entry.SignerExpiresAt,
+				SignerCertSig:          append([]byte(nil), entry.SignerCertSig...),
+				Sig:                    append([]byte(nil), entry.Sig...),
 			}).Error; err != nil {
 				return err
 			}
@@ -929,6 +955,9 @@ func (a *App) applyRemoteOp(ctx context.Context, libraryID string, op checkpoint
 		if existing > 0 {
 			return nil
 		}
+		if err := verifyCheckpointOplogEntryTx(tx, libraryID, op); err != nil {
+			return err
+		}
 
 		lastSeq, err := deviceClockSeqTx(tx, libraryID, op.DeviceID)
 		if err != nil {
@@ -939,15 +968,23 @@ func (a *App) applyRemoteOp(ctx context.Context, libraryID string, op checkpoint
 			payloadJSON = string(op.PayloadJSON)
 		}
 		entry := OplogEntry{
-			LibraryID:   strings.TrimSpace(libraryID),
-			OpID:        strings.TrimSpace(op.OpID),
-			DeviceID:    strings.TrimSpace(op.DeviceID),
-			Seq:         op.Seq,
-			TSNS:        op.TSNS,
-			EntityType:  strings.TrimSpace(op.EntityType),
-			EntityID:    strings.TrimSpace(op.EntityID),
-			OpKind:      strings.TrimSpace(op.OpKind),
-			PayloadJSON: payloadJSON,
+			LibraryID:              strings.TrimSpace(libraryID),
+			OpID:                   strings.TrimSpace(op.OpID),
+			DeviceID:               strings.TrimSpace(op.DeviceID),
+			Seq:                    op.Seq,
+			TSNS:                   op.TSNS,
+			EntityType:             strings.TrimSpace(op.EntityType),
+			EntityID:               strings.TrimSpace(op.EntityID),
+			OpKind:                 strings.TrimSpace(op.OpKind),
+			PayloadJSON:            payloadJSON,
+			SignerPeerID:           strings.TrimSpace(op.SignerPeerID),
+			SignerAuthorityVersion: op.SignerAuthorityVersion,
+			SignerCertSerial:       op.SignerCertSerial,
+			SignerRole:             normalizeRole(op.SignerRole),
+			SignerIssuedAt:         op.SignerIssuedAt,
+			SignerExpiresAt:        op.SignerExpiresAt,
+			SignerCertSig:          append([]byte(nil), op.SignerCertSig...),
+			Sig:                    append([]byte(nil), op.Sig...),
 		}
 		if err := tx.Create(&entry).Error; err != nil {
 			return err

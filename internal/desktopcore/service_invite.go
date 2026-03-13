@@ -695,6 +695,42 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 		}).Error; err != nil {
 			return err
 		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "library_id"}, {Name: "device_id"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"role": approvedRole,
+			}),
+		}).Create(&Membership{
+			LibraryID:        req.LibraryID,
+			DeviceID:         req.DeviceID,
+			Role:             approvedRole,
+			CapabilitiesJSON: "{}",
+			JoinedAt:         now,
+		}).Error; err != nil {
+			return err
+		}
+		if strings.TrimSpace(material.RecoveryToken) != "" {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "library_id"}, {Name: "device_id"}},
+				DoUpdates: clause.Assignments(map[string]any{
+					"token_hash":          hashMembershipRecoveryToken(material.RecoveryToken),
+					"issued_by_device_id": local.DeviceID,
+					"updated_at":          now,
+				}),
+			}).Create(&MembershipRecovery{
+				LibraryID:        req.LibraryID,
+				DeviceID:         req.DeviceID,
+				TokenHash:        hashMembershipRecoveryToken(material.RecoveryToken),
+				IssuedByDeviceID: local.DeviceID,
+				CreatedAt:        now,
+				UpdatedAt:        now,
+			}).Error; err != nil {
+				return err
+			}
+		}
+		if err := saveMembershipCertTx(tx, material.MembershipCert); err != nil {
+			return err
+		}
 
 		if err := tx.Model(&InviteJoinRequest{}).
 			Where("request_id = ?", req.RequestID).

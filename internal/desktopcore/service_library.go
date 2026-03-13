@@ -317,9 +317,58 @@ func (s *LibraryService) UpdateLibraryMemberRole(ctx context.Context, deviceID, 
 	if !canManageLibrary(local.Role) {
 		return fmt.Errorf("member role update requires admin role")
 	}
-	if err := s.app.db.WithContext(ctx).Model(&Membership{}).
-		Where("library_id = ? AND device_id = ?", local.LibraryID, deviceID).
-		Update("role", role).Error; err != nil {
+	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		actor, err := loadManagedMembershipTx(tx, local.LibraryID, local.DeviceID)
+		if err != nil {
+			return err
+		}
+		target, err := loadManagedMembershipTx(tx, local.LibraryID, deviceID)
+		if err != nil {
+			return err
+		}
+		if err := authorizeManagedMembershipMutation(actor, target, local.DeviceID, deviceID); err != nil {
+			return err
+		}
+
+		previousRole := normalizeRole(target.Role)
+		adminChanged := canManageLibrary(previousRole) != canManageLibrary(role)
+		if previousRole == role && !adminChanged {
+			return nil
+		}
+
+		var existingCert MembershipCert
+		peerID := ""
+		err = tx.Where("library_id = ? AND device_id = ?", local.LibraryID, deviceID).Take(&existingCert).Error
+		switch {
+		case err == nil:
+			peerID = strings.TrimSpace(existingCert.PeerID)
+		case err != nil && err != gorm.ErrRecordNotFound:
+			return err
+		}
+
+		if err := tx.Model(&Membership{}).
+			Where("library_id = ? AND device_id = ?", local.LibraryID, deviceID).
+			Update("role", role).Error; err != nil {
+			return err
+		}
+		if err := revokeMembershipCertTx(tx, local.LibraryID, deviceID, "membership role updated", false); err != nil {
+			return err
+		}
+		if adminChanged {
+			if _, _, _, err := rotateAdmissionAuthorityTx(tx, local.LibraryID); err != nil {
+				return fmt.Errorf("rotate admission authority: %w", err)
+			}
+		}
+		peerID, err = loadMembershipPeerIDTx(tx, deviceID, peerID)
+		if err != nil {
+			return err
+		}
+		if peerID == "" {
+			return nil
+		}
+		_, err = issueMembershipCertTx(tx, local.LibraryID, deviceID, peerID, role, defaultMembershipCertTTL)
+		return err
+	}); err != nil {
 		return err
 	}
 	return s.app.syncActiveRuntimeServices(ctx)
@@ -338,8 +387,31 @@ func (s *LibraryService) RemoveLibraryMember(ctx context.Context, deviceID strin
 		return fmt.Errorf("member removal requires admin role")
 	}
 	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		actor, err := loadManagedMembershipTx(tx, local.LibraryID, local.DeviceID)
+		if err != nil {
+			return err
+		}
+		target, err := loadManagedMembershipTx(tx, local.LibraryID, deviceID)
+		if err != nil {
+			return err
+		}
+		if err := authorizeManagedMembershipMutation(actor, target, local.DeviceID, deviceID); err != nil {
+			return err
+		}
+		wasAdmin := canManageLibrary(target.Role)
+		if err := revokeMembershipCertTx(tx, local.LibraryID, deviceID, "membership removed", true); err != nil {
+			return err
+		}
+		if err := deleteMembershipSecretsTx(tx, local.LibraryID, deviceID); err != nil {
+			return err
+		}
 		if err := tx.Where("library_id = ? AND device_id = ?", local.LibraryID, deviceID).Delete(&Membership{}).Error; err != nil {
 			return err
+		}
+		if wasAdmin {
+			if _, _, _, err := rotateAdmissionAuthorityTx(tx, local.LibraryID); err != nil {
+				return fmt.Errorf("rotate admission authority: %w", err)
+			}
 		}
 		return tx.Model(&Device{}).
 			Where("device_id = ? AND active_library_id = ?", deviceID, local.LibraryID).
