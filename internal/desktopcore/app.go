@@ -23,17 +23,18 @@ type App struct {
 	activeRuntime *activeLibraryRuntime
 	watcherMu     sync.Mutex
 	scanWatcher   *activeScanWatcher
+	transportMu   sync.RWMutex
+	transport     SyncTransport
 
-	transport SyncTransport
-
-	jobs     *JobsService
-	library  *LibraryService
-	ingest   *IngestService
-	catalog  *CatalogService
-	cache    *CacheService
-	playlist *PlaylistService
-	playback *PlaybackService
-	invite   *InviteService
+	jobs             *JobsService
+	library          *LibraryService
+	ingest           *IngestService
+	catalog          *CatalogService
+	cache            *CacheService
+	playlist         *PlaylistService
+	playback         *PlaybackService
+	invite           *InviteService
+	transportService *TransportService
 }
 
 func Open(ctx context.Context, cfg Config) (*App, error) {
@@ -78,12 +79,13 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	app.playlist = &PlaylistService{app: app}
 	app.playback = newPlaybackService(app)
 	app.invite = &InviteService{app: app}
+	app.transportService = newTransportService(app)
 
 	if _, err := app.ensureCurrentDevice(ctx); err != nil {
 		return nil, fmt.Errorf("ensure current device: %w", err)
 	}
-	if err := app.syncActiveScanWatcher(ctx); err != nil {
-		return nil, fmt.Errorf("configure active scan watcher: %w", err)
+	if err := app.syncActiveRuntimeServices(ctx); err != nil {
+		return nil, fmt.Errorf("configure active runtime services: %w", err)
 	}
 
 	openOK = true
@@ -95,6 +97,9 @@ func (a *App) Close() error {
 		return nil
 	}
 	a.stopActiveScanWatcher()
+	if a.transportService != nil {
+		a.transportService.Stop()
+	}
 	a.clearActiveLibraryRuntime()
 	return closeSQL(a.db)
 }

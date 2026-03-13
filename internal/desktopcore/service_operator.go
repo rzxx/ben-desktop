@@ -170,7 +170,7 @@ func (a *App) NetworkStatus() apitypes.NetworkStatus {
 	}
 
 	out := apitypes.NetworkStatus{
-		Running:   a.transport != nil,
+		Running:   a.transportRunning(),
 		LibraryID: strings.TrimSpace(local.LibraryID),
 		DeviceID:  strings.TrimSpace(local.DeviceID),
 		PeerID:    strings.TrimSpace(local.PeerID),

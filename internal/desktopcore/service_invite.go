@@ -460,8 +460,8 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 		job.Fail(1, "failed to finalize join session", err)
 		return apitypes.JoinLibraryResult{}, err
 	}
-	if err := s.app.syncActiveScanWatcher(ctx); err != nil {
-		job.Fail(1, "failed to refresh active scan watcher", err)
+	if err := s.app.syncActiveRuntimeServices(ctx); err != nil {
+		job.Fail(1, "failed to refresh active runtime services", err)
 		return apitypes.JoinLibraryResult{}, err
 	}
 

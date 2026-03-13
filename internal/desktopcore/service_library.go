@@ -110,7 +110,7 @@ func (s *LibraryService) CreateLibrary(ctx context.Context, name string) (apityp
 	}); err != nil {
 		return apitypes.LibrarySummary{}, err
 	}
-	if err := s.app.syncActiveScanWatcher(ctx); err != nil {
+	if err := s.app.syncActiveRuntimeServices(ctx); err != nil {
 		return apitypes.LibrarySummary{}, err
 	}
 	return apitypes.LibrarySummary{
@@ -151,7 +151,7 @@ func (s *LibraryService) SelectLibrary(ctx context.Context, libraryID string) (a
 	if err := s.app.db.WithContext(ctx).Where("library_id = ?", libraryID).Take(&library).Error; err != nil {
 		return apitypes.LibrarySummary{}, err
 	}
-	if err := s.app.syncActiveScanWatcher(ctx); err != nil {
+	if err := s.app.syncActiveRuntimeServices(ctx); err != nil {
 		return apitypes.LibrarySummary{}, err
 	}
 	return apitypes.LibrarySummary{
@@ -212,7 +212,7 @@ func (s *LibraryService) LeaveLibrary(ctx context.Context, libraryID string) err
 	}); err != nil {
 		return err
 	}
-	return s.app.syncActiveScanWatcher(ctx)
+	return s.app.syncActiveRuntimeServices(ctx)
 }
 
 func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) error {
@@ -248,7 +248,7 @@ func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) er
 	}); err != nil {
 		return err
 	}
-	return s.app.syncActiveScanWatcher(ctx)
+	return s.app.syncActiveRuntimeServices(ctx)
 }
 
 func (s *LibraryService) ListLibraryMembers(ctx context.Context) ([]apitypes.LibraryMemberStatus, error) {
@@ -322,7 +322,7 @@ func (s *LibraryService) UpdateLibraryMemberRole(ctx context.Context, deviceID, 
 		Update("role", role).Error; err != nil {
 		return err
 	}
-	return s.app.syncActiveScanWatcher(ctx)
+	return s.app.syncActiveRuntimeServices(ctx)
 }
 
 func (s *LibraryService) RemoveLibraryMember(ctx context.Context, deviceID string) error {
@@ -347,7 +347,7 @@ func (s *LibraryService) RemoveLibraryMember(ctx context.Context, deviceID strin
 	}); err != nil {
 		return err
 	}
-	return s.app.syncActiveScanWatcher(ctx)
+	return s.app.syncActiveRuntimeServices(ctx)
 }
 
 func (a *App) ensureCurrentDevice(ctx context.Context) (Device, error) {

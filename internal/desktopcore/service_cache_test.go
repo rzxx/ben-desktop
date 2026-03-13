@@ -280,10 +280,11 @@ func openCacheTestAppWithTagReader(t *testing.T, cacheBytes int64, reader TagRea
 
 	root := t.TempDir()
 	app, err := Open(context.Background(), Config{
-		DBPath:     filepath.Join(root, "library.db"),
-		BlobRoot:   filepath.Join(root, "blobs"),
-		CacheBytes: cacheBytes,
-		TagReader:  reader,
+		DBPath:          filepath.Join(root, "library.db"),
+		BlobRoot:        filepath.Join(root, "blobs"),
+		IdentityKeyPath: filepath.Join(root, "identity.key"),
+		CacheBytes:      cacheBytes,
+		TagReader:       reader,
 	})
 	if err != nil {
 		t.Fatalf("open app: %v", err)

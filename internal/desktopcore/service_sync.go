@@ -71,7 +71,12 @@ func (a *App) SetSyncTransport(transport SyncTransport) {
 	if a == nil {
 		return
 	}
+	a.transportMu.Lock()
 	a.transport = transport
+	a.transportMu.Unlock()
+	if transport != nil && a.transportService != nil {
+		a.transportService.Stop()
+	}
 }
 
 func (a *App) SyncNow(ctx context.Context) error {
@@ -87,7 +92,8 @@ func (a *App) StartSyncNow(ctx context.Context) (JobSnapshot, error) {
 	if err != nil {
 		return JobSnapshot{}, err
 	}
-	if a.transport == nil {
+	transport := a.activeSyncTransport()
+	if transport == nil {
 		return JobSnapshot{}, fmt.Errorf("peer transport is not configured")
 	}
 
@@ -117,7 +123,8 @@ func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalCo
 		}
 		return err
 	}
-	if a.transport == nil {
+	transport := a.activeSyncTransport()
+	if transport == nil {
 		err := fmt.Errorf("peer transport is not configured")
 		if job != nil {
 			job.Fail(1, "manual sync failed", err)
@@ -130,7 +137,7 @@ func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalCo
 		job.Running(0.05, "discovering peers")
 	}
 
-	peers, err := a.transport.ListPeers(ctx, local)
+	peers, err := transport.ListPeers(ctx, local)
 	if err != nil {
 		if job != nil {
 			if errors.Is(err, context.Canceled) {
@@ -258,11 +265,12 @@ func (a *App) ConnectPeer(ctx context.Context, peerAddr string) error {
 	if peerAddr == "" {
 		return fmt.Errorf("peer address is required")
 	}
-	if a.transport == nil {
+	transport := a.activeSyncTransport()
+	if transport == nil {
 		return fmt.Errorf("peer transport is not configured")
 	}
 
-	peer, err := a.transport.ResolvePeer(ctx, local, peerAddr)
+	peer, err := transport.ResolvePeer(ctx, local, peerAddr)
 	if err != nil {
 		return err
 	}
@@ -307,6 +315,7 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 		}
 		remoteDeviceID = firstNonEmpty(resp.DeviceID, remoteDeviceID)
 		remotePeerID = firstNonEmpty(resp.PeerID, remotePeerID)
+		_ = a.updateDevicePeerID(ctx, local.LibraryID, remoteDeviceID, remotePeerID, remoteDeviceID)
 
 		if resp.NeedCheckpoint {
 			if resp.Checkpoint == nil || strings.TrimSpace(resp.Checkpoint.CheckpointID) == "" {

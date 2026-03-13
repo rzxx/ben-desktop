@@ -216,8 +216,9 @@ func openPlaylistTestApp(t *testing.T) *App {
 
 	root := t.TempDir()
 	app, err := Open(context.Background(), Config{
-		DBPath:   filepath.Join(root, "library.db"),
-		BlobRoot: filepath.Join(root, "blobs"),
+		DBPath:          filepath.Join(root, "library.db"),
+		BlobRoot:        filepath.Join(root, "blobs"),
+		IdentityKeyPath: filepath.Join(root, "identity.key"),
 	})
 	if err != nil {
 		t.Fatalf("open app: %v", err)

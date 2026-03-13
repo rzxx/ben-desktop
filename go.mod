@@ -5,6 +5,8 @@ go 1.25
 require (
 	github.com/gen2brain/go-mpv v0.2.3
 	github.com/google/uuid v1.6.0
+	github.com/libp2p/go-libp2p v0.39.1
+	github.com/multiformats/go-multiaddr v0.14.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.74
 	github.com/zzl/go-com v1.5.0
 	github.com/zzl/go-win32api/v2 v2.2.0
