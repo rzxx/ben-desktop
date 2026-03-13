@@ -206,6 +206,9 @@ func (s *LibraryService) LeaveLibrary(ctx context.Context, libraryID string) err
 		if err := tx.Where("library_id = ? AND device_id = ?", libraryID, device.DeviceID).Delete(&Membership{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("library_id = ? AND device_id = ?", libraryID, device.DeviceID).Delete(&DeviceCheckpointAck{}).Error; err != nil {
+			return err
+		}
 		return tx.Model(&Device{}).
 			Where("device_id = ? AND active_library_id = ?", device.DeviceID, libraryID).
 			Update("active_library_id", nil).Error
@@ -406,6 +409,9 @@ func (s *LibraryService) RemoveLibraryMember(ctx context.Context, deviceID strin
 			return err
 		}
 		if err := tx.Where("library_id = ? AND device_id = ?", local.LibraryID, deviceID).Delete(&Membership{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id = ? AND device_id = ?", local.LibraryID, deviceID).Delete(&DeviceCheckpointAck{}).Error; err != nil {
 			return err
 		}
 		if wasAdmin {

@@ -237,7 +237,7 @@ func (a *App) catchupAllPeers(ctx context.Context, local apitypes.LocalContext, 
 			}
 			job.Running(progress, syncPeerJobMessage(processed, totalPeers, peer))
 		}
-		if _, err := a.syncPeerCatchup(ctx, local, peer, reason); err != nil {
+		if _, err := a.syncPeerCatchup(ctx, local, peer, reason, job); err != nil {
 			failures++
 			if firstErr == nil {
 				firstErr = err
@@ -312,11 +312,11 @@ func (a *App) ConnectPeer(ctx context.Context, peerAddr string) error {
 	if err != nil {
 		return err
 	}
-	_, err = a.syncPeerCatchup(ctx, local, peer, apitypes.NetworkSyncReasonConnect)
+	_, err = a.syncPeerCatchup(ctx, local, peer, apitypes.NetworkSyncReasonConnect, nil)
 	return err
 }
 
-func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, peer SyncPeer, reason apitypes.NetworkSyncReason) (int, error) {
+func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, peer SyncPeer, reason apitypes.NetworkSyncReason, job *JobTracker) (int, error) {
 	if peer == nil {
 		return 0, fmt.Errorf("sync peer is required")
 	}
@@ -371,27 +371,59 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 				return totalApplied, err
 			}
+			if job != nil {
+				job.Running(0.55, "fetching published checkpoint")
+			}
+			installJobID := checkpointInstallJobID(local.LibraryID, resp.Checkpoint.CheckpointID)
+			_, _ = a.jobs.Begin(installJobID, jobKindInstallCheckpoint, local.LibraryID, "queued checkpoint install")
+			installJob := a.jobs.Track(installJobID, jobKindInstallCheckpoint, local.LibraryID)
+			if installJob != nil {
+				installJob.Running(0.2, fmt.Sprintf("fetching checkpoint %s", resp.Checkpoint.CheckpointID))
+			}
 			fetchResp, err := peer.FetchCheckpoint(ctx, CheckpointFetchRequest{
 				LibraryID:    local.LibraryID,
 				CheckpointID: resp.Checkpoint.CheckpointID,
 				Auth:         req.Auth,
 			})
 			if err != nil {
+				if installJob != nil {
+					if errors.Is(err, context.Canceled) {
+						installJob.Fail(1, "checkpoint install canceled", nil)
+					} else {
+						installJob.Fail(1, "checkpoint install failed", err)
+					}
+				}
 				if !errors.Is(err, context.Canceled) {
 					a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 				}
 				return totalApplied, err
 			}
 			if _, err := a.verifyTransportPeerAuth(ctx, local.LibraryID, remoteDeviceID, remotePeerID, firstNonEmpty(peer.PeerID(), remotePeerID), fetchResp.Auth); err != nil {
+				if installJob != nil {
+					installJob.Fail(1, "checkpoint install failed", err)
+				}
 				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 				return totalApplied, err
 			}
-			applied, err := a.installCheckpointRecord(ctx, local.DeviceID, fetchResp.Record)
+			if job != nil {
+				job.Running(0.7, "installing published checkpoint")
+			}
+			applied, err := a.installCheckpointRecordWithJob(ctx, local.DeviceID, fetchResp.Record, installJob)
 			if err != nil {
+				if installJob != nil {
+					if errors.Is(err, context.Canceled) {
+						installJob.Fail(1, "checkpoint install canceled", nil)
+					} else {
+						installJob.Fail(1, "checkpoint install failed", err)
+					}
+				}
 				if !errors.Is(err, context.Canceled) {
 					a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 				}
 				return totalApplied, err
+			}
+			if installJob != nil {
+				installJob.Complete(1, fmt.Sprintf("installed checkpoint %s", resp.Checkpoint.CheckpointID))
 			}
 			totalApplied += applied
 			a.noteNetworkSyncProgress(local.LibraryID, remotePeerID, apitypes.NetworkSyncActivityCheckpointInstall, 0, applied)
@@ -819,9 +851,23 @@ func checkpointManifestFromRow(row LibraryCheckpoint) (apitypes.LibraryCheckpoin
 }
 
 func (a *App) installCheckpointRecord(ctx context.Context, localDeviceID string, record checkpointTransferRecord) (int, error) {
+	return a.installCheckpointRecordWithJob(ctx, localDeviceID, record, nil)
+}
+
+func (a *App) installCheckpointRecordWithJob(ctx context.Context, localDeviceID string, record checkpointTransferRecord, job *JobTracker) (int, error) {
+	if job != nil {
+		job.Running(0.35, "validating checkpoint manifest")
+	}
+	if err := validateCheckpointTransferRecord(record); err != nil {
+		return 0, err
+	}
+
 	totalEntries := 0
 	for _, chunk := range record.Chunks {
 		totalEntries += len(chunk.Entries)
+	}
+	if job != nil {
+		job.Running(0.55, "installing checkpoint state")
 	}
 
 	err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -849,6 +895,9 @@ func (a *App) installCheckpointRecord(ctx context.Context, localDeviceID string,
 				return fmt.Errorf("replay checkpoint device %s: %w", deviceID, err)
 			}
 		}
+		if job != nil {
+			job.Running(0.8, "replaying post-checkpoint tail ops")
+		}
 
 		restoreDevices := make(map[string]struct{}, len(preservedTail))
 		for _, op := range preservedTail {
@@ -868,6 +917,9 @@ func (a *App) installCheckpointRecord(ctx context.Context, localDeviceID string,
 		}
 
 		if strings.TrimSpace(localDeviceID) != "" {
+			if job != nil {
+				job.Running(0.95, "recording local checkpoint install ack")
+			}
 			if err := ensureLikedPlaylistTx(tx, record.Manifest.LibraryID, localDeviceID, time.Now().UTC()); err != nil {
 				return err
 			}

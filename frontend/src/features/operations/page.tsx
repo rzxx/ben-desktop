@@ -137,6 +137,8 @@ function jobKindLabel(kind: string) {
       return "Publish checkpoint";
     case "compact-checkpoint":
       return "Compact checkpoint";
+    case "install-checkpoint":
+      return "Checkpoint install";
     case "sync-now":
       return "Manual sync";
     case "join-session":

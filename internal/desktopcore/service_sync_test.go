@@ -137,7 +137,7 @@ func TestSyncNowInstallsCheckpointWhenBacklogReachesCutover(t *testing.T) {
 	}
 	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
 
-	playlistID, manifest := seedCheckpointBacklog(t, owner, library.LibraryID, ownerLocal.DeviceID, 5001)
+	playlistID, manifest := seedCheckpointBacklog(t, owner, library.LibraryID, ownerLocal.DeviceID, 1)
 	if manifest.EntryCount != 5001 {
 		t.Fatalf("checkpoint entry count = %d, want 5001", manifest.EntryCount)
 	}
@@ -178,6 +178,231 @@ func TestSyncNowInstallsCheckpointWhenBacklogReachesCutover(t *testing.T) {
 	}
 	if peerState.LastApplied != 5001 || peerState.LastError != "" {
 		t.Fatalf("unexpected checkpoint peer sync state: %+v", peerState)
+	}
+}
+
+func TestBuildSyncResponseStaysIncrementalBelowCheckpointCutover(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openPlaylistTestApp(t)
+	joiner := openPlaylistTestApp(t)
+
+	library, err := owner.CreateLibrary(ctx, "checkpoint-cutover-incremental")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	playlistID, manifest := seedCheckpointBacklog(t, owner, library.LibraryID, ownerLocal.DeviceID, 1)
+	record, ok, err := owner.loadCheckpointTransferRecord(ctx, library.LibraryID, manifest.CheckpointID, false)
+	if err != nil {
+		t.Fatalf("load checkpoint transfer: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected published checkpoint transfer")
+	}
+	if _, err := joiner.installCheckpointRecord(ctx, joinerLocal.DeviceID, record); err != nil {
+		t.Fatalf("install initial checkpoint: %v", err)
+	}
+
+	appendCheckpointTailOps(t, owner, library.LibraryID, ownerLocal.DeviceID, playlistID, 4999)
+
+	req, err := joiner.buildSyncRequest(ctx, library.LibraryID, joinerLocal.DeviceID, joinerLocal.PeerID, defaultSyncBatchSize)
+	if err != nil {
+		t.Fatalf("build sync request: %v", err)
+	}
+	resp, err := owner.buildSyncResponse(ctx, req)
+	if err != nil {
+		t.Fatalf("build sync response: %v", err)
+	}
+	if resp.NeedCheckpoint {
+		t.Fatalf("expected incremental response below cutover, got %+v", resp)
+	}
+	if resp.Checkpoint != nil {
+		t.Fatalf("unexpected checkpoint summary on incremental response: %+v", resp.Checkpoint)
+	}
+	if len(resp.Ops) == 0 || !resp.HasMore {
+		t.Fatalf("expected paged incremental ops below cutover, got %+v", resp)
+	}
+}
+
+func TestBuildSyncResponseUsesCheckpointAtBacklogCutover(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openPlaylistTestApp(t)
+	joiner := openPlaylistTestApp(t)
+
+	library, err := owner.CreateLibrary(ctx, "checkpoint-cutover-bootstrap")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	playlistID, manifest := seedCheckpointBacklog(t, owner, library.LibraryID, ownerLocal.DeviceID, 1)
+	record, ok, err := owner.loadCheckpointTransferRecord(ctx, library.LibraryID, manifest.CheckpointID, false)
+	if err != nil {
+		t.Fatalf("load checkpoint transfer: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected published checkpoint transfer")
+	}
+	if _, err := joiner.installCheckpointRecord(ctx, joinerLocal.DeviceID, record); err != nil {
+		t.Fatalf("install initial checkpoint: %v", err)
+	}
+
+	appendCheckpointTailOps(t, owner, library.LibraryID, ownerLocal.DeviceID, playlistID, incrementalSyncBacklogCutover)
+
+	req, err := joiner.buildSyncRequest(ctx, library.LibraryID, joinerLocal.DeviceID, joinerLocal.PeerID, defaultSyncBatchSize)
+	if err != nil {
+		t.Fatalf("build sync request: %v", err)
+	}
+	resp, err := owner.buildSyncResponse(ctx, req)
+	if err != nil {
+		t.Fatalf("build sync response: %v", err)
+	}
+	if !resp.NeedCheckpoint {
+		t.Fatalf("expected checkpoint bootstrap at cutover, got %+v", resp)
+	}
+	if resp.Checkpoint == nil || resp.Checkpoint.CheckpointID != manifest.CheckpointID {
+		t.Fatalf("unexpected checkpoint summary at cutover: %+v", resp.Checkpoint)
+	}
+	if len(resp.Ops) != 0 {
+		t.Fatalf("expected checkpoint bootstrap to omit incremental ops, got %d", len(resp.Ops))
+	}
+}
+
+func TestTransportStartupCatchupInstallsCheckpointAfterRestart(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	registry := newManagedMemorySyncRegistry()
+	owner := openPlaylistTestAppAtPath(t, filepath.Join(t.TempDir(), "owner"))
+	t.Cleanup(func() {
+		_ = owner.Close()
+	})
+	owner.transportService.backgroundInterval = 0
+	owner.transportService.factory = registry.factory("memory://owner", owner)
+	joinerRoot := t.TempDir()
+	joiner := openPlaylistTestAppAtPath(t, joinerRoot)
+	joiner.transportService.backgroundInterval = 0
+	joiner.transportService.factory = registry.factory("memory://joiner", joiner)
+
+	library, err := owner.CreateLibrary(ctx, "checkpoint-restart-bootstrap")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	playlistID, manifest := seedCheckpointBacklog(t, owner, library.LibraryID, ownerLocal.DeviceID, 1)
+	if err := joiner.Close(); err != nil {
+		t.Fatalf("close joiner before restart: %v", err)
+	}
+
+	joiner = openPlaylistTestAppAtPath(t, joinerRoot)
+	t.Cleanup(func() {
+		_ = joiner.Close()
+	})
+	joiner.transportService.backgroundInterval = 0
+	joiner.transportService.factory = registry.factory("memory://joiner", joiner)
+	joiner.transportService.Stop()
+	if err := joiner.syncActiveRuntimeServices(ctx); err != nil {
+		t.Fatalf("restart joiner runtime services: %v", err)
+	}
+
+	waitForPlaylistName(t, ctx, joiner, library.LibraryID, playlistID, "Queue")
+
+	var ownerAck DeviceCheckpointAck
+	if err := owner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", library.LibraryID, joinerLocal.DeviceID).
+		Take(&ownerAck).Error; err != nil {
+		t.Fatalf("load owner checkpoint ack after restart catch-up: %v", err)
+	}
+	if ownerAck.CheckpointID != manifest.CheckpointID || ownerAck.Source != checkpointAckSourceInstalled {
+		t.Fatalf("unexpected restart checkpoint ack: %+v", ownerAck)
+	}
+
+	var peerState PeerSyncState
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", library.LibraryID, ownerLocal.DeviceID).
+		Take(&peerState).Error; err != nil {
+		t.Fatalf("load peer sync state after restart: %v", err)
+	}
+	if peerState.LastApplied != 1 || peerState.LastError != "" {
+		t.Fatalf("unexpected restart peer sync state: %+v", peerState)
+	}
+}
+
+func TestInstallCheckpointReplacementPrunesSupersededLocalState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openPlaylistTestApp(t)
+	joiner := openPlaylistTestApp(t)
+
+	library, err := owner.CreateLibrary(ctx, "checkpoint-replacement-cleanup")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	playlistID, first := seedCheckpointBacklog(t, owner, library.LibraryID, ownerLocal.DeviceID, 1)
+	firstRecord, ok, err := owner.loadCheckpointTransferRecord(ctx, library.LibraryID, first.CheckpointID, false)
+	if err != nil {
+		t.Fatalf("load first checkpoint transfer: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected first checkpoint transfer")
+	}
+	if _, err := joiner.installCheckpointRecord(ctx, joinerLocal.DeviceID, firstRecord); err != nil {
+		t.Fatalf("install first checkpoint: %v", err)
+	}
+
+	appendCheckpointTailOps(t, owner, library.LibraryID, ownerLocal.DeviceID, playlistID, 3)
+	second, err := owner.PublishCheckpoint(ctx)
+	if err != nil {
+		t.Fatalf("publish replacement checkpoint: %v", err)
+	}
+	secondRecord, ok, err := owner.loadCheckpointTransferRecord(ctx, library.LibraryID, second.CheckpointID, false)
+	if err != nil {
+		t.Fatalf("load second checkpoint transfer: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected second checkpoint transfer")
+	}
+	if _, err := joiner.installCheckpointRecord(ctx, joinerLocal.DeviceID, secondRecord); err != nil {
+		t.Fatalf("install second checkpoint: %v", err)
+	}
+
+	var checkpointCount int64
+	if err := joiner.db.WithContext(ctx).Model(&LibraryCheckpoint{}).
+		Where("library_id = ?", library.LibraryID).
+		Count(&checkpointCount).Error; err != nil {
+		t.Fatalf("count local checkpoints: %v", err)
+	}
+	if checkpointCount != 1 {
+		t.Fatalf("local checkpoint count = %d, want 1", checkpointCount)
+	}
+
+	var staleAckCount int64
+	if err := joiner.db.WithContext(ctx).Model(&DeviceCheckpointAck{}).
+		Where("library_id = ? AND checkpoint_id = ?", library.LibraryID, first.CheckpointID).
+		Count(&staleAckCount).Error; err != nil {
+		t.Fatalf("count stale replacement acks: %v", err)
+	}
+	if staleAckCount != 0 {
+		t.Fatalf("stale replacement ack count = %d, want 0", staleAckCount)
+	}
+
+	var chunkCount int64
+	if err := joiner.db.WithContext(ctx).Model(&LibraryCheckpointChunk{}).
+		Where("library_id = ?", library.LibraryID).
+		Count(&chunkCount).Error; err != nil {
+		t.Fatalf("count replacement checkpoint chunks: %v", err)
+	}
+	if chunkCount != int64(second.ChunkCount) {
+		t.Fatalf("replacement chunk count = %d, want %d", chunkCount, second.ChunkCount)
 	}
 }
 
@@ -241,6 +466,42 @@ func TestStartSyncNowQueuesAsyncJob(t *testing.T) {
 	}
 	if peerState.LastApplied == 0 || peerState.LastError != "" {
 		t.Fatalf("unexpected peer sync state: %+v", peerState)
+	}
+	if joinerLocal.LibraryID != library.LibraryID {
+		t.Fatalf("joiner active library = %q, want %q", joinerLocal.LibraryID, library.LibraryID)
+	}
+}
+
+func TestStartSyncNowEmitsCheckpointInstallJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openPlaylistTestApp(t)
+	joiner := openPlaylistTestApp(t)
+
+	library, err := owner.CreateLibrary(ctx, "sync-now-checkpoint-job")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+	_, manifest := seedCheckpointBacklog(t, owner, library.LibraryID, ownerLocal.DeviceID, 1)
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	job, err := joiner.StartSyncNow(ctx)
+	if err != nil {
+		t.Fatalf("start sync now: %v", err)
+	}
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindSyncNow {
+		t.Fatalf("unexpected queued sync job: %+v", job)
+	}
+
+	waitForJobPhaseWithin(t, ctx, joiner, "sync:"+library.LibraryID, JobPhaseCompleted, 15*time.Second)
+	installJob := waitForJobPhaseWithin(t, ctx, joiner, checkpointInstallJobID(library.LibraryID, manifest.CheckpointID), JobPhaseCompleted, 15*time.Second)
+	if installJob.Kind != jobKindInstallCheckpoint || installJob.LibraryID != library.LibraryID {
+		t.Fatalf("unexpected checkpoint install job: %+v", installJob)
 	}
 	if joinerLocal.LibraryID != library.LibraryID {
 		t.Fatalf("joiner active library = %q, want %q", joinerLocal.LibraryID, library.LibraryID)
@@ -1110,4 +1371,183 @@ func (p *memorySyncPeer) FetchPlaybackAsset(ctx context.Context, req PlaybackAss
 
 func (p *memorySyncPeer) RefreshMembership(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {
 	return p.app.buildMembershipRefreshResponse(ctx, req)
+}
+
+type managedMemorySyncRegistry struct {
+	base *memorySyncRegistry
+}
+
+func newManagedMemorySyncRegistry() *managedMemorySyncRegistry {
+	return &managedMemorySyncRegistry{base: newMemorySyncRegistry()}
+}
+
+func (r *managedMemorySyncRegistry) register(addr string, app *App) {
+	if r == nil || r.base == nil {
+		return
+	}
+	r.base.mu.Lock()
+	r.base.apps[addr] = app
+	r.base.mu.Unlock()
+}
+
+func (r *managedMemorySyncRegistry) factory(addr string, app *App) transportFactory {
+	return func(ctx context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
+		local, err := app.ensureLocalPeerContext(ctx, local)
+		if err != nil {
+			return nil, err
+		}
+		r.register(addr, app)
+		return &memoryManagedSyncTransport{
+			SyncTransport: r.base.transport(addr, app),
+			addr:          addr,
+			peerID:        local.PeerID,
+		}, nil
+	}
+}
+
+type memoryManagedSyncTransport struct {
+	SyncTransport
+	addr   string
+	peerID string
+	closed bool
+}
+
+func (t *memoryManagedSyncTransport) LocalPeerID() string {
+	return strings.TrimSpace(t.peerID)
+}
+
+func (t *memoryManagedSyncTransport) ListenAddrs() []string {
+	if t == nil || t.closed || strings.TrimSpace(t.addr) == "" {
+		return nil
+	}
+	return []string{t.addr}
+}
+
+func (t *memoryManagedSyncTransport) Close() error {
+	t.closed = true
+	return nil
+}
+
+func openPlaylistTestAppAtPath(t *testing.T, root string) *App {
+	t.Helper()
+
+	app, err := Open(context.Background(), Config{
+		DBPath:          filepath.Join(root, "library.db"),
+		BlobRoot:        filepath.Join(root, "blobs"),
+		IdentityKeyPath: filepath.Join(root, "identity.key"),
+	})
+	if err != nil {
+		t.Fatalf("open app at path: %v", err)
+	}
+	return app
+}
+
+func appendCheckpointTailOps(t *testing.T, app *App, libraryID, deviceID, playlistID string, tailOps int) {
+	t.Helper()
+
+	if tailOps <= 0 {
+		return
+	}
+	ctx := context.Background()
+
+	var clock DeviceClock
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", libraryID, deviceID).
+		Take(&clock).Error; err != nil {
+		t.Fatalf("load checkpoint tail clock: %v", err)
+	}
+
+	base := time.Now().UTC()
+	entries := make([]OplogEntry, 0, tailOps)
+	lastSeq := clock.LastSeqSeen
+	for offset := 1; offset <= tailOps; offset++ {
+		seq := lastSeq + int64(offset)
+		name := fmt.Sprintf("Queue %d", seq)
+		ts := base.Add(time.Duration(offset) * time.Millisecond)
+		entries = append(entries, OplogEntry{
+			LibraryID:   libraryID,
+			OpID:        fmt.Sprintf("%s:%d", deviceID, seq),
+			DeviceID:    deviceID,
+			Seq:         seq,
+			TSNS:        ts.UnixNano(),
+			EntityType:  "playlist",
+			EntityID:    playlistID,
+			OpKind:      "upsert",
+			PayloadJSON: fmt.Sprintf(`{"playlistId":%q,"name":%q,"kind":"normal","createdBy":%q}`, playlistID, name, deviceID),
+		})
+	}
+	for start := 0; start < len(entries); start += 250 {
+		end := start + 250
+		if end > len(entries) {
+			end = len(entries)
+		}
+		if err := app.db.WithContext(ctx).Create(entries[start:end]).Error; err != nil {
+			t.Fatalf("seed checkpoint tail ops: %v", err)
+		}
+	}
+
+	finalSeq := lastSeq + int64(tailOps)
+	if err := app.db.WithContext(ctx).Model(&Playlist{}).
+		Where("library_id = ? AND playlist_id = ?", libraryID, playlistID).
+		Updates(map[string]any{
+			"name":       fmt.Sprintf("Queue %d", finalSeq),
+			"updated_at": base.Add(time.Duration(tailOps) * time.Millisecond),
+		}).Error; err != nil {
+		t.Fatalf("update checkpoint tail playlist state: %v", err)
+	}
+	if err := app.db.WithContext(ctx).Model(&DeviceClock{}).
+		Where("library_id = ? AND device_id = ?", libraryID, deviceID).
+		Update("last_seq_seen", finalSeq).Error; err != nil {
+		t.Fatalf("update checkpoint tail device clock: %v", err)
+	}
+}
+
+func waitForPlaylistName(t *testing.T, ctx context.Context, app *App, libraryID, playlistID, wantName string) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var playlist Playlist
+		err := app.db.WithContext(ctx).
+			Where("library_id = ? AND playlist_id = ? AND deleted_at IS NULL", libraryID, playlistID).
+			Take(&playlist).Error
+		if err == nil && playlist.Name == wantName {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	var playlist Playlist
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND playlist_id = ? AND deleted_at IS NULL", libraryID, playlistID).
+		Take(&playlist).Error; err != nil {
+		t.Fatalf("load playlist after wait: %v", err)
+	}
+	t.Fatalf("playlist %q name = %q, want %q", playlistID, playlist.Name, wantName)
+}
+
+func waitForJobPhaseWithin(t *testing.T, ctx context.Context, app *App, jobID string, want JobPhase, timeout time.Duration) JobSnapshot {
+	t.Helper()
+
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		job, ok, err := app.GetJob(ctx, jobID)
+		if err == nil && ok && job.Phase == want {
+			return job
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	job, ok, err := app.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatalf("get job after wait: %v", err)
+	}
+	if !ok {
+		t.Fatalf("job %q not found after wait", jobID)
+	}
+	t.Fatalf("job %q phase = %q, want %q", jobID, job.Phase, want)
+	return JobSnapshot{}
 }

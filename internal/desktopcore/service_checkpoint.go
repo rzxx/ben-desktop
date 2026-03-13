@@ -21,6 +21,7 @@ const (
 
 	jobKindPublishCheckpoint = "publish-checkpoint"
 	jobKindCompactCheckpoint = "compact-checkpoint"
+	jobKindInstallCheckpoint = "install-checkpoint"
 )
 
 type checkpointOplogEntry struct {
@@ -483,6 +484,9 @@ func checkpointContentHash(baseClocks map[string]int64, chunks []checkpointChunk
 }
 
 func savePublishedCheckpointTx(tx *gorm.DB, manifest apitypes.LibraryCheckpointManifest, chunks []checkpointChunk) error {
+	if err := validateCheckpointTransferRecord(checkpointTransferRecord{Manifest: manifest, Chunks: chunks}); err != nil {
+		return err
+	}
 	baseJSON, err := json.Marshal(manifest.BaseClocks)
 	if err != nil {
 		return fmt.Errorf("marshal checkpoint clocks: %w", err)
@@ -550,7 +554,100 @@ func pruneSupersededCheckpointsTx(tx *gorm.DB, libraryID, keepCheckpointID strin
 	if err := tx.Where("library_id = ? AND checkpoint_id <> ?", libraryID, keepCheckpointID).Delete(&LibraryCheckpoint{}).Error; err != nil {
 		return err
 	}
-	return tx.Where("library_id = ? AND checkpoint_id <> ?", libraryID, keepCheckpointID).Delete(&DeviceCheckpointAck{}).Error
+	if err := tx.Where("library_id = ? AND checkpoint_id <> ?", libraryID, keepCheckpointID).Delete(&DeviceCheckpointAck{}).Error; err != nil {
+		return err
+	}
+	return pruneCheckpointAckRowsTx(tx, libraryID, keepCheckpointID)
+}
+
+func pruneCheckpointAckRowsTx(tx *gorm.DB, libraryID, checkpointID string) error {
+	libraryID = strings.TrimSpace(libraryID)
+	checkpointID = strings.TrimSpace(checkpointID)
+	if libraryID == "" {
+		return nil
+	}
+
+	var memberDeviceIDs []string
+	if err := tx.Model(&Membership{}).
+		Where("library_id = ?", libraryID).
+		Pluck("device_id", &memberDeviceIDs).Error; err != nil {
+		return err
+	}
+	memberDeviceIDs = compactNonEmptyStrings(memberDeviceIDs)
+
+	query := tx.Where("library_id = ?", libraryID)
+	if checkpointID != "" {
+		query = query.Where("checkpoint_id = ?", checkpointID)
+	}
+	if len(memberDeviceIDs) == 0 {
+		return query.Delete(&DeviceCheckpointAck{}).Error
+	}
+	return query.Where("device_id NOT IN ?", memberDeviceIDs).Delete(&DeviceCheckpointAck{}).Error
+}
+
+func checkpointInstallJobID(libraryID, checkpointID string) string {
+	libraryID = strings.TrimSpace(libraryID)
+	checkpointID = strings.TrimSpace(checkpointID)
+	if checkpointID == "" {
+		return "checkpoint:install:" + libraryID
+	}
+	return "checkpoint:install:" + libraryID + ":" + checkpointID
+}
+
+func validateCheckpointTransferRecord(record checkpointTransferRecord) error {
+	record.Manifest.LibraryID = strings.TrimSpace(record.Manifest.LibraryID)
+	record.Manifest.CheckpointID = strings.TrimSpace(record.Manifest.CheckpointID)
+	record.Manifest.CreatedByDeviceID = strings.TrimSpace(record.Manifest.CreatedByDeviceID)
+	record.Manifest.ContentHash = strings.TrimSpace(record.Manifest.ContentHash)
+	record.Manifest.Status = strings.TrimSpace(record.Manifest.Status)
+
+	if record.Manifest.LibraryID == "" {
+		return fmt.Errorf("library id is required")
+	}
+	if record.Manifest.CheckpointID == "" {
+		return fmt.Errorf("checkpoint id is required")
+	}
+	if record.Manifest.CreatedByDeviceID == "" {
+		return fmt.Errorf("created by device id is required")
+	}
+	if record.Manifest.ChunkCount != len(record.Chunks) {
+		return fmt.Errorf("checkpoint chunk count mismatch")
+	}
+
+	totalEntries := 0
+	chunks := append([]checkpointChunk(nil), record.Chunks...)
+	sort.Slice(chunks, func(i, j int) bool { return chunks[i].ChunkIndex < chunks[j].ChunkIndex })
+	for index, chunk := range chunks {
+		if chunk.ChunkIndex != index {
+			return fmt.Errorf("checkpoint chunk index %d is not contiguous", chunk.ChunkIndex)
+		}
+		if chunk.EntryCount != len(chunk.Entries) {
+			return fmt.Errorf("checkpoint chunk %d entry count mismatch", chunk.ChunkIndex)
+		}
+		expectedHash, err := hashCheckpointChunk(chunk.Entries)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(chunk.ContentHash) != expectedHash {
+			return fmt.Errorf("checkpoint chunk %d content hash mismatch", chunk.ChunkIndex)
+		}
+		totalEntries += len(chunk.Entries)
+	}
+	if record.Manifest.EntryCount != totalEntries {
+		return fmt.Errorf("checkpoint entry count mismatch")
+	}
+
+	expectedContentHash, err := checkpointContentHash(record.Manifest.BaseClocks, chunks)
+	if err != nil {
+		return err
+	}
+	if record.Manifest.ContentHash != expectedContentHash {
+		return fmt.Errorf("checkpoint manifest content hash mismatch")
+	}
+	if record.Manifest.CheckpointID != expectedContentHash {
+		return fmt.Errorf("checkpoint id mismatch")
+	}
+	return nil
 }
 
 func (a *App) backgroundCheckpointMaintenance(ctx context.Context, libraryID string) error {

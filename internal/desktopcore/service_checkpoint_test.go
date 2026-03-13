@@ -324,6 +324,71 @@ func TestStartCompactCheckpointQueuesAsyncJob(t *testing.T) {
 	}
 }
 
+func TestRemoveLibraryMemberPrunesCheckpointAck(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "checkpoint-ack-prune")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	now := time.Now().UTC()
+	if err := app.db.WithContext(ctx).Create(&Membership{
+		LibraryID:        library.LibraryID,
+		DeviceID:         "peer-device",
+		Role:             roleMember,
+		CapabilitiesJSON: "{}",
+		JoinedAt:         now,
+	}).Error; err != nil {
+		t.Fatalf("seed peer membership: %v", err)
+	}
+	seedCheckpointOp(t, app, OplogEntry{
+		LibraryID:   library.LibraryID,
+		OpID:        local.DeviceID + ":1",
+		DeviceID:    local.DeviceID,
+		Seq:         1,
+		TSNS:        now.UnixNano(),
+		EntityType:  "playlist",
+		EntityID:    "pl-1",
+		OpKind:      "upsert",
+		PayloadJSON: `{"playlist_id":"pl-1"}`,
+	})
+
+	manifest, err := app.PublishCheckpoint(ctx)
+	if err != nil {
+		t.Fatalf("publish checkpoint: %v", err)
+	}
+	if err := app.db.WithContext(ctx).Create(&DeviceCheckpointAck{
+		LibraryID:    library.LibraryID,
+		DeviceID:     "peer-device",
+		CheckpointID: manifest.CheckpointID,
+		Source:       checkpointAckSourceCovered,
+		AckedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("seed peer checkpoint ack: %v", err)
+	}
+
+	if err := app.RemoveLibraryMember(ctx, "peer-device"); err != nil {
+		t.Fatalf("remove library member: %v", err)
+	}
+
+	var ackCount int64
+	if err := app.db.WithContext(ctx).Model(&DeviceCheckpointAck{}).
+		Where("library_id = ? AND device_id = ?", library.LibraryID, "peer-device").
+		Count(&ackCount).Error; err != nil {
+		t.Fatalf("count pruned checkpoint acks: %v", err)
+	}
+	if ackCount != 0 {
+		t.Fatalf("checkpoint ack count after member removal = %d, want 0", ackCount)
+	}
+}
+
 func seedCheckpointOp(t *testing.T, app *App, op OplogEntry) {
 	t.Helper()
 	if err := app.db.Create(&op).Error; err != nil {
