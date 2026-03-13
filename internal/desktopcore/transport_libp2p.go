@@ -25,6 +25,7 @@ import (
 const (
 	desktopSyncProtocolID       = protocol.ID("/ben/desktop/sync/1.0.0")
 	desktopCheckpointProtocolID = protocol.ID("/ben/desktop/checkpoint/1.0.0")
+	desktopPlaybackProtocolID   = protocol.ID("/ben/desktop/playback/1.0.0")
 	desktopMembershipProtocolID = protocol.ID("/ben/desktop/membership-refresh/1.0.0")
 	transportStreamTimeout      = 20 * time.Second
 	transportConnectTimeout     = 10 * time.Second
@@ -88,6 +89,7 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 	}
 	hostNode.SetStreamHandler(desktopSyncProtocolID, transport.handleSyncStream)
 	hostNode.SetStreamHandler(desktopCheckpointProtocolID, transport.handleCheckpointStream)
+	hostNode.SetStreamHandler(desktopPlaybackProtocolID, transport.handlePlaybackStream)
 	hostNode.SetStreamHandler(desktopMembershipProtocolID, transport.handleMembershipRefreshStream)
 
 	service := mdns.NewMdnsService(hostNode, serviceTagForLibrary(local.LibraryID), &desktopMDNSNotifee{
@@ -263,6 +265,26 @@ func (p *libp2pSyncPeer) FetchCheckpoint(ctx context.Context, req CheckpointFetc
 	return resp, nil
 }
 
+func (p *libp2pSyncPeer) FetchPlaybackAsset(ctx context.Context, req PlaybackAssetRequest) (PlaybackAssetResponse, error) {
+	stream, err := p.openStream(ctx, desktopPlaybackProtocolID)
+	if err != nil {
+		return PlaybackAssetResponse{}, err
+	}
+	defer stream.Close()
+
+	if err := json.NewEncoder(stream).Encode(req); err != nil {
+		return PlaybackAssetResponse{}, fmt.Errorf("write playback request: %w", err)
+	}
+	var resp PlaybackAssetResponse
+	if err := json.NewDecoder(stream).Decode(&resp); err != nil {
+		return PlaybackAssetResponse{}, fmt.Errorf("read playback response: %w", err)
+	}
+	if strings.TrimSpace(resp.Error) != "" {
+		return PlaybackAssetResponse{}, fmt.Errorf("%s", strings.TrimSpace(resp.Error))
+	}
+	return resp, nil
+}
+
 func (p *libp2pSyncPeer) RefreshMembership(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {
 	stream, err := p.openStream(ctx, desktopMembershipProtocolID)
 	if err != nil {
@@ -357,6 +379,37 @@ func (t *libp2pSyncTransport) handleCheckpointStream(stream network.Stream) {
 	}
 }
 
+func (t *libp2pSyncTransport) handlePlaybackStream(stream network.Stream) {
+	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
+	defer cancel()
+
+	var req PlaybackAssetRequest
+	if err := json.NewDecoder(stream).Decode(&req); err != nil {
+		t.writePlaybackError(stream, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if strings.TrimSpace(req.LibraryID) != strings.TrimSpace(t.libraryID) {
+		t.writePlaybackError(stream, "library mismatch")
+		return
+	}
+	if _, err := t.app.verifyTransportPeerAuth(ctx, t.libraryID, req.DeviceID, req.PeerID, stream.Conn().RemotePeer().String(), req.Auth); err != nil {
+		t.writePlaybackError(stream, err.Error())
+		return
+	}
+
+	resp, err := t.app.buildPlaybackAssetResponse(ctx, req)
+	if err != nil {
+		t.writePlaybackError(stream, err.Error())
+		return
+	}
+	if err := json.NewEncoder(stream).Encode(resp); err != nil {
+		t.app.logf("desktopcore: write playback response failed: %v", err)
+	}
+}
+
 func (t *libp2pSyncTransport) handleMembershipRefreshStream(stream network.Stream) {
 	defer stream.Close()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
@@ -393,6 +446,10 @@ func (t *libp2pSyncTransport) writeSyncError(stream network.Stream, message stri
 
 func (t *libp2pSyncTransport) writeCheckpointError(stream network.Stream, message string) {
 	_ = json.NewEncoder(stream).Encode(CheckpointFetchResponse{Error: strings.TrimSpace(message)})
+}
+
+func (t *libp2pSyncTransport) writePlaybackError(stream network.Stream, message string) {
+	_ = json.NewEncoder(stream).Encode(PlaybackAssetResponse{Error: strings.TrimSpace(message)})
 }
 
 func (t *libp2pSyncTransport) writeMembershipRefreshError(stream network.Stream, message string) {

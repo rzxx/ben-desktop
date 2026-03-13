@@ -12,6 +12,7 @@ import (
 	"time"
 
 	apitypes "ben/core/api/types"
+	"gorm.io/gorm"
 )
 
 type fakeAACBuilder struct {
@@ -374,6 +375,247 @@ func TestGuestCachedRemoteReserveReportsPlayableRemote(t *testing.T) {
 		if !item.SourcePresent {
 			t.Fatalf("expected guest remote device source row to remain materialized")
 		}
+	}
+}
+
+func TestEnsurePlaybackRecordingFetchesRemoteCachedAsset(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openCacheTestApp(t, 1024)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "remote-playback-fetch")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	cacheInput := cacheSeedInput{
+		RecordingID:    "rec-remote-fetch",
+		AlbumID:        "album-remote-fetch",
+		SourceFileID:   "src-remote-fetch",
+		EncodingID:     "enc-remote-fetch",
+		Profile:        audioProfileVBRHigh,
+		LastVerifiedAt: time.Now().UTC(),
+	}
+	remoteBlob := []byte(strings.Repeat("r", 192))
+	cacheInput.BlobID = blobIDForBytes(remoteBlob)
+	seedCacheRecording(t, owner, library.LibraryID, ownerLocal.DeviceID, cacheInput)
+	seedCacheRecording(t, joiner, library.LibraryID, ownerLocal.DeviceID, cacheInput)
+	if _, err := owner.transcode.storeBlobBytes(remoteBlob); err != nil {
+		t.Fatalf("store remote playback blob: %v", err)
+	}
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	result, err := joiner.EnsurePlaybackRecording(ctx, cacheInput.RecordingID, "desktop")
+	if err != nil {
+		t.Fatalf("ensure playback recording: %v", err)
+	}
+	if result.SourceKind != apitypes.PlaybackSourceRemoteOpt {
+		t.Fatalf("source kind = %q, want %q", result.SourceKind, apitypes.PlaybackSourceRemoteOpt)
+	}
+	if result.FromLocal {
+		t.Fatalf("expected remote fetch result to report remote origin")
+	}
+	if result.BlobID != cacheInput.BlobID || result.EncodingID != cacheInput.EncodingID {
+		t.Fatalf("unexpected remote fetch result: %+v", result)
+	}
+	if result.Bytes != 192 {
+		t.Fatalf("bytes = %d, want 192", result.Bytes)
+	}
+	if !blobExists(t, joiner, cacheInput.BlobID) {
+		t.Fatalf("expected fetched blob %s to exist locally", cacheInput.BlobID)
+	}
+
+	var cacheRow DeviceAssetCacheModel
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND optimized_asset_id = ?", library.LibraryID, joinerLocal.DeviceID, cacheInput.EncodingID).
+		Take(&cacheRow).Error; err != nil {
+		t.Fatalf("load local fetched cache row: %v", err)
+	}
+	if !cacheRow.IsCached {
+		t.Fatalf("expected fetched asset to be marked cached locally")
+	}
+}
+
+func TestPreparePlaybackRecordingRequestsProviderTranscodeFromRemotePeer(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("remote-transcoded")}
+	owner := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "remote-provider-transcode")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, _ := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	seedInput := playbackSeedInput{
+		RecordingID:    "rec-provider-remote",
+		TrackClusterID: "rec-provider-remote",
+		AlbumID:        "album-provider-remote",
+		AlbumClusterID: "album-provider-remote",
+		SourceFileID:   "src-provider-remote",
+		QualityRank:    100,
+	}
+	seedSourceOnlyRecording(t, owner, library.LibraryID, ownerLocal.DeviceID, seedInput)
+	seedSourceOnlyRecording(t, joiner, library.LibraryID, ownerLocal.DeviceID, seedInput)
+	writeSeedSourceFile(t, owner, library.LibraryID, ownerLocal.DeviceID, seedInput.SourceFileID, []byte("lossless-remote"))
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	status, err := joiner.PreparePlaybackRecording(ctx, seedInput.RecordingID, "desktop", apitypes.PlaybackPreparationPlayNow)
+	if err != nil {
+		t.Fatalf("prepare playback recording: %v", err)
+	}
+	if status.Phase != apitypes.PlaybackPreparationReady {
+		t.Fatalf("preparation phase = %q, want %q", status.Phase, apitypes.PlaybackPreparationReady)
+	}
+	if status.SourceKind != apitypes.PlaybackSourceCachedOpt {
+		t.Fatalf("preparation source kind = %q, want %q", status.SourceKind, apitypes.PlaybackSourceCachedOpt)
+	}
+	if status.PlayableURI == "" || status.BlobID == "" || status.EncodingID == "" {
+		t.Fatalf("expected ready preparation with local cached artifact: %+v", status)
+	}
+	if len(builder.calls) != 1 {
+		t.Fatalf("remote transcode call count = %d, want 1", len(builder.calls))
+	}
+	if builder.calls[0].profile != audioProfileVBRHigh {
+		t.Fatalf("remote transcode profile = %q, want %q", builder.calls[0].profile, audioProfileVBRHigh)
+	}
+	if !blobExists(t, joiner, status.BlobID) {
+		t.Fatalf("expected remotely transcoded blob %s to exist locally", status.BlobID)
+	}
+
+	availability, err := joiner.GetRecordingAvailability(ctx, seedInput.RecordingID, "desktop")
+	if err != nil {
+		t.Fatalf("get recording availability after prepare: %v", err)
+	}
+	if availability.State != apitypes.AvailabilityPlayableCachedOpt {
+		t.Fatalf("availability state after remote prepare = %q, want %q", availability.State, apitypes.AvailabilityPlayableCachedOpt)
+	}
+}
+
+func TestEnsurePlaybackRecordingRejectsGuestReserveWithTamperedBlob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openCacheTestApp(t, 1024)
+	guest := openCacheTestApp(t, 1024)
+	requester := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "guest-rereserve-verify")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	_, guestLocal := seedSharedLibraryForSync(t, owner, guest, library)
+	_, requesterLocal := seedSharedLibraryForSync(t, owner, requester, library)
+
+	now := time.Now().UTC()
+	requesterCertRow, ok, err := owner.loadMembershipCert(ctx, library.LibraryID, requesterLocal.DeviceID)
+	if err != nil {
+		t.Fatalf("load requester membership cert: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected requester membership cert")
+	}
+	if err := requester.db.WithContext(ctx).Create(&Device{
+		DeviceID:   guestLocal.DeviceID,
+		Name:       guestLocal.Device,
+		PeerID:     guestLocal.PeerID,
+		JoinedAt:   now,
+		LastSeenAt: &now,
+	}).Error; err != nil {
+		t.Fatalf("seed requester guest device: %v", err)
+	}
+	if err := requester.db.WithContext(ctx).Create(&Membership{
+		LibraryID:        library.LibraryID,
+		DeviceID:         guestLocal.DeviceID,
+		Role:             roleGuest,
+		CapabilitiesJSON: "{}",
+		JoinedAt:         now,
+	}).Error; err != nil {
+		t.Fatalf("seed requester guest membership: %v", err)
+	}
+	if err := guest.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&Device{
+			DeviceID:   requesterLocal.DeviceID,
+			Name:       requesterLocal.Device,
+			PeerID:     requesterLocal.PeerID,
+			JoinedAt:   now,
+			LastSeenAt: &now,
+		}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&Membership{
+			LibraryID:        library.LibraryID,
+			DeviceID:         requesterLocal.DeviceID,
+			Role:             roleMember,
+			CapabilitiesJSON: "{}",
+			JoinedAt:         now,
+		}).Error; err != nil {
+			return err
+		}
+		return saveMembershipCertTx(tx, membershipCertEnvelopeFromRow(requesterCertRow))
+	}); err != nil {
+		t.Fatalf("seed guest requester membership material: %v", err)
+	}
+
+	for _, app := range []*App{owner, guest, requester} {
+		if err := app.db.WithContext(ctx).
+			Model(&Membership{}).
+			Where("library_id = ? AND device_id = ?", library.LibraryID, guestLocal.DeviceID).
+			Update("role", roleGuest).Error; err != nil {
+			t.Fatalf("update guest role: %v", err)
+		}
+	}
+
+	cacheInput := cacheSeedInput{
+		RecordingID:    "rec-guest-tampered",
+		AlbumID:        "album-guest-tampered",
+		SourceFileID:   "src-guest-tampered",
+		EncodingID:     "enc-guest-tampered",
+		Profile:        audioProfileVBRHigh,
+		LastVerifiedAt: time.Now().UTC(),
+	}
+	cacheInput.BlobID = blobIDForBytes([]byte("expected-guest-bytes"))
+	seedCacheRecording(t, guest, library.LibraryID, guestLocal.DeviceID, cacheInput)
+	seedCacheRecording(t, requester, library.LibraryID, guestLocal.DeviceID, cacheInput)
+
+	guestBlobPath, err := guest.cache.blobPath(cacheInput.BlobID)
+	if err != nil {
+		t.Fatalf("resolve guest blob path: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(guestBlobPath), 0o755); err != nil {
+		t.Fatalf("mkdir guest blob dir: %v", err)
+	}
+	if err := os.WriteFile(guestBlobPath, []byte("tampered-guest-bytes"), 0o644); err != nil {
+		t.Fatalf("write tampered guest blob: %v", err)
+	}
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	guest.SetSyncTransport(registry.transport("memory://guest", guest))
+	requester.SetSyncTransport(registry.transport("memory://requester", requester))
+
+	_, err = requester.EnsurePlaybackRecording(ctx, cacheInput.RecordingID, "desktop")
+	if err == nil || !strings.Contains(err.Error(), "blob hash mismatch") {
+		t.Fatalf("expected guest re-serve blob hash verification error, got %v", err)
+	}
+
+	if blobExists(t, requester, cacheInput.BlobID) {
+		t.Fatalf("expected requester to reject tampered guest blob %s", cacheInput.BlobID)
+	}
+	if requesterLocal.LibraryID != library.LibraryID {
+		t.Fatalf("requester active library = %q, want %q", requesterLocal.LibraryID, library.LibraryID)
 	}
 }
 

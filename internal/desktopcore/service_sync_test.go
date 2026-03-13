@@ -1101,6 +1101,13 @@ func (p *memorySyncPeer) FetchCheckpoint(ctx context.Context, req CheckpointFetc
 	return p.app.buildCheckpointFetchResponse(ctx, req)
 }
 
+func (p *memorySyncPeer) FetchPlaybackAsset(ctx context.Context, req PlaybackAssetRequest) (PlaybackAssetResponse, error) {
+	if _, err := p.app.verifyTransportPeerAuth(ctx, req.LibraryID, req.DeviceID, req.PeerID, req.PeerID, req.Auth); err != nil {
+		return PlaybackAssetResponse{}, err
+	}
+	return p.app.buildPlaybackAssetResponse(ctx, req)
+}
+
 func (p *memorySyncPeer) RefreshMembership(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {
 	return p.app.buildMembershipRefreshResponse(ctx, req)
 }

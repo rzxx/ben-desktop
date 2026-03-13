@@ -33,6 +33,7 @@ type SyncPeer interface {
 	PeerID() string
 	Sync(ctx context.Context, req SyncRequest) (SyncResponse, error)
 	FetchCheckpoint(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error)
+	FetchPlaybackAsset(ctx context.Context, req PlaybackAssetRequest) (PlaybackAssetResponse, error)
 	RefreshMembership(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error)
 }
 
@@ -68,6 +69,39 @@ type CheckpointFetchResponse struct {
 	Record checkpointTransferRecord
 	Auth   transportPeerAuth
 	Error  string
+}
+
+type PlaybackAssetRequest struct {
+	LibraryID        string
+	DeviceID         string
+	PeerID           string
+	RecordingID      string
+	PreferredProfile string
+	Auth             transportPeerAuth
+}
+
+type PlaybackAssetResponse struct {
+	LibraryID string
+	DeviceID  string
+	PeerID    string
+	Auth      transportPeerAuth
+	Asset     PlaybackAssetTransfer
+	Error     string
+}
+
+type PlaybackAssetTransfer struct {
+	OptimizedAssetID  string
+	SourceFileID      string
+	TrackVariantID    string
+	Profile           string
+	BlobID            string
+	MIME              string
+	DurationMS        int64
+	Bitrate           int
+	Codec             string
+	Container         string
+	CreatedByDeviceID string
+	Data              []byte
 }
 
 type syncBatch struct {

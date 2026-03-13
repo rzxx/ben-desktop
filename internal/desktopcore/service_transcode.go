@@ -326,9 +326,7 @@ func (s *TranscodeService) markAssetCached(ctx context.Context, local apitypes.L
 }
 
 func (s *TranscodeService) storeBlobBytes(data []byte) (string, error) {
-	sum := blake3.Sum256(data)
-	hashHex := hex.EncodeToString(sum[:])
-	blobID := "b3:" + hashHex
+	blobID := blobIDForBytes(data)
 	path, err := s.blobPath(blobID)
 	if err != nil {
 		return "", err
@@ -354,6 +352,36 @@ func (s *TranscodeService) storeBlobBytes(data []byte) (string, error) {
 		return "", err
 	}
 	return blobID, nil
+}
+
+func blobIDForBytes(data []byte) string {
+	sum := blake3.Sum256(data)
+	return "b3:" + hex.EncodeToString(sum[:])
+}
+
+func verifyBlobIDBytes(blobID string, data []byte) error {
+	if strings.TrimSpace(blobID) == "" {
+		return fmt.Errorf("blob id is required")
+	}
+	if actual := blobIDForBytes(data); strings.TrimSpace(actual) != strings.TrimSpace(blobID) {
+		return fmt.Errorf("blob hash mismatch")
+	}
+	return nil
+}
+
+func (s *TranscodeService) readVerifiedBlob(blobID string) ([]byte, error) {
+	path, err := s.blobPath(blobID)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyBlobIDBytes(blobID, data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func (s *TranscodeService) blobPath(blobID string) (string, error) {

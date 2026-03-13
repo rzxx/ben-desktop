@@ -336,12 +336,22 @@ func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recording
 	}
 	switch availability.State {
 	case apitypes.AvailabilityPlayableRemoteOpt:
+		if result, fetched, err := s.ensureRemotePlaybackRecording(ctx, local, resolvedRecordingID, profile); err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		} else if fetched {
+			return result, nil
+		}
 		return apitypes.PlaybackRecordingResult{
 			Profile:    profile,
 			SourceKind: apitypes.PlaybackSourceRemoteOpt,
 			Reason:     apitypes.PlaybackUnavailableNetworkOff,
 		}, fmt.Errorf("recording %s requires remote optimized fetch", resolvedRecordingID)
 	case apitypes.AvailabilityWaitingProviderTranscode:
+		if result, fetched, err := s.ensureRemotePlaybackRecording(ctx, local, resolvedRecordingID, profile); err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		} else if fetched {
+			return result, nil
+		}
 		return apitypes.PlaybackRecordingResult{
 			Profile:    profile,
 			SourceKind: apitypes.PlaybackSourceRemoteOpt,
@@ -543,6 +553,70 @@ func (s *PlaybackService) preparePlaybackRecordingForLocalContext(ctx context.Co
 		return apitypes.PlaybackPreparationStatus{}, err
 	}
 	status.Purpose = purpose
+	if status.Phase != apitypes.PlaybackPreparationReady {
+		switch status.Reason {
+		case apitypes.PlaybackUnavailableNetworkOff, apitypes.PlaybackUnavailableProviderOffline:
+			availability, availabilityErr := s.GetRecordingAvailability(ctx, recordingID, profile)
+			if availabilityErr != nil {
+				if errors.Is(availabilityErr, context.Canceled) {
+					job.Fail(1, "playback preparation canceled because the library is no longer active", nil)
+					return apitypes.PlaybackPreparationStatus{}, availabilityErr
+				}
+				job.Fail(1, "playback preparation failed", availabilityErr)
+				return apitypes.PlaybackPreparationStatus{}, availabilityErr
+			}
+			switch availability.State {
+			case apitypes.AvailabilityPlayableRemoteOpt:
+				status.Phase = apitypes.PlaybackPreparationPreparingFetch
+				status.SourceKind = apitypes.PlaybackSourceRemoteOpt
+				s.storePreparation(status)
+				job.Running(0.65, "fetching remote optimized asset")
+				if _, fetched, fetchErr := s.ensureRemotePlaybackRecording(ctx, local, recordingID, profile); fetchErr != nil {
+					if errors.Is(fetchErr, context.Canceled) {
+						job.Fail(1, "playback preparation canceled because the library is no longer active", nil)
+						return apitypes.PlaybackPreparationStatus{}, fetchErr
+					}
+					job.Fail(1, "playback preparation failed", fetchErr)
+					return apitypes.PlaybackPreparationStatus{}, fetchErr
+				} else {
+					status, err = s.inspectPlaybackRecording(ctx, local, recordingID, profile)
+					if err != nil {
+						if errors.Is(err, context.Canceled) {
+							job.Fail(1, "playback preparation canceled because the library is no longer active", nil)
+							return apitypes.PlaybackPreparationStatus{}, err
+						}
+						job.Fail(1, "playback preparation failed", err)
+						return apitypes.PlaybackPreparationStatus{}, err
+					}
+					_ = fetched
+				}
+			case apitypes.AvailabilityWaitingProviderTranscode:
+				status.Phase = apitypes.PlaybackPreparationPreparingTranscode
+				status.SourceKind = apitypes.PlaybackSourceRemoteOpt
+				s.storePreparation(status)
+				job.Running(0.65, "requesting provider transcode")
+				if _, fetched, fetchErr := s.ensureRemotePlaybackRecording(ctx, local, recordingID, profile); fetchErr != nil {
+					if errors.Is(fetchErr, context.Canceled) {
+						job.Fail(1, "playback preparation canceled because the library is no longer active", nil)
+						return apitypes.PlaybackPreparationStatus{}, fetchErr
+					}
+					job.Fail(1, "playback preparation failed", fetchErr)
+					return apitypes.PlaybackPreparationStatus{}, fetchErr
+				} else {
+					status, err = s.inspectPlaybackRecording(ctx, local, recordingID, profile)
+					if err != nil {
+						if errors.Is(err, context.Canceled) {
+							job.Fail(1, "playback preparation canceled because the library is no longer active", nil)
+							return apitypes.PlaybackPreparationStatus{}, err
+						}
+						job.Fail(1, "playback preparation failed", err)
+						return apitypes.PlaybackPreparationStatus{}, err
+					}
+					_ = fetched
+				}
+			}
+		}
+	}
 	s.mu.Lock()
 	s.preparations[s.preparationKey(recordingID, status.PreferredProfile)] = status
 	s.mu.Unlock()
@@ -571,6 +645,15 @@ func (s *PlaybackService) GetPlaybackPreparation(ctx context.Context, recordingI
 		return status, nil
 	}
 	return s.InspectPlaybackRecording(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackService) storePreparation(status apitypes.PlaybackPreparationStatus) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.preparations[s.preparationKey(status.RecordingID, status.PreferredProfile)] = status
 }
 
 func (s *PlaybackService) ResolvePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error) {
@@ -1259,6 +1342,12 @@ func (s *PlaybackService) prepareRecordingOfflineResult(ctx context.Context, loc
 			SourceKind: apitypes.PlaybackSourceLocalFile,
 			LocalPath:  localPath,
 		}, nil
+	}
+
+	if result, fetched, err := s.ensureRemotePlaybackRecording(ctx, local, recordingID, profile); err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	} else if fetched {
+		return result, nil
 	}
 
 	return apitypes.PlaybackRecordingResult{}, fmt.Errorf("recording %s has no local or cached asset available for offline pinning", recordingID)
