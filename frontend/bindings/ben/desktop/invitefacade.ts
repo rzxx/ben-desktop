@@ -8,6 +8,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as apitypes$0 from "../core/api/types/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as desktopcore$0 from "./internal/desktopcore/models.js";
 
 export function ApproveJoinRequest(requestID: string, role: string): $CancellablePromise<void> {
     return $Call.ByID(2154804979, requestID, role);
@@ -55,6 +58,12 @@ export function RevokeIssuedInvite(inviteID: string, reason: string): $Cancellab
     return $Call.ByID(413876291, inviteID, reason);
 }
 
+export function StartFinalizeJoinSession(sessionID: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(2247074811, sessionID).then(($result: any) => {
+        return $$createType7($result);
+    });
+}
+
 export function StartJoinFromInvite(req: apitypes$0.JoinFromInviteInput): $CancellablePromise<apitypes$0.JoinSession> {
     return $Call.ByID(759325766, req).then(($result: any) => {
         return $$createType2($result);
@@ -69,3 +78,4 @@ const $$createType3 = apitypes$0.IssuedInviteRecord.createFrom;
 const $$createType4 = $Create.Array($$createType3);
 const $$createType5 = apitypes$0.InviteJoinRequestRecord.createFrom;
 const $$createType6 = $Create.Array($$createType5);
+const $$createType7 = desktopcore$0.JobSnapshot.createFrom;

@@ -461,12 +461,24 @@ func (s *PlaybackFacade) EnsureRecordingEncoding(ctx context.Context, recordingI
 	return s.playback().EnsureRecordingEncoding(ctx, recordingID, preferredProfile)
 }
 
+func (s *PlaybackFacade) StartEnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+	return s.playback().StartEnsureRecordingEncoding(ctx, recordingID, preferredProfile)
+}
+
 func (s *PlaybackFacade) EnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
 	return s.playback().EnsureAlbumEncodings(ctx, albumID, preferredProfile)
 }
 
+func (s *PlaybackFacade) StartEnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+	return s.playback().StartEnsureAlbumEncodings(ctx, albumID, preferredProfile)
+}
+
 func (s *PlaybackFacade) EnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
 	return s.playback().EnsurePlaylistEncodings(ctx, playlistID, preferredProfile)
+}
+
+func (s *PlaybackFacade) StartEnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+	return s.playback().StartEnsurePlaylistEncodings(ctx, playlistID, preferredProfile)
 }
 
 func (s *PlaybackFacade) EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {

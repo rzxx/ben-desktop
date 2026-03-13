@@ -342,12 +342,24 @@ func (a *App) EnsureRecordingEncoding(ctx context.Context, recordingID, preferre
 	return a.playback.EnsureRecordingEncoding(ctx, recordingID, preferredProfile)
 }
 
+func (a *App) StartEnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (JobSnapshot, error) {
+	return a.playback.StartEnsureRecordingEncoding(ctx, recordingID, preferredProfile)
+}
+
 func (a *App) EnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
 	return a.playback.EnsureAlbumEncodings(ctx, albumID, preferredProfile)
 }
 
+func (a *App) StartEnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (JobSnapshot, error) {
+	return a.playback.StartEnsureAlbumEncodings(ctx, albumID, preferredProfile)
+}
+
 func (a *App) EnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
 	return a.playback.EnsurePlaylistEncodings(ctx, playlistID, preferredProfile)
+}
+
+func (a *App) StartEnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (JobSnapshot, error) {
+	return a.playback.StartEnsurePlaylistEncodings(ctx, playlistID, preferredProfile)
 }
 
 func (a *App) EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {

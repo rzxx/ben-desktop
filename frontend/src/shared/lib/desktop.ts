@@ -313,6 +313,33 @@ export function startPreparePlaybackRecording(
   );
 }
 
+export function startEnsureRecordingEncoding(
+  recordingId: string,
+  preferredProfile = "",
+) {
+  return PlaybackFacade.StartEnsureRecordingEncoding(
+    recordingId,
+    preferredProfile,
+  );
+}
+
+export function startEnsureAlbumEncodings(
+  albumId: string,
+  preferredProfile = "",
+) {
+  return PlaybackFacade.StartEnsureAlbumEncodings(albumId, preferredProfile);
+}
+
+export function startEnsurePlaylistEncodings(
+  playlistId: string,
+  preferredProfile = "",
+) {
+  return PlaybackFacade.StartEnsurePlaylistEncodings(
+    playlistId,
+    preferredProfile,
+  );
+}
+
 export function listJobs(libraryId = "") {
   return JobsFacade.ListJobs(libraryId);
 }

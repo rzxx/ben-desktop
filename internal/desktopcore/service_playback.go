@@ -15,7 +15,12 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const jobKindPreparePlayback = "prepare-playback"
+const (
+	jobKindEnsureRecordingEncoding = "ensure-recording-encoding"
+	jobKindEnsureAlbumEncodings    = "ensure-album-encodings"
+	jobKindEnsurePlaylistEncodings = "ensure-playlist-encodings"
+	jobKindPreparePlayback         = "prepare-playback"
+)
 
 type PlaybackService struct {
 	app *App
@@ -36,6 +41,35 @@ func (s *PlaybackService) EnsureRecordingEncoding(ctx context.Context, recording
 	if err != nil {
 		return false, err
 	}
+	return s.ensureRecordingEncodingForLocalContext(ctx, local, recordingID, preferredProfile)
+}
+
+func (s *PlaybackService) StartEnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (JobSnapshot, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return JobSnapshot{}, fmt.Errorf("recording id is required")
+	}
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	jobID := playbackEnsureRecordingEncodingJobID(local.LibraryID, recordingID, profile)
+	return s.app.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindEnsureRecordingEncoding,
+		local.LibraryID,
+		"queued recording encoding",
+		"recording encoding canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			_, _ = s.ensureRecordingEncodingJob(runCtx, local, recordingID, profile)
+		},
+	)
+}
+
+func (s *PlaybackService) ensureRecordingEncodingForLocalContext(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (bool, error) {
 	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
 	if err != nil {
 		return false, err
@@ -48,15 +82,56 @@ func (s *PlaybackService) EnsureAlbumEncodings(ctx context.Context, albumID, pre
 	if err != nil {
 		return apitypes.EnsureEncodingBatchResult{}, err
 	}
+	return s.ensureAlbumEncodingsForLocalContext(ctx, local, albumID, preferredProfile, nil)
+}
+
+func (s *PlaybackService) StartEnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (JobSnapshot, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+
+	albumID = strings.TrimSpace(albumID)
+	if albumID == "" {
+		return JobSnapshot{}, fmt.Errorf("album id is required")
+	}
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	jobID := playbackEnsureScopeEncodingsJobID(local.LibraryID, "album", albumID, profile)
+	return s.app.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindEnsureAlbumEncodings,
+		local.LibraryID,
+		"queued album encoding batch",
+		"album encoding batch canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			job := s.app.jobs.Track(jobID, jobKindEnsureAlbumEncodings, local.LibraryID)
+			_, _ = s.ensureAlbumEncodingsForLocalContext(runCtx, local, albumID, profile, job)
+		},
+	)
+}
+
+func (s *PlaybackService) ensureAlbumEncodingsForLocalContext(ctx context.Context, local apitypes.LocalContext, albumID, preferredProfile string, job *JobTracker) (apitypes.EnsureEncodingBatchResult, error) {
 	albumID = strings.TrimSpace(albumID)
 	if albumID == "" {
 		return apitypes.EnsureEncodingBatchResult{}, fmt.Errorf("album id is required")
 	}
+	if job != nil {
+		job.Queued(0, "queued album encoding batch")
+		job.Running(0.1, "collecting album recordings")
+	}
 	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, albumID)
 	if err != nil {
+		if job != nil {
+			if errors.Is(err, context.Canceled) {
+				job.Fail(1, "album encoding batch canceled because the library is no longer active", nil)
+			} else {
+				job.Fail(1, "album encoding batch failed", err)
+			}
+		}
 		return apitypes.EnsureEncodingBatchResult{}, err
 	}
-	return s.ensureScopeEncodings(ctx, recordingIDs, preferredProfile)
+	return s.ensureScopeEncodings(ctx, local, recordingIDs, preferredProfile, job, "album encoding batch", "album recordings")
 }
 
 func (s *PlaybackService) EnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
@@ -64,20 +139,62 @@ func (s *PlaybackService) EnsurePlaylistEncodings(ctx context.Context, playlistI
 	if err != nil {
 		return apitypes.EnsureEncodingBatchResult{}, err
 	}
+	return s.ensurePlaylistEncodingsForLocalContext(ctx, local, playlistID, preferredProfile, nil)
+}
+
+func (s *PlaybackService) StartEnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (JobSnapshot, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+
+	playlistID = strings.TrimSpace(playlistID)
+	if playlistID == "" {
+		return JobSnapshot{}, fmt.Errorf("playlist id is required")
+	}
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	jobID := playbackEnsureScopeEncodingsJobID(local.LibraryID, "playlist", playlistID, profile)
+	return s.app.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindEnsurePlaylistEncodings,
+		local.LibraryID,
+		"queued playlist encoding batch",
+		"playlist encoding batch canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			job := s.app.jobs.Track(jobID, jobKindEnsurePlaylistEncodings, local.LibraryID)
+			_, _ = s.ensurePlaylistEncodingsForLocalContext(runCtx, local, playlistID, profile, job)
+		},
+	)
+}
+
+func (s *PlaybackService) ensurePlaylistEncodingsForLocalContext(ctx context.Context, local apitypes.LocalContext, playlistID, preferredProfile string, job *JobTracker) (apitypes.EnsureEncodingBatchResult, error) {
 	playlistID = strings.TrimSpace(playlistID)
 	if playlistID == "" {
 		return apitypes.EnsureEncodingBatchResult{}, fmt.Errorf("playlist id is required")
 	}
+	if job != nil {
+		job.Queued(0, "queued playlist encoding batch")
+		job.Running(0.1, "collecting playlist recordings")
+	}
 	recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
 	if err != nil {
+		if job != nil {
+			if errors.Is(err, context.Canceled) {
+				job.Fail(1, "playlist encoding batch canceled because the library is no longer active", nil)
+			} else {
+				job.Fail(1, "playlist encoding batch failed", err)
+			}
+		}
 		return apitypes.EnsureEncodingBatchResult{}, err
 	}
-	return s.ensureScopeEncodings(ctx, recordingIDs, preferredProfile)
+	return s.ensureScopeEncodings(ctx, local, recordingIDs, preferredProfile, job, "playlist encoding batch", "playlist recordings")
 }
 
-func (s *PlaybackService) ensureScopeEncodings(ctx context.Context, recordingIDs []string, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+func (s *PlaybackService) ensureScopeEncodings(ctx context.Context, local apitypes.LocalContext, recordingIDs []string, preferredProfile string, job *JobTracker, scopeLabel string, emptyMessage string) (apitypes.EnsureEncodingBatchResult, error) {
 	out := apitypes.EnsureEncodingBatchResult{}
 	seen := make(map[string]struct{}, len(recordingIDs))
+	uniqueIDs := make([]string, 0, len(recordingIDs))
 	for _, recordingID := range recordingIDs {
 		recordingID = strings.TrimSpace(recordingID)
 		if recordingID == "" {
@@ -87,9 +204,30 @@ func (s *PlaybackService) ensureScopeEncodings(ctx context.Context, recordingIDs
 			continue
 		}
 		seen[recordingID] = struct{}{}
-		out.Recordings++
-		created, err := s.EnsureRecordingEncoding(ctx, recordingID, preferredProfile)
+		uniqueIDs = append(uniqueIDs, recordingID)
+	}
+	out.Recordings = len(uniqueIDs)
+	if job != nil && len(uniqueIDs) == 0 {
+		job.Complete(1, "no "+strings.TrimSpace(emptyMessage)+" require encoding")
+	}
+	for index, recordingID := range uniqueIDs {
+		if job != nil {
+			total := len(uniqueIDs)
+			progress := 0.15
+			if total > 0 {
+				progress = 0.15 + (0.75 * float64(index) / float64(total))
+			}
+			job.Running(progress, fmt.Sprintf("encoding %d of %d recordings", index+1, total))
+		}
+		created, err := s.ensureRecordingEncodingForLocalContext(ctx, local, recordingID, preferredProfile)
 		if err != nil {
+			if job != nil {
+				if errors.Is(err, context.Canceled) {
+					job.Fail(1, scopeLabel+" canceled because the library is no longer active", nil)
+				} else {
+					job.Fail(1, scopeLabel+" failed", err)
+				}
+			}
 			return apitypes.EnsureEncodingBatchResult{}, err
 		}
 		if created {
@@ -98,7 +236,39 @@ func (s *PlaybackService) ensureScopeEncodings(ctx context.Context, recordingIDs
 			out.Skipped++
 		}
 	}
+	if job != nil {
+		job.Complete(1, ensureEncodingBatchMessage(out, scopeLabel))
+	}
 	return out, nil
+}
+
+func (s *PlaybackService) ensureRecordingEncodingJob(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (bool, error) {
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	jobID := playbackEnsureRecordingEncodingJobID(local.LibraryID, recordingID, profile)
+	job := s.app.jobs.Track(jobID, jobKindEnsureRecordingEncoding, local.LibraryID)
+	if job != nil {
+		job.Queued(0, "queued recording encoding")
+		job.Running(0.2, "resolving recording variant")
+	}
+	created, err := s.ensureRecordingEncodingForLocalContext(ctx, local, recordingID, profile)
+	if err != nil {
+		if job != nil {
+			if errors.Is(err, context.Canceled) {
+				job.Fail(1, "recording encoding canceled because the library is no longer active", nil)
+			} else {
+				job.Fail(1, "recording encoding failed", err)
+			}
+		}
+		return false, err
+	}
+	if job != nil {
+		if created {
+			job.Complete(1, "recording encoding created")
+		} else {
+			job.Complete(1, "recording encoding already cached")
+		}
+	}
+	return created, nil
 }
 
 func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
@@ -880,6 +1050,28 @@ func (s *PlaybackService) preparationKey(recordingID, profile string) string {
 
 func playbackPreparationJobID(libraryID, recordingID, profile string, purpose apitypes.PlaybackPreparationPurpose) string {
 	return strings.TrimSpace(libraryID) + "|prepare-playback|" + strings.TrimSpace(recordingID) + "|" + strings.TrimSpace(profile) + "|" + strings.TrimSpace(string(purpose))
+}
+
+func playbackEnsureRecordingEncodingJobID(libraryID, recordingID, profile string) string {
+	return strings.TrimSpace(libraryID) + "|ensure-recording-encoding|" + strings.TrimSpace(recordingID) + "|" + strings.TrimSpace(profile)
+}
+
+func playbackEnsureScopeEncodingsJobID(libraryID, scope, scopeID, profile string) string {
+	return strings.TrimSpace(libraryID) + "|ensure-" + strings.TrimSpace(scope) + "-encodings|" + strings.TrimSpace(scopeID) + "|" + strings.TrimSpace(profile)
+}
+
+func ensureEncodingBatchMessage(result apitypes.EnsureEncodingBatchResult, scopeLabel string) string {
+	scopeLabel = strings.TrimSpace(scopeLabel)
+	switch {
+	case result.Recordings == 0:
+		return "no recordings required encoding"
+	case result.Created == result.Recordings:
+		return scopeLabel + " completed"
+	case result.Created == 0:
+		return scopeLabel + " already satisfied"
+	default:
+		return fmt.Sprintf("%s encoded %d of %d recordings", scopeLabel, result.Created, result.Recordings)
+	}
 }
 
 func playbackPreparationReadyMessage(status apitypes.PlaybackPreparationStatus) string {

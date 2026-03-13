@@ -669,11 +669,20 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 			ensureRecordingEncodingFn: func(_ context.Context, recordingID, preferredProfile string) (bool, error) {
 				return true, nil
 			},
+			startEnsureRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+				return job, nil
+			},
 			ensureAlbumEncodingsFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
 				return encodingBatch, nil
 			},
+			startEnsureAlbumFn: func(_ context.Context, albumID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+				return job, nil
+			},
 			ensurePlaylistEncodingsFn: func(_ context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
 				return encodingBatch, nil
+			},
+			startEnsurePlaylistFn: func(_ context.Context, playlistID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+				return job, nil
 			},
 			ensurePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
 				return playbackResult, nil
@@ -742,11 +751,20 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 	if created, err := playbackFacade.EnsureRecordingEncoding(ctx, "rec-1", "default"); err != nil || !created {
 		t.Fatalf("ensure recording encoding = %v, err=%v", created, err)
 	}
+	if got, err := playbackFacade.StartEnsureRecordingEncoding(ctx, "rec-1", "default"); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start ensure recording encoding = %+v, err=%v", got, err)
+	}
 	if got, err := playbackFacade.EnsureAlbumEncodings(ctx, "album-1", "default"); err != nil || got.Recordings != encodingBatch.Recordings {
 		t.Fatalf("ensure album encodings = %+v, err=%v", got, err)
 	}
+	if got, err := playbackFacade.StartEnsureAlbumEncodings(ctx, "album-1", "default"); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start ensure album encodings = %+v, err=%v", got, err)
+	}
 	if got, err := playbackFacade.EnsurePlaylistEncodings(ctx, "playlist-1", "default"); err != nil || got.Created != encodingBatch.Created {
 		t.Fatalf("ensure playlist encodings = %+v, err=%v", got, err)
+	}
+	if got, err := playbackFacade.StartEnsurePlaylistEncodings(ctx, "playlist-1", "default"); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start ensure playlist encodings = %+v, err=%v", got, err)
 	}
 	if got, err := playbackFacade.EnsurePlaybackRecording(ctx, "rec-1", "default"); err != nil || got.EncodingID != playbackResult.EncodingID {
 		t.Fatalf("ensure playback recording = %+v, err=%v", got, err)

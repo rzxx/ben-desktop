@@ -248,12 +248,24 @@ func (c *UnavailableCore) EnsureRecordingEncoding(context.Context, string, strin
 	return false, c.err
 }
 
+func (c *UnavailableCore) StartEnsureRecordingEncoding(context.Context, string, string) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
 func (c *UnavailableCore) EnsureAlbumEncodings(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error) {
 	return apitypes.EnsureEncodingBatchResult{}, c.err
 }
 
+func (c *UnavailableCore) StartEnsureAlbumEncodings(context.Context, string, string) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
 func (c *UnavailableCore) EnsurePlaylistEncodings(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error) {
 	return apitypes.EnsureEncodingBatchResult{}, c.err
+}
+
+func (c *UnavailableCore) StartEnsurePlaylistEncodings(context.Context, string, string) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
 }
 
 func (c *UnavailableCore) EnsurePlaybackRecording(context.Context, string, string) (apitypes.PlaybackRecordingResult, error) {

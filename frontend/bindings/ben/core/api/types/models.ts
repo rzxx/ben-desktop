@@ -1196,6 +1196,35 @@ export class CheckpointDeviceCoverage {
     }
 }
 
+export class EnsureEncodingBatchResult {
+    "Recordings": number;
+    "Created": number;
+    "Skipped": number;
+
+    /** Creates a new EnsureEncodingBatchResult instance. */
+    constructor($$source: Partial<EnsureEncodingBatchResult> = {}) {
+        if (!("Recordings" in $$source)) {
+            this["Recordings"] = 0;
+        }
+        if (!("Created" in $$source)) {
+            this["Created"] = 0;
+        }
+        if (!("Skipped" in $$source)) {
+            this["Skipped"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new EnsureEncodingBatchResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): EnsureEncodingBatchResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new EnsureEncodingBatchResult($$parsedSource as Partial<EnsureEncodingBatchResult>);
+    }
+}
+
 export class InspectSummary {
     "Libraries": number;
     "Devices": number;

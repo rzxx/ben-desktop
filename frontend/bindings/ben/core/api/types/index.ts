@@ -33,6 +33,7 @@ export {
     CatalogTrackAvailabilityState,
     CheckpointCompactionResult,
     CheckpointDeviceCoverage,
+    EnsureEncodingBatchResult,
     InspectSummary,
     InviteCodeRequest,
     InviteCodeResult,

@@ -87,8 +87,11 @@ type passthroughBridgeStub struct {
 	listCacheEntriesFn          func(context.Context, apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error)
 	cleanupCacheFn              func(context.Context, apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error)
 	ensureRecordingEncodingFn   func(context.Context, string, string) (bool, error)
+	startEnsureRecordingFn      func(context.Context, string, string) (desktopcore.JobSnapshot, error)
 	ensureAlbumEncodingsFn      func(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error)
+	startEnsureAlbumFn          func(context.Context, string, string) (desktopcore.JobSnapshot, error)
 	ensurePlaylistEncodingsFn   func(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error)
+	startEnsurePlaylistFn       func(context.Context, string, string) (desktopcore.JobSnapshot, error)
 	ensurePlaybackRecordingFn   func(context.Context, string, string) (apitypes.PlaybackRecordingResult, error)
 	pinRecordingOfflineFn       func(context.Context, string, string) (apitypes.PlaybackRecordingResult, error)
 	unpinRecordingOfflineFn     func(context.Context, string) error
@@ -405,12 +408,24 @@ func (b *passthroughBridgeStub) EnsureRecordingEncoding(ctx context.Context, rec
 	return b.ensureRecordingEncodingFn(ctx, recordingID, preferredProfile)
 }
 
+func (b *passthroughBridgeStub) StartEnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+	return b.startEnsureRecordingFn(ctx, recordingID, preferredProfile)
+}
+
 func (b *passthroughBridgeStub) EnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
 	return b.ensureAlbumEncodingsFn(ctx, albumID, preferredProfile)
 }
 
+func (b *passthroughBridgeStub) StartEnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+	return b.startEnsureAlbumFn(ctx, albumID, preferredProfile)
+}
+
 func (b *passthroughBridgeStub) EnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
 	return b.ensurePlaylistEncodingsFn(ctx, playlistID, preferredProfile)
+}
+
+func (b *passthroughBridgeStub) StartEnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+	return b.startEnsurePlaylistFn(ctx, playlistID, preferredProfile)
 }
 
 func (b *passthroughBridgeStub) EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {

@@ -131,6 +131,145 @@ func TestPreparePlaybackRecordingPublishesCompletedJob(t *testing.T) {
 	}
 }
 
+func TestStartEnsureRecordingEncodingQueuesAsyncJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("encoded-job")}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "ensure-recording-job")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-encode-job",
+		TrackClusterID: "rec-encode-job",
+		AlbumID:        "album-encode-job",
+		AlbumClusterID: "album-encode-job",
+		SourceFileID:   "src-encode-job",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-encode-job", []byte("lossless"))
+
+	job, err := app.StartEnsureRecordingEncoding(ctx, "rec-encode-job", "desktop")
+	if err != nil {
+		t.Fatalf("start ensure recording encoding: %v", err)
+	}
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindEnsureRecordingEncoding {
+		t.Fatalf("unexpected queued recording encoding job: %+v", job)
+	}
+
+	jobID := playbackEnsureRecordingEncodingJobID(local.LibraryID, "rec-encode-job", "desktop")
+	final := waitForJobPhase(t, ctx, app, jobID, JobPhaseCompleted)
+	if final.Kind != jobKindEnsureRecordingEncoding || final.LibraryID != library.LibraryID {
+		t.Fatalf("unexpected final recording encoding job: %+v", final)
+	}
+	if len(builder.calls) != 1 {
+		t.Fatalf("transcode calls = %d, want 1", len(builder.calls))
+	}
+}
+
+func TestStartEnsureAlbumEncodingsQueuesAsyncJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("album-encoded")}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "ensure-album-job")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-album-job",
+		TrackClusterID: "rec-album-job",
+		AlbumID:        "album-job",
+		AlbumClusterID: "album-job",
+		SourceFileID:   "src-album-job",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-album-job", []byte("lossless"))
+
+	job, err := app.StartEnsureAlbumEncodings(ctx, "album-job", "desktop")
+	if err != nil {
+		t.Fatalf("start ensure album encodings: %v", err)
+	}
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindEnsureAlbumEncodings {
+		t.Fatalf("unexpected queued album encoding job: %+v", job)
+	}
+
+	jobID := playbackEnsureScopeEncodingsJobID(local.LibraryID, "album", "album-job", "desktop")
+	final := waitForJobPhase(t, ctx, app, jobID, JobPhaseCompleted)
+	if final.Kind != jobKindEnsureAlbumEncodings || final.LibraryID != library.LibraryID {
+		t.Fatalf("unexpected final album encoding job: %+v", final)
+	}
+	if len(builder.calls) != 1 {
+		t.Fatalf("transcode calls = %d, want 1", len(builder.calls))
+	}
+}
+
+func TestStartEnsurePlaylistEncodingsQueuesAsyncJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("playlist-encoded")}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "ensure-playlist-job")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-playlist-job",
+		TrackClusterID: "rec-playlist-job",
+		AlbumID:        "album-playlist-job",
+		AlbumClusterID: "album-playlist-job",
+		SourceFileID:   "src-playlist-job",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-playlist-job", []byte("lossless"))
+	playlist, err := app.CreatePlaylist(ctx, "Playlist Job", string(apitypes.PlaylistKindNormal))
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	if _, err := app.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{
+		PlaylistID:  playlist.PlaylistID,
+		RecordingID: "rec-playlist-job",
+	}); err != nil {
+		t.Fatalf("add playlist item: %v", err)
+	}
+
+	job, err := app.StartEnsurePlaylistEncodings(ctx, playlist.PlaylistID, "desktop")
+	if err != nil {
+		t.Fatalf("start ensure playlist encodings: %v", err)
+	}
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindEnsurePlaylistEncodings {
+		t.Fatalf("unexpected queued playlist encoding job: %+v", job)
+	}
+
+	jobID := playbackEnsureScopeEncodingsJobID(local.LibraryID, "playlist", playlist.PlaylistID, "desktop")
+	final := waitForJobPhase(t, ctx, app, jobID, JobPhaseCompleted)
+	if final.Kind != jobKindEnsurePlaylistEncodings || final.LibraryID != library.LibraryID {
+		t.Fatalf("unexpected final playlist encoding job: %+v", final)
+	}
+	if len(builder.calls) != 1 {
+		t.Fatalf("transcode calls = %d, want 1", len(builder.calls))
+	}
+}
+
 func TestStartPreparePlaybackRecordingQueuesAsyncJob(t *testing.T) {
 	t.Parallel()
 
