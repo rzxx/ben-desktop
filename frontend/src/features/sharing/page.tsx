@@ -24,7 +24,6 @@ import {
   cancelJoinSession,
   connectPeer,
   createInviteCode,
-  finalizeJoinSession,
   getActiveLibrary,
   getJoinSession,
   getLocalContext,
@@ -32,6 +31,7 @@ import {
   listJoinRequests,
   rejectJoinRequest,
   revokeIssuedInvite,
+  startFinalizeJoinSession,
   startJoinFromInvite,
 } from "../../shared/lib/desktop";
 import { formatRelativeDate } from "../../shared/lib/format";
@@ -137,11 +137,15 @@ export function SharingPage() {
     useState<(typeof inviteRoles)[number]>("member");
   const [inviteUses, setInviteUses] = useState("1");
   const [inviteExpiryHours, setInviteExpiryHours] = useState("24");
-  const [latestInvite, setLatestInvite] = useState<InviteCodeResult | null>(null);
+  const [latestInvite, setLatestInvite] = useState<InviteCodeResult | null>(
+    null,
+  );
   const [inviteCode, setInviteCode] = useState("");
   const [joinDeviceName, setJoinDeviceName] = useState("");
   const [trackedSessionId, setTrackedSessionId] = useState("");
-  const [approvalRoles, setApprovalRoles] = useState<Record<string, string>>({});
+  const [approvalRoles, setApprovalRoles] = useState<Record<string, string>>(
+    {},
+  );
   const [joinResult, setJoinResult] = useState<JoinLibraryResult | null>(null);
 
   useEffect(() => {
@@ -153,7 +157,10 @@ export function SharingPage() {
 
   useEffect(() => {
     if (trackedSessionId.trim()) {
-      window.localStorage.setItem(localStorageSessionKey, trackedSessionId.trim());
+      window.localStorage.setItem(
+        localStorageSessionKey,
+        trackedSessionId.trim(),
+      );
       return;
     }
     window.localStorage.removeItem(localStorageSessionKey);
@@ -166,8 +173,12 @@ export function SharingPage() {
         getLocalContext(),
       ]);
 
-      const requests = found && library.LibraryID ? listJoinRequests("") : Promise.resolve([]);
-      const invites = found && library.LibraryID ? listIssuedInvites("") : Promise.resolve([]);
+      const requests =
+        found && library.LibraryID ? listJoinRequests("") : Promise.resolve([]);
+      const invites =
+        found && library.LibraryID
+          ? listIssuedInvites("")
+          : Promise.resolve([]);
       const session = trackedSessionId.trim()
         ? getJoinSession(trackedSessionId.trim()).catch(() => null)
         : Promise.resolve(null);
@@ -210,7 +221,10 @@ export function SharingPage() {
   }, [refresh]);
 
   const runAction = useCallback(
-    async (key: string, action: () => Promise<void | JoinSession | JoinLibraryResult>) => {
+    async (
+      key: string,
+      action: () => Promise<void | JoinSession | JoinLibraryResult>,
+    ) => {
       setPendingAction(key);
       setActionError("");
       setFeedback("");
@@ -229,7 +243,9 @@ export function SharingPage() {
   const manageLibrary = canManageLibrary(state.local?.Role ?? "");
   const pendingRequests = useMemo(
     () =>
-      state.requests.filter((request) => normalizeRole(request.Status) === "pending"),
+      state.requests.filter(
+        (request) => normalizeRole(request.Status) === "pending",
+      ),
     [state.requests],
   );
 
@@ -248,28 +264,30 @@ export function SharingPage() {
       <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(140deg,rgba(34,197,94,0.14),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[0.68rem] uppercase tracking-[0.35em] text-white/35">
+            <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
               Sharing
             </p>
             <h1 className="mt-3 text-3xl font-semibold text-white">
               Invite, join, and peer controls
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">
-              The desktop host already exposes invite, approval, join-session, and
-              peer-connect facades. This page wires those flows into the Wails UI so
-              library sharing no longer stops at backend-only contracts.
+              The desktop host already exposes invite, approval, join-session,
+              and peer-connect facades. This page wires those flows into the
+              Wails UI so library sharing no longer stops at backend-only
+              contracts.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/52">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
                 {state.library
                   ? `${state.library.Name} • ${state.library.Role}`
                   : "No active library"}
               </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/52">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
                 {state.local?.Device || "Unknown device"}
               </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/52">
-                {pendingRequests.length} pending request{pendingRequests.length === 1 ? "" : "s"}
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+                {pendingRequests.length} pending request
+                {pendingRequests.length === 1 ? "" : "s"}
               </span>
             </div>
           </div>
@@ -315,18 +333,19 @@ export function SharingPage() {
             <div>
               <h2 className="text-lg font-semibold text-white">Peer connect</h2>
               <p className="text-sm text-white/48">
-                Trigger a manual `connect + catch-up` attempt against a peer address.
+                Trigger a manual `connect + catch-up` attempt against a peer
+                address.
               </p>
             </div>
           </div>
 
           <div className="mt-5 space-y-3">
             <label className="block">
-              <span className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+              <span className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                 Peer address
               </span>
               <input
-                className="mt-2 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400/45"
+                className="mt-2 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white transition outline-none focus:border-sky-400/45"
                 onChange={(event) => {
                   setPeerAddress(event.target.value);
                 }}
@@ -349,8 +368,8 @@ export function SharingPage() {
               <span>Connect peer</span>
             </button>
             <p className="text-sm text-white/45">
-              If transport is not configured yet, the core error is shown directly so
-              the missing runtime wiring is visible in the UI.
+              If transport is not configured yet, the core error is shown
+              directly so the missing runtime wiring is visible in the UI.
             </p>
           </div>
         </div>
@@ -361,21 +380,23 @@ export function SharingPage() {
               <UserPlus className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">Join from invite</h2>
+              <h2 className="text-lg font-semibold text-white">
+                Join from invite
+              </h2>
               <p className="text-sm text-white/48">
-                Start or resume a join session even when this device is not already in a
-                library.
+                Start or resume a join session even when this device is not
+                already in a library.
               </p>
             </div>
           </div>
 
           <div className="mt-5 space-y-3">
             <label className="block">
-              <span className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+              <span className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                 Invite code
               </span>
               <textarea
-                className="mt-2 min-h-28 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400/45"
+                className="mt-2 min-h-28 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white transition outline-none focus:border-sky-400/45"
                 onChange={(event) => {
                   setInviteCode(event.target.value);
                 }}
@@ -384,11 +405,11 @@ export function SharingPage() {
               />
             </label>
             <label className="block">
-              <span className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+              <span className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                 Device name override
               </span>
               <input
-                className="mt-2 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400/45"
+                className="mt-2 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white transition outline-none focus:border-sky-400/45"
                 onChange={(event) => {
                   setJoinDeviceName(event.target.value);
                 }}
@@ -420,11 +441,19 @@ export function SharingPage() {
               </button>
               <button
                 className="action-button"
-                disabled={!trackedSessionId.trim() || pendingAction === "refresh-session"}
+                disabled={
+                  !trackedSessionId.trim() ||
+                  pendingAction === "refresh-session"
+                }
                 onClick={() => {
                   void runAction("refresh-session", async () => {
-                    const session = await getJoinSession(trackedSessionId.trim());
-                    setState((current) => ({ ...current, trackedSession: session }));
+                    const session = await getJoinSession(
+                      trackedSessionId.trim(),
+                    );
+                    setState((current) => ({
+                      ...current,
+                      trackedSession: session,
+                    }));
                     setFeedback(`Loaded join session ${session.SessionID}`);
                   });
                 }}
@@ -443,9 +472,11 @@ export function SharingPage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-semibold text-white">Tracked join session</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  Tracked join session
+                </h2>
                 <span
-                  className={`rounded-full border px-2 py-1 text-[0.68rem] uppercase tracking-[0.24em] ${sessionTone(
+                  className={`rounded-full border px-2 py-1 text-[0.68rem] tracking-[0.24em] uppercase ${sessionTone(
                     state.trackedSession.Status,
                   )}`}
                 >
@@ -481,11 +512,11 @@ export function SharingPage() {
                 }
                 onClick={() => {
                   void runAction("finalize-session", async () => {
-                    const result = await finalizeJoinSession(
+                    const job = await startFinalizeJoinSession(
                       state.trackedSession?.SessionID ?? "",
                     );
-                    setJoinResult(result);
-                    setFeedback(`Joined library ${result.LibraryID}`);
+                    setJoinResult(null);
+                    setFeedback(`Queued finalize join job ${job.jobId}`);
                   });
                 }}
                 type="button"
@@ -501,7 +532,9 @@ export function SharingPage() {
                 }
                 onClick={() => {
                   void runAction("cancel-session", async () => {
-                    await cancelJoinSession(state.trackedSession?.SessionID ?? "");
+                    await cancelJoinSession(
+                      state.trackedSession?.SessionID ?? "",
+                    );
                     setJoinResult(null);
                     setFeedback("Canceled join session");
                   });
@@ -516,31 +549,31 @@ export function SharingPage() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-              <p className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+              <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                 Session
               </p>
-              <p className="mt-2 break-all font-mono text-sm text-white/80">
+              <p className="mt-2 font-mono text-sm break-all text-white/80">
                 {state.trackedSession.SessionID}
               </p>
             </div>
             <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-              <p className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+              <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                 Role
               </p>
-              <p className="mt-2 text-lg font-semibold capitalize text-white">
+              <p className="mt-2 text-lg font-semibold text-white capitalize">
                 {state.trackedSession.Role || "pending"}
               </p>
             </div>
             <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-              <p className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+              <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                 Request
               </p>
-              <p className="mt-2 break-all font-mono text-sm text-white/80">
+              <p className="mt-2 font-mono text-sm break-all text-white/80">
                 {state.trackedSession.RequestID || "No request id"}
               </p>
             </div>
             <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-              <p className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+              <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                 Updated
               </p>
               <p className="mt-2 text-lg font-semibold text-white">
@@ -551,7 +584,8 @@ export function SharingPage() {
 
           {joinResult && (
             <div className="mt-4 rounded-[1.2rem] border border-emerald-400/18 bg-emerald-400/10 p-4 text-sm text-emerald-100">
-              Joined library <span className="font-mono">{joinResult.LibraryID}</span> as{" "}
+              Joined library{" "}
+              <span className="font-mono">{joinResult.LibraryID}</span> as{" "}
               <span className="capitalize">{joinResult.Role || "member"}</span>.
             </div>
           )}
@@ -567,24 +601,28 @@ export function SharingPage() {
                   <KeyRound className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Issue invite</h2>
+                  <h2 className="text-lg font-semibold text-white">
+                    Issue invite
+                  </h2>
                   <p className="text-sm text-white/48">
-                    Create share codes for the active library. Invite management requires
-                    owner or admin role.
+                    Create share codes for the active library. Invite management
+                    requires owner or admin role.
                   </p>
                 </div>
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
                 <label className="block">
-                  <span className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+                  <span className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                     Role
                   </span>
                   <select
-                    className="mt-2 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400/45"
+                    className="mt-2 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white transition outline-none focus:border-sky-400/45"
                     disabled={!manageLibrary}
                     onChange={(event) => {
-                      setInviteRole(event.target.value as (typeof inviteRoles)[number]);
+                      setInviteRole(
+                        event.target.value as (typeof inviteRoles)[number],
+                      );
                     }}
                     value={inviteRole}
                   >
@@ -596,11 +634,11 @@ export function SharingPage() {
                   </select>
                 </label>
                 <label className="block">
-                  <span className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+                  <span className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                     Uses
                   </span>
                   <input
-                    className="mt-2 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400/45"
+                    className="mt-2 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white transition outline-none focus:border-sky-400/45"
                     disabled={!manageLibrary}
                     min="1"
                     onChange={(event) => {
@@ -612,11 +650,11 @@ export function SharingPage() {
                   />
                 </label>
                 <label className="block">
-                  <span className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+                  <span className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                     Expiry
                   </span>
                   <select
-                    className="mt-2 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400/45"
+                    className="mt-2 w-full rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white transition outline-none focus:border-sky-400/45"
                     disabled={!manageLibrary}
                     onChange={(event) => {
                       setInviteExpiryHours(event.target.value);
@@ -624,7 +662,11 @@ export function SharingPage() {
                     value={inviteExpiryHours}
                   >
                     {inviteExpiryHourOptions.map((hours) => (
-                      <option className="bg-slate-900" key={hours} value={String(hours)}>
+                      <option
+                        className="bg-slate-900"
+                        key={hours}
+                        value={String(hours)}
+                      >
                         {hours}h
                       </option>
                     ))}
@@ -641,10 +683,15 @@ export function SharingPage() {
                       const result = await createInviteCode(
                         new Types.InviteCodeRequest({
                           Role: inviteRole,
-                          Uses: Math.max(1, Number.parseInt(inviteUses, 10) || 1),
+                          Uses: Math.max(
+                            1,
+                            Number.parseInt(inviteUses, 10) || 1,
+                          ),
                           Expires:
-                            Math.max(1, Number.parseInt(inviteExpiryHours, 10) || 24) *
-                            durationHour,
+                            Math.max(
+                              1,
+                              Number.parseInt(inviteExpiryHours, 10) || 24,
+                            ) * durationHour,
                         }),
                       );
                       setLatestInvite(result);
@@ -657,7 +704,7 @@ export function SharingPage() {
                   <span>Create invite</span>
                 </button>
                 {!manageLibrary && (
-                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.2em] text-white/42">
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs tracking-[0.2em] text-white/42 uppercase">
                     Read only for {normalizeRole(state.local?.Role ?? "member")}
                   </span>
                 )}
@@ -667,8 +714,10 @@ export function SharingPage() {
                 <div className="mt-4 rounded-[1.25rem] border border-emerald-400/18 bg-emerald-400/10 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-white">Latest invite</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.22em] text-emerald-100/72">
+                      <p className="text-sm font-semibold text-white">
+                        Latest invite
+                      </p>
+                      <p className="mt-1 text-xs tracking-[0.22em] text-emerald-100/72 uppercase">
                         Expires {formatDateTime(latestInvite.ExpiresAt)}
                       </p>
                     </div>
@@ -689,7 +738,7 @@ export function SharingPage() {
                       <span>Copy code</span>
                     </button>
                   </div>
-                  <p className="mt-3 break-all rounded-[1rem] border border-white/10 bg-black/15 p-3 font-mono text-xs text-white/82">
+                  <p className="mt-3 rounded-[1rem] border border-white/10 bg-black/15 p-3 font-mono text-xs break-all text-white/82">
                     {latestInvite.InviteCode}
                   </p>
                 </div>
@@ -702,7 +751,9 @@ export function SharingPage() {
                   <ShieldCheck className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Pending approvals</h2>
+                  <h2 className="text-lg font-semibold text-white">
+                    Pending approvals
+                  </h2>
                   <p className="text-sm text-white/48">
                     Approve or reject join requests for the active library.
                   </p>
@@ -727,7 +778,7 @@ export function SharingPage() {
                               {request.DeviceName || request.DeviceID}
                             </p>
                             <span
-                              className={`rounded-full border px-2 py-1 text-[0.68rem] uppercase tracking-[0.22em] ${requestTone(
+                              className={`rounded-full border px-2 py-1 text-[0.68rem] tracking-[0.22em] uppercase ${requestTone(
                                 request.Status,
                               )}`}
                             >
@@ -737,46 +788,61 @@ export function SharingPage() {
                           <p className="mt-2 text-sm text-white/55">
                             {request.Message || "Join request pending"}
                           </p>
-                          <div className="mt-3 flex flex-wrap gap-2 text-xs uppercase tracking-[0.18em] text-white/35">
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs tracking-[0.18em] text-white/35 uppercase">
                             <span>{request.RequestedRole || "member"}</span>
                             <span>{formatRelativeDate(request.CreatedAt)}</span>
-                            <span className="font-mono normal-case tracking-normal text-white/45">
+                            <span className="font-mono tracking-normal text-white/45 normal-case">
                               {request.RequestID}
                             </span>
                           </div>
                         </div>
 
-                        {normalizeRole(request.Status) === "pending" && manageLibrary ? (
+                        {normalizeRole(request.Status) === "pending" &&
+                        manageLibrary ? (
                           <div className="flex flex-wrap gap-2">
                             <select
-                              className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.18em] text-white outline-none"
+                              className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs tracking-[0.18em] text-white uppercase outline-none"
                               onChange={(event) => {
                                 setApprovalRoles((current) => ({
                                   ...current,
                                   [request.RequestID]: event.target.value,
                                 }));
                               }}
-                              value={approvalRoles[request.RequestID] || request.RequestedRole}
+                              value={
+                                approvalRoles[request.RequestID] ||
+                                request.RequestedRole
+                              }
                             >
                               {inviteRoles.map((role) => (
-                                <option className="bg-slate-900" key={role} value={role}>
+                                <option
+                                  className="bg-slate-900"
+                                  key={role}
+                                  value={role}
+                                >
                                   {role}
                                 </option>
                               ))}
                             </select>
                             <button
                               className="action-button is-primary"
-                              disabled={pendingAction === `approve:${request.RequestID}`}
+                              disabled={
+                                pendingAction === `approve:${request.RequestID}`
+                              }
                               onClick={() => {
-                                void runAction(`approve:${request.RequestID}`, async () => {
-                                  await approveJoinRequest(
-                                    request.RequestID,
-                                    approvalRoles[request.RequestID] ||
-                                      request.RequestedRole ||
-                                      "member",
-                                  );
-                                  setFeedback(`Approved ${request.DeviceName || request.DeviceID}`);
-                                });
+                                void runAction(
+                                  `approve:${request.RequestID}`,
+                                  async () => {
+                                    await approveJoinRequest(
+                                      request.RequestID,
+                                      approvalRoles[request.RequestID] ||
+                                        request.RequestedRole ||
+                                        "member",
+                                    );
+                                    setFeedback(
+                                      `Approved ${request.DeviceName || request.DeviceID}`,
+                                    );
+                                  },
+                                );
                               }}
                               type="button"
                             >
@@ -785,15 +851,22 @@ export function SharingPage() {
                             </button>
                             <button
                               className="action-button"
-                              disabled={pendingAction === `reject:${request.RequestID}`}
+                              disabled={
+                                pendingAction === `reject:${request.RequestID}`
+                              }
                               onClick={() => {
-                                void runAction(`reject:${request.RequestID}`, async () => {
-                                  await rejectJoinRequest(
-                                    request.RequestID,
-                                    "rejected from desktop sharing page",
-                                  );
-                                  setFeedback(`Rejected ${request.DeviceName || request.DeviceID}`);
-                                });
+                                void runAction(
+                                  `reject:${request.RequestID}`,
+                                  async () => {
+                                    await rejectJoinRequest(
+                                      request.RequestID,
+                                      "rejected from desktop sharing page",
+                                    );
+                                    setFeedback(
+                                      `Rejected ${request.DeviceName || request.DeviceID}`,
+                                    );
+                                  },
+                                );
                               }}
                               type="button"
                             >
@@ -816,7 +889,9 @@ export function SharingPage() {
                 <KeyRound className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-white">Issued invites</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  Issued invites
+                </h2>
                 <p className="text-sm text-white/48">
                   Active and historical invite tokens for this library.
                 </p>
@@ -837,11 +912,11 @@ export function SharingPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold capitalize text-white">
+                          <p className="text-sm font-semibold text-white capitalize">
                             {invite.Role} invite
                           </p>
                           <span
-                            className={`rounded-full border px-2 py-1 text-[0.68rem] uppercase tracking-[0.22em] ${requestTone(
+                            className={`rounded-full border px-2 py-1 text-[0.68rem] tracking-[0.22em] uppercase ${requestTone(
                               invite.Status,
                             )}`}
                           >
@@ -852,7 +927,7 @@ export function SharingPage() {
                           {invite.RedemptionCount}/{invite.MaxUses} redemption
                           {invite.MaxUses === 1 ? "" : "s"} used
                         </p>
-                        <p className="mt-2 break-all font-mono text-xs text-white/42">
+                        <p className="mt-2 font-mono text-xs break-all text-white/42">
                           {invite.InviteCode}
                         </p>
                       </div>
@@ -881,13 +956,16 @@ export function SharingPage() {
                             pendingAction === `revoke:${invite.InviteID}`
                           }
                           onClick={() => {
-                            void runAction(`revoke:${invite.InviteID}`, async () => {
-                              await revokeIssuedInvite(
-                                invite.InviteID,
-                                "revoked from desktop sharing page",
-                              );
-                              setFeedback("Revoked invite");
-                            });
+                            void runAction(
+                              `revoke:${invite.InviteID}`,
+                              async () => {
+                                await revokeIssuedInvite(
+                                  invite.InviteID,
+                                  "revoked from desktop sharing page",
+                                );
+                                setFeedback("Revoked invite");
+                              },
+                            );
                           }}
                           type="button"
                         >
@@ -897,9 +975,11 @@ export function SharingPage() {
                       </div>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.18em] text-white/35">
+                    <div className="mt-3 flex flex-wrap gap-3 text-xs tracking-[0.18em] text-white/35 uppercase">
                       <span>Expires {formatDateTime(invite.ExpiresAt)}</span>
-                      <span>Created {formatRelativeDate(invite.CreatedAt)}</span>
+                      <span>
+                        Created {formatRelativeDate(invite.CreatedAt)}
+                      </span>
                     </div>
                   </div>
                 ))
@@ -916,9 +996,10 @@ export function SharingPage() {
             Join flow works without an active library
           </h2>
           <p className="mx-auto mt-2 max-w-2xl text-sm text-white/50">
-            Peer connect, invite issuance, and join request management depend on an
-            active library. Starting or refreshing a join session from an invite code
-            remains available so a fresh device can enter the system.
+            Peer connect, invite issuance, and join request management depend on
+            an active library. Starting or refreshing a join session from an
+            invite code remains available so a fresh device can enter the
+            system.
           </p>
         </section>
       )}

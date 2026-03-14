@@ -531,7 +531,7 @@ func (s *PlaybackFacade) ResolveThumbnailURL(artwork apitypes.ArtworkRef) (strin
 	if fileExt == "" {
 		return "", fmt.Errorf("thumbnail file extension is required")
 	}
-	aliasPath, err := ensureTypedBlobAlias(resolved.LocalPath, fileExt)
+	aliasPath, err := typedBlobStorePath(resolved.LocalPath, fileExt)
 	if err != nil {
 		return "", err
 	}

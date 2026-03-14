@@ -60,6 +60,10 @@ func (c *UnavailableCore) ConnectPeer(context.Context, string) error {
 	return c.err
 }
 
+func (c *UnavailableCore) StartConnectPeer(context.Context, string) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
 func (c *UnavailableCore) CheckpointStatus(context.Context) (apitypes.LibraryCheckpointStatus, error) {
 	return apitypes.LibraryCheckpointStatus{}, c.err
 }

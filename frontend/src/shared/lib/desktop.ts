@@ -1,3 +1,4 @@
+import { Dialogs } from "@wailsio/runtime";
 import * as CatalogFacade from "../../../bindings/ben/desktop/catalogfacade";
 import * as CacheFacade from "../../../bindings/ben/desktop/cachefacade";
 import * as InviteFacade from "../../../bindings/ben/desktop/invitefacade";
@@ -24,9 +25,11 @@ export type LibraryMemberStatus = Types.LibraryMemberStatus;
 export type LibrarySummary = Types.LibrarySummary;
 export type InviteCodeResult = Types.InviteCodeResult;
 export type InviteJoinRequestRecord = Types.InviteJoinRequestRecord;
+export type InspectSummary = Types.InspectSummary;
 export type IssuedInviteRecord = Types.IssuedInviteRecord;
 export type JoinLibraryResult = Types.JoinLibraryResult;
 export type JoinSession = Types.JoinSession;
+export type LibraryOplogDiagnostics = Types.LibraryOplogDiagnostics;
 export type LikedRecordingItem = Types.LikedRecordingItem;
 export type LocalContext = Types.LocalContext;
 export type PageInfo = Types.PageInfo;
@@ -220,8 +223,38 @@ export function getCheckpointStatus() {
   return NetworkFacade.CheckpointStatus();
 }
 
+export function getInspectSummary() {
+  return NetworkFacade.Inspect();
+}
+
+export function getLibraryOplogDiagnostics(libraryId = "") {
+  return NetworkFacade.InspectLibraryOplog(libraryId);
+}
+
 export function connectPeer(peerAddr: string) {
   return NetworkFacade.ConnectPeer(peerAddr);
+}
+
+export function addScanRoots(roots: string[]) {
+  return LibraryFacade.AddScanRoots(roots);
+}
+
+export function removeScanRoots(roots: string[]) {
+  return LibraryFacade.RemoveScanRoots(roots);
+}
+
+export async function pickScanRoot(currentRoot = "") {
+  const selected = await Dialogs.OpenFile({
+    CanChooseDirectories: true,
+    CanChooseFiles: false,
+    AllowsMultipleSelection: false,
+    CanCreateDirectories: false,
+    Title: "Add scan root",
+    Message: "Choose a directory to scan on this device.",
+    ButtonText: "Add root",
+    Directory: currentRoot || undefined,
+  });
+  return typeof selected === "string" ? selected.trim() : "";
 }
 
 export function startLibraryRescan() {
@@ -264,8 +297,8 @@ export function getJoinSession(sessionId: string) {
   return InviteFacade.GetJoinSession(sessionId);
 }
 
-export function finalizeJoinSession(sessionId: string) {
-  return InviteFacade.FinalizeJoinSession(sessionId);
+export function startFinalizeJoinSession(sessionId: string) {
+  return InviteFacade.StartFinalizeJoinSession(sessionId);
 }
 
 export function cancelJoinSession(sessionId: string) {

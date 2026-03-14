@@ -42,6 +42,29 @@ type ScanRoot struct {
 	UpdatedAt time.Time `gorm:"not null"`
 }
 
+type LocalSourcePath struct {
+	LibraryID    string    `gorm:"primaryKey;size:64"`
+	DeviceID     string    `gorm:"primaryKey;size:64"`
+	SourceFileID string    `gorm:"primaryKey;size:128;column:source_file_id"`
+	LocalPath    string    `gorm:"size:4096;not null"`
+	PathKey      string    `gorm:"size:4096;not null;index"`
+	UpdatedAt    time.Time `gorm:"not null"`
+}
+
+func (LocalSourcePath) TableName() string { return "local_source_paths" }
+
+type LocalArtworkSourceRef struct {
+	LibraryID       string    `gorm:"primaryKey;size:64"`
+	ScopeType       string    `gorm:"primaryKey;size:32"`
+	ScopeID         string    `gorm:"primaryKey;size:64"`
+	Variant         string    `gorm:"primaryKey;size:64"`
+	ChosenSource    string    `gorm:"size:64;not null"`
+	ChosenSourceRef string    `gorm:"size:4096;not null"`
+	UpdatedAt       time.Time `gorm:"not null"`
+}
+
+func (LocalArtworkSourceRef) TableName() string { return "local_artwork_source_refs" }
+
 type OfflinePin struct {
 	LibraryID string    `gorm:"primaryKey;size:64"`
 	DeviceID  string    `gorm:"primaryKey;size:64"`

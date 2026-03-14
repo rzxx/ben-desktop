@@ -36,6 +36,7 @@ type NetworkRuntime interface {
 	SyncNow(ctx context.Context) error
 	StartSyncNow(ctx context.Context) (JobSnapshot, error)
 	ConnectPeer(ctx context.Context, peerAddr string) error
+	StartConnectPeer(ctx context.Context, peerAddr string) (JobSnapshot, error)
 	CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error)
 	PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error)
 	StartPublishCheckpoint(ctx context.Context) (JobSnapshot, error)

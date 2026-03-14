@@ -35,7 +35,11 @@ func (h *coreHost) Start(ctx context.Context) error {
 	}
 
 	coreSettings := loadCoreRuntimeSettings()
-	h.runtime = openCoreRuntime(ctx, coreSettings)
+	runtime, err := openCoreRuntime(ctx, coreSettings)
+	if err != nil {
+		return err
+	}
+	h.runtime = runtime
 	h.blobRoot = resolvedBlobRoot(coreSettings)
 	h.preferredProfile = preferredProfile(coreSettings)
 	h.started = true
@@ -123,11 +127,11 @@ func loadCoreRuntimeSettings() settings.CoreRuntimeSettings {
 	return state.Core
 }
 
-func openCoreRuntime(ctx context.Context, coreSettings settings.CoreRuntimeSettings) desktopcore.Runtime {
+func openCoreRuntime(ctx context.Context, coreSettings settings.CoreRuntimeSettings) (desktopcore.Runtime, error) {
 	runtime, err := desktopcore.OpenFromSettings(ctx, coreSettings)
 	if err != nil {
 		log.Printf("playback: desktop core runtime unavailable: %v", err)
-		return desktopcore.NewUnavailableCore(err)
+		return nil, err
 	}
-	return runtime
+	return runtime, nil
 }

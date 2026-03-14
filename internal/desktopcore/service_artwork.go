@@ -279,7 +279,10 @@ func (s *ArtworkService) reconcileAlbumArtwork(ctx context.Context, local apityp
 	}
 	chosenSourceRef := ""
 	if len(existing) > 0 {
-		chosenSourceRef = strings.TrimSpace(existing[0].ChosenSourceRef)
+		_, chosenSourceRef, _, err = localArtworkSourceRefForScopeTx(s.app.db.WithContext(ctx), local.LibraryID, "album", albumID, existing[0].Variant)
+		if err != nil {
+			return err
+		}
 	}
 
 	candidates, err := s.listAlbumArtworkSources(ctx, local.LibraryID, local.DeviceID, albumID)
@@ -463,7 +466,7 @@ func (s *ArtworkService) localDeviceOwnsArtworkSource(ctx context.Context, libra
 	}
 	var count int64
 	if err := s.app.db.WithContext(ctx).
-		Model(&SourceFileModel{}).
+		Model(&LocalSourcePath{}).
 		Where("library_id = ? AND device_id = ? AND path_key = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID), localPathKey(sourceRef)).
 		Count(&count).Error; err != nil {
 		return false, err

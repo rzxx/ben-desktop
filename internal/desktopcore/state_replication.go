@@ -124,6 +124,10 @@ func (a *App) upsertArtworkVariantTx(tx *gorm.DB, local apitypes.LocalContext, r
 	if row.UpdatedAt.IsZero() {
 		row.UpdatedAt = now
 	}
+	if err := upsertLocalArtworkSourceRefTx(tx, row.LibraryID, row.ScopeType, row.ScopeID, row.Variant, row.ChosenSource, row.ChosenSourceRef, row.UpdatedAt); err != nil {
+		return err
+	}
+	row.ChosenSourceRef = ""
 	if err := tx.Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "library_id"},
@@ -136,18 +140,17 @@ func (a *App) upsertArtworkVariantTx(tx *gorm.DB, local apitypes.LocalContext, r
 		return err
 	}
 	_, err := a.appendLocalOplogTx(tx, local, entityTypeArtworkVariant, artworkVariantEntityID(row.ScopeType, row.ScopeID, row.Variant), "upsert", artworkVariantOplogPayload{
-		ScopeType:       row.ScopeType,
-		ScopeID:         row.ScopeID,
-		Variant:         row.Variant,
-		BlobID:          row.BlobID,
-		MIME:            row.MIME,
-		FileExt:         row.FileExt,
-		W:               row.W,
-		H:               row.H,
-		Bytes:           row.Bytes,
-		ChosenSource:    row.ChosenSource,
-		ChosenSourceRef: row.ChosenSourceRef,
-		UpdatedAtNS:     row.UpdatedAt.UTC().UnixNano(),
+		ScopeType:    row.ScopeType,
+		ScopeID:      row.ScopeID,
+		Variant:      row.Variant,
+		BlobID:       row.BlobID,
+		MIME:         row.MIME,
+		FileExt:      row.FileExt,
+		W:            row.W,
+		H:            row.H,
+		Bytes:        row.Bytes,
+		ChosenSource: row.ChosenSource,
+		UpdatedAtNS:  row.UpdatedAt.UTC().UnixNano(),
 	})
 	return err
 }
@@ -162,6 +165,9 @@ func (a *App) deleteArtworkScopeTx(tx *gorm.DB, local apitypes.LocalContext, sco
 	if err := tx.Where("library_id = ? AND scope_type = ? AND scope_id = ?", local.LibraryID, scopeType, scopeID).
 		Order("variant ASC").
 		Find(&rows).Error; err != nil {
+		return err
+	}
+	if err := deleteLocalArtworkSourceScopeTx(tx, local.LibraryID, scopeType, scopeID); err != nil {
 		return err
 	}
 	for _, row := range rows {

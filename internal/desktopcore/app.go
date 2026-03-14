@@ -89,6 +89,9 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	if _, err := app.ensureCurrentDevice(ctx); err != nil {
 		return nil, fmt.Errorf("ensure current device: %w", err)
 	}
+	if err := app.runPathPrivacyMigration(ctx); err != nil {
+		return nil, fmt.Errorf("run path privacy migration: %w", err)
+	}
 	if err := app.syncActiveRuntimeServices(ctx); err != nil {
 		return nil, fmt.Errorf("configure active runtime services: %w", err)
 	}

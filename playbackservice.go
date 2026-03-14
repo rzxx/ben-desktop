@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -540,7 +541,7 @@ func normalizeArtworkFileExt(fileExt string, mimeType string) string {
 	}
 }
 
-func ensureTypedBlobAlias(path string, fileExt string) (string, error) {
+func typedBlobStorePath(path string, fileExt string) (string, error) {
 	path = strings.TrimSpace(path)
 	fileExt = normalizeArtworkFileExt(fileExt, "")
 	if path == "" {
@@ -550,27 +551,33 @@ func ensureTypedBlobAlias(path string, fileExt string) (string, error) {
 		return "", fmt.Errorf("file extension is required")
 	}
 
-	aliasPath := path + fileExt
-	if _, err := os.Stat(aliasPath); err == nil {
-		return aliasPath, nil
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(absPath + "|" + fileExt))
+	typedDir := filepath.Join(filepath.Dir(absPath), ".typed")
+	typedPath := filepath.Join(typedDir, hex.EncodeToString(sum[:])+fileExt)
+	if _, err := os.Stat(typedPath); err == nil {
+		return typedPath, nil
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}
 
-	if err := os.Link(path, aliasPath); err == nil {
-		return aliasPath, nil
+	if err := os.MkdirAll(typedDir, 0o755); err != nil {
+		return "", err
+	}
+	if err := os.Link(absPath, typedPath); err == nil {
+		return typedPath, nil
 	}
 
-	src, err := os.Open(path)
+	src, err := os.Open(absPath)
 	if err != nil {
 		return "", err
 	}
 	defer src.Close()
 
-	tmpPath := aliasPath + ".tmp"
-	if err := os.MkdirAll(filepath.Dir(aliasPath), 0o755); err != nil {
-		return "", err
-	}
+	tmpPath := typedPath + ".tmp"
 	dst, err := os.Create(tmpPath)
 	if err != nil {
 		return "", err
@@ -588,15 +595,15 @@ func ensureTypedBlobAlias(path string, fileExt string) (string, error) {
 		_ = os.Remove(tmpPath)
 		return "", closeErr
 	}
-	if err := os.Rename(tmpPath, aliasPath); err != nil {
-		if _, statErr := os.Stat(aliasPath); statErr == nil {
+	if err := os.Rename(tmpPath, typedPath); err != nil {
+		if _, statErr := os.Stat(typedPath); statErr == nil {
 			_ = os.Remove(tmpPath)
-			return aliasPath, nil
+			return typedPath, nil
 		}
 		_ = os.Remove(tmpPath)
 		return "", err
 	}
-	return aliasPath, nil
+	return typedPath, nil
 }
 
 type serviceLogger struct{}

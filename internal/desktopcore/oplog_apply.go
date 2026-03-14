@@ -41,7 +41,7 @@ func applyOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 	case entityTypeLibrary:
 		return applyLibraryOplogEntryTx(tx, entry)
 	case entityTypeScanRoots:
-		return applyScanRootsOplogEntryTx(tx, entry)
+		return nil
 	case entityTypeSourceFile:
 		return applySourceFileOplogEntryTx(tx, entry)
 	case entityTypePlaylist:
@@ -92,31 +92,6 @@ func applyLibraryOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 	}).Create(&row).Error
 }
 
-func applyScanRootsOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
-	apply, err := shouldApplyLatestMutationTx(tx, entry)
-	if err != nil || !apply {
-		return err
-	}
-
-	if strings.TrimSpace(entry.OpKind) != "replace" {
-		return fmt.Errorf("unsupported scan roots op kind %q", strings.TrimSpace(entry.OpKind))
-	}
-
-	var payload scanRootsOplogPayload
-	if err := json.Unmarshal([]byte(entry.PayloadJSON), &payload); err != nil {
-		return fmt.Errorf("decode scan roots oplog payload: %w", err)
-	}
-	deviceID := firstNonEmpty(payload.DeviceID, entry.EntityID)
-	if strings.TrimSpace(deviceID) == "" {
-		return fmt.Errorf("scan roots device id is required")
-	}
-	roots, err := normalizeScanRoots(payload.Roots)
-	if err != nil {
-		return fmt.Errorf("normalize replayed scan roots: %w", err)
-	}
-	return setLibraryScanRootsTx(tx, entry.LibraryID, deviceID, roots)
-}
-
 func applySourceFileOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 	apply, err := shouldApplyLatestMutationTx(tx, entry)
 	if err != nil || !apply {
@@ -138,7 +113,7 @@ func applySourceFileOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 		return upsertIngestTx(tx, ingestRecord{
 			LibraryID:    entry.LibraryID,
 			DeviceID:     payload.DeviceID,
-			Path:         payload.LocalPath,
+			Path:         "",
 			MTimeNS:      payload.MTimeNS,
 			SizeBytes:    payload.SizeBytes,
 			HashAlgo:     payload.HashAlgo,
@@ -559,7 +534,7 @@ func applyArtworkVariantOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 			H:               payload.H,
 			Bytes:           payload.Bytes,
 			ChosenSource:    strings.TrimSpace(payload.ChosenSource),
-			ChosenSourceRef: strings.TrimSpace(payload.ChosenSourceRef),
+			ChosenSourceRef: "",
 			UpdatedAt:       oplogPayloadTime(payload.UpdatedAtNS, entry),
 		}
 		return tx.Clauses(clause.OnConflict{

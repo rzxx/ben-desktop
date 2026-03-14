@@ -15,20 +15,21 @@ import (
 )
 
 const (
-	artistSeparator           = "|||"
-	localSettingCurrentDevice = "current_device_id"
-	playlistKindNormal        = "normal"
-	playlistKindLiked         = "liked"
-	roleOwner                 = "owner"
-	roleAdmin                 = "admin"
-	roleMember                = "member"
-	roleGuest                 = "guest"
-	maxPageLimit              = 1000
-	availabilityOnlineWindow  = 2 * time.Minute
-	defaultLibraryName        = "ben library"
-	defaultArtworkVariant320  = "320_webp"
-	defaultArtworkVariant96   = "96_jpeg"
-	defaultArtworkVariant1024 = "1024_avif"
+	artistSeparator              = "|||"
+	localSettingCurrentDevice    = "current_device_id"
+	localSettingPathPrivacyEpoch = "path_privacy_epoch"
+	playlistKindNormal           = "normal"
+	playlistKindLiked            = "liked"
+	roleOwner                    = "owner"
+	roleAdmin                    = "admin"
+	roleMember                   = "member"
+	roleGuest                    = "guest"
+	maxPageLimit                 = 1000
+	availabilityOnlineWindow     = 2 * time.Minute
+	defaultLibraryName           = "ben library"
+	defaultArtworkVariant320     = "320_webp"
+	defaultArtworkVariant96      = "96_jpeg"
+	defaultArtworkVariant1024    = "1024_avif"
 )
 
 func splitArtists(raw string) []string {

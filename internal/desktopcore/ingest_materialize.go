@@ -89,7 +89,6 @@ func sourceFileOplogPayloadFromRow(row SourceFileModel) (sourceFileOplogPayload,
 		DeviceID:     strings.TrimSpace(row.DeviceID),
 		SourceFileID: strings.TrimSpace(row.SourceFileID),
 		LibraryID:    strings.TrimSpace(row.LibraryID),
-		LocalPath:    filepath.Clean(strings.TrimSpace(row.LocalPath)),
 		MTimeNS:      row.MTimeNS,
 		SizeBytes:    row.SizeBytes,
 		HashAlgo:     strings.TrimSpace(row.HashAlgo),
@@ -180,12 +179,32 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 		return err
 	}
 
-	pathKey := localPathKey(in.Path)
+	localPath := strings.TrimSpace(in.Path)
+	if localPath != "" {
+		localPath = filepath.Clean(localPath)
+	}
+	pathKey := ""
+	if localPath != "" {
+		pathKey = localPathKey(localPath)
+	}
+	if pathKey == "" {
+		pathKey = opaqueSourcePathKey(in.SourceFileID)
+	}
 	sourceFingerprint := strings.TrimSpace(in.HashAlgo) + ":" + strings.TrimSpace(in.HashHex)
-	if err := tx.
-		Where("library_id = ? AND device_id = ? AND path_key = ? AND source_fingerprint <> ?", in.LibraryID, in.DeviceID, pathKey, sourceFingerprint).
-		Delete(&SourceFileModel{}).Error; err != nil {
+	if localPath != "" {
+		if err := tx.
+			Where("library_id = ? AND device_id = ? AND path_key = ? AND source_fingerprint <> ?", in.LibraryID, in.DeviceID, pathKey, sourceFingerprint).
+			Delete(&SourceFileModel{}).Error; err != nil {
+			return err
+		}
+		if err := upsertLocalSourcePathTx(tx, in.LibraryID, in.DeviceID, in.SourceFileID, localPath, mutatedAt); err != nil {
+			return err
+		}
+	} else if storedPath, storedPathKey, err := resolveStoredSourcePathTx(tx, in.LibraryID, in.DeviceID, in.SourceFileID); err != nil {
 		return err
+	} else if storedPath != "" {
+		localPath = storedPath
+		pathKey = storedPathKey
 	}
 
 	content := SourceFileModel{
@@ -193,7 +212,7 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 		DeviceID:          in.DeviceID,
 		SourceFileID:      in.SourceFileID,
 		TrackVariantID:    trackVariantID,
-		LocalPath:         filepath.Clean(in.Path),
+		LocalPath:         localPath,
 		PathKey:           pathKey,
 		SourceFingerprint: sourceFingerprint,
 		HashAlgo:          in.HashAlgo,

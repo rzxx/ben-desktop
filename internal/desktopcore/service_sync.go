@@ -19,7 +19,8 @@ const (
 	incrementalSyncBacklogCutover = 5000
 	maxSyncCatchupRounds          = 64
 
-	jobKindSyncNow = "sync-now"
+	jobKindSyncNow     = "sync-now"
+	jobKindConnectPeer = "connect-peer"
 )
 
 type SyncTransport interface {
@@ -314,6 +315,46 @@ func (a *App) ConnectPeer(ctx context.Context, peerAddr string) error {
 	}
 	_, err = a.syncPeerCatchup(ctx, local, peer, apitypes.NetworkSyncReasonConnect, nil)
 	return err
+}
+
+func (a *App) StartConnectPeer(ctx context.Context, peerAddr string) (JobSnapshot, error) {
+	local, err := a.requireActiveContext(ctx)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+	peerAddr = strings.TrimSpace(peerAddr)
+	if peerAddr == "" {
+		return JobSnapshot{}, fmt.Errorf("peer address is required")
+	}
+
+	jobID := "connect-peer:" + local.LibraryID + ":" + peerAddr
+	return a.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindConnectPeer,
+		local.LibraryID,
+		"queued peer connect",
+		"peer connect canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			job := a.jobs.Track(jobID, jobKindConnectPeer, local.LibraryID)
+			if job != nil {
+				job.Running(0.1, "resolving peer")
+			}
+			err := a.ConnectPeer(runCtx, peerAddr)
+			if job == nil {
+				return
+			}
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					job.Fail(1, "peer connect canceled because the library is no longer active", nil)
+					return
+				}
+				job.Fail(1, "peer connect failed", err)
+				return
+			}
+			job.Complete(1, "peer connect completed")
+		},
+	)
 }
 
 func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, peer SyncPeer, reason apitypes.NetworkSyncReason, job *JobTracker) (int, error) {
@@ -954,7 +995,6 @@ func selectCheckpointTailOpsTx(tx *gorm.DB, libraryID string, baseClocks map[str
 
 func clearCheckpointManagedStateTx(tx *gorm.DB, libraryID string) error {
 	models := []any{
-		&ScanRoot{},
 		&OfflinePin{},
 		&Artist{},
 		&Credit{},

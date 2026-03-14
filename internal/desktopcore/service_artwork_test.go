@@ -94,8 +94,11 @@ func TestRescanNowBuildsAlbumArtworkVariants(t *testing.T) {
 	gotVariants := make([]string, 0, len(rows))
 	for _, row := range rows {
 		gotVariants = append(gotVariants, row.Variant)
-		if row.ChosenSourceRef != filepath.Clean(audioPath) {
-			t.Fatalf("chosen source ref = %q, want %q", row.ChosenSourceRef, filepath.Clean(audioPath))
+		if row.ChosenSourceRef != "" {
+			t.Fatalf("expected materialized artwork row to scrub source ref, got %q", row.ChosenSourceRef)
+		}
+		if got := loadLocalArtworkSourceRef(t, app, albums.Items[0].AlbumID, row.Variant); got != filepath.Clean(audioPath) {
+			t.Fatalf("local chosen source ref = %q, want %q", got, filepath.Clean(audioPath))
 		}
 		if !blobExists(t, app, row.BlobID) {
 			t.Fatalf("expected artwork blob %s to exist", row.BlobID)
@@ -205,8 +208,8 @@ func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
 	if len(before) != 3 {
 		t.Fatalf("initial artwork variant count = %d, want 3", len(before))
 	}
-	if before[0].ChosenSourceRef != filepath.Clean(pathA) {
-		t.Fatalf("initial chosen source ref = %q, want %q", before[0].ChosenSourceRef, filepath.Clean(pathA))
+	if got := loadLocalArtworkSourceRef(t, app, albumID, before[0].Variant); got != filepath.Clean(pathA) {
+		t.Fatalf("initial local chosen source ref = %q, want %q", got, filepath.Clean(pathA))
 	}
 	beforeBlobIDs := artworkBlobIDs(before)
 
@@ -221,8 +224,8 @@ func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
 	if len(after) != 3 {
 		t.Fatalf("rebuilt artwork variant count = %d, want 3", len(after))
 	}
-	if after[0].ChosenSourceRef != filepath.Clean(pathB) {
-		t.Fatalf("rebuilt chosen source ref = %q, want %q", after[0].ChosenSourceRef, filepath.Clean(pathB))
+	if got := loadLocalArtworkSourceRef(t, app, albumID, after[0].Variant); got != filepath.Clean(pathB) {
+		t.Fatalf("rebuilt local chosen source ref = %q, want %q", got, filepath.Clean(pathB))
 	}
 	if equalStringSlices(beforeBlobIDs, artworkBlobIDs(after)) {
 		t.Fatalf("expected rebuilt artwork blobs to change, before=%v after=%v", beforeBlobIDs, artworkBlobIDs(after))
@@ -351,6 +354,29 @@ func loadAlbumArtworkRows(t *testing.T, app *App, albumID string) []ArtworkVaria
 		t.Fatalf("load artwork rows: %v", err)
 	}
 	return rows
+}
+
+func loadLocalArtworkSourceRef(t *testing.T, app *App, albumID, variant string) string {
+	t.Helper()
+
+	local, err := app.EnsureLocalContext(context.Background())
+	if err != nil {
+		t.Fatalf("ensure local context: %v", err)
+	}
+	_, chosenSourceRef, ok, err := localArtworkSourceRefForScopeTx(
+		app.db.WithContext(context.Background()),
+		local.LibraryID,
+		"album",
+		albumID,
+		variant,
+	)
+	if err != nil {
+		t.Fatalf("load local artwork source ref: %v", err)
+	}
+	if !ok {
+		return ""
+	}
+	return chosenSourceRef
 }
 
 func artworkBlobIDs(rows []ArtworkVariant) []string {

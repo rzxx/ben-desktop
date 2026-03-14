@@ -313,12 +313,7 @@ func TestTransportStartupCatchupInstallsCheckpointAfterRestart(t *testing.T) {
 
 	waitForPlaylistName(t, ctx, joiner, library.LibraryID, playlistID, "Queue")
 
-	var ownerAck DeviceCheckpointAck
-	if err := owner.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ?", library.LibraryID, joinerLocal.DeviceID).
-		Take(&ownerAck).Error; err != nil {
-		t.Fatalf("load owner checkpoint ack after restart catch-up: %v", err)
-	}
+	ownerAck := waitForCheckpointAck(t, ctx, owner, library.LibraryID, joinerLocal.DeviceID)
 	if ownerAck.CheckpointID != manifest.CheckpointID || ownerAck.Source != checkpointAckSourceInstalled {
 		t.Fatalf("unexpected restart checkpoint ack: %+v", ownerAck)
 	}
@@ -633,8 +628,8 @@ func TestConnectPeerAppliesIncrementalLibraryAndCatalogSync(t *testing.T) {
 		Find(&syncedRoots).Error; err != nil {
 		t.Fatalf("load synced scan roots: %v", err)
 	}
-	if len(syncedRoots) != 1 || syncedRoots[0].RootPath != filepath.Clean(root) {
-		t.Fatalf("unexpected synced scan roots: %+v", syncedRoots)
+	if len(syncedRoots) != 0 {
+		t.Fatalf("expected synced scan roots to remain local-only, got %+v", syncedRoots)
 	}
 
 	var syncedSource SourceFileModel
@@ -643,8 +638,8 @@ func TestConnectPeerAppliesIncrementalLibraryAndCatalogSync(t *testing.T) {
 		Take(&syncedSource).Error; err != nil {
 		t.Fatalf("load synced source file: %v", err)
 	}
-	if syncedSource.LocalPath != filepath.Clean(audioPath) {
-		t.Fatalf("synced source path = %q, want %q", syncedSource.LocalPath, filepath.Clean(audioPath))
+	if syncedSource.LocalPath != "" {
+		t.Fatalf("expected synced source path to remain local-only, got %q", syncedSource.LocalPath)
 	}
 }
 
@@ -740,8 +735,8 @@ func TestInstallCheckpointRecordReplaysLibraryAndCatalogState(t *testing.T) {
 		Find(&syncedRoots).Error; err != nil {
 		t.Fatalf("load checkpoint-installed scan roots: %v", err)
 	}
-	if len(syncedRoots) != 1 || syncedRoots[0].RootPath != filepath.Clean(root) {
-		t.Fatalf("unexpected checkpoint-installed scan roots: %+v", syncedRoots)
+	if len(syncedRoots) != 0 {
+		t.Fatalf("expected checkpoint-installed scan roots to remain local-only, got %+v", syncedRoots)
 	}
 
 	var syncedSource SourceFileModel
@@ -750,8 +745,8 @@ func TestInstallCheckpointRecordReplaysLibraryAndCatalogState(t *testing.T) {
 		Take(&syncedSource).Error; err != nil {
 		t.Fatalf("load checkpoint-installed source file: %v", err)
 	}
-	if syncedSource.LocalPath != filepath.Clean(audioPath) {
-		t.Fatalf("checkpoint-installed source path = %q, want %q", syncedSource.LocalPath, filepath.Clean(audioPath))
+	if syncedSource.LocalPath != "" {
+		t.Fatalf("expected checkpoint-installed source path to remain local-only, got %q", syncedSource.LocalPath)
 	}
 }
 
@@ -1524,6 +1519,30 @@ func waitForPlaylistName(t *testing.T, ctx context.Context, app *App, libraryID,
 		t.Fatalf("load playlist after wait: %v", err)
 	}
 	t.Fatalf("playlist %q name = %q, want %q", playlistID, playlist.Name, wantName)
+}
+
+func waitForCheckpointAck(t *testing.T, ctx context.Context, app *App, libraryID, deviceID string) DeviceCheckpointAck {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var ack DeviceCheckpointAck
+		err := app.db.WithContext(ctx).
+			Where("library_id = ? AND device_id = ?", libraryID, deviceID).
+			Take(&ack).Error
+		if err == nil {
+			return ack
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	var ack DeviceCheckpointAck
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", libraryID, deviceID).
+		Take(&ack).Error; err != nil {
+		t.Fatalf("load checkpoint ack after wait: %v", err)
+	}
+	return ack
 }
 
 func waitForJobPhaseWithin(t *testing.T, ctx context.Context, app *App, jobID string, want JobPhase, timeout time.Duration) JobSnapshot {

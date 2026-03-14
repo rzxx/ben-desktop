@@ -2,10 +2,12 @@ package desktopcore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -82,6 +84,8 @@ func autoMigrate(db *gorm.DB) error {
 		&LocalSetting{},
 		&Membership{},
 		&ScanRoot{},
+		&LocalSourcePath{},
+		&LocalArtworkSourceRef{},
 		&OfflinePin{},
 		&AdmissionAuthority{},
 		&MembershipCert{},
@@ -110,6 +114,159 @@ func autoMigrate(db *gorm.DB) error {
 		&LibraryCheckpointChunk{},
 		&DeviceCheckpointAck{},
 	)
+}
+
+const pathPrivacyEpoch = "2"
+
+func (a *App) runPathPrivacyMigration(ctx context.Context) error {
+	if a == nil || a.db == nil {
+		return nil
+	}
+
+	device, err := a.ensureCurrentDevice(ctx)
+	if err != nil {
+		return fmt.Errorf("ensure current device for path privacy migration: %w", err)
+	}
+	currentDeviceID := strings.TrimSpace(device.DeviceID)
+	if currentDeviceID == "" {
+		return fmt.Errorf("current device id is required for path privacy migration")
+	}
+
+	var setting LocalSetting
+	err = a.db.WithContext(ctx).Where("key = ?", localSettingPathPrivacyEpoch).Take(&setting).Error
+	switch {
+	case err == nil && strings.TrimSpace(setting.Value) == pathPrivacyEpoch:
+		return nil
+	case err != nil && err != gorm.ErrRecordNotFound:
+		return err
+	}
+
+	now := time.Now().UTC()
+	return a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var sources []SourceFileModel
+		if err := tx.Order("library_id ASC, device_id ASC, source_file_id ASC").Find(&sources).Error; err != nil {
+			return err
+		}
+		for _, row := range sources {
+			if strings.TrimSpace(row.DeviceID) == currentDeviceID && strings.TrimSpace(row.LocalPath) != "" {
+				if err := tx.Save(&LocalSourcePath{
+					LibraryID:    strings.TrimSpace(row.LibraryID),
+					DeviceID:     currentDeviceID,
+					SourceFileID: strings.TrimSpace(row.SourceFileID),
+					LocalPath:    filepath.Clean(strings.TrimSpace(row.LocalPath)),
+					PathKey:      localPathKey(row.LocalPath),
+					UpdatedAt:    now,
+				}).Error; err != nil {
+					return err
+				}
+				continue
+			}
+			if err := tx.Model(&SourceFileModel{}).
+				Where("library_id = ? AND device_id = ? AND source_file_id = ?", row.LibraryID, row.DeviceID, row.SourceFileID).
+				Updates(map[string]any{
+					"local_path": "",
+					"path_key":   opaqueSourcePathKey(strings.TrimSpace(row.SourceFileID)),
+				}).Error; err != nil {
+				return err
+			}
+		}
+
+		var artwork []ArtworkVariant
+		if err := tx.Order("library_id ASC, scope_type ASC, scope_id ASC, variant ASC").Find(&artwork).Error; err != nil {
+			return err
+		}
+		for _, row := range artwork {
+			if strings.TrimSpace(row.ChosenSourceRef) == "" {
+				continue
+			}
+			if err := tx.Save(&LocalArtworkSourceRef{
+				LibraryID:       strings.TrimSpace(row.LibraryID),
+				ScopeType:       strings.TrimSpace(row.ScopeType),
+				ScopeID:         strings.TrimSpace(row.ScopeID),
+				Variant:         strings.TrimSpace(row.Variant),
+				ChosenSource:    strings.TrimSpace(row.ChosenSource),
+				ChosenSourceRef: filepath.Clean(strings.TrimSpace(row.ChosenSourceRef)),
+				UpdatedAt:       now,
+			}).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&ArtworkVariant{}).
+				Where("library_id = ? AND scope_type = ? AND scope_id = ? AND variant = ?", row.LibraryID, row.ScopeType, row.ScopeID, row.Variant).
+				Update("chosen_source_ref", "").Error; err != nil {
+				return err
+			}
+		}
+
+		if err := scrubPathBearingOplogRowsTx(tx); err != nil {
+			return err
+		}
+		if err := clearPathBearingCheckpointStateTx(tx); err != nil {
+			return err
+		}
+		return upsertLocalSettingTx(tx, localSettingPathPrivacyEpoch, pathPrivacyEpoch, now)
+	})
+}
+
+func scrubPathBearingOplogRowsTx(tx *gorm.DB) error {
+	var rows []OplogEntry
+	if err := tx.Where("entity_type IN ?", []string{entityTypeScanRoots, entityTypeSourceFile, entityTypeArtworkVariant}).
+		Order("library_id ASC, device_id ASC, seq ASC, op_id ASC").
+		Find(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		switch strings.TrimSpace(row.EntityType) {
+		case entityTypeScanRoots:
+			if err := tx.Delete(&row).Error; err != nil {
+				return err
+			}
+		case entityTypeSourceFile:
+			var payload sourceFileOplogPayload
+			if strings.TrimSpace(row.PayloadJSON) != "" && strings.TrimSpace(row.PayloadJSON) != "{}" {
+				if err := json.Unmarshal([]byte(row.PayloadJSON), &payload); err != nil {
+					return fmt.Errorf("decode source file oplog payload during migration: %w", err)
+				}
+			}
+			payload.LocalPath = ""
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				return fmt.Errorf("marshal scrubbed source file oplog payload: %w", err)
+			}
+			if err := tx.Model(&OplogEntry{}).
+				Where("library_id = ? AND op_id = ?", row.LibraryID, row.OpID).
+				Update("payload_json", string(raw)).Error; err != nil {
+				return err
+			}
+		case entityTypeArtworkVariant:
+			var payload artworkVariantOplogPayload
+			if strings.TrimSpace(row.PayloadJSON) != "" && strings.TrimSpace(row.PayloadJSON) != "{}" {
+				if err := json.Unmarshal([]byte(row.PayloadJSON), &payload); err != nil {
+					return fmt.Errorf("decode artwork variant oplog payload during migration: %w", err)
+				}
+			}
+			payload.ChosenSourceRef = ""
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				return fmt.Errorf("marshal scrubbed artwork variant oplog payload: %w", err)
+			}
+			if err := tx.Model(&OplogEntry{}).
+				Where("library_id = ? AND op_id = ?", row.LibraryID, row.OpID).
+				Update("payload_json", string(raw)).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func clearPathBearingCheckpointStateTx(tx *gorm.DB) error {
+	if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&LibraryCheckpointChunk{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&LibraryCheckpoint{}).Error; err != nil {
+		return err
+	}
+	return tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&DeviceCheckpointAck{}).Error
 }
 
 func reclaimSQLiteSpace(ctx context.Context, db *gorm.DB) error {

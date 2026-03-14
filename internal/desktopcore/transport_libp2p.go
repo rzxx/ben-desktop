@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	desktopSyncProtocolID       = protocol.ID("/ben/desktop/sync/1.0.0")
-	desktopCheckpointProtocolID = protocol.ID("/ben/desktop/checkpoint/1.0.0")
+	desktopSyncProtocolID       = protocol.ID("/ben/desktop/sync/2.0.0")
+	desktopCheckpointProtocolID = protocol.ID("/ben/desktop/checkpoint/2.0.0")
 	desktopPlaybackProtocolID   = protocol.ID("/ben/desktop/playback/1.0.0")
 	desktopMembershipProtocolID = protocol.ID("/ben/desktop/membership-refresh/1.0.0")
 	transportStreamTimeout      = 20 * time.Second
