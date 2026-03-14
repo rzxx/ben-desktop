@@ -112,9 +112,19 @@ func TestNetworkStatusReflectsRuntimeSyncState(t *testing.T) {
 			peerID:    "peer-" + library.LibraryID,
 		},
 	}
-	app.transportService.mu.Lock()
-	app.transportService.current = runtime
-	app.transportService.mu.Unlock()
+	runtimeCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	runtime.ctx = runtimeCtx
+	runtime.cancel = cancel
+	app.runtimeMu.Lock()
+	app.activeRuntime = &activeLibraryRuntime{
+		libraryID:        library.LibraryID,
+		deviceID:         local.DeviceID,
+		ctx:              runtimeCtx,
+		cancel:           cancel,
+		transportRuntime: runtime,
+	}
+	app.runtimeMu.Unlock()
 
 	app.transportService.beginRuntimeSync(runtime, apitypes.NetworkSyncReasonStartup)
 	app.transportService.noteRuntimeSyncProgress(library.LibraryID, "peer-remote", apitypes.NetworkSyncActivityCheckpointInstall, 42, 7)

@@ -11,13 +11,13 @@ import (
 )
 
 type App struct {
-	cfg      Config
-	db       *gorm.DB
-	storage  *DBService
-	blobs    *BlobStoreService
-	identity *IdentityMembershipService
-	operator *OperatorService
-	sync     *SyncService
+	cfg        Config
+	db         *gorm.DB
+	storage    *DBService
+	blobs      *BlobStoreService
+	identity   *IdentityMembershipService
+	operator   *OperatorService
+	sync       *SyncService
 	checkpoint *CheckpointService
 	scanner    *ScannerService
 
@@ -28,8 +28,6 @@ type App struct {
 
 	runtimeMu     sync.Mutex
 	activeRuntime *activeLibraryRuntime
-	watcherMu     sync.Mutex
-	scanWatcher   *activeScanWatcher
 	transportMu   sync.RWMutex
 	transport     SyncTransport
 
@@ -115,10 +113,6 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 func (a *App) Close() error {
 	if a == nil || a.storage == nil {
 		return nil
-	}
-	a.stopActiveScanWatcher()
-	if a.transportService != nil {
-		a.transportService.Stop()
 	}
 	a.clearActiveLibraryRuntime()
 	return a.storage.Close()
@@ -376,12 +370,22 @@ func (a *App) syncActiveRuntimeServices(ctx context.Context) error {
 	if a == nil {
 		return nil
 	}
+	local, runtime, ok, err := a.syncActiveLibraryRuntimeState(ctx)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
 	if a.transportService != nil {
-		if err := a.transportService.syncActive(ctx); err != nil {
+		if err := a.transportService.syncRuntime(ctx, local, runtime); err != nil {
 			return err
 		}
 	}
-	return a.scanner.syncActiveScanWatcher(ctx)
+	if a.scanner != nil {
+		return a.scanner.syncRuntime(ctx, local, runtime)
+	}
+	return nil
 }
 
 func (a *App) hasTransportOverride() bool {

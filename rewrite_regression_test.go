@@ -243,6 +243,42 @@ func TestDesktopRewriteRegression(t *testing.T) {
 		}
 	})
 
+	t.Run("active runtime owns watcher and transport state", func(t *testing.T) {
+		checks := []struct {
+			path      string
+			disallows []string
+		}{
+			{
+				path: filepath.Join("internal", "desktopcore", "app.go"),
+				disallows: []string{
+					"watcherMu",
+					"scanWatcher   *activeScanWatcher",
+				},
+			},
+			{
+				path: filepath.Join("internal", "desktopcore", "service_transport.go"),
+				disallows: []string{
+					"current *activeTransportRuntime",
+					"func (s *TransportService) setCurrent(",
+					"func (s *TransportService) clearCurrent(",
+				},
+			},
+		}
+
+		for _, check := range checks {
+			raw, err := os.ReadFile(check.path)
+			if err != nil {
+				t.Fatalf("read %s: %v", check.path, err)
+			}
+			text := string(raw)
+			for _, disallowed := range check.disallows {
+				if strings.Contains(text, disallowed) {
+					t.Fatalf("%s still contains %q", check.path, disallowed)
+				}
+			}
+		}
+	})
+
 	t.Run("legacy corebridge package removed", func(t *testing.T) {
 		entries, err := os.ReadDir(filepath.Join("internal", "corebridge"))
 		if os.IsNotExist(err) {

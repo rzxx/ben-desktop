@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	apitypes "ben/desktop/api/types"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -202,11 +203,22 @@ func (a *ScannerService) syncActiveScanWatcher(ctx context.Context) error {
 		return nil
 	}
 
-	local, ok, err := a.syncActiveLibraryRuntime(ctx)
+	local, runtime, ok, err := a.syncActiveLibraryRuntimeState(ctx)
 	if err != nil {
 		return err
 	}
 	if !ok {
+		a.stopActiveScanWatcher()
+		return nil
+	}
+	return a.syncRuntime(ctx, local, runtime)
+}
+
+func (a *ScannerService) syncRuntime(ctx context.Context, local apitypes.LocalContext, runtime *activeLibraryRuntime) error {
+	if a == nil {
+		return nil
+	}
+	if runtime == nil {
 		a.stopActiveScanWatcher()
 		return nil
 	}
@@ -216,19 +228,25 @@ func (a *ScannerService) syncActiveScanWatcher(ctx context.Context) error {
 		return err
 	}
 	if !canProvideLocalMedia(local.Role) || len(roots) == 0 {
-		a.stopActiveScanWatcher()
+		a.runtimeMu.Lock()
+		current := runtime.scanWatcher
+		runtime.scanWatcher = nil
+		a.runtimeMu.Unlock()
+		if current != nil {
+			current.stop()
+		}
 		return nil
 	}
 
-	a.watcherMu.Lock()
-	current := a.scanWatcher
+	a.runtimeMu.Lock()
+	current := runtime.scanWatcher
 	if current != nil && current.sameConfig(local.LibraryID, local.DeviceID, roots) {
-		a.watcherMu.Unlock()
+		a.runtimeMu.Unlock()
 		return nil
 	}
 	next := newActiveScanWatcher(a.App, local.LibraryID, local.DeviceID, roots)
-	a.scanWatcher = next
-	a.watcherMu.Unlock()
+	runtime.scanWatcher = next
+	a.runtimeMu.Unlock()
 
 	if current != nil {
 		current.stop()
@@ -240,10 +258,13 @@ func (a *ScannerService) stopActiveScanWatcher() {
 	if a == nil {
 		return
 	}
-	a.watcherMu.Lock()
-	current := a.scanWatcher
-	a.scanWatcher = nil
-	a.watcherMu.Unlock()
+	a.runtimeMu.Lock()
+	var current *activeScanWatcher
+	if a.activeRuntime != nil {
+		current = a.activeRuntime.scanWatcher
+		a.activeRuntime.scanWatcher = nil
+	}
+	a.runtimeMu.Unlock()
 	if current != nil {
 		current.stop()
 	}

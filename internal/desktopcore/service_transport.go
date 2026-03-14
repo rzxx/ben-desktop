@@ -25,8 +25,7 @@ type TransportService struct {
 	factory            transportFactory
 	backgroundInterval time.Duration
 
-	mu      sync.RWMutex
-	current *activeTransportRuntime
+	mu sync.RWMutex
 }
 
 type activeTransportRuntime struct {
@@ -50,43 +49,44 @@ func (s *TransportService) SyncTransport() SyncTransport {
 	if s == nil {
 		return nil
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.current == nil {
+	runtime := s.activeRuntime()
+	if runtime == nil {
 		return nil
 	}
-	return s.current.transport
+	return runtime.transport
 }
 
 func (s *TransportService) Running() bool {
 	if s == nil {
 		return false
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.current != nil && s.current.transport != nil && strings.TrimSpace(s.current.transport.LocalPeerID()) != ""
+	runtime := s.activeRuntime()
+	return runtime != nil && runtime.transport != nil && strings.TrimSpace(runtime.transport.LocalPeerID()) != ""
 }
 
 func (s *TransportService) ListenAddrs() []string {
 	if s == nil {
 		return nil
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.current == nil || s.current.transport == nil {
+	runtime := s.activeRuntime()
+	if runtime == nil || runtime.transport == nil {
 		return nil
 	}
-	return append([]string(nil), s.current.transport.ListenAddrs()...)
+	return append([]string(nil), runtime.transport.ListenAddrs()...)
 }
 
 func (s *TransportService) Stop() {
 	if s == nil {
 		return
 	}
-	s.mu.Lock()
-	current := s.current
-	s.current = nil
-	s.mu.Unlock()
+	current := s.activeRuntime()
+	if s.app != nil {
+		s.app.runtimeMu.Lock()
+		if s.app.activeRuntime != nil && s.app.activeRuntime.transportRuntime == current {
+			s.app.activeRuntime.transportRuntime = nil
+		}
+		s.app.runtimeMu.Unlock()
+	}
 	s.stopRuntime(current)
 }
 
@@ -99,7 +99,7 @@ func (s *TransportService) syncActive(ctx context.Context) error {
 		return nil
 	}
 
-	local, ok, err := s.app.syncActiveLibraryRuntime(ctx)
+	local, runtime, ok, err := s.app.syncActiveLibraryRuntimeState(ctx)
 	if err != nil {
 		return err
 	}
@@ -107,26 +107,39 @@ func (s *TransportService) syncActive(ctx context.Context) error {
 		s.Stop()
 		return nil
 	}
+	return s.syncRuntime(ctx, local, runtime)
+}
 
-	s.mu.RLock()
-	current := s.current
+func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.LocalContext, runtime *activeLibraryRuntime) error {
+	if s == nil || s.app == nil {
+		return nil
+	}
+	if runtime == nil {
+		s.Stop()
+		return nil
+	}
+	if s.hasTransportOverride() {
+		s.Stop()
+		return nil
+	}
+
+	s.app.runtimeMu.Lock()
+	current := runtime.transportRuntime
 	if current != nil &&
 		strings.TrimSpace(current.libraryID) == strings.TrimSpace(local.LibraryID) &&
 		strings.TrimSpace(current.deviceID) == strings.TrimSpace(local.DeviceID) &&
 		current.transport != nil {
-		s.mu.RUnlock()
+		s.app.runtimeMu.Unlock()
 		return nil
 	}
-	s.mu.RUnlock()
+	s.app.runtimeMu.Unlock()
 
 	next, err := s.factory(ctx, local)
 	if err != nil {
 		return err
 	}
 
-	s.mu.Lock()
-	current = s.current
-	runtimeCtx, cancel := context.WithCancel(context.Background())
+	runtimeCtx, cancel := context.WithCancel(runtime.ctx)
 	nextRuntime := &activeTransportRuntime{
 		libraryID: strings.TrimSpace(local.LibraryID),
 		deviceID:  strings.TrimSpace(local.DeviceID),
@@ -137,8 +150,16 @@ func (s *TransportService) syncActive(ctx context.Context) error {
 			Mode: apitypes.NetworkSyncModeIdle,
 		},
 	}
-	s.current = nextRuntime
-	s.mu.Unlock()
+	s.app.runtimeMu.Lock()
+	if s.app.activeRuntime != runtime {
+		s.app.runtimeMu.Unlock()
+		cancel()
+		_ = next.Close()
+		return nil
+	}
+	current = runtime.transportRuntime
+	runtime.transportRuntime = nextRuntime
+	s.app.runtimeMu.Unlock()
 
 	s.stopRuntime(current)
 	go s.runBackgroundLoop(nextRuntime)
@@ -222,9 +243,7 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 		return apitypes.NetworkStatus{}
 	}
 
-	s.mu.RLock()
-	current := s.current
-	s.mu.RUnlock()
+	current := s.activeRuntime()
 
 	out := apitypes.NetworkStatus{
 		LibraryID: strings.TrimSpace(local.LibraryID),
@@ -244,7 +263,9 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 	out.Mode = apitypes.NetworkSyncModeIdle
 
 	if current != nil {
+		s.mu.RLock()
 		state := current.state
+		s.mu.RUnlock()
 		out.NetworkSyncState = cloneNetworkSyncState(state)
 		if out.Mode == "" {
 			out.Mode = apitypes.NetworkSyncModeIdle
@@ -300,7 +321,7 @@ func (s *TransportService) beginRuntimeSync(runtime *activeTransportRuntime, rea
 	startedAt := time.Now().UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.current != runtime {
+	if !s.isActiveRuntime(runtime) {
 		return
 	}
 	runtime.state.Mode = syncModeForReason(reason)
@@ -317,34 +338,42 @@ func (s *TransportService) noteRuntimeSyncPeer(libraryID, peerID string) {
 	if s == nil {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.current == nil || strings.TrimSpace(s.current.libraryID) != strings.TrimSpace(libraryID) {
+	runtime := s.activeRuntimeForLibrary(libraryID)
+	if runtime == nil {
 		return
 	}
-	s.current.state.ActivePeerID = strings.TrimSpace(peerID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.isActiveRuntime(runtime) || strings.TrimSpace(runtime.libraryID) != strings.TrimSpace(libraryID) {
+		return
+	}
+	runtime.state.ActivePeerID = strings.TrimSpace(peerID)
 }
 
 func (s *TransportService) noteRuntimeSyncProgress(libraryID, peerID string, activity apitypes.NetworkSyncActivity, backlog int64, applied int) {
 	if s == nil {
 		return
 	}
+	runtime := s.activeRuntimeForLibrary(libraryID)
+	if runtime == nil {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.current == nil || strings.TrimSpace(s.current.libraryID) != strings.TrimSpace(libraryID) {
+	if !s.isActiveRuntime(runtime) || strings.TrimSpace(runtime.libraryID) != strings.TrimSpace(libraryID) {
 		return
 	}
 	if strings.TrimSpace(peerID) != "" {
-		s.current.state.ActivePeerID = strings.TrimSpace(peerID)
+		runtime.state.ActivePeerID = strings.TrimSpace(peerID)
 	}
 	if activity != "" {
-		s.current.state.Activity = activity
+		runtime.state.Activity = activity
 	}
 	if backlog >= 0 {
-		s.current.state.BacklogEstimate = backlog
+		runtime.state.BacklogEstimate = backlog
 	}
 	if applied >= 0 {
-		s.current.state.LastBatchApplied = applied
+		runtime.state.LastBatchApplied = applied
 	}
 }
 
@@ -355,7 +384,7 @@ func (s *TransportService) finishRuntimeSync(runtime *activeTransportRuntime, sy
 	completedAt := time.Now().UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.current != runtime {
+	if !s.isActiveRuntime(runtime) {
 		return
 	}
 	runtime.state.CompletedAt = cloneTimePtr(&completedAt)
@@ -368,6 +397,44 @@ func (s *TransportService) finishRuntimeSync(runtime *activeTransportRuntime, sy
 		runtime.state.LastSyncError = ""
 	}
 	runtime.state.Mode = apitypes.NetworkSyncModeIdle
+}
+
+func (s *TransportService) activeRuntime() *activeTransportRuntime {
+	if s == nil || s.app == nil {
+		return nil
+	}
+	s.app.runtimeMu.Lock()
+	defer s.app.runtimeMu.Unlock()
+	if s.app.activeRuntime == nil {
+		return nil
+	}
+	return s.app.activeRuntime.transportRuntime
+}
+
+func (s *TransportService) activeRuntimeForLibrary(libraryID string) *activeTransportRuntime {
+	if s == nil || s.app == nil {
+		return nil
+	}
+	libraryID = strings.TrimSpace(libraryID)
+	s.app.runtimeMu.Lock()
+	defer s.app.runtimeMu.Unlock()
+	if s.app.activeRuntime == nil || s.app.activeRuntime.transportRuntime == nil {
+		return nil
+	}
+	runtime := s.app.activeRuntime.transportRuntime
+	if strings.TrimSpace(runtime.libraryID) != libraryID {
+		return nil
+	}
+	return runtime
+}
+
+func (s *TransportService) isActiveRuntime(runtime *activeTransportRuntime) bool {
+	if s == nil || s.app == nil || runtime == nil {
+		return false
+	}
+	s.app.runtimeMu.Lock()
+	defer s.app.runtimeMu.Unlock()
+	return s.app.activeRuntime != nil && s.app.activeRuntime.transportRuntime == runtime
 }
 
 func syncModeForReason(reason apitypes.NetworkSyncReason) apitypes.NetworkSyncMode {
@@ -514,4 +581,3 @@ func sortedListenAddrs(items []string) []string {
 	sort.Strings(out)
 	return out
 }
-

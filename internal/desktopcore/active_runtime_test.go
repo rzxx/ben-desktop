@@ -2,8 +2,11 @@ package desktopcore
 
 import (
 	"context"
+	"sync"
 	"strings"
 	"testing"
+
+	apitypes "ben/desktop/api/types"
 )
 
 func TestStartActiveLibraryJobFailsQueuedJobWhenLibraryIsNotActive(t *testing.T) {
@@ -54,5 +57,93 @@ func TestStartActiveLibraryJobFailsQueuedJobWhenLibraryIsNotActive(t *testing.T)
 	}
 	if job.Phase != JobPhaseFailed {
 		t.Fatalf("persisted startup failure job = %+v, want failed phase", job)
+	}
+}
+
+func TestActiveLibraryRuntimeOwnsTransportAndWatcherLifecycle(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+	app.transportService.backgroundInterval = 0
+
+	var (
+		mu         sync.Mutex
+		transports []*fakeManagedTransport
+	)
+	app.transportService.factory = func(_ context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
+		transport := &fakeManagedTransport{
+			libraryID: local.LibraryID,
+			deviceID:  local.DeviceID,
+			peerID:    "peer-" + local.LibraryID,
+		}
+		mu.Lock()
+		transports = append(transports, transport)
+		mu.Unlock()
+		return transport, nil
+	}
+
+	if _, err := app.CreateLibrary(ctx, "runtime-a"); err != nil {
+		t.Fatalf("create first library: %v", err)
+	}
+	root := t.TempDir()
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	if err := app.syncActiveRuntimeServices(ctx); err != nil {
+		t.Fatalf("sync runtime services: %v", err)
+	}
+
+	app.runtimeMu.Lock()
+	firstRuntime := app.activeRuntime
+	var firstWatcher *activeScanWatcher
+	if firstRuntime != nil {
+		firstWatcher = firstRuntime.scanWatcher
+	}
+	app.runtimeMu.Unlock()
+	if firstRuntime == nil {
+		t.Fatal("expected active runtime for first library")
+	}
+	if firstRuntime.transportRuntime == nil {
+		t.Fatal("expected transport runtime on active library runtime")
+	}
+	if firstWatcher == nil {
+		t.Fatal("expected scan watcher on active library runtime")
+	}
+
+	mu.Lock()
+	if len(transports) != 1 {
+		t.Fatalf("transport instances = %d, want 1", len(transports))
+	}
+	firstTransport := transports[0]
+	mu.Unlock()
+
+	if _, err := app.CreateLibrary(ctx, "runtime-b"); err != nil {
+		t.Fatalf("create second library: %v", err)
+	}
+
+	app.runtimeMu.Lock()
+	secondRuntime := app.activeRuntime
+	app.runtimeMu.Unlock()
+	if secondRuntime == nil {
+		t.Fatal("expected active runtime after switching libraries")
+	}
+	if secondRuntime == firstRuntime {
+		t.Fatal("expected active runtime replacement on library switch")
+	}
+	if secondRuntime.transportRuntime == nil {
+		t.Fatal("expected transport runtime on replacement active runtime")
+	}
+	if secondRuntime.scanWatcher != nil {
+		t.Fatal("expected replacement runtime to start without watcher until roots are configured")
+	}
+
+	if firstTransport.closed != 1 {
+		t.Fatalf("first transport close count = %d, want 1", firstTransport.closed)
+	}
+	select {
+	case <-firstWatcher.done:
+	default:
+		t.Fatal("expected first watcher to be stopped with replaced active runtime")
 	}
 }

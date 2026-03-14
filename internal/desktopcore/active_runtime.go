@@ -12,45 +12,56 @@ import (
 var errActiveLibraryRuntimeStopped = errors.New("active library runtime is no longer available")
 
 type activeLibraryRuntime struct {
-	libraryID string
-	ctx       context.Context
-	cancel    context.CancelFunc
+	libraryID        string
+	deviceID         string
+	ctx              context.Context
+	cancel           context.CancelFunc
+	transportRuntime *activeTransportRuntime
+	scanWatcher      *activeScanWatcher
 }
 
 func (a *App) syncActiveLibraryRuntime(ctx context.Context) (apitypes.LocalContext, bool, error) {
+	local, _, ok, err := a.syncActiveLibraryRuntimeState(ctx)
+	return local, ok, err
+}
+
+func (a *App) syncActiveLibraryRuntimeState(ctx context.Context) (apitypes.LocalContext, *activeLibraryRuntime, bool, error) {
 	if a == nil {
-		return apitypes.LocalContext{}, false, nil
+		return apitypes.LocalContext{}, nil, false, nil
 	}
 
 	local, err := a.requireActiveContext(ctx)
 	if err != nil {
 		if errors.Is(err, apitypes.ErrNoActiveLibrary) {
 			a.clearActiveLibraryRuntime()
-			return apitypes.LocalContext{}, false, nil
+			return apitypes.LocalContext{}, nil, false, nil
 		}
-		return apitypes.LocalContext{}, false, err
+		return apitypes.LocalContext{}, nil, false, err
 	}
 
 	libraryID := strings.TrimSpace(local.LibraryID)
+	deviceID := strings.TrimSpace(local.DeviceID)
 	a.runtimeMu.Lock()
 	current := a.activeRuntime
-	if current != nil && strings.TrimSpace(current.libraryID) == libraryID {
+	if current != nil &&
+		strings.TrimSpace(current.libraryID) == libraryID &&
+		strings.TrimSpace(current.deviceID) == deviceID {
 		a.runtimeMu.Unlock()
-		return local, true, nil
+		return local, current, true, nil
 	}
 
 	scopeCtx, cancel := context.WithCancel(context.Background())
-	a.activeRuntime = &activeLibraryRuntime{
+	next := &activeLibraryRuntime{
 		libraryID: libraryID,
+		deviceID:  deviceID,
 		ctx:       scopeCtx,
 		cancel:    cancel,
 	}
+	a.activeRuntime = next
 	a.runtimeMu.Unlock()
 
-	if current != nil && current.cancel != nil {
-		current.cancel()
-	}
-	return local, true, nil
+	a.stopLibraryRuntime(current)
+	return local, next, true, nil
 }
 
 func (a *App) clearActiveLibraryRuntime() {
@@ -63,8 +74,21 @@ func (a *App) clearActiveLibraryRuntime() {
 	a.activeRuntime = nil
 	a.runtimeMu.Unlock()
 
-	if current != nil && current.cancel != nil {
+	a.stopLibraryRuntime(current)
+}
+
+func (a *App) stopLibraryRuntime(current *activeLibraryRuntime) {
+	if a == nil || current == nil {
+		return
+	}
+	if current.cancel != nil {
 		current.cancel()
+	}
+	if current.scanWatcher != nil {
+		current.scanWatcher.stop()
+	}
+	if a.transportService != nil && current.transportRuntime != nil {
+		a.transportService.stopRuntime(current.transportRuntime)
 	}
 }
 
@@ -82,7 +106,7 @@ func (a *App) activeLibraryTaskContext(ctx context.Context, libraryID string) (c
 	current := a.activeRuntime
 	if current == nil || strings.TrimSpace(current.libraryID) != libraryID {
 		a.runtimeMu.Unlock()
-		local, ok, err := a.syncActiveLibraryRuntime(ctx)
+		local, _, ok, err := a.syncActiveLibraryRuntimeState(ctx)
 		if err != nil {
 			return nil, func() {}, err
 		}
@@ -91,7 +115,8 @@ func (a *App) activeLibraryTaskContext(ctx context.Context, libraryID string) (c
 		}
 		a.runtimeMu.Lock()
 		current = a.activeRuntime
-		if current == nil || strings.TrimSpace(current.libraryID) != libraryID {
+		if current == nil ||
+			strings.TrimSpace(current.libraryID) != libraryID {
 			a.runtimeMu.Unlock()
 			return nil, func() {}, fmt.Errorf("%w: %s", errActiveLibraryRuntimeStopped, libraryID)
 		}
