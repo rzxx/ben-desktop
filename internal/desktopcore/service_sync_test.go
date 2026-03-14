@@ -841,7 +841,10 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 	}
 
 	encodingBlobID := testBlobID("7")
-	artworkBlobID := testBlobID("8")
+	artworkBlobID, err := owner.blobs.StoreArtworkBytes([]byte(strings.Repeat("x", 64)), ".webp")
+	if err != nil {
+		t.Fatalf("store owner artwork blob: %v", err)
+	}
 	now := time.Now().UTC()
 	if err := owner.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := owner.upsertOptimizedAssetTx(tx, ownerLocal, OptimizedAssetModel{
@@ -959,6 +962,120 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 	}
 	if artwork.BlobID != artworkBlobID {
 		t.Fatalf("artwork blob = %q, want %q", artwork.BlobID, artworkBlobID)
+	}
+
+	resolvedArtwork, err := joiner.ResolveAlbumArtwork(ctx, albumID, defaultArtworkVariant320)
+	if err != nil {
+		t.Fatalf("resolve synced album artwork: %v", err)
+	}
+	if !resolvedArtwork.Available {
+		t.Fatalf("expected synced album artwork blob to be available locally")
+	}
+
+	cacheEntries, err := joiner.ListCacheEntries(ctx, apitypes.CacheEntryListRequest{})
+	if err != nil {
+		t.Fatalf("list joiner cache entries: %v", err)
+	}
+	var thumbnailPinned bool
+	for _, entry := range cacheEntries.Items {
+		if entry.BlobID != artworkBlobID {
+			continue
+		}
+		if !entry.Pinned || entry.Kind != apitypes.CacheKindThumbnail {
+			t.Fatalf("expected synced artwork cache entry to be pinned thumbnail, got %+v", entry)
+		}
+		for _, scope := range entry.PinScopes {
+			if scope.Scope == "thumbnail" && scope.ScopeID == "album:"+albumID && scope.Durable {
+				thumbnailPinned = true
+				break
+			}
+		}
+	}
+	if !thumbnailPinned {
+		t.Fatalf("expected synced artwork cache entry to have durable thumbnail pin scope")
+	}
+}
+
+func TestConnectPeerBackfillsMissingArtworkBlobWithoutNewOps(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openCacheTestApp(t, 1024)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "artwork-blob-backfill")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, _ := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	artworkBlobID, err := owner.blobs.StoreArtworkBytes([]byte(strings.Repeat("y", 64)), ".webp")
+	if err != nil {
+		t.Fatalf("store owner artwork blob: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := owner.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return owner.upsertArtworkVariantTx(tx, ownerLocal, ArtworkVariant{
+			ScopeType:       "album",
+			ScopeID:         "album-backfill",
+			Variant:         defaultArtworkVariant320,
+			BlobID:          artworkBlobID,
+			MIME:            "image/webp",
+			FileExt:         ".webp",
+			W:               320,
+			H:               320,
+			Bytes:           64,
+			ChosenSource:    "embedded_front",
+			ChosenSourceRef: "album-backfill.flac",
+			UpdatedAt:       now,
+		})
+	}); err != nil {
+		t.Fatalf("seed artwork variant: %v", err)
+	}
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	if err := joiner.ConnectPeer(ctx, "memory://owner"); err != nil {
+		t.Fatalf("initial connect peer: %v", err)
+	}
+
+	ref := apitypes.ArtworkRef{
+		BlobID:  artworkBlobID,
+		MIME:    "image/webp",
+		FileExt: ".webp",
+		Variant: defaultArtworkVariant320,
+	}
+	resolved, err := joiner.ResolveArtworkRef(ctx, ref)
+	if err != nil {
+		t.Fatalf("resolve initially fetched artwork: %v", err)
+	}
+	if !resolved.Available {
+		t.Fatalf("expected initially fetched artwork to be available")
+	}
+	if err := os.Remove(resolved.LocalPath); err != nil {
+		t.Fatalf("remove joiner artwork blob: %v", err)
+	}
+
+	missing, err := joiner.ResolveArtworkRef(ctx, ref)
+	if err != nil {
+		t.Fatalf("resolve missing artwork: %v", err)
+	}
+	if missing.Available {
+		t.Fatalf("expected removed artwork blob to stay unavailable until next sync")
+	}
+
+	if err := joiner.ConnectPeer(ctx, "memory://owner"); err != nil {
+		t.Fatalf("second connect peer: %v", err)
+	}
+
+	refetched, err := joiner.ResolveArtworkRef(ctx, ref)
+	if err != nil {
+		t.Fatalf("resolve refetched artwork: %v", err)
+	}
+	if !refetched.Available {
+		t.Fatalf("expected sync without new ops to backfill missing artwork blob")
 	}
 }
 
@@ -1362,6 +1479,13 @@ func (p *memorySyncPeer) FetchPlaybackAsset(ctx context.Context, req PlaybackAss
 		return PlaybackAssetResponse{}, err
 	}
 	return p.app.buildPlaybackAssetResponse(ctx, req)
+}
+
+func (p *memorySyncPeer) FetchArtworkBlob(ctx context.Context, req ArtworkBlobRequest) (ArtworkBlobResponse, error) {
+	if _, err := p.app.verifyTransportPeerAuth(ctx, req.LibraryID, req.DeviceID, req.PeerID, req.PeerID, req.Auth); err != nil {
+		return ArtworkBlobResponse{}, err
+	}
+	return p.app.buildArtworkBlobResponse(ctx, req)
 }
 
 func (p *memorySyncPeer) RefreshMembership(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {

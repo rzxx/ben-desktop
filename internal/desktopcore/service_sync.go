@@ -35,6 +35,7 @@ type SyncPeer interface {
 	Sync(ctx context.Context, req SyncRequest) (SyncResponse, error)
 	FetchCheckpoint(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error)
 	FetchPlaybackAsset(ctx context.Context, req PlaybackAssetRequest) (PlaybackAssetResponse, error)
+	FetchArtworkBlob(ctx context.Context, req ArtworkBlobRequest) (ArtworkBlobResponse, error)
 	RefreshMembership(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error)
 }
 
@@ -103,6 +104,39 @@ type PlaybackAssetTransfer struct {
 	Container         string
 	CreatedByDeviceID string
 	Data              []byte
+}
+
+type ArtworkBlobRequest struct {
+	LibraryID string
+	DeviceID  string
+	PeerID    string
+	Auth      transportPeerAuth
+	ScopeType string
+	ScopeID   string
+	Variant   string
+	BlobID    string
+	MIME      string
+	FileExt   string
+}
+
+type ArtworkBlobResponse struct {
+	LibraryID string
+	DeviceID  string
+	PeerID    string
+	Auth      transportPeerAuth
+	Artwork   ArtworkBlobTransfer
+	Available bool
+	Error     string
+}
+
+type ArtworkBlobTransfer struct {
+	ScopeType string
+	ScopeID   string
+	Variant   string
+	BlobID    string
+	MIME      string
+	FileExt   string
+	Data      []byte
 }
 
 type syncBatch struct {
@@ -485,6 +519,12 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 		a.recordPeerSyncSuccess(ctx, local.LibraryID, remoteDeviceID, remotePeerID, int64(applied))
 
 		if !resp.HasMore || (len(resp.Ops) == 0 && applied == 0) {
+			if _, err := a.syncMissingArtworkBlobsFromPeer(ctx, local, peer); err != nil {
+				if !errors.Is(err, context.Canceled) {
+					a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+				}
+				return totalApplied, err
+			}
 			_ = startedAt
 			_ = reason
 			return totalApplied, nil
@@ -1249,4 +1289,3 @@ func (a *SyncService) peerSyncState(ctx context.Context, libraryID, deviceID str
 	}
 	return row, true, nil
 }
-

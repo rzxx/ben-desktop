@@ -27,6 +27,7 @@ const (
 	desktopSyncProtocolID       = protocol.ID("/ben/desktop/sync/2.0.0")
 	desktopCheckpointProtocolID = protocol.ID("/ben/desktop/checkpoint/2.0.0")
 	desktopPlaybackProtocolID   = protocol.ID("/ben/desktop/playback/1.0.0")
+	desktopArtworkProtocolID    = protocol.ID("/ben/desktop/artwork/1.0.0")
 	desktopMembershipProtocolID = protocol.ID("/ben/desktop/membership-refresh/1.0.0")
 	transportStreamTimeout      = 20 * time.Second
 	transportConnectTimeout     = 10 * time.Second
@@ -98,6 +99,7 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 	hostNode.SetStreamHandler(desktopSyncProtocolID, transport.handleSyncStream)
 	hostNode.SetStreamHandler(desktopCheckpointProtocolID, transport.handleCheckpointStream)
 	hostNode.SetStreamHandler(desktopPlaybackProtocolID, transport.handlePlaybackStream)
+	hostNode.SetStreamHandler(desktopArtworkProtocolID, transport.handleArtworkStream)
 	hostNode.SetStreamHandler(desktopMembershipProtocolID, transport.handleMembershipRefreshStream)
 	hostNode.SetStreamHandler(desktopInviteJoinStartProtocolID, transport.handleInviteJoinStartStream)
 	hostNode.SetStreamHandler(desktopInviteJoinStatusProtocolID, transport.handleInviteJoinStatusStream)
@@ -298,6 +300,26 @@ func (p *libp2pSyncPeer) FetchPlaybackAsset(ctx context.Context, req PlaybackAss
 	return resp, nil
 }
 
+func (p *libp2pSyncPeer) FetchArtworkBlob(ctx context.Context, req ArtworkBlobRequest) (ArtworkBlobResponse, error) {
+	stream, err := p.openStream(ctx, desktopArtworkProtocolID)
+	if err != nil {
+		return ArtworkBlobResponse{}, err
+	}
+	defer stream.Close()
+
+	if err := json.NewEncoder(stream).Encode(req); err != nil {
+		return ArtworkBlobResponse{}, fmt.Errorf("write artwork request: %w", err)
+	}
+	var resp ArtworkBlobResponse
+	if err := json.NewDecoder(stream).Decode(&resp); err != nil {
+		return ArtworkBlobResponse{}, fmt.Errorf("read artwork response: %w", err)
+	}
+	if strings.TrimSpace(resp.Error) != "" {
+		return ArtworkBlobResponse{}, fmt.Errorf("%s", strings.TrimSpace(resp.Error))
+	}
+	return resp, nil
+}
+
 func (p *libp2pSyncPeer) RefreshMembership(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {
 	stream, err := p.openStream(ctx, desktopMembershipProtocolID)
 	if err != nil {
@@ -423,6 +445,37 @@ func (t *libp2pSyncTransport) handlePlaybackStream(stream network.Stream) {
 	}
 }
 
+func (t *libp2pSyncTransport) handleArtworkStream(stream network.Stream) {
+	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
+	defer cancel()
+
+	var req ArtworkBlobRequest
+	if err := json.NewDecoder(stream).Decode(&req); err != nil {
+		t.writeArtworkError(stream, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if strings.TrimSpace(req.LibraryID) != strings.TrimSpace(t.libraryID) {
+		t.writeArtworkError(stream, "library mismatch")
+		return
+	}
+	if _, err := t.app.verifyTransportPeerAuth(ctx, t.libraryID, req.DeviceID, req.PeerID, stream.Conn().RemotePeer().String(), req.Auth); err != nil {
+		t.writeArtworkError(stream, err.Error())
+		return
+	}
+
+	resp, err := t.app.buildArtworkBlobResponse(ctx, req)
+	if err != nil {
+		t.writeArtworkError(stream, err.Error())
+		return
+	}
+	if err := json.NewEncoder(stream).Encode(resp); err != nil {
+		t.app.logf("desktopcore: write artwork response failed: %v", err)
+	}
+}
+
 func (t *libp2pSyncTransport) handleMembershipRefreshStream(stream network.Stream) {
 	defer stream.Close()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
@@ -532,6 +585,10 @@ func (t *libp2pSyncTransport) writeCheckpointError(stream network.Stream, messag
 
 func (t *libp2pSyncTransport) writePlaybackError(stream network.Stream, message string) {
 	_ = json.NewEncoder(stream).Encode(PlaybackAssetResponse{Error: strings.TrimSpace(message)})
+}
+
+func (t *libp2pSyncTransport) writeArtworkError(stream network.Stream, message string) {
+	_ = json.NewEncoder(stream).Encode(ArtworkBlobResponse{Error: strings.TrimSpace(message)})
 }
 
 func (t *libp2pSyncTransport) writeMembershipRefreshError(stream network.Stream, message string) {
