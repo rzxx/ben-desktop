@@ -126,6 +126,10 @@ type InviteJoinRequest struct {
 	DeviceFingerprint  string `gorm:"size:64;not null"`
 	RequestedRole      string `gorm:"size:32"`
 	ApprovedRole       string `gorm:"size:32"`
+	OwnerDeviceID      string `gorm:"size:64"`
+	OwnerRole          string `gorm:"size:32"`
+	OwnerPeerID        string `gorm:"size:256"`
+	OwnerFingerprint   string `gorm:"size:64"`
 	JoinPubKey         []byte `gorm:"not null"`
 	Status             string `gorm:"size:32;not null;index"`
 	Message            string `gorm:"size:512"`

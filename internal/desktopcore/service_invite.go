@@ -51,6 +51,8 @@ type inviteCodePayload struct {
 	TokenID    string `json:"tokenId"`
 	LibraryID  string `json:"libraryId"`
 	ServiceTag string `json:"serviceTag"`
+	PeerID     string `json:"peerId,omitempty"`
+	PeerAddr   string `json:"peerAddr,omitempty"`
 	Role       string `json:"role"`
 	MaxUses    int    `json:"maxUses"`
 	ExpiresAt  int64  `json:"expiresAt"`
@@ -100,10 +102,16 @@ func (s *InviteService) CreateInviteCode(ctx context.Context, req apitypes.Invit
 	expiresAt := now.Add(expires)
 	tokenID := uuid.NewString()
 	serviceTag := serviceTagForLibrary(local.LibraryID)
+	peerID, peerAddr, err := s.activeInviteTransportHints(ctx, local.LibraryID)
+	if err != nil {
+		return apitypes.InviteCodeResult{}, err
+	}
 	code, err := encodeInviteCode(inviteCodePayload{
 		TokenID:    tokenID,
 		LibraryID:  local.LibraryID,
 		ServiceTag: serviceTag,
+		PeerID:     peerID,
+		PeerAddr:   peerAddr,
 		Role:       role,
 		MaxUses:    uses,
 		ExpiresAt:  expiresAt.Unix(),
@@ -245,71 +253,102 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 		return apitypes.JoinSession{}, err
 	}
 
-	issued, ok, err := s.issuedInviteByToken(ctx, payload.LibraryID, payload.TokenID)
-	if err != nil {
-		return apitypes.JoinSession{}, err
-	}
-	if !ok {
-		return apitypes.JoinSession{}, fmt.Errorf("invite not found")
-	}
-	redemptions, err := countInviteRedemptions(ctx, s.app.storage.DB(), issued.LibraryID, issued.TokenID)
-	if err != nil {
-		return apitypes.JoinSession{}, err
-	}
-	if deriveIssuedInviteStatus(issued, redemptions, now) != issuedInviteStatusActive {
-		return apitypes.JoinSession{}, fmt.Errorf("invite is not active")
-	}
-
-	requestID := uuid.NewString()
 	sessionID := uuid.NewString()
 	job := s.app.jobs.Track(sessionID, jobKindJoinSession, payload.LibraryID)
 	job.Queued(0, "queued join session start")
-	job.Running(0.1, "validating invite")
-	joinPubKey, err := randomBytes(32)
+	job.Running(0.1, "preparing join transport")
+
+	joinPublicKey, joinPrivateKey, err := generateInviteJoinKeypair()
 	if err != nil {
-		job.Fail(1, "failed to generate join session material", err)
+		job.Fail(1, "failed to generate join session keypair", err)
 		return apitypes.JoinSession{}, fmt.Errorf("generate join public key: %w", err)
 	}
 	fingerprint := fingerprintForDevice(deviceID, peerID)
-	job.Running(0.25, "creating join session")
+	discoverTimeout := req.DiscoverTimeout
+	if discoverTimeout <= 0 {
+		discoverTimeout = defaultInviteDiscoverTimeout
+	}
+	discoverCtx, cancel := context.WithTimeout(ctx, discoverTimeout)
+	defer cancel()
+
+	client, err := s.app.openInviteClientTransport(payload.ServiceTag)
+	if err != nil {
+		job.Fail(1, "failed to start invite transport", err)
+		return apitypes.JoinSession{}, err
+	}
+	defer client.Close()
+
+	job.Running(0.25, "contacting invite host")
+	var startResp inviteJoinStartResponse
+	resolvedPeerID, resolvedPeerAddr, err := client.roundTrip(
+		discoverCtx,
+		payload.PeerAddr,
+		payload.PeerID,
+		desktopInviteJoinStartProtocolID,
+		inviteJoinStartRequest{
+			InviteCode: strings.TrimSpace(req.InviteCode),
+			DeviceID:   deviceID,
+			DeviceName: deviceName,
+			PeerID:     peerID,
+			JoinPubKey: append([]byte(nil), joinPublicKey[:]...),
+		},
+		&startResp,
+	)
+	if err != nil {
+		job.Fail(1, "failed to contact invite host", err)
+		return apitypes.JoinSession{}, err
+	}
+	if msg := strings.TrimSpace(startResp.Error); msg != "" {
+		err = fmt.Errorf("%s", msg)
+		job.Fail(1, "invite host rejected join request", err)
+		return apitypes.JoinSession{}, err
+	}
+	requestID := strings.TrimSpace(startResp.RequestID)
+	if requestID == "" {
+		err = fmt.Errorf("invite host response missing request id")
+		job.Fail(1, "invite host response was incomplete", err)
+		return apitypes.JoinSession{}, err
+	}
+
+	job.Running(0.5, "persisting join session")
 
 	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&InviteJoinRequest{
-			RequestID:         requestID,
-			LibraryID:         issued.LibraryID,
-			TokenID:           issued.TokenID,
-			MaxUses:           issued.MaxUses,
-			DeviceID:          deviceID,
-			DeviceName:        deviceName,
-			PeerID:            peerID,
-			DeviceFingerprint: fingerprint,
-			RequestedRole:     issued.Role,
-			Status:            inviteJoinStatusPending,
-			Message:           "join request pending approval",
-			JoinPubKey:        joinPubKey,
-			ExpiresAt:         issued.ExpiresAt,
-			CreatedAt:         now,
-			UpdatedAt:         now,
-		}).Error; err != nil {
+		if err := saveJoinSessionKeypairTx(tx, sessionID, joinPublicKey, joinPrivateKey, now); err != nil {
 			return err
 		}
 		return tx.Create(&JoinSession{
-			SessionID:         sessionID,
-			InviteCode:        strings.TrimSpace(req.InviteCode),
-			InviteToken:       issued.TokenID,
-			LibraryID:         issued.LibraryID,
-			ServiceTag:        issued.ServiceTag,
-			DeviceID:          deviceID,
-			DeviceName:        deviceName,
-			RequestID:         requestID,
-			Status:            joinSessionStatusPending,
-			Message:           "join request pending approval",
-			Role:              issued.Role,
-			LocalPeerID:       peerID,
-			DeviceFingerprint: fingerprint,
-			ExpiresAt:         issued.ExpiresAt,
-			CreatedAt:         now,
-			UpdatedAt:         now,
+			SessionID:          sessionID,
+			InviteCode:         strings.TrimSpace(req.InviteCode),
+			InviteToken:        payload.TokenID,
+			LibraryID:          payload.LibraryID,
+			ServiceTag:         payload.ServiceTag,
+			PeerAddrHint:       firstNonEmpty(strings.TrimSpace(resolvedPeerAddr), strings.TrimSpace(startResp.PeerAddrHint), strings.TrimSpace(payload.PeerAddr)),
+			ExpectedPeerIDHint: firstNonEmpty(strings.TrimSpace(startResp.OwnerPeerID), strings.TrimSpace(resolvedPeerID), strings.TrimSpace(payload.PeerID)),
+			DeviceID:           deviceID,
+			DeviceName:         deviceName,
+			RequestID:          requestID,
+			Status:             firstNonEmpty(normalizeJoinSessionStatus(startResp.Status), joinSessionStatusPending),
+			Message:            firstNonEmpty(strings.TrimSpace(startResp.Message), "join request pending approval"),
+			Role:               firstNonEmpty(strings.TrimSpace(startResp.Role), normalizeRole(payload.Role)),
+			LocalPeerID:        peerID,
+			DeviceFingerprint:  fingerprint,
+			OwnerDeviceID:      strings.TrimSpace(startResp.OwnerDeviceID),
+			OwnerRole:          strings.TrimSpace(startResp.OwnerRole),
+			OwnerPeerID:        strings.TrimSpace(startResp.OwnerPeerID),
+			OwnerFingerprint: firstNonEmpty("", func() string {
+				if strings.TrimSpace(startResp.OwnerDeviceID) == "" || strings.TrimSpace(startResp.OwnerPeerID) == "" {
+					return ""
+				}
+				return fingerprintForDevice(startResp.OwnerDeviceID, startResp.OwnerPeerID)
+			}()),
+			ExpiresAt: func() time.Time {
+				if startResp.ExpiresAt > 0 {
+					return time.Unix(startResp.ExpiresAt, 0).UTC()
+				}
+				return time.Unix(payload.ExpiresAt, 0).UTC()
+			}(),
+			CreatedAt: now,
+			UpdatedAt: now,
 		}).Error
 	})
 	if err != nil {
@@ -460,6 +499,10 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 		job.Fail(1, "failed to finalize join session", err)
 		return apitypes.JoinLibraryResult{}, err
 	}
+	if err := deleteJoinSessionKeypair(ctx, s.app.storage.DB(), session.SessionID); err != nil {
+		job.Fail(1, "failed to clean join session keypair", err)
+		return apitypes.JoinLibraryResult{}, err
+	}
 	if err := s.app.syncActiveRuntimeServices(ctx); err != nil {
 		job.Fail(1, "failed to refresh active runtime services", err)
 		return apitypes.JoinLibraryResult{}, err
@@ -530,14 +573,22 @@ func (s *InviteService) CancelJoinSession(ctx context.Context, sessionID string)
 		s.syncJoinSessionJob(session)
 		return fmt.Errorf("cannot cancel a completed join session")
 	}
+	if err := s.cancelRemoteJoinSession(ctx, session, "canceled by requester"); err != nil && s.app.cfg.Logger != nil {
+		s.app.cfg.Logger.Errorf("desktopcore: cancel join session remote request failed for %s: %v", session.SessionID, err)
+	}
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
-		Where("session_id = ?", sessionID).
-		Updates(map[string]any{
-			"status":     joinSessionStatusFailed,
-			"message":    "canceled by user",
-			"updated_at": now,
-		}).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&JoinSession{}).
+			Where("session_id = ?", sessionID).
+			Updates(map[string]any{
+				"status":     joinSessionStatusFailed,
+				"message":    "canceled by user",
+				"updated_at": now,
+			}).Error; err != nil {
+			return err
+		}
+		return deleteJoinSessionKeypair(ctx, tx, sessionID)
+	}); err != nil {
 		job.Fail(1, "failed to cancel join session", err)
 		return err
 	}
@@ -670,11 +721,11 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 		if err != nil {
 			return err
 		}
-		encodedCert, err := json.Marshal(material.MembershipCert)
+		encryptedMaterial, err := encryptJoinSessionMaterial(req.JoinPubKey, material)
 		if err != nil {
 			return err
 		}
-		materialJSON, err := json.Marshal(material)
+		encodedCert, err := json.Marshal(material.MembershipCert)
 		if err != nil {
 			return err
 		}
@@ -736,10 +787,14 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 			Where("request_id = ?", req.RequestID).
 			Updates(map[string]any{
 				"approved_role":        approvedRole,
+				"owner_device_id":      local.DeviceID,
+				"owner_role":           local.Role,
+				"owner_peer_id":        ownerPeerID,
+				"owner_fingerprint":    fingerprintForDevice(local.DeviceID, ownerPeerID),
 				"status":               inviteJoinStatusApproved,
 				"message":              "join request approved",
 				"membership_cert_json": string(encodedCert),
-				"encrypted_material":   []byte(string(materialJSON)),
+				"encrypted_material":   encryptedMaterial,
 				"updated_at":           now,
 			}).Error; err != nil {
 			return err
@@ -755,7 +810,6 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 				"owner_role":        local.Role,
 				"owner_peer_id":     ownerPeerID,
 				"owner_fingerprint": fingerprintForDevice(local.DeviceID, ownerPeerID),
-				"material_json":     string(materialJSON),
 				"updated_at":        now,
 			}).Error
 	})
@@ -943,67 +997,608 @@ func (s *InviteService) refreshJoinSession(ctx context.Context, session JoinSess
 	if strings.TrimSpace(session.RequestID) != "" &&
 		strings.TrimSpace(session.Status) != joinSessionStatusCompleted &&
 		strings.TrimSpace(session.Status) != joinSessionStatusFailed {
-		var req InviteJoinRequest
-		if err := s.app.storage.WithContext(ctx).Where("request_id = ?", session.RequestID).Take(&req).Error; err == nil {
-			req, changed := normalizeJoinRequestRecord(req, now)
-			if changed {
-				if err := s.app.storage.WithContext(ctx).Model(&InviteJoinRequest{}).
-					Where("request_id = ?", req.RequestID).
-					Updates(map[string]any{
-						"status":     req.Status,
-						"message":    req.Message,
-						"updated_at": req.UpdatedAt,
-					}).Error; err != nil {
-					return JoinSession{}, err
-				}
-			}
-
-			switch req.Status {
-			case inviteJoinStatusApproved:
-				nextRole := strings.TrimSpace(req.ApprovedRole)
-				if nextRole == "" {
-					nextRole = strings.TrimSpace(session.Role)
-				}
-				nextMaterial := strings.TrimSpace(session.MaterialJSON)
-				if len(req.EncryptedMaterial) > 0 {
-					nextMaterial = string(req.EncryptedMaterial)
-				}
-				if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
-					Where("session_id = ?", session.SessionID).
-					Updates(map[string]any{
-						"status":        joinSessionStatusApproved,
-						"message":       "join request approved",
-						"role":          nextRole,
-						"material_json": nextMaterial,
-						"updated_at":    now,
-					}).Error; err != nil {
-					return JoinSession{}, err
-				}
-			case inviteJoinStatusRejected:
-				if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
-					Where("session_id = ?", session.SessionID).
-					Updates(map[string]any{
-						"status":     joinSessionStatusRejected,
-						"message":    req.Message,
-						"updated_at": now,
-					}).Error; err != nil {
-					return JoinSession{}, err
-				}
-			case inviteJoinStatusExpired:
-				if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
-					Where("session_id = ?", session.SessionID).
-					Updates(map[string]any{
-						"status":     joinSessionStatusExpired,
-						"message":    req.Message,
-						"updated_at": now,
-					}).Error; err != nil {
-					return JoinSession{}, err
-				}
+		refreshed, ok, err := s.refreshJoinSessionRemote(ctx, session)
+		if err != nil && s.app.cfg.Logger != nil {
+			s.app.cfg.Logger.Errorf("desktopcore: refresh join session remote state failed for %s: %v", session.SessionID, err)
+		}
+		if ok {
+			session = refreshed
+		} else {
+			session, err = s.refreshJoinSessionFromLocalRequest(ctx, session, now)
+			if err != nil {
+				return JoinSession{}, err
 			}
 		}
 	}
 
+	if isTerminalJoinSessionStatus(session.Status) && strings.TrimSpace(session.Status) != joinSessionStatusCompleted {
+		if err := deleteJoinSessionKeypair(ctx, s.app.storage.DB(), session.SessionID); err != nil {
+			return JoinSession{}, err
+		}
+	}
 	return s.loadJoinSession(ctx, session.SessionID)
+}
+
+func (s *InviteService) activeInviteTransportHints(ctx context.Context, libraryID string) (string, string, error) {
+	if err := s.app.syncActiveRuntimeServices(ctx); err != nil {
+		return "", "", err
+	}
+	runtime := s.app.transportService.activeRuntimeForLibrary(libraryID)
+	if runtime == nil || runtime.transport == nil {
+		return "", "", fmt.Errorf("invite transport is not running")
+	}
+	peerID := strings.TrimSpace(runtime.transport.LocalPeerID())
+	if peerID == "" {
+		return "", "", fmt.Errorf("invite transport peer id is unavailable")
+	}
+	listenAddrs := runtime.transport.ListenAddrs()
+	return peerID, preferredInvitePeerAddr(listenAddrs), nil
+}
+
+func (s *InviteService) refreshJoinSessionRemote(ctx context.Context, session JoinSession) (JoinSession, bool, error) {
+	payload, err := decodeInviteCode(session.InviteCode)
+	if err != nil {
+		return JoinSession{}, false, err
+	}
+	client, err := s.app.openInviteClientTransport(firstNonEmpty(session.ServiceTag, payload.ServiceTag))
+	if err != nil {
+		return JoinSession{}, false, err
+	}
+	defer client.Close()
+
+	refreshCtx, cancel := context.WithTimeout(ctx, defaultInviteDiscoverTimeout)
+	defer cancel()
+
+	var resp inviteJoinStatusResponse
+	resolvedPeerID, resolvedPeerAddr, err := client.roundTrip(
+		refreshCtx,
+		firstNonEmpty(session.PeerAddrHint, payload.PeerAddr),
+		firstNonEmpty(session.ExpectedPeerIDHint, session.OwnerPeerID, payload.PeerID),
+		desktopInviteJoinStatusProtocolID,
+		inviteJoinStatusRequest{
+			LibraryID: session.LibraryID,
+			RequestID: session.RequestID,
+			DeviceID:  session.DeviceID,
+			PeerID:    session.LocalPeerID,
+		},
+		&resp,
+	)
+	if err != nil {
+		return JoinSession{}, false, err
+	}
+	if msg := strings.TrimSpace(resp.Error); msg != "" {
+		return JoinSession{}, false, fmt.Errorf("%s", msg)
+	}
+	updated, err := s.applyRemoteJoinSessionStatus(ctx, session, resp, resolvedPeerID, resolvedPeerAddr)
+	if err != nil {
+		return JoinSession{}, false, err
+	}
+	return updated, true, nil
+}
+
+func (s *InviteService) applyRemoteJoinSessionStatus(ctx context.Context, session JoinSession, resp inviteJoinStatusResponse, resolvedPeerID, resolvedPeerAddr string) (JoinSession, error) {
+	status := normalizeJoinSessionStatus(resp.Status)
+	if status == "" {
+		status = joinSessionStatusPending
+	}
+	now := time.Now().UTC()
+	updatedAt := now
+	if resp.UpdatedAt > 0 {
+		updatedAt = time.Unix(0, resp.UpdatedAt).UTC()
+	}
+
+	updates := map[string]any{
+		"status":          status,
+		"message":         firstNonEmpty(strings.TrimSpace(resp.Message), session.Message),
+		"role":            firstNonEmpty(strings.TrimSpace(resp.Role), session.Role),
+		"owner_device_id": firstNonEmpty(strings.TrimSpace(resp.OwnerDeviceID), session.OwnerDeviceID),
+		"owner_role":      firstNonEmpty(strings.TrimSpace(resp.OwnerRole), session.OwnerRole),
+		"owner_peer_id":   firstNonEmpty(strings.TrimSpace(resp.OwnerPeerID), strings.TrimSpace(resolvedPeerID), session.OwnerPeerID),
+		"owner_fingerprint": func() string {
+			if strings.TrimSpace(resp.OwnerFingerprint) != "" {
+				return strings.TrimSpace(resp.OwnerFingerprint)
+			}
+			if strings.TrimSpace(resp.OwnerDeviceID) != "" && strings.TrimSpace(resp.OwnerPeerID) != "" {
+				return fingerprintForDevice(resp.OwnerDeviceID, resp.OwnerPeerID)
+			}
+			return session.OwnerFingerprint
+		}(),
+		"peer_addr_hint":        firstNonEmpty(strings.TrimSpace(resolvedPeerAddr), session.PeerAddrHint),
+		"expected_peer_id_hint": firstNonEmpty(strings.TrimSpace(resp.OwnerPeerID), strings.TrimSpace(resolvedPeerID), session.ExpectedPeerIDHint),
+		"updated_at":            updatedAt,
+	}
+	if resp.ExpiresAt > 0 {
+		updates["expires_at"] = time.Unix(resp.ExpiresAt, 0).UTC()
+	}
+
+	if status == joinSessionStatusApproved {
+		if len(resp.EncryptedMaterial) == 0 && strings.TrimSpace(session.MaterialJSON) == "" {
+			return JoinSession{}, fmt.Errorf("approved join session is missing encrypted material")
+		}
+		if len(resp.EncryptedMaterial) > 0 {
+			publicKey, privateKey, ok, err := loadJoinSessionKeypair(ctx, s.app.storage.DB(), session.SessionID)
+			if err != nil {
+				return JoinSession{}, err
+			}
+			if !ok {
+				return JoinSession{}, fmt.Errorf("join session keypair is missing")
+			}
+			material, err := decryptJoinSessionMaterial(resp.EncryptedMaterial, publicKey, privateKey)
+			if err != nil {
+				return JoinSession{}, err
+			}
+			raw, err := json.Marshal(material)
+			if err != nil {
+				return JoinSession{}, err
+			}
+			updates["material_json"] = string(raw)
+			updates["role"] = firstNonEmpty(strings.TrimSpace(resp.Role), strings.TrimSpace(material.MembershipCert.Role), session.Role)
+		}
+	}
+
+	if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
+		Where("session_id = ?", session.SessionID).
+		Updates(updates).Error; err != nil {
+		return JoinSession{}, err
+	}
+	return s.loadJoinSession(ctx, session.SessionID)
+}
+
+func (s *InviteService) refreshJoinSessionFromLocalRequest(ctx context.Context, session JoinSession, now time.Time) (JoinSession, error) {
+	var req InviteJoinRequest
+	if err := s.app.storage.WithContext(ctx).Where("request_id = ?", session.RequestID).Take(&req).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return session, nil
+		}
+		return JoinSession{}, err
+	}
+	req, changed := normalizeJoinRequestRecord(req, now)
+	if changed {
+		if err := s.app.storage.WithContext(ctx).Model(&InviteJoinRequest{}).
+			Where("request_id = ?", req.RequestID).
+			Updates(map[string]any{
+				"status":     req.Status,
+				"message":    req.Message,
+				"updated_at": req.UpdatedAt,
+			}).Error; err != nil {
+			return JoinSession{}, err
+		}
+	}
+
+	updates := map[string]any{
+		"updated_at":        now,
+		"owner_device_id":   firstNonEmpty(req.OwnerDeviceID, session.OwnerDeviceID),
+		"owner_role":        firstNonEmpty(req.OwnerRole, session.OwnerRole),
+		"owner_peer_id":     firstNonEmpty(req.OwnerPeerID, session.OwnerPeerID),
+		"owner_fingerprint": firstNonEmpty(req.OwnerFingerprint, session.OwnerFingerprint),
+	}
+	switch req.Status {
+	case inviteJoinStatusApproved:
+		updates["status"] = joinSessionStatusApproved
+		updates["message"] = firstNonEmpty(strings.TrimSpace(req.Message), "join request approved")
+		updates["role"] = firstNonEmpty(strings.TrimSpace(req.ApprovedRole), strings.TrimSpace(session.Role))
+		if len(req.EncryptedMaterial) > 0 {
+			publicKey, privateKey, ok, err := loadJoinSessionKeypair(ctx, s.app.storage.DB(), session.SessionID)
+			if err != nil {
+				return JoinSession{}, err
+			}
+			if ok {
+				material, err := decryptJoinSessionMaterial(req.EncryptedMaterial, publicKey, privateKey)
+				if err != nil {
+					return JoinSession{}, err
+				}
+				raw, err := json.Marshal(material)
+				if err != nil {
+					return JoinSession{}, err
+				}
+				updates["material_json"] = string(raw)
+				updates["role"] = firstNonEmpty(strings.TrimSpace(req.ApprovedRole), strings.TrimSpace(material.MembershipCert.Role), strings.TrimSpace(session.Role))
+			}
+		}
+	case inviteJoinStatusRejected:
+		updates["status"] = joinSessionStatusRejected
+		updates["message"] = req.Message
+	case inviteJoinStatusExpired:
+		updates["status"] = joinSessionStatusExpired
+		updates["message"] = req.Message
+	default:
+		return session, nil
+	}
+
+	if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
+		Where("session_id = ?", session.SessionID).
+		Updates(updates).Error; err != nil {
+		return JoinSession{}, err
+	}
+	return s.loadJoinSession(ctx, session.SessionID)
+}
+
+func (s *InviteService) cancelRemoteJoinSession(ctx context.Context, session JoinSession, reason string) error {
+	if strings.TrimSpace(session.RequestID) == "" {
+		return nil
+	}
+	payload, err := decodeInviteCode(session.InviteCode)
+	if err != nil {
+		return err
+	}
+	client, err := s.app.openInviteClientTransport(firstNonEmpty(session.ServiceTag, payload.ServiceTag))
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	cancelCtx, cancel := context.WithTimeout(ctx, defaultInviteDiscoverTimeout)
+	defer cancel()
+
+	var resp inviteJoinCancelResponse
+	_, _, err = client.roundTrip(
+		cancelCtx,
+		firstNonEmpty(session.PeerAddrHint, payload.PeerAddr),
+		firstNonEmpty(session.ExpectedPeerIDHint, session.OwnerPeerID, payload.PeerID),
+		desktopInviteJoinCancelProtocolID,
+		inviteJoinCancelRequest{
+			LibraryID: session.LibraryID,
+			RequestID: session.RequestID,
+			DeviceID:  session.DeviceID,
+			PeerID:    session.LocalPeerID,
+			Reason:    strings.TrimSpace(reason),
+		},
+		&resp,
+	)
+	if err != nil {
+		return err
+	}
+	if msg := strings.TrimSpace(resp.Error); msg != "" {
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
+}
+
+func (s *InviteService) handleInviteJoinStart(ctx context.Context, libraryID, localPeerID, actualPeerID string, req inviteJoinStartRequest) (inviteJoinStartResponse, error) {
+	payload, err := decodeInviteCode(req.InviteCode)
+	if err != nil {
+		return inviteJoinStartResponse{}, err
+	}
+	now := time.Now().UTC()
+	if payload.ExpiresAt > 0 && time.Unix(payload.ExpiresAt, 0).UTC().Before(now) {
+		return inviteJoinStartResponse{}, fmt.Errorf("invite expired")
+	}
+	if strings.TrimSpace(payload.LibraryID) != strings.TrimSpace(libraryID) {
+		return inviteJoinStartResponse{}, fmt.Errorf("invite library mismatch")
+	}
+	if strings.TrimSpace(payload.PeerID) != "" && strings.TrimSpace(payload.PeerID) != strings.TrimSpace(localPeerID) {
+		return inviteJoinStartResponse{}, fmt.Errorf("invite owner peer mismatch")
+	}
+	req.DeviceID = strings.TrimSpace(req.DeviceID)
+	req.DeviceName = chooseDeviceName("", req.DeviceName, req.DeviceID)
+	req.PeerID = strings.TrimSpace(req.PeerID)
+	if req.DeviceID == "" || req.PeerID == "" {
+		return inviteJoinStartResponse{}, fmt.Errorf("device id and peer id are required")
+	}
+	if req.PeerID != strings.TrimSpace(actualPeerID) {
+		return inviteJoinStartResponse{}, fmt.Errorf("join peer id mismatch")
+	}
+	if len(req.JoinPubKey) != 32 {
+		return inviteJoinStartResponse{}, fmt.Errorf("join public key must be 32 bytes")
+	}
+
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return inviteJoinStartResponse{}, err
+	}
+	if strings.TrimSpace(local.LibraryID) != strings.TrimSpace(libraryID) {
+		return inviteJoinStartResponse{}, fmt.Errorf("invite host is not serving the requested library")
+	}
+
+	var response inviteJoinStartResponse
+	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var issued IssuedInvite
+		if err := tx.Where("library_id = ? AND token_id = ?", strings.TrimSpace(payload.LibraryID), strings.TrimSpace(payload.TokenID)).
+			Take(&issued).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("invite not found")
+			}
+			return err
+		}
+		redemptions, err := countInviteRedemptions(ctx, tx, issued.LibraryID, issued.TokenID)
+		if err != nil {
+			return err
+		}
+		if deriveIssuedInviteStatus(issued, redemptions, now) != issuedInviteStatusActive {
+			return fmt.Errorf("invite is not active")
+		}
+
+		var existing InviteJoinRequest
+		existingErr := tx.Where("library_id = ? AND token_id = ? AND device_id = ? AND peer_id = ?", issued.LibraryID, issued.TokenID, req.DeviceID, req.PeerID).
+			Order("created_at DESC").
+			Limit(1).
+			Take(&existing).Error
+		switch {
+		case existingErr == nil:
+			existing, changed := normalizeJoinRequestRecord(existing, now)
+			if changed {
+				if err := tx.Model(&InviteJoinRequest{}).
+					Where("request_id = ?", existing.RequestID).
+					Updates(map[string]any{
+						"status":     existing.Status,
+						"message":    existing.Message,
+						"updated_at": existing.UpdatedAt,
+					}).Error; err != nil {
+					return err
+				}
+			}
+			if existing.Status == inviteJoinStatusPending {
+				if err := tx.Model(&InviteJoinRequest{}).
+					Where("request_id = ?", existing.RequestID).
+					Updates(map[string]any{
+						"device_name":  req.DeviceName,
+						"join_pub_key": append([]byte(nil), req.JoinPubKey...),
+						"updated_at":   now,
+					}).Error; err != nil {
+					return err
+				}
+				existing.DeviceName = req.DeviceName
+				existing.JoinPubKey = append([]byte(nil), req.JoinPubKey...)
+				existing.UpdatedAt = now
+				response = inviteJoinStartResponse{
+					LibraryID:     existing.LibraryID,
+					RequestID:     existing.RequestID,
+					Status:        normalizeJoinSessionStatus(existing.Status),
+					Message:       firstNonEmpty(existing.Message, "join request pending approval"),
+					Role:          firstNonEmpty(existing.ApprovedRole, existing.RequestedRole),
+					OwnerDeviceID: local.DeviceID,
+					OwnerRole:     local.Role,
+					OwnerPeerID:   localPeerID,
+					PeerAddrHint:  payload.PeerAddr,
+					ExpiresAt:     existing.ExpiresAt.UTC().Unix(),
+				}
+				return nil
+			}
+			if existing.Status == inviteJoinStatusApproved {
+				response = inviteJoinStartResponse{
+					LibraryID:     existing.LibraryID,
+					RequestID:     existing.RequestID,
+					Status:        normalizeJoinSessionStatus(existing.Status),
+					Message:       firstNonEmpty(existing.Message, "join request approved"),
+					Role:          firstNonEmpty(existing.ApprovedRole, existing.RequestedRole),
+					OwnerDeviceID: firstNonEmpty(existing.OwnerDeviceID, local.DeviceID),
+					OwnerRole:     firstNonEmpty(existing.OwnerRole, local.Role),
+					OwnerPeerID:   firstNonEmpty(existing.OwnerPeerID, localPeerID),
+					PeerAddrHint:  payload.PeerAddr,
+					ExpiresAt:     existing.ExpiresAt.UTC().Unix(),
+				}
+				return nil
+			}
+		case existingErr != nil && existingErr != gorm.ErrRecordNotFound:
+			return existingErr
+		}
+
+		requestID := uuid.NewString()
+		fingerprint := fingerprintForDevice(req.DeviceID, req.PeerID)
+		if err := tx.Create(&InviteJoinRequest{
+			RequestID:         requestID,
+			LibraryID:         issued.LibraryID,
+			TokenID:           issued.TokenID,
+			MaxUses:           issued.MaxUses,
+			DeviceID:          req.DeviceID,
+			DeviceName:        req.DeviceName,
+			PeerID:            req.PeerID,
+			DeviceFingerprint: fingerprint,
+			RequestedRole:     issued.Role,
+			Status:            inviteJoinStatusPending,
+			Message:           "join request pending approval",
+			JoinPubKey:        append([]byte(nil), req.JoinPubKey...),
+			ExpiresAt:         issued.ExpiresAt,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		}).Error; err != nil {
+			return err
+		}
+		response = inviteJoinStartResponse{
+			LibraryID:     issued.LibraryID,
+			RequestID:     requestID,
+			Status:        joinSessionStatusPending,
+			Message:       "join request pending approval",
+			Role:          issued.Role,
+			OwnerDeviceID: local.DeviceID,
+			OwnerRole:     local.Role,
+			OwnerPeerID:   localPeerID,
+			PeerAddrHint:  payload.PeerAddr,
+			ExpiresAt:     issued.ExpiresAt.UTC().Unix(),
+		}
+		return nil
+	})
+	return response, err
+}
+
+func (s *InviteService) handleInviteJoinStatus(ctx context.Context, libraryID, localPeerID, actualPeerID string, req inviteJoinStatusRequest) (inviteJoinStatusResponse, error) {
+	req.LibraryID = strings.TrimSpace(req.LibraryID)
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.DeviceID = strings.TrimSpace(req.DeviceID)
+	req.PeerID = strings.TrimSpace(req.PeerID)
+	if req.LibraryID == "" || req.RequestID == "" || req.DeviceID == "" {
+		return inviteJoinStatusResponse{}, fmt.Errorf("library id, request id, and device id are required")
+	}
+	if req.LibraryID != strings.TrimSpace(libraryID) {
+		return inviteJoinStatusResponse{}, fmt.Errorf("invite join status library mismatch")
+	}
+	if req.PeerID != "" && req.PeerID != strings.TrimSpace(actualPeerID) {
+		return inviteJoinStatusResponse{}, fmt.Errorf("invite join status peer mismatch")
+	}
+
+	now := time.Now().UTC()
+	var row InviteJoinRequest
+	if err := s.app.storage.WithContext(ctx).Where("request_id = ?", req.RequestID).Take(&row).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return inviteJoinStatusResponse{}, fmt.Errorf("invite request not found")
+		}
+		return inviteJoinStatusResponse{}, err
+	}
+	if strings.TrimSpace(row.LibraryID) != req.LibraryID {
+		return inviteJoinStatusResponse{}, fmt.Errorf("invite request belongs to a different library")
+	}
+	if strings.TrimSpace(row.DeviceID) != req.DeviceID {
+		return inviteJoinStatusResponse{}, fmt.Errorf("invite request device mismatch")
+	}
+	if strings.TrimSpace(row.PeerID) != strings.TrimSpace(actualPeerID) {
+		return inviteJoinStatusResponse{}, fmt.Errorf("invite request peer mismatch")
+	}
+	row, changed := normalizeJoinRequestRecord(row, now)
+	if changed {
+		if err := s.app.storage.WithContext(ctx).Model(&InviteJoinRequest{}).
+			Where("request_id = ?", row.RequestID).
+			Updates(map[string]any{
+				"status":     row.Status,
+				"message":    row.Message,
+				"updated_at": row.UpdatedAt,
+			}).Error; err != nil {
+			return inviteJoinStatusResponse{}, err
+		}
+	}
+	return inviteJoinStatusResponse{
+		LibraryID:     row.LibraryID,
+		RequestID:     row.RequestID,
+		Status:        normalizeJoinSessionStatus(row.Status),
+		Message:       firstNonEmpty(strings.TrimSpace(row.Message), "join request pending approval"),
+		Role:          firstNonEmpty(strings.TrimSpace(row.ApprovedRole), strings.TrimSpace(row.RequestedRole)),
+		OwnerDeviceID: strings.TrimSpace(row.OwnerDeviceID),
+		OwnerRole:     strings.TrimSpace(row.OwnerRole),
+		OwnerPeerID:   firstNonEmpty(strings.TrimSpace(row.OwnerPeerID), strings.TrimSpace(localPeerID)),
+		OwnerFingerprint: func() string {
+			if strings.TrimSpace(row.OwnerFingerprint) != "" {
+				return strings.TrimSpace(row.OwnerFingerprint)
+			}
+			if strings.TrimSpace(row.OwnerDeviceID) == "" || strings.TrimSpace(row.OwnerPeerID) == "" {
+				return ""
+			}
+			return fingerprintForDevice(row.OwnerDeviceID, row.OwnerPeerID)
+		}(),
+		EncryptedMaterial: append([]byte(nil), row.EncryptedMaterial...),
+		ExpiresAt:         row.ExpiresAt.UTC().Unix(),
+		UpdatedAt:         row.UpdatedAt.UTC().UnixNano(),
+	}, nil
+}
+
+func (s *InviteService) handleInviteJoinCancel(ctx context.Context, libraryID, actualPeerID string, req inviteJoinCancelRequest) (inviteJoinCancelResponse, error) {
+	req.LibraryID = strings.TrimSpace(req.LibraryID)
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.DeviceID = strings.TrimSpace(req.DeviceID)
+	req.PeerID = strings.TrimSpace(req.PeerID)
+	reason := strings.TrimSpace(req.Reason)
+	if req.LibraryID == "" || req.RequestID == "" || req.DeviceID == "" {
+		return inviteJoinCancelResponse{}, fmt.Errorf("library id, request id, and device id are required")
+	}
+	if req.LibraryID != strings.TrimSpace(libraryID) {
+		return inviteJoinCancelResponse{}, fmt.Errorf("invite join cancel library mismatch")
+	}
+	if req.PeerID != "" && req.PeerID != strings.TrimSpace(actualPeerID) {
+		return inviteJoinCancelResponse{}, fmt.Errorf("invite join cancel peer mismatch")
+	}
+	if reason == "" {
+		reason = "canceled by requester"
+	}
+
+	now := time.Now().UTC()
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row InviteJoinRequest
+		if err := tx.Where("request_id = ?", req.RequestID).Take(&row).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("invite request not found")
+			}
+			return err
+		}
+		if strings.TrimSpace(row.LibraryID) != req.LibraryID {
+			return fmt.Errorf("invite request belongs to a different library")
+		}
+		if strings.TrimSpace(row.DeviceID) != req.DeviceID {
+			return fmt.Errorf("invite request device mismatch")
+		}
+		if strings.TrimSpace(row.PeerID) != strings.TrimSpace(actualPeerID) {
+			return fmt.Errorf("invite request peer mismatch")
+		}
+		row, changed := normalizeJoinRequestRecord(row, now)
+		if changed {
+			if err := tx.Model(&InviteJoinRequest{}).
+				Where("request_id = ?", row.RequestID).
+				Updates(map[string]any{
+					"status":     row.Status,
+					"message":    row.Message,
+					"updated_at": row.UpdatedAt,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		if row.Status == inviteJoinStatusRejected || row.Status == inviteJoinStatusExpired {
+			return nil
+		}
+		return tx.Model(&InviteJoinRequest{}).
+			Where("request_id = ?", row.RequestID).
+			Updates(map[string]any{
+				"status":     inviteJoinStatusRejected,
+				"message":    reason,
+				"updated_at": now,
+			}).Error
+	}); err != nil {
+		return inviteJoinCancelResponse{}, err
+	}
+	return inviteJoinCancelResponse{
+		Status:    joinSessionStatusRejected,
+		Message:   reason,
+		UpdatedAt: now.UTC().UnixNano(),
+	}, nil
+}
+
+func normalizeJoinSessionStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case joinSessionStatusApproved:
+		return joinSessionStatusApproved
+	case joinSessionStatusRejected:
+		return joinSessionStatusRejected
+	case joinSessionStatusExpired:
+		return joinSessionStatusExpired
+	case joinSessionStatusCompleted:
+		return joinSessionStatusCompleted
+	case joinSessionStatusFailed:
+		return joinSessionStatusFailed
+	case joinSessionStatusPending:
+		return joinSessionStatusPending
+	default:
+		return ""
+	}
+}
+
+func isTerminalJoinSessionStatus(status string) bool {
+	switch normalizeJoinSessionStatus(status) {
+	case joinSessionStatusRejected, joinSessionStatusExpired, joinSessionStatusCompleted, joinSessionStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func preferredInvitePeerAddr(listenAddrs []string) string {
+	best := ""
+	bestScore := -1
+	for _, addr := range listenAddrs {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+		score := 0
+		switch {
+		case strings.Contains(addr, "/ip4/0.0.0.0/") || strings.Contains(addr, "/ip6/::/"):
+			score = 0
+		case strings.Contains(addr, "/ip4/127.0.0.1/") || strings.Contains(addr, "/ip6/::1/"):
+			score = 1
+		default:
+			score = 2
+		}
+		if score > bestScore {
+			best = addr
+			bestScore = score
+		}
+	}
+	return best
 }
 
 func (s *InviteService) syncJoinSessionJob(session JoinSession) {

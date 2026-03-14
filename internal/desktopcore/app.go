@@ -351,6 +351,18 @@ func (a *App) buildMembershipRefreshResponse(ctx context.Context, req Membership
 	return a.identity.buildMembershipRefreshResponse(ctx, req)
 }
 
+func (a *App) handleInviteJoinStart(ctx context.Context, libraryID, localPeerID, actualPeerID string, req inviteJoinStartRequest) (inviteJoinStartResponse, error) {
+	return a.invite.handleInviteJoinStart(ctx, libraryID, localPeerID, actualPeerID, req)
+}
+
+func (a *App) handleInviteJoinStatus(ctx context.Context, libraryID, localPeerID, actualPeerID string, req inviteJoinStatusRequest) (inviteJoinStatusResponse, error) {
+	return a.invite.handleInviteJoinStatus(ctx, libraryID, localPeerID, actualPeerID, req)
+}
+
+func (a *App) handleInviteJoinCancel(ctx context.Context, libraryID, actualPeerID string, req inviteJoinCancelRequest) (inviteJoinCancelResponse, error) {
+	return a.invite.handleInviteJoinCancel(ctx, libraryID, actualPeerID, req)
+}
+
 func (a *App) syncActiveScanWatcher(ctx context.Context) error {
 	return a.scanner.syncActiveScanWatcher(ctx)
 }

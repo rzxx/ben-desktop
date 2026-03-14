@@ -19,6 +19,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
+	tcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -71,6 +72,13 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 	}
 	hostNode, err := libp2p.New(
 		libp2p.Identity(priv),
+		libp2p.ListenAddrStrings(
+			"/ip4/0.0.0.0/tcp/0",
+			"/ip4/127.0.0.1/tcp/0",
+			"/ip6/::/tcp/0",
+			"/ip6/::1/tcp/0",
+		),
+		libp2p.Transport(tcp.NewTCPTransport),
 		libp2p.NATPortMap(),
 		libp2p.EnableNATService(),
 		libp2p.EnableHolePunching(),
@@ -91,16 +99,21 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 	hostNode.SetStreamHandler(desktopCheckpointProtocolID, transport.handleCheckpointStream)
 	hostNode.SetStreamHandler(desktopPlaybackProtocolID, transport.handlePlaybackStream)
 	hostNode.SetStreamHandler(desktopMembershipProtocolID, transport.handleMembershipRefreshStream)
+	hostNode.SetStreamHandler(desktopInviteJoinStartProtocolID, transport.handleInviteJoinStartStream)
+	hostNode.SetStreamHandler(desktopInviteJoinStatusProtocolID, transport.handleInviteJoinStatusStream)
+	hostNode.SetStreamHandler(desktopInviteJoinCancelProtocolID, transport.handleInviteJoinCancelStream)
 
 	service := mdns.NewMdnsService(hostNode, serviceTagForLibrary(local.LibraryID), &desktopMDNSNotifee{
 		host:   hostNode,
 		logger: a.cfg.Logger,
 	})
 	if err := service.Start(); err != nil {
-		_ = hostNode.Close()
-		return nil, fmt.Errorf("start mdns: %w", err)
+		if a.cfg.Logger != nil {
+			a.cfg.Logger.Errorf("desktopcore: start mdns failed for %s: %v", local.LibraryID, err)
+		}
+	} else {
+		transport.mdns = service
 	}
-	transport.mdns = service
 
 	if err := a.touchDevicePeerID(ctx, local.DeviceID, hostNode.ID().String(), local.Device); err != nil {
 		_ = transport.Close()
@@ -437,6 +450,75 @@ func (t *libp2pSyncTransport) handleMembershipRefreshStream(stream network.Strea
 	}
 	if err := json.NewEncoder(stream).Encode(resp); err != nil {
 		t.app.logf("desktopcore: write membership refresh response failed: %v", err)
+	}
+}
+
+func (t *libp2pSyncTransport) handleInviteJoinStartStream(stream network.Stream) {
+	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
+	defer cancel()
+
+	var req inviteJoinStartRequest
+	if err := json.NewDecoder(stream).Decode(&req); err != nil {
+		_ = json.NewEncoder(stream).Encode(inviteJoinStartResponse{Error: fmt.Sprintf("decode request: %v", err)})
+		return
+	}
+
+	resp, err := t.app.handleInviteJoinStart(ctx, t.libraryID, stream.Conn().LocalPeer().String(), stream.Conn().RemotePeer().String(), req)
+	if err != nil {
+		_ = json.NewEncoder(stream).Encode(inviteJoinStartResponse{Error: strings.TrimSpace(err.Error())})
+		return
+	}
+	if err := json.NewEncoder(stream).Encode(resp); err != nil {
+		t.app.logf("desktopcore: write invite start response failed: %v", err)
+	}
+}
+
+func (t *libp2pSyncTransport) handleInviteJoinStatusStream(stream network.Stream) {
+	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
+	defer cancel()
+
+	var req inviteJoinStatusRequest
+	if err := json.NewDecoder(stream).Decode(&req); err != nil {
+		_ = json.NewEncoder(stream).Encode(inviteJoinStatusResponse{Error: fmt.Sprintf("decode request: %v", err)})
+		return
+	}
+
+	resp, err := t.app.handleInviteJoinStatus(ctx, t.libraryID, stream.Conn().LocalPeer().String(), stream.Conn().RemotePeer().String(), req)
+	if err != nil {
+		_ = json.NewEncoder(stream).Encode(inviteJoinStatusResponse{Error: strings.TrimSpace(err.Error())})
+		return
+	}
+	if err := json.NewEncoder(stream).Encode(resp); err != nil {
+		t.app.logf("desktopcore: write invite status response failed: %v", err)
+	}
+}
+
+func (t *libp2pSyncTransport) handleInviteJoinCancelStream(stream network.Stream) {
+	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
+	defer cancel()
+
+	var req inviteJoinCancelRequest
+	if err := json.NewDecoder(stream).Decode(&req); err != nil {
+		_ = json.NewEncoder(stream).Encode(inviteJoinCancelResponse{Error: fmt.Sprintf("decode request: %v", err)})
+		return
+	}
+
+	resp, err := t.app.handleInviteJoinCancel(ctx, t.libraryID, stream.Conn().RemotePeer().String(), req)
+	if err != nil {
+		_ = json.NewEncoder(stream).Encode(inviteJoinCancelResponse{Error: strings.TrimSpace(err.Error())})
+		return
+	}
+	if err := json.NewEncoder(stream).Encode(resp); err != nil {
+		t.app.logf("desktopcore: write invite cancel response failed: %v", err)
 	}
 }
 
