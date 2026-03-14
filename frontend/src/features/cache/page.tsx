@@ -157,7 +157,11 @@ export function CachePage() {
   }, [refresh]);
 
   const runCleanup = useCallback(
-    async (key: string, request: Types.CacheCleanupRequest, success: string) => {
+    async (
+      key: string,
+      request: Types.CacheCleanupRequest,
+      success: string,
+    ) => {
       setPendingAction(key);
       setActionError("");
       setFeedback("");
@@ -197,23 +201,23 @@ export function CachePage() {
       <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(140deg,rgba(14,165,233,0.14),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[0.68rem] uppercase tracking-[0.35em] text-white/35">
+            <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
               Cache
             </p>
             <h1 className="mt-3 text-3xl font-semibold text-white">
               Local cache management
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">
-              Inspect optimized audio and artwork blobs, see what stays pinned, and run
-              reclaim actions against the desktop-core cache service.
+              Inspect optimized audio and artwork blobs, see what stays pinned,
+              and run reclaim actions against the desktop-core cache service.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/52">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
                 {state.library
                   ? `${state.library.Name} • ${state.library.Role}`
                   : "No active library"}
               </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/52">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
                 {state.local?.Device || "Unknown device"}
               </span>
             </div>
@@ -256,7 +260,9 @@ export function CachePage() {
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/40">
             <ShieldAlert className="h-5 w-5" />
           </div>
-          <h2 className="text-lg font-semibold text-white/90">No active library</h2>
+          <h2 className="text-lg font-semibold text-white/90">
+            No active library
+          </h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-white/50">
             Select or join a library before inspecting the local cache.
           </p>
@@ -272,14 +278,15 @@ export function CachePage() {
                 <div>
                   <h2 className="text-lg font-semibold text-white">Overview</h2>
                   <p className="text-sm text-white/48">
-                    Capacity, pinned usage, and reclaimable bytes for this device.
+                    Capacity, pinned usage, and reclaimable bytes for this
+                    device.
                   </p>
                 </div>
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+                  <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                     Used
                   </p>
                   <p className="mt-2 text-lg font-semibold text-white">
@@ -290,7 +297,7 @@ export function CachePage() {
                   </p>
                 </div>
                 <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+                  <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                     Limit
                   </p>
                   <p className="mt-2 text-lg font-semibold text-white">
@@ -301,7 +308,7 @@ export function CachePage() {
                   </p>
                 </div>
                 <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+                  <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                     Pinned
                   </p>
                   <p className="mt-2 text-lg font-semibold text-white">
@@ -312,7 +319,7 @@ export function CachePage() {
                   </p>
                 </div>
                 <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] uppercase tracking-[0.24em] text-white/35">
+                  <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
                     Reclaimable
                   </p>
                   <p className="mt-2 text-lg font-semibold text-white">
@@ -342,7 +349,8 @@ export function CachePage() {
                         {formatBytes(row.Bytes)}
                       </p>
                       <p className="mt-2 text-sm text-white/55">
-                        {row.Entries} entries, {formatBytes(row.PinnedBytes)} pinned
+                        {row.Entries} entries, {formatBytes(row.PinnedBytes)}{" "}
+                        pinned
                       </p>
                     </div>
                   );
@@ -356,10 +364,12 @@ export function CachePage() {
                   <Trash2 className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Cleanup actions</h2>
+                  <h2 className="text-lg font-semibold text-white">
+                    Cleanup actions
+                  </h2>
                   <p className="text-sm text-white/48">
-                    Remove unpinned blobs while preserving pinned offline assets and
-                    artwork references.
+                    Remove unpinned blobs while preserving pinned offline assets
+                    and artwork references.
                   </p>
                 </div>
               </div>
@@ -402,8 +412,14 @@ export function CachePage() {
               </div>
 
               <div className="mt-5 space-y-2 text-sm text-white/48">
-                <p>Artwork blobs stay pinned while any artwork variant references them.</p>
-                <p>Optimized audio becomes reclaimable only when the local cache row is unpinned.</p>
+                <p>
+                  Artwork blobs stay pinned while any artwork variant references
+                  them.
+                </p>
+                <p>
+                  Optimized audio becomes reclaimable only when the local cache
+                  row is unpinned.
+                </p>
               </div>
             </div>
           </section>
@@ -411,12 +427,14 @@ export function CachePage() {
           <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-white">Pinned scopes</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  Pinned scopes
+                </h2>
                 <p className="text-sm text-white/48">
                   Durable scopes that currently keep blobs retained.
                 </p>
               </div>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/52">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
                 {(state.overview.PinScopes ?? []).length} scope
                 {(state.overview.PinScopes ?? []).length === 1 ? "" : "s"}
               </span>
@@ -439,7 +457,9 @@ export function CachePage() {
                         {scope.Scope}
                       </span>
                     </div>
-                    <p className="mt-2 font-mono text-xs text-white/42">{scope.ScopeID}</p>
+                    <p className="mt-2 font-mono text-xs text-white/42">
+                      {scope.ScopeID}
+                    </p>
                     <p className="mt-2 text-sm text-white/55">
                       {scope.BlobCount} blob(s), {formatBytes(scope.Bytes)}
                     </p>
@@ -452,7 +472,9 @@ export function CachePage() {
           <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-white">Cache entries</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  Cache entries
+                </h2>
                 <p className="text-sm text-white/48">
                   Current page of retained blobs for this device.
                 </p>
@@ -504,7 +526,7 @@ export function CachePage() {
                               {kindLabel(entry.Kind)}
                             </p>
                             <span
-                              className={`rounded-full border px-2 py-1 text-[0.68rem] uppercase tracking-[0.22em] ${
+                              className={`rounded-full border px-2 py-1 text-[0.68rem] tracking-[0.22em] uppercase ${
                                 entry.Pinned
                                   ? "border-emerald-400/18 bg-emerald-400/10 text-emerald-100"
                                   : "border-white/10 bg-white/5 text-white/55"
@@ -513,7 +535,7 @@ export function CachePage() {
                               {entry.Pinned ? "Pinned" : "Unpinned"}
                             </span>
                           </div>
-                          <p className="mt-2 break-all font-mono text-xs text-white/42">
+                          <p className="mt-2 font-mono text-xs break-all text-white/42">
                             {entry.BlobID}
                           </p>
                           <div className="mt-3 flex flex-wrap gap-3 text-sm text-white/55">
@@ -525,7 +547,7 @@ export function CachePage() {
                             <div className="mt-3 flex flex-wrap gap-2">
                               {entry.PinScopes.map((scope) => (
                                 <span
-                                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.18em] text-white/52"
+                                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.18em] text-white/52 uppercase"
                                   key={`${entry.BlobID}:${scope.Scope}:${scope.ScopeID}`}
                                 >
                                   {scope.Scope}:{scope.ScopeID}
@@ -537,12 +559,16 @@ export function CachePage() {
 
                         <button
                           className="action-button"
-                          disabled={entry.Pinned || pendingAction === `delete:${entry.BlobID}`}
+                          disabled={
+                            entry.Pinned ||
+                            pendingAction === `delete:${entry.BlobID}`
+                          }
                           onClick={() => {
                             void runCleanup(
                               `delete:${entry.BlobID}`,
                               new Types.CacheCleanupRequest({
-                                Mode: Types.CacheCleanupMode.CacheCleanupBlobIDs,
+                                Mode: Types.CacheCleanupMode
+                                  .CacheCleanupBlobIDs,
                                 BlobIDs: [entry.BlobID],
                               }),
                               "Blob cleanup complete",
@@ -564,8 +590,8 @@ export function CachePage() {
               <p className="mt-4 text-sm text-white/48">
                 Showing {state.page.Offset + 1}
                 {"-"}
-                {state.page.Offset + state.page.Returned} of {state.page.Total}. Refreshed{" "}
-                {formatRelativeDate(new Date())}.
+                {state.page.Offset + state.page.Returned} of {state.page.Total}.
+                Refreshed {formatRelativeDate(new Date())}.
               </p>
             )}
           </section>

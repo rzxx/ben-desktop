@@ -201,14 +201,3 @@ func likedPlaylistIDForLibrary(libraryID string) string {
 	sum := sha256.Sum256([]byte("liked:" + strings.TrimSpace(libraryID)))
 	return "liked-" + hex.EncodeToString(sum[:8])
 }
-
-func preferredArtworkRank(variant string) int {
-	switch strings.TrimSpace(variant) {
-	case defaultArtworkVariant320:
-		return 0
-	case defaultArtworkVariant96:
-		return 1
-	default:
-		return 2
-	}
-}

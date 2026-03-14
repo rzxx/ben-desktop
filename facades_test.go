@@ -582,11 +582,15 @@ func TestCacheAndPlaybackFacadesForwardToRuntime(t *testing.T) {
 	blobRoot := t.TempDir()
 	hashHex := strings.Repeat("b", 64)
 	blobPath := filepath.Join(blobRoot, "b3", hashHex[:2], hashHex[2:4], hashHex)
+	typedBlobPath := blobPath + ".webp"
 	if err := os.MkdirAll(filepath.Dir(blobPath), 0o755); err != nil {
 		t.Fatalf("mkdir blob path: %v", err)
 	}
 	if err := os.WriteFile(blobPath, []byte("thumb"), 0o644); err != nil {
 		t.Fatalf("write blob: %v", err)
+	}
+	if err := os.WriteFile(typedBlobPath, []byte("thumb"), 0o644); err != nil {
+		t.Fatalf("write typed blob: %v", err)
 	}
 
 	host := newPassthroughHost(&passthroughRuntimeStub{
@@ -637,7 +641,7 @@ func TestCacheAndPlaybackFacadesForwardToRuntime(t *testing.T) {
 		resolveArtworkRefFn: func(_ context.Context, artwork apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error) {
 			return apitypes.ArtworkResolveResult{
 				Artwork:   apitypes.ArtworkRef{BlobID: artwork.BlobID, MIME: "image/webp", FileExt: ".webp"},
-				LocalPath: blobPath,
+				LocalPath: typedBlobPath,
 				Available: true,
 			}, nil
 		},
@@ -647,10 +651,20 @@ func TestCacheAndPlaybackFacadesForwardToRuntime(t *testing.T) {
 		ensurePlaybackPlaylistFn: func(_ context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
 			return playbackBatch, nil
 		},
+		resolveAlbumArtworkFn: func(_ context.Context, albumID, variant string) (apitypes.RecordingArtworkResult, error) {
+			return apitypes.RecordingArtworkResult{
+				AlbumID:   albumID,
+				Artwork:   apitypes.ArtworkRef{BlobID: "b3:" + hashHex, MIME: "image/webp", FileExt: ".webp"},
+				LocalPath: typedBlobPath,
+				Available: true,
+			}, nil
+		},
 		resolveRecordingArtworkFn: func(_ context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error) {
 			return apitypes.RecordingArtworkResult{
 				RecordingID: recordingID,
 				Artwork:     apitypes.ArtworkRef{BlobID: "b3:" + hashHex, MIME: "image/webp", FileExt: ".webp"},
+				LocalPath:   typedBlobPath,
+				Available:   true,
 			}, nil
 		},
 	})
@@ -703,6 +717,9 @@ func TestCacheAndPlaybackFacadesForwardToRuntime(t *testing.T) {
 	}
 	if got, err := playbackFacade.ResolveThumbnailURL(apitypes.ArtworkRef{BlobID: "b3:" + hashHex, MIME: "image/webp", FileExt: ".webp"}); err != nil || !strings.HasPrefix(got, "file:") {
 		t.Fatalf("resolve thumbnail url = %q, err=%v", got, err)
+	}
+	if got, err := playbackFacade.ResolveAlbumArtworkURL(ctx, "album-1", "320_webp"); err != nil || !strings.HasPrefix(got, "file:") {
+		t.Fatalf("resolve album artwork url = %q, err=%v", got, err)
 	}
 	if got, err := playbackFacade.ResolveRecordingArtworkURL(ctx, "rec-1", "320_webp"); err != nil || !strings.HasPrefix(got, "file:") {
 		t.Fatalf("resolve recording artwork url = %q, err=%v", got, err)

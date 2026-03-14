@@ -46,28 +46,33 @@ function thumbnailCacheKey(thumb?: ArtworkRef | null) {
 }
 
 function retryDelayMs(attempt: number) {
-  return thumbnailRetryDelaysMS[Math.min(attempt, thumbnailRetryDelaysMS.length - 1)];
+  return thumbnailRetryDelaysMS[
+    Math.min(attempt, thumbnailRetryDelaysMS.length - 1)
+  ];
 }
 
-export function useThumbnailUrl(thumb?: ArtworkRef | null) {
-  const [state, setState] = useState<{ key: string; retryAttempt: number; url: string }>({
+export function useResolvedUrl(cacheKey: string, load?: () => Promise<string>) {
+  const [state, setState] = useState<{
+    key: string;
+    retryAttempt: number;
+    url: string;
+  }>({
     key: "",
     retryAttempt: 0,
     url: "",
   });
 
-  const cacheKey = thumbnailCacheKey(thumb);
   const cachedUrl = cacheKey ? (thumbnailUrlCache.get(cacheKey) ?? "") : "";
   const retryAttempt = state.key === cacheKey ? state.retryAttempt : 0;
 
   useEffect(() => {
-    if (!cacheKey || !thumb) {
+    if (!cacheKey || !load) {
       return;
     }
     let active = true;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     void resolveCached(cacheKey, thumbnailUrlCache, thumbnailPendingCache, () =>
-      resolveThumbnailURL(thumb),
+      load(),
     )
       .then((value) => {
         if (active) {
@@ -111,7 +116,7 @@ export function useThumbnailUrl(thumb?: ArtworkRef | null) {
         clearTimeout(retryTimer);
       }
     };
-  }, [cacheKey, retryAttempt, thumb]);
+  }, [cacheKey, load, retryAttempt]);
 
   if (!cacheKey) {
     return "";
@@ -122,4 +127,12 @@ export function useThumbnailUrl(thumb?: ArtworkRef | null) {
   }
 
   return cachedUrl;
+}
+
+export function useThumbnailUrl(thumb?: ArtworkRef | null) {
+  const cacheKey = thumbnailCacheKey(thumb);
+  return useResolvedUrl(
+    cacheKey,
+    thumb ? () => resolveThumbnailURL(thumb) : undefined,
+  );
 }

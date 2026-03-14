@@ -31,6 +31,7 @@ import {
   listPlaylistTracksPage,
   listPlaylistsPage,
   listTracksPage,
+  resolveAlbumArtworkURL,
 } from "../../shared/lib/desktop";
 import {
   aggregateAvailabilityLabel,
@@ -42,7 +43,10 @@ import {
   isCatalogTrackActionable,
   joinArtists,
 } from "../../shared/lib/format";
-import { useThumbnailUrl } from "../../shared/lib/use-thumbnail-url";
+import {
+  useResolvedUrl,
+  useThumbnailUrl,
+} from "../../shared/lib/use-thumbnail-url";
 import { usePagedQuery } from "../../shared/lib/use-paged-query";
 import { ArtworkTile } from "../../shared/ui/ArtworkTile";
 import { VirtualCardGrid } from "../../shared/ui/VirtualCardGrid";
@@ -67,7 +71,7 @@ function PageHeader({
     <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(135deg,rgba(249,115,22,0.12),transparent_45%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-[0.68rem] uppercase tracking-[0.35em] text-white/35">
+          <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
             {eyebrow}
           </p>
           <h1 className="mt-3 text-3xl font-semibold text-white">{title}</h1>
@@ -139,22 +143,21 @@ function DetailHero({
   eyebrow,
   title,
   subtitle,
+  artworkUrl,
   thumb,
-  fallbackThumb,
   meta,
   actions,
 }: {
   eyebrow: string;
   title: string;
   subtitle: string;
+  artworkUrl?: string;
   thumb?: ArtworkRef;
-  fallbackThumb?: ArtworkRef;
   meta?: ReactNode;
   actions?: ReactNode;
 }) {
-  const artworkUrl = useThumbnailUrl(thumb);
-  const fallbackArtworkUrl = useThumbnailUrl(fallbackThumb);
-  const visibleArtworkUrl = artworkUrl || fallbackArtworkUrl;
+  const thumbUrl = useThumbnailUrl(thumb);
+  const visibleArtworkUrl = artworkUrl || thumbUrl;
 
   return (
     <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
@@ -166,7 +169,7 @@ function DetailHero({
           title={title}
         />
         <div className="flex min-w-0 flex-1 flex-col justify-end">
-          <p className="text-[0.68rem] uppercase tracking-[0.35em] text-white/35">
+          <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
             {eyebrow}
           </p>
           <h1 className="mt-3 text-4xl font-semibold text-white">{title}</h1>
@@ -174,7 +177,9 @@ function DetailHero({
             {subtitle}
           </p>
           {meta && <div className="mt-4 flex flex-wrap gap-2">{meta}</div>}
-          {actions && <div className="mt-5 flex flex-wrap gap-2">{actions}</div>}
+          {actions && (
+            <div className="mt-5 flex flex-wrap gap-2">{actions}</div>
+          )}
         </div>
       </div>
     </section>
@@ -183,7 +188,7 @@ function DetailHero({
 
 function MetricPill({ label }: { label: string }) {
   return (
-    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/52">
+    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
       {label}
     </span>
   );
@@ -197,11 +202,7 @@ function AlbumCard({ album }: { album: AlbumListItem }) {
       className="album-card group block rounded-[1.6rem] border border-white/8 bg-black/10 p-3 transition duration-200 hover:-translate-y-1 hover:border-white/18 hover:bg-white/8"
       href={routes.album(album.AlbumID)}
     >
-      <ArtworkTile
-        alt={album.Title}
-        src={artworkUrl}
-        title={album.Title}
-      />
+      <ArtworkTile alt={album.Title} src={artworkUrl} title={album.Title} />
       <div className="mt-4">
         <h2 className="truncate text-base font-semibold text-white">
           {album.Title}
@@ -209,11 +210,9 @@ function AlbumCard({ album }: { album: AlbumListItem }) {
         <p className="mt-1 truncate text-sm text-white/50">
           {joinArtists(album.Artists)}
         </p>
-        <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/35">
+        <div className="mt-3 flex items-center justify-between text-xs tracking-[0.2em] text-white/35 uppercase">
           <span>{formatCount(album.TrackCount, "track")}</span>
-          <span>
-            {aggregateAvailabilityLabel(album.Availability)}
-          </span>
+          <span>{aggregateAvailabilityLabel(album.Availability)}</span>
         </div>
       </div>
     </Link>
@@ -229,7 +228,9 @@ function ArtistCard({ artist }: { artist: ArtistListItem }) {
       <div className="mb-5 flex h-28 w-28 items-center justify-center rounded-full border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.35),transparent_60%),rgba(255,255,255,0.05)] text-5xl font-semibold text-white/85">
         {artistLetter(artist.Name)}
       </div>
-      <h2 className="truncate text-lg font-semibold text-white">{artist.Name}</h2>
+      <h2 className="truncate text-lg font-semibold text-white">
+        {artist.Name}
+      </h2>
       <p className="mt-2 text-sm text-white/50">
         {formatCount(artist.AlbumCount, "album")} •{" "}
         {formatCount(artist.TrackCount, "track")}
@@ -259,7 +260,7 @@ function PlaylistCard({ playlist }: { playlist: PlaylistListItem }) {
           title={playlist.Name}
         />
         <div className="min-w-0">
-          <p className="text-[0.7rem] uppercase tracking-[0.28em] text-white/35">
+          <p className="text-[0.7rem] tracking-[0.28em] text-white/35 uppercase">
             {isLiked ? "Reserved" : "Playlist"}
           </p>
           <h2 className="truncate text-base font-semibold text-white">
@@ -322,7 +323,7 @@ function TrackRow({
 
   return (
     <div className="track-row flex h-full items-center gap-4 rounded-[1.1rem] px-3">
-      <div className="flex w-16 shrink-0 justify-center text-xs uppercase tracking-[0.25em] text-white/30">
+      <div className="flex w-16 shrink-0 justify-center text-xs tracking-[0.25em] text-white/30 uppercase">
         {indexLabel}
       </div>
       <div className="min-w-0 flex-1">
@@ -332,7 +333,7 @@ function TrackRow({
       <div className="hidden w-28 shrink-0 justify-center text-xs text-white/38 xl:flex">
         {availabilityLabel(availabilityState)}
       </div>
-      <div className="w-16 shrink-0 text-right text-xs tabular-nums text-white/38">
+      <div className="w-16 shrink-0 text-right text-xs text-white/38 tabular-nums">
         {formatDuration(durationMs)}
       </div>
       <div className="flex shrink-0 gap-2">
@@ -376,7 +377,10 @@ export function AlbumsPage() {
         eyebrow="Albums"
         meta={
           <MetricPill
-            label={formatCount(query.pageInfo?.Total ?? query.items.length, "album")}
+            label={formatCount(
+              query.pageInfo?.Total ?? query.items.length,
+              "album",
+            )}
           />
         }
         title="Albums"
@@ -418,7 +422,10 @@ export function ArtistsPage() {
         eyebrow="Artists"
         meta={
           <MetricPill
-            label={formatCount(query.pageInfo?.Total ?? query.items.length, "artist")}
+            label={formatCount(
+              query.pageInfo?.Total ?? query.items.length,
+              "artist",
+            )}
           />
         }
         title="Artists"
@@ -462,7 +469,10 @@ export function TracksPage() {
         eyebrow="Tracks"
         meta={
           <MetricPill
-            label={formatCount(query.pageInfo?.Total ?? query.items.length, "track")}
+            label={formatCount(
+              query.pageInfo?.Total ?? query.items.length,
+              "track",
+            )}
           />
         }
         title="Tracks"
@@ -585,6 +595,18 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
 
   const activeVariant =
     variants.find((variant) => variant.AlbumID === selectedVariantId) ?? null;
+  const lowResArtworkUrl = useResolvedUrl(
+    selectedVariantId ? `album:${selectedVariantId}:96_jpeg` : "",
+    selectedVariantId
+      ? () => resolveAlbumArtworkURL(selectedVariantId, "96_jpeg")
+      : undefined,
+  );
+  const highResArtworkUrl = useResolvedUrl(
+    selectedVariantId ? `album:${selectedVariantId}:1024_avif` : "",
+    selectedVariantId
+      ? () => resolveAlbumArtworkURL(selectedVariantId, "1024_avif")
+      : undefined,
+  );
   const fetchAlbumTracksPage = useCallback(
     (offset: number) => listAlbumTracksPage(selectedVariantId, offset),
     [selectedVariantId],
@@ -597,7 +619,7 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
   const heroTitle = activeVariant?.Title ?? detail?.Title ?? "Album";
   const heroArtists = activeVariant?.Artists ?? detail?.Artists ?? [];
   const heroThumb = activeVariant?.Thumb ?? detail?.Thumb ?? EMPTY_THUMB;
-  const heroFallbackThumb = detail?.Thumb ?? EMPTY_THUMB;
+  const heroArtworkUrl = highResArtworkUrl || lowResArtworkUrl;
   const heroAvailability = activeVariant?.Availability ??
     detail?.Availability ?? {
       LocalTrackCount: 0,
@@ -644,16 +666,20 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
             />
           </>
         }
-        thumb={heroThumb}
-        fallbackThumb={heroFallbackThumb}
+        artworkUrl={heroArtworkUrl}
         eyebrow="Album detail"
         meta={
           <>
             <MetricPill label={joinArtists(heroArtists)} />
             <MetricPill
-              label={formatCount(activeVariant?.TrackCount ?? detail?.TrackCount ?? 0, "track")}
+              label={formatCount(
+                activeVariant?.TrackCount ?? detail?.TrackCount ?? 0,
+                "track",
+              )}
             />
-            {activeVariant?.Year && <MetricPill label={String(activeVariant.Year)} />}
+            {activeVariant?.Year && (
+              <MetricPill label={String(activeVariant.Year)} />
+            )}
           </>
         }
         subtitle={buildAlbumSubtitle(heroAlbum)}
@@ -682,7 +708,10 @@ export function AlbumDetailPage({ albumId }: { albumId: string }) {
         <VirtualRows
           emptyState={
             <EmptyState
-              body={error || "Album tracks will render here when the selected variant contains recordings."}
+              body={
+                error ||
+                "Album tracks will render here when the selected variant contains recordings."
+              }
               icon={<Clock3 className="h-5 w-5" />}
               title="No album tracks"
             />
@@ -758,7 +787,7 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
             {artistLetter(artist?.Name ?? "Artist")}
           </div>
           <div>
-            <p className="text-[0.68rem] uppercase tracking-[0.35em] text-white/35">
+            <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
               Artist detail
             </p>
             <h1 className="mt-3 text-4xl font-semibold text-white">
@@ -805,7 +834,9 @@ export function PlaylistDetailPage({ playlistId }: { playlistId: string }) {
   const [error, setError] = useState("");
   const playPlaylist = usePlaybackStore((state) => state.playPlaylist);
   const queuePlaylist = usePlaybackStore((state) => state.queuePlaylist);
-  const playPlaylistTrack = usePlaybackStore((state) => state.playPlaylistTrack);
+  const playPlaylistTrack = usePlaybackStore(
+    (state) => state.playPlaylistTrack,
+  );
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
 
   useEffect(() => {
@@ -882,7 +913,9 @@ export function PlaylistDetailPage({ playlistId }: { playlistId: string }) {
         <VirtualRows
           emptyState={
             <EmptyState
-              body={error || "Playlist tracks will render here when items exist."}
+              body={
+                error || "Playlist tracks will render here when items exist."
+              }
               icon={<ListMusic className="h-5 w-5" />}
               title="No playlist tracks"
             />
@@ -939,7 +972,10 @@ export function LikedPlaylistPage() {
         eyebrow="Reserved playlist"
         meta={
           <MetricPill
-            label={formatCount(query.pageInfo?.Total ?? query.items.length, "track")}
+            label={formatCount(
+              query.pageInfo?.Total ?? query.items.length,
+              "track",
+            )}
           />
         }
         subtitle="Special liked songs view backed by the reserved playlist in core."

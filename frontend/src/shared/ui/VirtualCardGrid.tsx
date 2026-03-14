@@ -45,7 +45,9 @@ export function VirtualCardGrid<T>({
 
   const columnCount = Math.max(
     1,
-    Math.floor((Math.max(width, minColumnWidth) + gap) / (minColumnWidth + gap)),
+    Math.floor(
+      (Math.max(width, minColumnWidth) + gap) / (minColumnWidth + gap),
+    ),
   );
   const rowCount = Math.ceil(items.length / columnCount);
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -68,7 +70,11 @@ export function VirtualCardGrid<T>({
   }, [hasMore, loading, loadingMore, onEndReached, rowCount, rowVirtualizer]);
 
   if (!loading && items.length === 0) {
-    return <div className="flex h-full items-center justify-center">{emptyState}</div>;
+    return (
+      <div className="flex h-full items-center justify-center">
+        {emptyState}
+      </div>
+    );
   }
 
   return (
@@ -85,7 +91,7 @@ export function VirtualCardGrid<T>({
             );
             return (
               <div
-                className="absolute left-0 top-0 grid w-full"
+                className="absolute top-0 left-0 grid w-full"
                 key={virtualRow.key}
                 style={{
                   gap: `${gap}px`,

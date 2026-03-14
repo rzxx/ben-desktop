@@ -199,6 +199,7 @@ type PlaybackSurface interface {
 	GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (PlaybackPreparationStatus, error)
 	ResolvePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (PlaybackResolveResult, error)
 	ResolveArtworkRef(ctx context.Context, artwork ArtworkRef) (ArtworkResolveResult, error)
+	ResolveAlbumArtwork(ctx context.Context, albumID, variant string) (RecordingArtworkResult, error)
 	ResolveRecordingArtwork(ctx context.Context, recordingID, variant string) (RecordingArtworkResult, error)
 	EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (PlaybackBatchResult, error)
 	EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (PlaybackBatchResult, error)

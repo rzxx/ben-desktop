@@ -53,7 +53,7 @@ func TestCacheOverviewAndListingIncludePinsAndArtwork(t *testing.T) {
 
 	writeCacheBlob(t, app, pinnedBlob, 100)
 	writeCacheBlob(t, app, unpinnedBlob, 200)
-	writeCacheBlob(t, app, artworkBlob, 50)
+	writeArtworkBlob(t, app, artworkBlob, ".webp", 50)
 
 	overview, err := app.GetCacheOverview(ctx)
 	if err != nil {
@@ -271,6 +271,38 @@ func TestCleanupCacheKeepsBlobFileWhenAnotherLibraryStillCachesIt(t *testing.T) 
 	}
 }
 
+func TestCleanupEntryRemovesUnpinnedArtworkTypedFile(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	if _, err := app.CreateLibrary(ctx, "cache-artwork-cleanup"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	blobID := testBlobID("9")
+	writeArtworkBlob(t, app, blobID, ".webp", 64)
+
+	deleted, err := app.cache.cleanupEntry(ctx, local, cacheBlobEntry{
+		BlobID:         blobID,
+		Kind:           apitypes.CacheKindThumbnail,
+		ArtworkFileExt: ".webp",
+	})
+	if err != nil {
+		t.Fatalf("cleanup artwork entry: %v", err)
+	}
+	if !deleted {
+		t.Fatalf("expected cleanupEntry to delete typed artwork blob")
+	}
+	if artworkBlobExists(t, app, blobID, ".webp") {
+		t.Fatalf("expected typed artwork blob to be removed")
+	}
+}
+
 func openCacheTestApp(t *testing.T, cacheBytes int64) *App {
 	return openCacheTestAppWithDependencies(t, cacheBytes, nil, nil)
 }
@@ -473,12 +505,38 @@ func writeCacheBlob(t *testing.T, app *App, blobID string, size int) {
 	}
 }
 
+func writeArtworkBlob(t *testing.T, app *App, blobID, fileExt string, size int) {
+	t.Helper()
+
+	path, err := app.blobs.ArtworkPath(blobID, fileExt)
+	if err != nil {
+		t.Fatalf("resolve artwork path %s%s: %v", blobID, fileExt, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir artwork dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", size)), 0o644); err != nil {
+		t.Fatalf("write artwork blob %s%s: %v", blobID, fileExt, err)
+	}
+}
+
 func blobExists(t *testing.T, app *App, blobID string) bool {
 	t.Helper()
 
 	path, err := app.cache.blobPath(blobID)
 	if err != nil {
 		t.Fatalf("resolve blob path %s: %v", blobID, err)
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
+func artworkBlobExists(t *testing.T, app *App, blobID, fileExt string) bool {
+	t.Helper()
+
+	path, err := app.blobs.ArtworkPath(blobID, fileExt)
+	if err != nil {
+		t.Fatalf("resolve artwork path %s%s: %v", blobID, fileExt, err)
 	}
 	_, err = os.Stat(path)
 	return err == nil

@@ -361,7 +361,7 @@ func (s *ArtworkService) storeArtworkScope(ctx context.Context, local apitypes.L
 	now := time.Now().UTC()
 	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, variant := range built.Variants {
-			blobID, err := s.app.transcode.storeBlobBytes(variant.Bytes)
+			blobID, err := s.app.blobs.StoreArtworkBytes(variant.Bytes, variant.FileExt)
 			if err != nil {
 				return err
 			}
@@ -495,4 +495,3 @@ func artworkVariantsComplete(rows []ArtworkVariant) bool {
 	}
 	return true
 }
-

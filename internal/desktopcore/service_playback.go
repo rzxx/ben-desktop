@@ -698,15 +698,45 @@ func (s *PlaybackService) ResolveArtworkRef(ctx context.Context, artwork apitype
 	if artwork.BlobID == "" {
 		return result, nil
 	}
-	path, err := s.pathForBlob(artwork.BlobID)
+	if artwork.FileExt == "" {
+		return result, nil
+	}
+	path, ok, err := s.app.blobs.ArtworkFilePath(artwork.BlobID, artwork.FileExt)
 	if err != nil {
 		return result, nil
 	}
-	if _, err := os.Stat(path); err != nil {
+	if !ok {
 		return result, nil
 	}
 	result.LocalPath = path
 	result.Available = true
+	return result, nil
+}
+
+func (s *PlaybackService) ResolveAlbumArtwork(ctx context.Context, albumID, variant string) (apitypes.RecordingArtworkResult, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.RecordingArtworkResult{}, err
+	}
+	albumID = strings.TrimSpace(albumID)
+	result := apitypes.RecordingArtworkResult{AlbumID: albumID}
+	if albumID == "" {
+		return result, nil
+	}
+	ref, err := s.app.catalog.loadArtworkRef(ctx, local.LibraryID, "album", albumID, variant)
+	if err != nil {
+		return apitypes.RecordingArtworkResult{}, err
+	}
+	if strings.TrimSpace(ref.BlobID) == "" {
+		return result, nil
+	}
+	resolved, err := s.ResolveArtworkRef(ctx, ref)
+	if err != nil {
+		return apitypes.RecordingArtworkResult{}, err
+	}
+	result.Artwork = resolved.Artwork
+	result.LocalPath = resolved.LocalPath
+	result.Available = resolved.Available
 	return result, nil
 }
 
@@ -740,16 +770,13 @@ func (s *PlaybackService) ResolveRecordingArtwork(ctx context.Context, recording
 	if albumID == "" {
 		return result, nil
 	}
-	var rows []ArtworkVariant
-	if err := s.app.storage.WithContext(ctx).
-		Where("library_id = ? AND scope_type = 'album' AND scope_id = ? AND variant = ?", local.LibraryID, albumID, strings.TrimSpace(variant)).
-		Find(&rows).Error; err != nil {
+	ref, err := s.app.catalog.loadArtworkRef(ctx, local.LibraryID, "album", albumID, variant)
+	if err != nil {
 		return apitypes.RecordingArtworkResult{}, err
 	}
-	if len(rows) == 0 {
+	if strings.TrimSpace(ref.BlobID) == "" {
 		return result, nil
 	}
-	ref := choosePreferredArtwork(rows)
 	resolved, err := s.ResolveArtworkRef(ctx, ref)
 	if err != nil {
 		return apitypes.RecordingArtworkResult{}, err

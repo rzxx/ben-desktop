@@ -86,6 +86,9 @@ func TestRescanNowBuildsAlbumArtworkVariants(t *testing.T) {
 	if len(albums.Items) != 1 {
 		t.Fatalf("album count = %d, want 1", len(albums.Items))
 	}
+	if albums.Items[0].Thumb.Variant != defaultArtworkVariant320 {
+		t.Fatalf("album thumb variant = %q, want %q", albums.Items[0].Thumb.Variant, defaultArtworkVariant320)
+	}
 
 	rows := loadAlbumArtworkRows(t, app, albums.Items[0].AlbumID)
 	if len(rows) != 3 {
@@ -100,8 +103,19 @@ func TestRescanNowBuildsAlbumArtworkVariants(t *testing.T) {
 		if got := loadLocalArtworkSourceRef(t, app, albums.Items[0].AlbumID, row.Variant); got != filepath.Clean(audioPath) {
 			t.Fatalf("local chosen source ref = %q, want %q", got, filepath.Clean(audioPath))
 		}
-		if !blobExists(t, app, row.BlobID) {
-			t.Fatalf("expected artwork blob %s to exist", row.BlobID)
+		typedPath, err := app.blobs.ArtworkPath(row.BlobID, row.FileExt)
+		if err != nil {
+			t.Fatalf("resolve typed artwork path: %v", err)
+		}
+		if _, err := os.Stat(typedPath); err != nil {
+			t.Fatalf("stat typed artwork path %q: %v", typedPath, err)
+		}
+		basePath, err := app.blobs.Path(row.BlobID)
+		if err != nil {
+			t.Fatalf("resolve legacy artwork path: %v", err)
+		}
+		if _, err := os.Stat(basePath); !os.IsNotExist(err) {
+			t.Fatalf("expected no extensionless artwork blob at %q, err=%v", basePath, err)
 		}
 	}
 	sort.Strings(gotVariants)

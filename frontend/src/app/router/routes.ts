@@ -16,5 +16,7 @@ export const routes = {
 };
 
 export function playlistRoute(item: PlaylistListItem) {
-  return item.Kind === "liked" ? routes.liked : routes.playlist(item.PlaylistID);
+  return item.Kind === "liked"
+    ? routes.liked
+    : routes.playlist(item.PlaylistID);
 }

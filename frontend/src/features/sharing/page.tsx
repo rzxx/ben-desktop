@@ -16,7 +16,6 @@ import {
   type InviteCodeResult,
   type InviteJoinRequestRecord,
   type IssuedInviteRecord,
-  type JoinLibraryResult,
   type JoinSession,
   type JobSnapshot,
   type LibrarySummary,
@@ -152,7 +151,6 @@ export function SharingPage() {
   const [approvalRoles, setApprovalRoles] = useState<Record<string, string>>(
     {},
   );
-  const [joinResult, setJoinResult] = useState<JoinLibraryResult | null>(null);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(localStorageSessionKey) ?? "";
@@ -261,7 +259,7 @@ export function SharingPage() {
   const runAction = useCallback(
     async (
       key: string,
-      action: () => Promise<void | JoinSession | JoinLibraryResult>,
+      action: () => Promise<void | JoinSession>,
     ) => {
       setPendingAction(key);
       setActionError("");
@@ -428,7 +426,9 @@ export function SharingPage() {
                     )}
                   </div>
                   <div className="text-right text-xs text-white/42">
-                    <div className="uppercase">{connectJob.phase || "queued"}</div>
+                    <div className="uppercase">
+                      {connectJob.phase || "queued"}
+                    </div>
                     <div className="mt-1 font-mono text-[0.68rem] tracking-[0.18em] text-white/28">
                       {connectJob.jobId}
                     </div>
@@ -495,7 +495,6 @@ export function SharingPage() {
                       }),
                     );
                     setTrackedSessionId(session.SessionID);
-                    setJoinResult(null);
                     setFeedback(`Started join session ${session.SessionID}`);
                   });
                 }}
@@ -580,7 +579,6 @@ export function SharingPage() {
                     const job = await startFinalizeJoinSession(
                       state.trackedSession?.SessionID ?? "",
                     );
-                    setJoinResult(null);
                     setFeedback(`Queued finalize join job ${job.jobId}`);
                   });
                 }}
@@ -600,7 +598,6 @@ export function SharingPage() {
                     await cancelJoinSession(
                       state.trackedSession?.SessionID ?? "",
                     );
-                    setJoinResult(null);
                     setFeedback("Canceled join session");
                   });
                 }}
@@ -646,14 +643,6 @@ export function SharingPage() {
               </p>
             </div>
           </div>
-
-          {joinResult && (
-            <div className="mt-4 rounded-[1.2rem] border border-emerald-400/18 bg-emerald-400/10 p-4 text-sm text-emerald-100">
-              Joined library{" "}
-              <span className="font-mono">{joinResult.LibraryID}</span> as{" "}
-              <span className="capitalize">{joinResult.Role || "member"}</span>.
-            </div>
-          )}
         </section>
       )}
 

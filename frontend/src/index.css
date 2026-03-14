@@ -3,10 +3,7 @@
 :root {
   color-scheme: dark;
   font-family:
-    "Segoe UI Variable Display",
-    "Segoe UI",
-    "IBM Plex Sans",
-    sans-serif;
+    "Segoe UI Variable Display", "Segoe UI", "IBM Plex Sans", sans-serif;
   --panel-border: rgba(255, 255, 255, 0.1);
   --accent: rgb(249, 115, 22);
 }
@@ -20,7 +17,11 @@ body,
 body {
   margin: 0;
   background:
-    radial-gradient(circle at top left, rgba(249, 115, 22, 0.16), transparent 24%),
+    radial-gradient(
+      circle at top left,
+      rgba(249, 115, 22, 0.16),
+      transparent 24%
+    ),
     linear-gradient(180deg, #080b12 0%, #101725 100%);
   color: white;
 }
@@ -210,7 +211,11 @@ button {
 .player-slider {
   height: 0.35rem;
   border-radius: 9999px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.16));
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.42),
+    rgba(255, 255, 255, 0.16)
+  );
   appearance: none;
   outline: none;
 }

@@ -673,6 +673,10 @@ func (a *App) ResolveArtworkRef(ctx context.Context, artwork apitypes.ArtworkRef
 	return a.playback.ResolveArtworkRef(ctx, artwork)
 }
 
+func (a *App) ResolveAlbumArtwork(ctx context.Context, albumID, variant string) (apitypes.RecordingArtworkResult, error) {
+	return a.playback.ResolveAlbumArtwork(ctx, albumID, variant)
+}
+
 func (a *App) ResolveRecordingArtwork(ctx context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error) {
 	return a.playback.ResolveRecordingArtwork(ctx, recordingID, variant)
 }

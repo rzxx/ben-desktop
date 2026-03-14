@@ -27,7 +27,6 @@ export type InviteCodeResult = Types.InviteCodeResult;
 export type InviteJoinRequestRecord = Types.InviteJoinRequestRecord;
 export type InspectSummary = Types.InspectSummary;
 export type IssuedInviteRecord = Types.IssuedInviteRecord;
-export type JoinLibraryResult = Types.JoinLibraryResult;
 export type JoinSession = Types.JoinSession;
 export type LibraryOplogDiagnostics = Types.LibraryOplogDiagnostics;
 export type LikedRecordingItem = Types.LikedRecordingItem;
@@ -159,9 +158,13 @@ export function resolveThumbnailURL(thumb: ArtworkRef) {
   return PlaybackFacade.ResolveThumbnailURL(thumb);
 }
 
+export function resolveAlbumArtworkURL(albumId: string, variant: string) {
+  return PlaybackFacade.ResolveAlbumArtworkURL(albumId, variant);
+}
+
 export function resolveRecordingArtworkURL(
   recordingId: string,
-  variant = "320_webp",
+  variant: string,
 ) {
   return PlaybackFacade.ResolveRecordingArtworkURL(recordingId, variant);
 }

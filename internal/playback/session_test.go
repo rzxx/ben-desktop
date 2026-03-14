@@ -75,6 +75,10 @@ func (b *mockBridge) ResolveArtworkRef(context.Context, apitypes.ArtworkRef) (ap
 	return apitypes.ArtworkResolveResult{}, nil
 }
 
+func (b *mockBridge) ResolveAlbumArtwork(context.Context, string, string) (apitypes.RecordingArtworkResult, error) {
+	return apitypes.RecordingArtworkResult{}, nil
+}
+
 func (b *mockBridge) InspectPlaybackRecording(_ context.Context, recordingID, _ string) (apitypes.PlaybackPreparationStatus, error) {
 	return b.nextPreparationStatus(recordingID, false)
 }

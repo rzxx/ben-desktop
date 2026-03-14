@@ -1277,22 +1277,6 @@ func compareRecordingVariants(left, right recordingVariantRow, explicitPreferred
 	return 0
 }
 
-func compareArtworkRefs(left, right apitypes.ArtworkRef) int {
-	if preferredArtworkRank(left.Variant) != preferredArtworkRank(right.Variant) {
-		if preferredArtworkRank(left.Variant) < preferredArtworkRank(right.Variant) {
-			return -1
-		}
-		return 1
-	}
-	if strings.TrimSpace(left.BlobID) < strings.TrimSpace(right.BlobID) {
-		return -1
-	}
-	if strings.TrimSpace(left.BlobID) > strings.TrimSpace(right.BlobID) {
-		return 1
-	}
-	return 0
-}
-
 func chooseAlbumVariantID(variants []apitypes.AlbumVariantItem, preferredID string) string {
 	if preferredID != "" {
 		for _, variant := range variants {
@@ -1307,9 +1291,6 @@ func chooseAlbumVariantID(variants []apitypes.AlbumVariantItem, preferredID stri
 		}
 		if variants[i].BestQualityRank != variants[j].BestQualityRank {
 			return variants[i].BestQualityRank > variants[j].BestQualityRank
-		}
-		if compareArtworkRefs(variants[i].Thumb, variants[j].Thumb) != 0 {
-			return compareArtworkRefs(variants[i].Thumb, variants[j].Thumb) < 0
 		}
 		if strings.ToLower(variants[i].Title) != strings.ToLower(variants[j].Title) {
 			return strings.ToLower(variants[i].Title) < strings.ToLower(variants[j].Title)
@@ -1365,45 +1346,41 @@ func compareAlbumVariants(left, right albumVariantRow, explicitPreferredID strin
 }
 
 func (s *CatalogService) loadAlbumArtworkRef(ctx context.Context, libraryID, albumID string) (apitypes.ArtworkRef, error) {
-	var rows []ArtworkVariant
-	if err := s.app.storage.WithContext(ctx).
-		Where("library_id = ? AND scope_type = 'album' AND scope_id = ?", libraryID, albumID).
-		Order("variant ASC").
-		Find(&rows).Error; err != nil {
-		return apitypes.ArtworkRef{}, err
-	}
-	return choosePreferredArtwork(rows), nil
+	return s.loadArtworkRef(ctx, libraryID, "album", albumID, defaultArtworkVariant320)
 }
 
 func (s *CatalogService) loadPlaylistArtworkRef(ctx context.Context, libraryID, playlistID string) (apitypes.ArtworkRef, bool, error) {
-	var rows []ArtworkVariant
-	if err := s.app.storage.WithContext(ctx).
-		Where("library_id = ? AND scope_type = 'playlist' AND scope_id = ?", libraryID, playlistID).
-		Order("variant ASC").
-		Find(&rows).Error; err != nil {
+	ref, err := s.loadArtworkRef(ctx, libraryID, "playlist", playlistID, defaultArtworkVariant320)
+	if err != nil {
 		return apitypes.ArtworkRef{}, false, err
 	}
-	ref := choosePreferredArtwork(rows)
 	return ref, strings.TrimSpace(ref.BlobID) != "", nil
 }
 
-func choosePreferredArtwork(rows []ArtworkVariant) apitypes.ArtworkRef {
-	choices := make([]apitypes.ArtworkRef, 0, len(rows))
-	for _, row := range rows {
-		choices = append(choices, apitypes.ArtworkRef{
-			BlobID:  strings.TrimSpace(row.BlobID),
-			MIME:    strings.TrimSpace(row.MIME),
-			FileExt: normalizeArtworkFileExt(row.FileExt, row.MIME),
-			Variant: strings.TrimSpace(row.Variant),
-			Width:   row.W,
-			Height:  row.H,
-			Bytes:   row.Bytes,
-		})
+func (s *CatalogService) loadArtworkRef(ctx context.Context, libraryID, scopeType, scopeID, variant string) (apitypes.ArtworkRef, error) {
+	var row ArtworkVariant
+	if err := s.app.storage.WithContext(ctx).
+		Where("library_id = ? AND scope_type = ? AND scope_id = ? AND variant = ?", libraryID, strings.TrimSpace(scopeType), strings.TrimSpace(scopeID), strings.TrimSpace(variant)).
+		Take(&row).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return apitypes.ArtworkRef{}, nil
+		}
+		return apitypes.ArtworkRef{}, err
 	}
-	sort.SliceStable(choices, func(i, j int) bool { return compareArtworkRefs(choices[i], choices[j]) < 0 })
-	if len(choices) == 0 {
-		return apitypes.ArtworkRef{}
-	}
-	return choices[0]
+	return artworkRefFromRow(row), nil
 }
 
+func artworkRefFromRow(row ArtworkVariant) apitypes.ArtworkRef {
+	if strings.TrimSpace(row.BlobID) == "" {
+		return apitypes.ArtworkRef{}
+	}
+	return apitypes.ArtworkRef{
+		BlobID:  strings.TrimSpace(row.BlobID),
+		MIME:    strings.TrimSpace(row.MIME),
+		FileExt: normalizeArtworkFileExt(row.FileExt, row.MIME),
+		Variant: strings.TrimSpace(row.Variant),
+		Width:   row.W,
+		Height:  row.H,
+		Bytes:   row.Bytes,
+	}
+}

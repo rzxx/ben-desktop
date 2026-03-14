@@ -85,13 +85,13 @@ export function SetScanRoots(roots: string[]): $CancellablePromise<void> {
 
 export function StartRescanNow(): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(3257783323).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType5($result);
     });
 }
 
 export function StartRescanRoot(root: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(2433872449, root).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType5($result);
     });
 }
 
@@ -105,5 +105,4 @@ const $$createType1 = $Create.Array($Create.Any);
 const $$createType2 = $Create.Array($$createType0);
 const $$createType3 = apitypes$0.LibraryMemberStatus.createFrom;
 const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = apitypes$0.ScanStats.createFrom;
-const $$createType6 = desktopcore$0.JobSnapshot.createFrom;
+const $$createType5 = desktopcore$0.JobSnapshot.createFrom;

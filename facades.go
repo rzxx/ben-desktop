@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -500,16 +499,15 @@ func (s *PlaybackFacade) ResolveThumbnailURL(artwork apitypes.ArtworkRef) (strin
 	if !resolved.Available || strings.TrimSpace(resolved.LocalPath) == "" {
 		return "", nil
 	}
+	return fileURLFromPath(resolved.LocalPath)
+}
 
-	fileExt := normalizeArtworkFileExt(strings.TrimSpace(resolved.Artwork.FileExt), strings.TrimSpace(resolved.Artwork.MIME))
-	if fileExt == "" {
-		return "", fmt.Errorf("thumbnail file extension is required")
-	}
-	aliasPath, err := typedBlobStorePath(resolved.LocalPath, fileExt)
+func (s *PlaybackFacade) ResolveAlbumArtworkURL(ctx context.Context, albumID, variant string) (string, error) {
+	result, err := s.playback().ResolveAlbumArtwork(ctx, albumID, variant)
 	if err != nil {
 		return "", err
 	}
-	return fileURLFromPath(aliasPath)
+	return s.ResolveThumbnailURL(result.Artwork)
 }
 
 func (s *PlaybackFacade) ResolveRecordingArtworkURL(ctx context.Context, recordingID, variant string) (string, error) {

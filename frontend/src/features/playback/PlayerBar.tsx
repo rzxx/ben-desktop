@@ -37,7 +37,8 @@ export function PlayerBar() {
 
   const currentItem = snapshot?.currentItem;
   const currentTitle = currentItem?.title ?? "Nothing selected";
-  const currentSubtitle = currentItem?.subtitle ?? "Pick something from the library";
+  const currentSubtitle =
+    currentItem?.subtitle ?? "Pick something from the library";
   const durationMs = snapshot?.durationMs ?? currentItem?.durationMs ?? 0;
   const positionMs = snapshot?.positionMs ?? 0;
   const isPlaying = snapshot?.status === "playing";
@@ -47,8 +48,7 @@ export function PlayerBar() {
   const shuffle = snapshot?.shuffle ?? false;
   const hasCurrent = Boolean(snapshot?.currentEntry);
   const hasUpcoming = (snapshot?.upcomingEntries?.length ?? 0) > 0;
-  const canGoNext =
-    repeatMode === "one" ? hasCurrent : hasUpcoming;
+  const canGoNext = repeatMode === "one" ? hasCurrent : hasUpcoming;
 
   return (
     <footer className="player-bar fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[linear-gradient(180deg,rgba(10,12,19,0.85),rgba(6,8,14,0.98))] px-5 py-4 backdrop-blur-2xl">
@@ -62,14 +62,16 @@ export function PlayerBar() {
             title={currentTitle}
           />
           <div className="min-w-0">
-            <p className="truncate text-[0.7rem] uppercase tracking-[0.3em] text-white/40">
-              {isPending ? "Buffering" : snapshot?.status ?? "idle"}
+            <p className="truncate text-[0.7rem] tracking-[0.3em] text-white/40 uppercase">
+              {isPending ? "Buffering" : (snapshot?.status ?? "idle")}
             </p>
             <h2 className="truncate text-lg font-semibold text-white">
               {currentTitle}
             </h2>
             <p className="truncate text-sm text-white/55">{currentSubtitle}</p>
-            {error && <p className="truncate text-xs text-amber-300">{error}</p>}
+            {error && (
+              <p className="truncate text-xs text-amber-300">{error}</p>
+            )}
           </div>
         </div>
 
@@ -144,7 +146,9 @@ export function PlayerBar() {
               type="range"
               value={Math.min(positionMs, Math.max(durationMs, 1))}
             />
-            <span className="w-12 tabular-nums">{formatDuration(durationMs)}</span>
+            <span className="w-12 tabular-nums">
+              {formatDuration(durationMs)}
+            </span>
           </div>
         </div>
 
@@ -162,7 +166,7 @@ export function PlayerBar() {
               value={volume}
             />
           </div>
-          <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.25em] text-white/45">
+          <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs tracking-[0.25em] text-white/45 uppercase">
             Queue {snapshot?.queueLength ?? 0}
           </div>
         </div>

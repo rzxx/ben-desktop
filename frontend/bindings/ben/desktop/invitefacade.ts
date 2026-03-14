@@ -28,19 +28,19 @@ export function CreateInviteCode(req: apitypes$0.InviteCodeRequest): $Cancellabl
 
 export function GetJoinSession(sessionID: string): $CancellablePromise<apitypes$0.JoinSession> {
     return $Call.ByID(3812262537, sessionID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType1($result);
     });
 }
 
 export function ListIssuedInvites(status: string): $CancellablePromise<apitypes$0.IssuedInviteRecord[]> {
     return $Call.ByID(2625364054, status).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType3($result);
     });
 }
 
 export function ListJoinRequests(status: string): $CancellablePromise<apitypes$0.InviteJoinRequestRecord[]> {
     return $Call.ByID(2833420939, status).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType5($result);
     });
 }
 
@@ -54,22 +54,21 @@ export function RevokeIssuedInvite(inviteID: string, reason: string): $Cancellab
 
 export function StartFinalizeJoinSession(sessionID: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(2247074811, sessionID).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType6($result);
     });
 }
 
 export function StartJoinFromInvite(req: apitypes$0.JoinFromInviteInput): $CancellablePromise<apitypes$0.JoinSession> {
     return $Call.ByID(759325766, req).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType1($result);
     });
 }
 
 // Private type creation functions
 const $$createType0 = apitypes$0.InviteCodeResult.createFrom;
-const $$createType1 = apitypes$0.JoinLibraryResult.createFrom;
-const $$createType2 = apitypes$0.JoinSession.createFrom;
-const $$createType3 = apitypes$0.IssuedInviteRecord.createFrom;
-const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = apitypes$0.InviteJoinRequestRecord.createFrom;
-const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = desktopcore$0.JobSnapshot.createFrom;
+const $$createType1 = apitypes$0.JoinSession.createFrom;
+const $$createType2 = apitypes$0.IssuedInviteRecord.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = apitypes$0.InviteJoinRequestRecord.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = desktopcore$0.JobSnapshot.createFrom;

@@ -42,10 +42,21 @@ export function VirtualRows<T>({
     if (last.index >= items.length - 5) {
       onEndReached?.();
     }
-  }, [hasMore, items.length, loading, loadingMore, onEndReached, rowVirtualizer]);
+  }, [
+    hasMore,
+    items.length,
+    loading,
+    loadingMore,
+    onEndReached,
+    rowVirtualizer,
+  ]);
 
   if (!loading && items.length === 0) {
-    return <div className="flex h-full items-center justify-center">{emptyState}</div>;
+    return (
+      <div className="flex h-full items-center justify-center">
+        {emptyState}
+      </div>
+    );
   }
 
   return (
@@ -57,7 +68,7 @@ export function VirtualRows<T>({
         >
           {rowVirtualizer.getVirtualItems().map((virtualRow) => (
             <div
-              className="absolute left-0 top-0 w-full"
+              className="absolute top-0 left-0 w-full"
               key={virtualRow.key}
               style={{
                 height: `${virtualRow.size}px`,

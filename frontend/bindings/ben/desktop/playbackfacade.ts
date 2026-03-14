@@ -14,80 +14,84 @@ import * as desktopcore$0 from "./internal/desktopcore/models.js";
 
 export function EnsurePlaybackAlbum(albumID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
     return $Call.ByID(3864517101, albumID, preferredProfile).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType0($result);
     });
 }
 
 export function EnsurePlaybackPlaylist(playlistID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
     return $Call.ByID(2817025160, playlistID, preferredProfile).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType0($result);
     });
 }
 
 export function EnsurePlaybackRecording(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackRecordingResult> {
     return $Call.ByID(1147125149, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType1($result);
     });
 }
 
 export function GetAlbumAvailabilityOverview(albumID: string, preferredProfile: string): $CancellablePromise<apitypes$0.AlbumAvailabilityOverview> {
     return $Call.ByID(274627466, albumID, preferredProfile).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType2($result);
     });
 }
 
 export function GetPlaybackPreparation(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackPreparationStatus> {
     return $Call.ByID(2643421451, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType3($result);
     });
 }
 
 export function GetRecordingAvailability(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.RecordingPlaybackAvailability> {
     return $Call.ByID(2495706649, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType4($result);
     });
 }
 
 export function GetRecordingAvailabilityOverview(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.RecordingAvailabilityOverview> {
     return $Call.ByID(298743390, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType5($result);
     });
 }
 
 export function InspectPlaybackRecording(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackPreparationStatus> {
     return $Call.ByID(2884037213, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType3($result);
     });
 }
 
 export function ListRecordingAvailability(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.RecordingAvailabilityItem[]> {
     return $Call.ByID(59357391, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType7($result);
     });
 }
 
 export function PinAlbumOffline(albumID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
     return $Call.ByID(482127638, albumID, preferredProfile).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType0($result);
     });
 }
 
 export function PinLikedOffline(preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
     return $Call.ByID(1509282448, preferredProfile).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType0($result);
     });
 }
 
 export function PinPlaylistOffline(playlistID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
     return $Call.ByID(1040829657, playlistID, preferredProfile).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType0($result);
     });
 }
 
 export function PinRecordingOffline(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackRecordingResult> {
     return $Call.ByID(1761311306, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType1($result);
     });
+}
+
+export function ResolveAlbumArtworkURL(albumID: string, variant: string): $CancellablePromise<string> {
+    return $Call.ByID(1336735319, albumID, variant);
 }
 
 export function ResolveBlobURL(blobID: string): $CancellablePromise<string> {
@@ -96,7 +100,7 @@ export function ResolveBlobURL(blobID: string): $CancellablePromise<string> {
 
 export function ResolvePlaybackRecording(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackResolveResult> {
     return $Call.ByID(1969384785, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType8($result);
     });
 }
 
@@ -110,25 +114,25 @@ export function ResolveThumbnailURL(artwork: apitypes$0.ArtworkRef): $Cancellabl
 
 export function StartEnsureAlbumEncodings(albumID: string, preferredProfile: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(565555986, albumID, preferredProfile).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType9($result);
     });
 }
 
 export function StartEnsurePlaylistEncodings(playlistID: string, preferredProfile: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(1579635047, playlistID, preferredProfile).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType9($result);
     });
 }
 
 export function StartEnsureRecordingEncoding(recordingID: string, preferredProfile: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(2141647909, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType9($result);
     });
 }
 
 export function StartPreparePlaybackRecording(recordingID: string, preferredProfile: string, purpose: apitypes$0.PlaybackPreparationPurpose): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(1507550790, recordingID, preferredProfile, purpose).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType9($result);
     });
 }
 
@@ -149,14 +153,13 @@ export function UnpinRecordingOffline(recordingID: string): $CancellablePromise<
 }
 
 // Private type creation functions
-const $$createType0 = apitypes$0.EnsureEncodingBatchResult.createFrom;
-const $$createType1 = apitypes$0.PlaybackBatchResult.createFrom;
-const $$createType2 = apitypes$0.PlaybackRecordingResult.createFrom;
-const $$createType3 = apitypes$0.AlbumAvailabilityOverview.createFrom;
-const $$createType4 = apitypes$0.PlaybackPreparationStatus.createFrom;
-const $$createType5 = apitypes$0.RecordingPlaybackAvailability.createFrom;
-const $$createType6 = apitypes$0.RecordingAvailabilityOverview.createFrom;
-const $$createType7 = apitypes$0.RecordingAvailabilityItem.createFrom;
-const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = apitypes$0.PlaybackResolveResult.createFrom;
-const $$createType10 = desktopcore$0.JobSnapshot.createFrom;
+const $$createType0 = apitypes$0.PlaybackBatchResult.createFrom;
+const $$createType1 = apitypes$0.PlaybackRecordingResult.createFrom;
+const $$createType2 = apitypes$0.AlbumAvailabilityOverview.createFrom;
+const $$createType3 = apitypes$0.PlaybackPreparationStatus.createFrom;
+const $$createType4 = apitypes$0.RecordingPlaybackAvailability.createFrom;
+const $$createType5 = apitypes$0.RecordingAvailabilityOverview.createFrom;
+const $$createType6 = apitypes$0.RecordingAvailabilityItem.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = apitypes$0.PlaybackResolveResult.createFrom;
+const $$createType9 = desktopcore$0.JobSnapshot.createFrom;

@@ -26,8 +26,11 @@ export function ArtworkTile({
   });
 
   const shape =
-    rounded === "full" ? "rounded-full" : "rounded-[1.2rem] sm:rounded-[1.35rem]";
-  const visibleSrc = src && !(loadState.failed && loadState.src === src) ? src : "";
+    rounded === "full"
+      ? "rounded-full"
+      : "rounded-[1.2rem] sm:rounded-[1.35rem]";
+  const visibleSrc =
+    src && !(loadState.failed && loadState.src === src) ? src : "";
 
   return (
     <div
@@ -53,7 +56,7 @@ export function ArtworkTile({
         />
       ) : (
         <div className="artwork-tile__fallback flex h-full w-full flex-col justify-between bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.4),transparent_55%),linear-gradient(180deg,rgba(15,23,42,0.2),rgba(15,23,42,0.95))] p-4">
-          <span className="text-xs uppercase tracking-[0.35em] text-white/45">
+          <span className="text-xs tracking-[0.35em] text-white/45 uppercase">
             {subtitle || "Library"}
           </span>
           <span className="text-4xl font-semibold text-white/85">

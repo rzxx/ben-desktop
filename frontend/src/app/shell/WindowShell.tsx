@@ -65,7 +65,7 @@ function TitleBar() {
           <Album className="h-4 w-4 text-white" />
         </div>
         <div className="min-w-0">
-          <p className="truncate text-[0.68rem] uppercase tracking-[0.34em] text-white/35">
+          <p className="truncate text-[0.68rem] tracking-[0.34em] text-white/35 uppercase">
             Desktop package
           </p>
           <p className="truncate text-sm font-semibold text-white/90">ben</p>
@@ -120,12 +120,13 @@ function NavigationSidebar() {
   return (
     <aside className="navigation-sidebar flex h-full flex-col rounded-[1.8rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
       <div className="mb-6">
-        <p className="text-[0.7rem] uppercase tracking-[0.35em] text-white/35">
+        <p className="text-[0.7rem] tracking-[0.35em] text-white/35 uppercase">
           Browse
         </p>
         <h2 className="mt-2 text-xl font-semibold text-white">Library</h2>
         <p className="mt-2 text-sm text-white/48">
-          Browse the catalog, inspect core operations, and keep playback in the same shell.
+          Browse the catalog, inspect core operations, and keep playback in the
+          same shell.
         </p>
       </div>
       <nav className="space-y-2">
@@ -139,18 +140,19 @@ function NavigationSidebar() {
               href={item.href}
               key={item.href}
             >
-                <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
+              <Icon className="h-4 w-4" />
+              <span>{item.label}</span>
             </Link>
           );
         })}
       </nav>
       <div className="mt-auto rounded-[1.45rem] border border-white/10 bg-black/15 p-4">
-        <p className="text-[0.68rem] uppercase tracking-[0.3em] text-white/35">
+        <p className="text-[0.68rem] tracking-[0.3em] text-white/35 uppercase">
           Host notes
         </p>
         <p className="mt-2 text-sm text-white/52">
-          Sharing, cache, and operations now talk to the desktop-core facades directly.
+          Sharing, cache, and operations now talk to the desktop-core facades
+          directly.
         </p>
       </div>
     </aside>
@@ -171,7 +173,7 @@ export function WindowShell() {
   return (
     <div className="app-shell h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.18),transparent_28%),radial-gradient(circle_at_top_right,rgba(34,197,94,0.12),transparent_24%),linear-gradient(180deg,#090b12_0%,#101522_100%)] text-white">
       <TitleBar />
-      <div className="shell-grid absolute inset-x-0 bottom-28 top-14 grid grid-cols-[220px_minmax(0,1fr)_320px] gap-4 px-5 py-4 max-xl:grid-cols-[220px_minmax(0,1fr)] max-lg:grid-cols-1 max-lg:overflow-y-auto">
+      <div className="shell-grid absolute inset-x-0 top-14 bottom-28 grid grid-cols-[220px_minmax(0,1fr)_320px] gap-4 px-5 py-4 max-xl:grid-cols-[220px_minmax(0,1fr)] max-lg:grid-cols-1 max-lg:overflow-y-auto">
         <NavigationSidebar />
         <main className="route-panel min-h-0 overflow-hidden rounded-[1.9rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] p-4 shadow-[0_28px_70px_rgba(0,0,0,0.28)]">
           <AppRouter />

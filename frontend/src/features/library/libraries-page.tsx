@@ -1,5 +1,11 @@
 import { type ReactNode, useEffect, useState } from "react";
-import { CircleAlert, FolderCog, Plus, RefreshCw, UsersRound } from "lucide-react";
+import {
+  CircleAlert,
+  FolderCog,
+  Plus,
+  RefreshCw,
+  UsersRound,
+} from "lucide-react";
 import {
   type LibraryMemberStatus,
   type LibrarySummary,
@@ -67,7 +73,7 @@ function formatDateTime(value?: Date | string | null) {
 
 function MetricPill({ label }: { label: string }) {
   return (
-    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/52">
+    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
       {label}
     </span>
   );
@@ -135,7 +141,11 @@ export function LibrariesPage() {
   const activeRole = state.active?.Role ?? state.local?.Role ?? "";
   const canManage = canManageLibrary(activeRole);
 
-  async function runAction(actionKey: string, work: () => Promise<unknown>, successMessage: string) {
+  async function runAction(
+    actionKey: string,
+    work: () => Promise<unknown>,
+    successMessage: string,
+  ) {
     setPendingAction(actionKey);
     setActionError("");
     setNotice("");
@@ -165,7 +175,7 @@ export function LibrariesPage() {
       <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(135deg,rgba(34,197,94,0.16),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[0.68rem] uppercase tracking-[0.35em] text-white/35">
+            <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
               Libraries
             </p>
             <h1 className="mt-3 text-3xl font-semibold text-white">
@@ -177,12 +187,22 @@ export function LibrariesPage() {
               and active-library membership controls.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <MetricPill label={formatCount(state.libraries.length, "library")} />
               <MetricPill
-                label={state.active ? `Active: ${state.active.Name}` : "No active library"}
+                label={formatCount(state.libraries.length, "library")}
               />
               <MetricPill
-                label={state.local?.Device || state.local?.DeviceID || "Unknown device"}
+                label={
+                  state.active
+                    ? `Active: ${state.active.Name}`
+                    : "No active library"
+                }
+              />
+              <MetricPill
+                label={
+                  state.local?.Device ||
+                  state.local?.DeviceID ||
+                  "Unknown device"
+                }
               />
             </div>
           </div>
@@ -218,7 +238,7 @@ export function LibrariesPage() {
           }}
         >
           <input
-            className="min-w-[220px] flex-1 rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/24 focus:border-emerald-300/50"
+            className="min-w-[220px] flex-1 rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white transition outline-none placeholder:text-white/24 focus:border-emerald-300/50"
             onChange={(event) => {
               setCreateName(event.target.value);
             }}
@@ -263,7 +283,9 @@ export function LibrariesPage() {
               <FolderCog className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">Your libraries</h2>
+              <h2 className="text-lg font-semibold text-white">
+                Your libraries
+              </h2>
               <p className="text-sm text-white/48">
                 Select which library owns the active desktop runtime.
               </p>
@@ -292,17 +314,19 @@ export function LibrariesPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-base font-semibold text-white">{library.Name}</p>
-                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[0.65rem] uppercase tracking-[0.22em] text-white/52">
+                          <p className="text-base font-semibold text-white">
+                            {library.Name}
+                          </p>
+                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[0.65rem] tracking-[0.22em] text-white/52 uppercase">
                             {library.Role}
                           </span>
                           {isActive && (
-                            <span className="rounded-full border border-emerald-300/30 bg-emerald-300/12 px-2 py-1 text-[0.65rem] uppercase tracking-[0.22em] text-emerald-100">
+                            <span className="rounded-full border border-emerald-300/30 bg-emerald-300/12 px-2 py-1 text-[0.65rem] tracking-[0.22em] text-emerald-100 uppercase">
                               Active
                             </span>
                           )}
                         </div>
-                        <p className="mt-2 break-all text-sm text-white/50">
+                        <p className="mt-2 text-sm break-all text-white/50">
                           {library.LibraryID}
                         </p>
                         <p className="mt-1 text-sm text-white/42">
@@ -312,7 +336,9 @@ export function LibrariesPage() {
                       {!isActive && (
                         <button
                           className="action-button is-primary"
-                          disabled={pendingAction === `select:${library.LibraryID}`}
+                          disabled={
+                            pendingAction === `select:${library.LibraryID}`
+                          }
                           onClick={() => {
                             void runAction(
                               `select:${library.LibraryID}`,
@@ -339,7 +365,9 @@ export function LibrariesPage() {
               <UsersRound className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">Active library</h2>
+              <h2 className="text-lg font-semibold text-white">
+                Active library
+              </h2>
               <p className="text-sm text-white/48">
                 Rename the active library and manage its current members.
               </p>
@@ -357,7 +385,7 @@ export function LibrariesPage() {
           ) : (
             <>
               <div className="mt-5 rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                <p className="text-[0.68rem] uppercase tracking-[0.26em] text-white/35">
+                <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
                   Active library
                 </p>
                 <p className="mt-2 text-lg font-semibold text-white">
@@ -384,7 +412,7 @@ export function LibrariesPage() {
                   }}
                 >
                   <input
-                    className="min-w-[220px] flex-1 rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/24 focus:border-emerald-300/50"
+                    className="min-w-[220px] flex-1 rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white transition outline-none placeholder:text-white/24 focus:border-emerald-300/50"
                     disabled={!canManage}
                     onChange={(event) => {
                       setRenameName(event.target.value);
@@ -417,7 +445,11 @@ export function LibrariesPage() {
                     className="action-button"
                     disabled={!canManage || pendingAction === "delete-library"}
                     onClick={() => {
-                      if (!window.confirm(`Delete library "${state.active!.Name}"?`)) {
+                      if (
+                        !window.confirm(
+                          `Delete library "${state.active!.Name}"?`,
+                        )
+                      ) {
                         return;
                       }
                       void runAction(
@@ -435,7 +467,8 @@ export function LibrariesPage() {
 
               <div className="mt-5 space-y-3">
                 {state.members.map((member) => {
-                  const isLocalDevice = member.DeviceID === state.local?.DeviceID;
+                  const isLocalDevice =
+                    member.DeviceID === state.local?.DeviceID;
                   const normalizedRole = normalizeRole(member.Role);
                   const roleOptions =
                     normalizedRole === "owner"
@@ -450,9 +483,11 @@ export function LibrariesPage() {
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-semibold text-white">{member.DeviceID}</p>
+                            <p className="font-semibold text-white">
+                              {member.DeviceID}
+                            </p>
                             {isLocalDevice && (
-                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[0.65rem] uppercase tracking-[0.22em] text-white/52">
+                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[0.65rem] tracking-[0.22em] text-white/52 uppercase">
                                 This device
                               </span>
                             )}
@@ -464,7 +499,8 @@ export function LibrariesPage() {
                             Last seen {formatDateTime(member.LastSeenAt)}
                           </p>
                           <p className="mt-1 text-sm text-white/42">
-                            Last successful sync {formatDateTime(member.LastSyncSuccessAt)}
+                            Last successful sync{" "}
+                            {formatDateTime(member.LastSyncSuccessAt)}
                           </p>
                           {member.LastSyncError && (
                             <p className="mt-2 text-sm text-rose-200">
@@ -476,12 +512,20 @@ export function LibrariesPage() {
                           <select
                             className="rounded-[0.95rem] border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none"
                             defaultValue={normalizedRole}
-                            disabled={!canManage || isLocalDevice || normalizedRole === "owner"}
+                            disabled={
+                              !canManage ||
+                              isLocalDevice ||
+                              normalizedRole === "owner"
+                            }
                             onChange={(event) => {
                               const nextRole = event.target.value;
                               void runAction(
                                 `role:${member.DeviceID}`,
-                                () => updateLibraryMemberRole(member.DeviceID, nextRole),
+                                () =>
+                                  updateLibraryMemberRole(
+                                    member.DeviceID,
+                                    nextRole,
+                                  ),
                                 `Updated ${member.DeviceID} to ${nextRole}`,
                               );
                             }}
@@ -494,9 +538,17 @@ export function LibrariesPage() {
                           </select>
                           <button
                             className="action-button"
-                            disabled={!canManage || isLocalDevice || pendingAction === `remove:${member.DeviceID}`}
+                            disabled={
+                              !canManage ||
+                              isLocalDevice ||
+                              pendingAction === `remove:${member.DeviceID}`
+                            }
                             onClick={() => {
-                              if (!window.confirm(`Remove ${member.DeviceID} from the library?`)) {
+                              if (
+                                !window.confirm(
+                                  `Remove ${member.DeviceID} from the library?`,
+                                )
+                              ) {
                                 return;
                               }
                               void runAction(

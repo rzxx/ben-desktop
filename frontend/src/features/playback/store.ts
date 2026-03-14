@@ -83,7 +83,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       return;
     }
     try {
-      const artworkUrl = await resolveRecordingArtworkURL(trimmed);
+      const artworkUrl = await resolveRecordingArtworkURL(trimmed, "96_jpeg");
       if (get().snapshot?.currentItem?.artworkRef !== trimmed) {
         return;
       }
@@ -159,7 +159,10 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   },
   setVolume: async (volume) => {
     await applySnapshot(
-      () => PlaybackService.SetVolume(Math.max(0, Math.min(100, Math.trunc(volume)))),
+      () =>
+        PlaybackService.SetVolume(
+          Math.max(0, Math.min(100, Math.trunc(volume))),
+        ),
       get().setSnapshot,
       (error) => set({ error }),
     );

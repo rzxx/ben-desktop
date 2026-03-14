@@ -13,7 +13,11 @@ export function formatDuration(durationMs?: number | null) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function formatCount(value: number, singular: string, plural = `${singular}s`) {
+export function formatCount(
+  value: number,
+  singular: string,
+  plural = `${singular}s`,
+) {
   const rounded = Math.max(0, Math.trunc(value));
   return `${rounded} ${rounded === 1 ? singular : plural}`;
 }

@@ -260,6 +260,10 @@ func (c *UnavailableCore) ResolveArtworkRef(context.Context, apitypes.ArtworkRef
 	return apitypes.ArtworkResolveResult{}, c.err
 }
 
+func (c *UnavailableCore) ResolveAlbumArtwork(context.Context, string, string) (apitypes.RecordingArtworkResult, error) {
+	return apitypes.RecordingArtworkResult{}, c.err
+}
+
 func (c *UnavailableCore) ResolveRecordingArtwork(context.Context, string, string) (apitypes.RecordingArtworkResult, error) {
 	return apitypes.RecordingArtworkResult{}, c.err
 }

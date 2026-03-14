@@ -31,6 +31,7 @@ type cacheBlobEntry struct {
 	PlaylistID       string
 	ThumbnailScope   string
 	ThumbnailScopeID string
+	ArtworkFileExt   string
 }
 
 func (s *CacheService) GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error) {
@@ -319,12 +320,14 @@ func (s *CacheService) addArtworkEntries(ctx context.Context, entries map[string
 		BlobID    string
 		ScopeType string
 		ScopeID   string
+		FileExt   string
+		MIME      string
 		UpdatedAt time.Time
 	}
 	var rows []row
 	if err := s.app.storage.WithContext(ctx).
 		Table("artwork_variants").
-		Select("blob_id, scope_type AS scope_type, scope_id, updated_at").
+		Select("blob_id, scope_type AS scope_type, scope_id, file_ext AS file_ext, mime, updated_at").
 		Where("library_id = ?", libraryID).
 		Order("updated_at DESC, scope_type ASC, scope_id ASC").
 		Scan(&rows).Error; err != nil {
@@ -332,7 +335,11 @@ func (s *CacheService) addArtworkEntries(ctx context.Context, entries map[string
 	}
 
 	for _, row := range rows {
-		sizeBytes, ok, err := s.blobSize(row.BlobID)
+		fileExt := normalizeArtworkFileExt(row.FileExt, row.MIME)
+		if fileExt == "" {
+			continue
+		}
+		sizeBytes, ok, err := s.artworkBlobSize(row.BlobID, fileExt)
 		if err != nil {
 			return err
 		}
@@ -353,6 +360,9 @@ func (s *CacheService) addArtworkEntries(ctx context.Context, entries map[string
 		if strings.TrimSpace(entry.ThumbnailScope) == "" {
 			entry.ThumbnailScope = strings.TrimSpace(row.ScopeType)
 			entry.ThumbnailScopeID = strings.TrimSpace(row.ScopeID)
+		}
+		if strings.TrimSpace(entry.ArtworkFileExt) == "" {
+			entry.ArtworkFileExt = fileExt
 		}
 		addPinScope(entry, apitypes.CachePinScopeRef{
 			Scope:   "thumbnail",
@@ -496,9 +506,17 @@ func (s *CacheService) cleanupEntry(ctx context.Context, local apitypes.LocalCon
 		return false, nil
 	}
 
-	path, err := s.blobPath(entry.BlobID)
-	if err != nil {
-		return false, err
+	var path string
+	if entry.Kind == apitypes.CacheKindThumbnail {
+		path, err = s.artworkBlobPath(entry.BlobID, entry.ArtworkFileExt)
+		if err != nil {
+			return false, err
+		}
+	} else {
+		path, err = s.blobPath(entry.BlobID)
+		if err != nil {
+			return false, err
+		}
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return false, err
@@ -576,6 +594,18 @@ func (s *CacheService) blobSize(blobID string) (int64, bool, error) {
 	if err != nil {
 		return 0, false, err
 	}
+	return fileSize(path)
+}
+
+func (s *CacheService) artworkBlobSize(blobID, fileExt string) (int64, bool, error) {
+	path, err := s.artworkBlobPath(blobID, fileExt)
+	if err != nil {
+		return 0, false, err
+	}
+	return fileSize(path)
+}
+
+func fileSize(path string) (int64, bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -588,6 +618,10 @@ func (s *CacheService) blobSize(blobID string) (int64, bool, error) {
 
 func (s *CacheService) blobPath(blobID string) (string, error) {
 	return s.app.blobs.Path(blobID)
+}
+
+func (s *CacheService) artworkBlobPath(blobID, fileExt string) (string, error) {
+	return s.app.blobs.ArtworkPath(blobID, fileExt)
 }
 
 func ensureCacheEntry(entries map[string]*cacheBlobEntry, blobID string) *cacheBlobEntry {

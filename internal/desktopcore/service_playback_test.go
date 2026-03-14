@@ -2,7 +2,9 @@ package desktopcore
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,6 +77,146 @@ func TestPinRecordingOfflinePersistsAndUnpinsCachedAsset(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("recording pin count = %d, want 0", count)
+	}
+}
+
+func TestResolveArtworkRefReturnsTypedArtworkPathOnly(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	blobID := testBlobID("f")
+	writeArtworkBlob(t, app, blobID, ".webp", 32)
+
+	result, err := app.ResolveArtworkRef(ctx, apitypes.ArtworkRef{
+		BlobID:  blobID,
+		MIME:    "image/webp",
+		FileExt: ".webp",
+		Variant: defaultArtworkVariant320,
+	})
+	if err != nil {
+		t.Fatalf("resolve artwork ref: %v", err)
+	}
+	if !result.Available {
+		t.Fatalf("expected artwork ref to resolve")
+	}
+	if !strings.HasSuffix(result.LocalPath, ".webp") {
+		t.Fatalf("artwork local path = %q, want .webp suffix", result.LocalPath)
+	}
+	if _, err := os.Stat(result.LocalPath); err != nil {
+		t.Fatalf("stat typed artwork path: %v", err)
+	}
+	basePath, err := app.blobs.Path(blobID)
+	if err != nil {
+		t.Fatalf("resolve legacy artwork path: %v", err)
+	}
+	if _, err := os.Stat(basePath); !os.IsNotExist(err) {
+		t.Fatalf("expected no extensionless artwork blob at %q, err=%v", basePath, err)
+	}
+}
+
+func TestResolveArtworkRefDoesNotBackfillLegacyArtworkBlob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	blobID := testBlobID("e")
+	writeCacheBlob(t, app, blobID, 32)
+
+	result, err := app.ResolveArtworkRef(ctx, apitypes.ArtworkRef{
+		BlobID:  blobID,
+		MIME:    "image/webp",
+		FileExt: ".webp",
+		Variant: defaultArtworkVariant320,
+	})
+	if err != nil {
+		t.Fatalf("resolve legacy artwork ref: %v", err)
+	}
+	if result.Available {
+		t.Fatalf("expected legacy extensionless artwork blob to stay unavailable, got %+v", result)
+	}
+	if strings.TrimSpace(result.LocalPath) != "" {
+		t.Fatalf("expected no local path for legacy artwork blob, got %q", result.LocalPath)
+	}
+}
+
+func TestResolveRecordingArtworkUsesExactVariantWithoutFallback(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "recording-artwork")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-art",
+		TrackClusterID: "rec-art",
+		AlbumID:        "album-art",
+		AlbumClusterID: "album-art",
+		SourceFileID:   "src-art",
+		QualityRank:    100,
+	})
+
+	jpegBlobID := testBlobID("7")
+	webpBlobID := testBlobID("8")
+	writeArtworkBlob(t, app, jpegBlobID, ".jpg", 24)
+	writeArtworkBlob(t, app, webpBlobID, ".webp", 48)
+
+	now := time.Now().UTC()
+	if err := app.db.WithContext(ctx).Create(&ArtworkVariant{
+		LibraryID: local.LibraryID,
+		ScopeType: "album",
+		ScopeID:   "album-art",
+		Variant:   defaultArtworkVariant96,
+		BlobID:    jpegBlobID,
+		MIME:      "image/jpeg",
+		FileExt:   ".jpg",
+		W:         96,
+		H:         96,
+		Bytes:     24,
+		UpdatedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("seed 96 artwork: %v", err)
+	}
+	if err := app.db.WithContext(ctx).Create(&ArtworkVariant{
+		LibraryID: local.LibraryID,
+		ScopeType: "album",
+		ScopeID:   "album-art",
+		Variant:   defaultArtworkVariant320,
+		BlobID:    webpBlobID,
+		MIME:      "image/webp",
+		FileExt:   ".webp",
+		W:         320,
+		H:         320,
+		Bytes:     48,
+		UpdatedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("seed 320 artwork: %v", err)
+	}
+
+	got96, err := app.ResolveRecordingArtwork(ctx, "rec-art", defaultArtworkVariant96)
+	if err != nil {
+		t.Fatalf("resolve recording 96 artwork: %v", err)
+	}
+	if !got96.Available || got96.Artwork.Variant != defaultArtworkVariant96 {
+		t.Fatalf("resolve recording 96 artwork = %+v", got96)
+	}
+
+	got1024, err := app.ResolveRecordingArtwork(ctx, "rec-art", defaultArtworkVariant1024)
+	if err != nil {
+		t.Fatalf("resolve recording 1024 artwork: %v", err)
+	}
+	if got1024.Available {
+		t.Fatalf("expected missing 1024 artwork to stay unavailable, got %+v", got1024)
+	}
+	if strings.TrimSpace(got1024.Artwork.BlobID) != "" {
+		t.Fatalf("expected no fallback artwork blob, got %+v", got1024.Artwork)
 	}
 }
 

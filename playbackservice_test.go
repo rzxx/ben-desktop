@@ -110,6 +110,7 @@ type passthroughRuntimeStub struct {
 	getPlaybackPreparationFn    func(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error)
 	resolvePlaybackRecordingFn  func(context.Context, string, string) (apitypes.PlaybackResolveResult, error)
 	resolveArtworkRefFn         func(context.Context, apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error)
+	resolveAlbumArtworkFn       func(context.Context, string, string) (apitypes.RecordingArtworkResult, error)
 	resolveRecordingArtworkFn   func(context.Context, string, string) (apitypes.RecordingArtworkResult, error)
 	listRecordingAvailabilityFn func(context.Context, string, string) ([]apitypes.RecordingAvailabilityItem, error)
 	recordingAvailabilityOVFn   func(context.Context, string, string) (apitypes.RecordingAvailabilityOverview, error)
@@ -501,6 +502,10 @@ func (b *passthroughBridgeStub) ResolvePlaybackRecording(ctx context.Context, re
 
 func (b *passthroughBridgeStub) ResolveArtworkRef(ctx context.Context, artwork apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error) {
 	return b.resolveArtworkRefFn(ctx, artwork)
+}
+
+func (b *passthroughBridgeStub) ResolveAlbumArtwork(ctx context.Context, albumID, variant string) (apitypes.RecordingArtworkResult, error) {
+	return b.resolveAlbumArtworkFn(ctx, albumID, variant)
 }
 
 func (b *passthroughBridgeStub) ResolveRecordingArtwork(ctx context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error) {

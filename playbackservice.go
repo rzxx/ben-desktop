@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"log"
 	"net/url"
 	"os"
@@ -549,101 +547,6 @@ func fileURLFromPath(path string) (string, error) {
 		Scheme: "file",
 		Path:   filepath.ToSlash(absPath),
 	}).String(), nil
-}
-
-func normalizeArtworkFileExt(fileExt string, mimeType string) string {
-	fileExt = strings.TrimSpace(strings.ToLower(fileExt))
-	if fileExt != "" {
-		if !strings.HasPrefix(fileExt, ".") {
-			fileExt = "." + fileExt
-		}
-		switch fileExt {
-		case ".jpeg", ".jpe":
-			return ".jpg"
-		default:
-			return fileExt
-		}
-	}
-
-	switch strings.TrimSpace(strings.ToLower(mimeType)) {
-	case "image/jpeg":
-		return ".jpg"
-	case "image/png":
-		return ".png"
-	case "image/webp":
-		return ".webp"
-	case "image/avif":
-		return ".avif"
-	case "image/gif":
-		return ".gif"
-	default:
-		return ""
-	}
-}
-
-func typedBlobStorePath(path string, fileExt string) (string, error) {
-	path = strings.TrimSpace(path)
-	fileExt = normalizeArtworkFileExt(fileExt, "")
-	if path == "" {
-		return "", fmt.Errorf("path is required")
-	}
-	if fileExt == "" {
-		return "", fmt.Errorf("file extension is required")
-	}
-
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256([]byte(absPath + "|" + fileExt))
-	typedDir := filepath.Join(filepath.Dir(absPath), ".typed")
-	typedPath := filepath.Join(typedDir, hex.EncodeToString(sum[:])+fileExt)
-	if _, err := os.Stat(typedPath); err == nil {
-		return typedPath, nil
-	} else if !os.IsNotExist(err) {
-		return "", err
-	}
-
-	if err := os.MkdirAll(typedDir, 0o755); err != nil {
-		return "", err
-	}
-	if err := os.Link(absPath, typedPath); err == nil {
-		return typedPath, nil
-	}
-
-	src, err := os.Open(absPath)
-	if err != nil {
-		return "", err
-	}
-	defer src.Close()
-
-	tmpPath := typedPath + ".tmp"
-	dst, err := os.Create(tmpPath)
-	if err != nil {
-		return "", err
-	}
-	copyErr := error(nil)
-	if _, err := io.Copy(dst, src); err != nil {
-		copyErr = err
-	}
-	closeErr := dst.Close()
-	if copyErr != nil {
-		_ = os.Remove(tmpPath)
-		return "", copyErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(tmpPath)
-		return "", closeErr
-	}
-	if err := os.Rename(tmpPath, typedPath); err != nil {
-		if _, statErr := os.Stat(typedPath); statErr == nil {
-			_ = os.Remove(tmpPath)
-			return typedPath, nil
-		}
-		_ = os.Remove(tmpPath)
-		return "", err
-	}
-	return typedPath, nil
 }
 
 type serviceLogger struct{}

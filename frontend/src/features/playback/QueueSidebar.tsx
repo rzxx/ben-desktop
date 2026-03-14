@@ -5,7 +5,9 @@ import { formatDuration } from "../../shared/lib/format";
 export function QueueSidebar() {
   const snapshot = usePlaybackStore((state) => state.snapshot);
   const selectEntry = usePlaybackStore((state) => state.selectEntry);
-  const removeQueuedEntry = usePlaybackStore((state) => state.removeQueuedEntry);
+  const removeQueuedEntry = usePlaybackStore(
+    (state) => state.removeQueuedEntry,
+  );
   const clearQueue = usePlaybackStore((state) => state.clearQueue);
 
   const currentEntry = snapshot?.currentEntry ?? null;
@@ -15,7 +17,7 @@ export function QueueSidebar() {
     <aside className="queue-sidebar flex h-full min-h-0 flex-col rounded-[1.8rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-4 py-4 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <p className="text-[0.68rem] uppercase tracking-[0.35em] text-white/35">
+          <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
             Queue
           </p>
           <h2 className="text-lg font-semibold text-white">Up next</h2>
@@ -32,7 +34,7 @@ export function QueueSidebar() {
       </div>
 
       <div className="mb-4 rounded-[1.3rem] border border-white/10 bg-black/15 p-4">
-        <p className="mb-2 text-xs uppercase tracking-[0.3em] text-white/35">
+        <p className="mb-2 text-xs tracking-[0.3em] text-white/35 uppercase">
           Now playing
         </p>
         {currentEntry ? (
@@ -43,8 +45,12 @@ export function QueueSidebar() {
             }}
             type="button"
           >
-            <span className="queue-entry__title">{currentEntry.item.title}</span>
-            <span className="queue-entry__meta">{currentEntry.item.subtitle}</span>
+            <span className="queue-entry__title">
+              {currentEntry.item.title}
+            </span>
+            <span className="queue-entry__meta">
+              {currentEntry.item.subtitle}
+            </span>
           </button>
         ) : (
           <p className="text-sm text-white/45">Queue is empty.</p>
@@ -70,14 +76,15 @@ export function QueueSidebar() {
                   }}
                   type="button"
                 >
-                  <span className="text-xs uppercase tracking-[0.2em] text-white/30">
+                  <span className="text-xs tracking-[0.2em] text-white/30 uppercase">
                     {index === 0 ? "Next" : `#${index + 1}`}
                   </span>
                   <span className="truncate text-sm font-medium text-white/88">
                     {entry.item.title}
                   </span>
                   <span className="truncate text-xs text-white/45">
-                    {entry.item.subtitle} • {formatDuration(entry.item.durationMs)}
+                    {entry.item.subtitle} •{" "}
+                    {formatDuration(entry.item.durationMs)}
                   </span>
                 </button>
                 {entry.origin === "queued" && (

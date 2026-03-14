@@ -37,33 +37,47 @@ func (s *BlobStoreService) Path(blobID string) (string, error) {
 	return filepath.Join(s.root, "b3", hashHex[:2], hashHex[2:4], hashHex), nil
 }
 
+func (s *BlobStoreService) ArtworkPath(blobID, fileExt string) (string, error) {
+	fileExt = normalizeArtworkFileExt(fileExt, "")
+	if fileExt == "" {
+		return "", fmt.Errorf("artwork file extension is required")
+	}
+	basePath, err := s.Path(blobID)
+	if err != nil {
+		return "", err
+	}
+	return basePath + fileExt, nil
+}
+
 func (s *BlobStoreService) StoreBytes(data []byte) (string, error) {
 	blobID := s.IDForBytes(data)
 	path, err := s.Path(blobID)
 	if err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(path); err == nil {
-		return blobID, nil
+	return blobID, writeBytes(path, data)
+}
+
+func (s *BlobStoreService) StoreArtworkBytes(data []byte, fileExt string) (string, error) {
+	blobID := s.IDForBytes(data)
+	path, err := s.ArtworkPath(blobID, fileExt)
+	if err != nil {
+		return "", err
+	}
+	return blobID, writeBytes(path, data)
+}
+
+func (s *BlobStoreService) ArtworkFilePath(blobID, fileExt string) (string, bool, error) {
+	typedPath, err := s.ArtworkPath(blobID, fileExt)
+	if err != nil {
+		return "", false, err
+	}
+	if _, err := os.Stat(typedPath); err == nil {
+		return typedPath, true, nil
 	} else if !os.IsNotExist(err) {
-		return "", err
+		return "", false, err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
-		return "", err
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		if _, statErr := os.Stat(path); statErr == nil {
-			_ = os.Remove(tempPath)
-			return blobID, nil
-		}
-		_ = os.Remove(tempPath)
-		return "", err
-	}
-	return blobID, nil
+	return typedPath, false, nil
 }
 
 func (s *BlobStoreService) ReadVerified(blobID string) ([]byte, error) {
@@ -102,4 +116,28 @@ func blobIDForBytes(data []byte) string {
 
 func verifyBlobIDBytes(blobID string, data []byte) error {
 	return NewBlobStoreService("").VerifyID(blobID, data)
+}
+
+func writeBytes(path string, data []byte) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tempPath := path + ".tmp"
+	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		if _, statErr := os.Stat(path); statErr == nil {
+			_ = os.Remove(tempPath)
+			return nil
+		}
+		_ = os.Remove(tempPath)
+		return err
+	}
+	return nil
 }
