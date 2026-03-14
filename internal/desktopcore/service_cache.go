@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
 )
 
@@ -284,7 +283,7 @@ GROUP BY oa.blob_id, oa.optimized_asset_id, oa.profile, oa.track_variant_id
 ORDER BY last_accessed DESC, oa.optimized_asset_id ASC`
 
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, libraryID, deviceID).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, deviceID).Scan(&rows).Error; err != nil {
 		return err
 	}
 
@@ -323,7 +322,7 @@ func (s *CacheService) addArtworkEntries(ctx context.Context, entries map[string
 		UpdatedAt time.Time
 	}
 	var rows []row
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Table("artwork_variants").
 		Select("blob_id, scope_type AS scope_type, scope_id, updated_at").
 		Where("library_id = ?", libraryID).
@@ -367,7 +366,7 @@ func (s *CacheService) addArtworkEntries(ctx context.Context, entries map[string
 
 func (s *CacheService) applyOfflinePins(ctx context.Context, entries map[string]*cacheBlobEntry, libraryID, deviceID string) error {
 	var pins []OfflinePin
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", libraryID, deviceID).
 		Order("scope ASC, scope_id ASC").
 		Find(&pins).Error; err != nil {
@@ -458,7 +457,7 @@ ORDER BY oa.blob_id ASC`
 		return nil, nil
 	}
 
-	if err := s.app.db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
@@ -512,7 +511,7 @@ func (s *CacheService) markBlobEncodingsUncached(ctx context.Context, local apit
 		OptimizedAssetID string
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []row
 		query := `
 SELECT dac.optimized_asset_id AS optimized_asset_id
@@ -549,7 +548,7 @@ func (s *CacheService) blobHasRetainedReferences(ctx context.Context, blobID str
 	}
 
 	var artwork countRow
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Table("artwork_variants").
 		Select("COUNT(1) AS count").
 		Where("blob_id = ?", strings.TrimSpace(blobID)).
@@ -566,7 +565,7 @@ SELECT COUNT(1) AS count
 FROM device_asset_caches dac
 JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
 WHERE oa.blob_id = ? AND dac.is_cached = 1`
-	if err := s.app.db.WithContext(ctx).Raw(query, strings.TrimSpace(blobID)).Scan(&cached).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, strings.TrimSpace(blobID)).Scan(&cached).Error; err != nil {
 		return false, err
 	}
 	return cached.Count > 0, nil
@@ -588,15 +587,7 @@ func (s *CacheService) blobSize(blobID string) (int64, bool, error) {
 }
 
 func (s *CacheService) blobPath(blobID string) (string, error) {
-	parts := strings.SplitN(strings.TrimSpace(blobID), ":", 2)
-	if len(parts) != 2 || strings.TrimSpace(parts[0]) != "b3" {
-		return "", fmt.Errorf("invalid blob id")
-	}
-	hashHex := strings.ToLower(strings.TrimSpace(parts[1]))
-	if len(hashHex) != 64 {
-		return "", fmt.Errorf("invalid blob id")
-	}
-	return filepath.Join(s.app.cfg.BlobRoot, "b3", hashHex[:2], hashHex[2:4], hashHex), nil
+	return s.app.blobs.Path(blobID)
 }
 
 func ensureCacheEntry(entries map[string]*cacheBlobEntry, blobID string) *cacheBlobEntry {

@@ -5,27 +5,27 @@ import (
 	"fmt"
 	"strings"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 type CatalogLoader struct {
-	bridge CorePlaybackBridge
+	core PlaybackCore
 }
 
-func NewCatalogLoader(bridge CorePlaybackBridge) *CatalogLoader {
-	return &CatalogLoader{bridge: bridge}
+func NewCatalogLoader(core PlaybackCore) *CatalogLoader {
+	return &CatalogLoader{core: core}
 }
 
 func (l *CatalogLoader) LoadAlbumContext(ctx context.Context, albumID string) (PlaybackContextInput, error) {
-	if l == nil || l.bridge == nil {
-		return PlaybackContextInput{}, fmt.Errorf("core playback bridge is not available")
+	if l == nil || l.core == nil {
+		return PlaybackContextInput{}, fmt.Errorf("playback core is not available")
 	}
 
 	albumID = strings.TrimSpace(albumID)
 	var tracks []apitypes.AlbumTrackItem
 	offset := 0
 	for {
-		page, err := l.bridge.ListAlbumTracks(ctx, apitypes.AlbumTrackListRequest{
+		page, err := l.core.ListAlbumTracks(ctx, apitypes.AlbumTrackListRequest{
 			AlbumID: albumID,
 			PageRequest: apitypes.PageRequest{
 				Limit:  200,
@@ -65,15 +65,15 @@ func (l *CatalogLoader) LoadAlbumTrackContext(ctx context.Context, albumID, reco
 }
 
 func (l *CatalogLoader) LoadPlaylistContext(ctx context.Context, playlistID string) (PlaybackContextInput, error) {
-	if l == nil || l.bridge == nil {
-		return PlaybackContextInput{}, fmt.Errorf("core playback bridge is not available")
+	if l == nil || l.core == nil {
+		return PlaybackContextInput{}, fmt.Errorf("playback core is not available")
 	}
 
 	playlistID = strings.TrimSpace(playlistID)
 	var tracks []apitypes.PlaylistTrackItem
 	offset := 0
 	for {
-		page, err := l.bridge.ListPlaylistTracks(ctx, apitypes.PlaylistTrackListRequest{
+		page, err := l.core.ListPlaylistTracks(ctx, apitypes.PlaylistTrackListRequest{
 			PlaylistID: playlistID,
 			PageRequest: apitypes.PageRequest{
 				Limit:  200,
@@ -113,14 +113,14 @@ func (l *CatalogLoader) LoadPlaylistTrackContext(ctx context.Context, playlistID
 }
 
 func (l *CatalogLoader) LoadLikedContext(ctx context.Context) (PlaybackContextInput, error) {
-	if l == nil || l.bridge == nil {
-		return PlaybackContextInput{}, fmt.Errorf("core playback bridge is not available")
+	if l == nil || l.core == nil {
+		return PlaybackContextInput{}, fmt.Errorf("playback core is not available")
 	}
 
 	var liked []apitypes.LikedRecordingItem
 	offset := 0
 	for {
-		page, err := l.bridge.ListLikedRecordings(ctx, apitypes.LikedRecordingListRequest{
+		page, err := l.core.ListLikedRecordings(ctx, apitypes.LikedRecordingListRequest{
 			PageRequest: apitypes.PageRequest{
 				Limit:  200,
 				Offset: offset,
@@ -159,12 +159,12 @@ func (l *CatalogLoader) LoadLikedTrackContext(ctx context.Context, recordingID s
 }
 
 func (l *CatalogLoader) LoadRecordingContext(ctx context.Context, recordingID string) (PlaybackContextInput, error) {
-	if l == nil || l.bridge == nil {
-		return PlaybackContextInput{}, fmt.Errorf("core playback bridge is not available")
+	if l == nil || l.core == nil {
+		return PlaybackContextInput{}, fmt.Errorf("playback core is not available")
 	}
 
 	recordingID = strings.TrimSpace(recordingID)
-	recording, err := l.bridge.GetRecording(ctx, recordingID)
+	recording, err := l.core.GetRecording(ctx, recordingID)
 	if err != nil {
 		return PlaybackContextInput{}, err
 	}

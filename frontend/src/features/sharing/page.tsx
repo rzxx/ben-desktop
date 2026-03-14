@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Events } from "@wailsio/runtime";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Copy,
@@ -17,12 +18,13 @@ import {
   type IssuedInviteRecord,
   type JoinLibraryResult,
   type JoinSession,
+  type JobSnapshot,
   type LibrarySummary,
   type LocalContext,
+  DesktopCoreModels,
   Types,
   approveJoinRequest,
   cancelJoinSession,
-  connectPeer,
   createInviteCode,
   getActiveLibrary,
   getJoinSession,
@@ -31,8 +33,10 @@ import {
   listJoinRequests,
   rejectJoinRequest,
   revokeIssuedInvite,
+  startConnectPeer,
   startFinalizeJoinSession,
   startJoinFromInvite,
+  subscribeJobEvents,
 } from "../../shared/lib/desktop";
 import { formatRelativeDate } from "../../shared/lib/format";
 
@@ -128,11 +132,13 @@ async function copyText(value: string) {
 }
 
 export function SharingPage() {
+  const connectJobIdRef = useRef("");
   const [state, setState] = useState<SharingState>(initialState);
   const [pendingAction, setPendingAction] = useState("");
   const [feedback, setFeedback] = useState("");
   const [actionError, setActionError] = useState("");
   const [peerAddress, setPeerAddress] = useState("");
+  const [connectJob, setConnectJob] = useState<JobSnapshot | null>(null);
   const [inviteRole, setInviteRole] =
     useState<(typeof inviteRoles)[number]>("member");
   const [inviteUses, setInviteUses] = useState("1");
@@ -219,6 +225,38 @@ export function SharingPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+
+    void subscribeJobEvents()
+      .then((eventName) => {
+        if (disposed) {
+          return;
+        }
+        stopListening = Events.On(eventName, (event) => {
+          const snapshot = DesktopCoreModels.JobSnapshot.createFrom(event.data);
+          if (
+            snapshot.kind !== "connect-peer" ||
+            snapshot.jobId !== connectJobIdRef.current
+          ) {
+            return;
+          }
+          setConnectJob(snapshot);
+        });
+      })
+      .catch((error) => {
+        if (!disposed) {
+          setActionError(describeError(error));
+        }
+      });
+
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, []);
 
   const runAction = useCallback(
     async (
@@ -358,8 +396,10 @@ export function SharingPage() {
               disabled={!peerAddress.trim() || pendingAction === "connect-peer"}
               onClick={() => {
                 void runAction("connect-peer", async () => {
-                  await connectPeer(peerAddress.trim());
-                  setFeedback(`Connected to ${peerAddress.trim()}`);
+                  const job = await startConnectPeer(peerAddress.trim());
+                  connectJobIdRef.current = job.jobId;
+                  setConnectJob(job);
+                  setFeedback(`Queued connect-peer job ${job.jobId}`);
                 });
               }}
               type="button"
@@ -368,9 +408,34 @@ export function SharingPage() {
               <span>Connect peer</span>
             </button>
             <p className="text-sm text-white/45">
-              If transport is not configured yet, the core error is shown
-              directly so the missing runtime wiring is visible in the UI.
+              Peer connect now runs through the async jobs path, so the UI can
+              track resolution and catch-up without blocking.
             </p>
+            {connectJob && (
+              <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      Latest connect job
+                    </p>
+                    <p className="mt-2 text-sm text-white/55">
+                      {connectJob.message || "No status message yet"}
+                    </p>
+                    {connectJob.error && (
+                      <p className="mt-2 text-sm text-rose-200">
+                        {connectJob.error}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right text-xs text-white/42">
+                    <div className="uppercase">{connectJob.phase || "queued"}</div>
+                    <div className="mt-1 font-mono text-[0.68rem] tracking-[0.18em] text-white/28">
+                      {connectJob.jobId}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

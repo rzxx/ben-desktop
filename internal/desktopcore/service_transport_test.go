@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 func TestTransportServiceStartsAndStopsWithActiveLibrarySelection(t *testing.T) {

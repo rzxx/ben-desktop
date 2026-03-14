@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 var errActiveLibraryRuntimeStopped = errors.New("active library runtime is no longer available")

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
 )
 
@@ -22,68 +22,65 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 	scanStats := apitypes.ScanStats{Scanned: 1, Imported: 1}
 	job := desktopcore.JobSnapshot{JobID: "job-scan", Kind: "scan-library", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
 	calls := make([]string, 0, 14)
-	host := &coreHost{
-		started: true,
-		runtime: &passthroughBridgeStub{
-			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
-			listLibrariesFn: func(context.Context) ([]apitypes.LibrarySummary, error) {
-				calls = append(calls, "list")
-				return []apitypes.LibrarySummary{summary}, nil
-			},
-			activeLibraryFn: func(context.Context) (apitypes.LibrarySummary, bool, error) {
-				calls = append(calls, "active")
-				return summary, true, nil
-			},
-			createLibraryFn: func(_ context.Context, name string) (apitypes.LibrarySummary, error) {
-				calls = append(calls, "create:"+name)
-				return summary, nil
-			},
-			selectLibraryFn: func(_ context.Context, libraryID string) (apitypes.LibrarySummary, error) {
-				calls = append(calls, "select:"+libraryID)
-				return summary, nil
-			},
-			renameLibraryFn: func(_ context.Context, libraryID, name string) (apitypes.LibrarySummary, error) {
-				calls = append(calls, "rename:"+libraryID+":"+name)
-				return summary, nil
-			},
-			leaveLibraryFn: func(_ context.Context, libraryID string) error {
-				calls = append(calls, "leave:"+libraryID)
-				return nil
-			},
-			deleteLibraryFn: func(_ context.Context, libraryID string) error {
-				calls = append(calls, "delete:"+libraryID)
-				return nil
-			},
-			listLibraryMembersFn: func(context.Context) ([]apitypes.LibraryMemberStatus, error) {
-				calls = append(calls, "members")
-				return []apitypes.LibraryMemberStatus{member}, nil
-			},
-			updateLibraryMemberRoleFn: func(_ context.Context, deviceID, role string) error {
-				calls = append(calls, "role:"+deviceID+":"+role)
-				return nil
-			},
-			removeLibraryMemberFn: func(_ context.Context, deviceID string) error {
-				calls = append(calls, "remove:"+deviceID)
-				return nil
-			},
-			rescanNowFn: func(context.Context) (apitypes.ScanStats, error) {
-				calls = append(calls, "rescan-now")
-				return scanStats, nil
-			},
-			startRescanNowFn: func(context.Context) (desktopcore.JobSnapshot, error) {
-				calls = append(calls, "start-rescan-now")
-				return job, nil
-			},
-			rescanRootFn: func(_ context.Context, root string) (apitypes.ScanStats, error) {
-				calls = append(calls, "rescan-root:"+root)
-				return scanStats, nil
-			},
-			startRescanRootFn: func(_ context.Context, root string) (desktopcore.JobSnapshot, error) {
-				calls = append(calls, "start-rescan-root:"+root)
-				return job, nil
-			},
+	host := newPassthroughHost(&passthroughBridgeStub{
+		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+		listLibrariesFn: func(context.Context) ([]apitypes.LibrarySummary, error) {
+			calls = append(calls, "list")
+			return []apitypes.LibrarySummary{summary}, nil
 		},
-	}
+		activeLibraryFn: func(context.Context) (apitypes.LibrarySummary, bool, error) {
+			calls = append(calls, "active")
+			return summary, true, nil
+		},
+		createLibraryFn: func(_ context.Context, name string) (apitypes.LibrarySummary, error) {
+			calls = append(calls, "create:"+name)
+			return summary, nil
+		},
+		selectLibraryFn: func(_ context.Context, libraryID string) (apitypes.LibrarySummary, error) {
+			calls = append(calls, "select:"+libraryID)
+			return summary, nil
+		},
+		renameLibraryFn: func(_ context.Context, libraryID, name string) (apitypes.LibrarySummary, error) {
+			calls = append(calls, "rename:"+libraryID+":"+name)
+			return summary, nil
+		},
+		leaveLibraryFn: func(_ context.Context, libraryID string) error {
+			calls = append(calls, "leave:"+libraryID)
+			return nil
+		},
+		deleteLibraryFn: func(_ context.Context, libraryID string) error {
+			calls = append(calls, "delete:"+libraryID)
+			return nil
+		},
+		listLibraryMembersFn: func(context.Context) ([]apitypes.LibraryMemberStatus, error) {
+			calls = append(calls, "members")
+			return []apitypes.LibraryMemberStatus{member}, nil
+		},
+		updateLibraryMemberRoleFn: func(_ context.Context, deviceID, role string) error {
+			calls = append(calls, "role:"+deviceID+":"+role)
+			return nil
+		},
+		removeLibraryMemberFn: func(_ context.Context, deviceID string) error {
+			calls = append(calls, "remove:"+deviceID)
+			return nil
+		},
+		rescanNowFn: func(context.Context) (apitypes.ScanStats, error) {
+			calls = append(calls, "rescan-now")
+			return scanStats, nil
+		},
+		startRescanNowFn: func(context.Context) (desktopcore.JobSnapshot, error) {
+			calls = append(calls, "start-rescan-now")
+			return job, nil
+		},
+		rescanRootFn: func(_ context.Context, root string) (apitypes.ScanStats, error) {
+			calls = append(calls, "rescan-root:"+root)
+			return scanStats, nil
+		},
+		startRescanRootFn: func(_ context.Context, root string) (desktopcore.JobSnapshot, error) {
+			calls = append(calls, "start-rescan-root:"+root)
+			return job, nil
+		},
+	})
 	facade := NewLibraryFacade(host)
 
 	if got, err := facade.ListLibraries(ctx); err != nil || len(got) != 1 || got[0].LibraryID != summary.LibraryID {
@@ -164,64 +161,65 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	compaction := apitypes.CheckpointCompactionResult{LibraryID: "lib-1", CheckpointID: "ckpt-1", Compactable: true}
 	job := desktopcore.JobSnapshot{JobID: "job-checkpoint", Kind: "publish-checkpoint", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
 	calls := make([]string, 0, 13)
-	host := &coreHost{
-		started: true,
-		runtime: &passthroughBridgeStub{
-			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
-			ensureLocalContextFn: func(context.Context) (apitypes.LocalContext, error) {
-				calls = append(calls, "local")
-				return local, nil
-			},
-			inspectFn: func(context.Context) (apitypes.InspectSummary, error) {
-				calls = append(calls, "inspect")
-				return summary, nil
-			},
-			inspectLibraryOplogFn: func(_ context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error) {
-				calls = append(calls, "oplog:"+libraryID)
-				return report, nil
-			},
-			activityStatusFn: func(context.Context) (apitypes.ActivityStatus, error) {
-				calls = append(calls, "activity")
-				return activity, nil
-			},
-			networkStatusFn: func() apitypes.NetworkStatus {
-				calls = append(calls, "network")
-				return network
-			},
-			syncNowFn: func(context.Context) error {
-				calls = append(calls, "sync")
-				return nil
-			},
-			startSyncNowFn: func(context.Context) (desktopcore.JobSnapshot, error) {
-				calls = append(calls, "start-sync")
-				return job, nil
-			},
-			connectPeerFn: func(_ context.Context, peerAddr string) error {
-				calls = append(calls, "connect:"+peerAddr)
-				return nil
-			},
-			checkpointStatusFn: func(context.Context) (apitypes.LibraryCheckpointStatus, error) {
-				calls = append(calls, "checkpoint")
-				return checkpoint, nil
-			},
-			publishCheckpointFn: func(context.Context) (apitypes.LibraryCheckpointManifest, error) {
-				calls = append(calls, "publish")
-				return manifest, nil
-			},
-			startPublishCheckpointFn: func(context.Context) (desktopcore.JobSnapshot, error) {
-				calls = append(calls, "start-publish")
-				return job, nil
-			},
-			compactCheckpointFn: func(_ context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
-				calls = append(calls, "compact:true")
-				return compaction, nil
-			},
-			startCompactCheckpointFn: func(_ context.Context, force bool) (desktopcore.JobSnapshot, error) {
-				calls = append(calls, "start-compact:true")
-				return job, nil
-			},
+	host := newPassthroughHost(&passthroughBridgeStub{
+		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+		ensureLocalContextFn: func(context.Context) (apitypes.LocalContext, error) {
+			calls = append(calls, "local")
+			return local, nil
 		},
-	}
+		inspectFn: func(context.Context) (apitypes.InspectSummary, error) {
+			calls = append(calls, "inspect")
+			return summary, nil
+		},
+		inspectLibraryOplogFn: func(_ context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error) {
+			calls = append(calls, "oplog:"+libraryID)
+			return report, nil
+		},
+		activityStatusFn: func(context.Context) (apitypes.ActivityStatus, error) {
+			calls = append(calls, "activity")
+			return activity, nil
+		},
+		networkStatusFn: func() apitypes.NetworkStatus {
+			calls = append(calls, "network")
+			return network
+		},
+		syncNowFn: func(context.Context) error {
+			calls = append(calls, "sync")
+			return nil
+		},
+		startSyncNowFn: func(context.Context) (desktopcore.JobSnapshot, error) {
+			calls = append(calls, "start-sync")
+			return job, nil
+		},
+		connectPeerFn: func(_ context.Context, peerAddr string) error {
+			calls = append(calls, "connect:"+peerAddr)
+			return nil
+		},
+		startConnectPeerFn: func(_ context.Context, peerAddr string) (desktopcore.JobSnapshot, error) {
+			calls = append(calls, "start-connect:"+peerAddr)
+			return job, nil
+		},
+		checkpointStatusFn: func(context.Context) (apitypes.LibraryCheckpointStatus, error) {
+			calls = append(calls, "checkpoint")
+			return checkpoint, nil
+		},
+		publishCheckpointFn: func(context.Context) (apitypes.LibraryCheckpointManifest, error) {
+			calls = append(calls, "publish")
+			return manifest, nil
+		},
+		startPublishCheckpointFn: func(context.Context) (desktopcore.JobSnapshot, error) {
+			calls = append(calls, "start-publish")
+			return job, nil
+		},
+		compactCheckpointFn: func(_ context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
+			calls = append(calls, "compact:true")
+			return compaction, nil
+		},
+		startCompactCheckpointFn: func(_ context.Context, force bool) (desktopcore.JobSnapshot, error) {
+			calls = append(calls, "start-compact:true")
+			return job, nil
+		},
+	})
 	facade := NewNetworkFacade(host)
 
 	if got, err := facade.EnsureLocalContext(ctx); err != nil || got.DeviceID != local.DeviceID {
@@ -248,6 +246,9 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	if err := facade.ConnectPeer(ctx, "peeraddr"); err != nil {
 		t.Fatalf("connect peer: %v", err)
 	}
+	if got, err := facade.StartConnectPeer(ctx, "peeraddr"); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start connect peer = %+v, err=%v", got, err)
+	}
 	if got, err := facade.CheckpointStatus(ctx); err != nil || got.CheckpointID != checkpoint.CheckpointID {
 		t.Fatalf("checkpoint status = %+v, err=%v", got, err)
 	}
@@ -264,7 +265,7 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 		t.Fatalf("start compact checkpoint = %+v, err=%v", got, err)
 	}
 
-	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "sync", "start-sync", "connect:peeraddr", "checkpoint", "publish", "start-publish", "compact:true", "start-compact:true"}
+	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "sync", "start-sync", "connect:peeraddr", "start-connect:peeraddr", "checkpoint", "publish", "start-publish", "compact:true", "start-compact:true"}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("network facade calls = %v, want %v", calls, want)
 	}
@@ -281,20 +282,17 @@ func TestJobsFacadeForwardsToBridge(t *testing.T) {
 		Phase:     desktopcore.JobPhaseRunning,
 	}
 	calls := make([]string, 0, 2)
-	host := &coreHost{
-		started: true,
-		runtime: &passthroughBridgeStub{
-			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
-			listJobsFn: func(_ context.Context, libraryID string) ([]desktopcore.JobSnapshot, error) {
-				calls = append(calls, "list:"+libraryID)
-				return []desktopcore.JobSnapshot{job}, nil
-			},
-			getJobFn: func(_ context.Context, jobID string) (desktopcore.JobSnapshot, bool, error) {
-				calls = append(calls, "get:"+jobID)
-				return job, true, nil
-			},
+	host := newPassthroughHost(&passthroughBridgeStub{
+		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+		listJobsFn: func(_ context.Context, libraryID string) ([]desktopcore.JobSnapshot, error) {
+			calls = append(calls, "list:"+libraryID)
+			return []desktopcore.JobSnapshot{job}, nil
 		},
-	}
+		getJobFn: func(_ context.Context, jobID string) (desktopcore.JobSnapshot, bool, error) {
+			calls = append(calls, "get:"+jobID)
+			return job, true, nil
+		},
+	})
 	facade := NewJobsFacade(host)
 
 	if got, err := facade.ListJobs(ctx, "lib-1"); err != nil || len(got) != 1 || got[0].JobID != job.JobID {
@@ -325,112 +323,109 @@ func TestCatalogFacadeForwardsToBridge(t *testing.T) {
 	item := apitypes.PlaylistItemRecord{PlaylistID: "pl-1", ItemID: "item-1", RecordingID: "rec-1"}
 	pageInfo := apitypes.PageInfo{Returned: 1, Total: 1}
 	calls := make([]string, 0, 18)
-	host := &coreHost{
-		started: true,
-		runtime: &passthroughBridgeStub{
-			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
-			listArtistsFn: func(_ context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
-				calls = append(calls, "list-artists")
-				return apitypes.Page[apitypes.ArtistListItem]{Items: []apitypes.ArtistListItem{artist}, Page: pageInfo}, nil
-			},
-			getArtistFn: func(_ context.Context, artistID string) (apitypes.ArtistListItem, error) {
-				calls = append(calls, "get-artist:"+artistID)
-				return artist, nil
-			},
-			listArtistAlbumsFn: func(_ context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
-				calls = append(calls, "artist-albums:"+req.ArtistID)
-				return apitypes.Page[apitypes.AlbumListItem]{Items: []apitypes.AlbumListItem{album}, Page: pageInfo}, nil
-			},
-			listAlbumsFn: func(_ context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
-				calls = append(calls, "list-albums")
-				return apitypes.Page[apitypes.AlbumListItem]{Items: []apitypes.AlbumListItem{album}, Page: pageInfo}, nil
-			},
-			getAlbumFn: func(_ context.Context, albumID string) (apitypes.AlbumListItem, error) {
-				calls = append(calls, "get-album:"+albumID)
-				return album, nil
-			},
-			listRecordingsFn: func(_ context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
-				calls = append(calls, "list-recordings")
-				return apitypes.Page[apitypes.RecordingListItem]{Items: []apitypes.RecordingListItem{recording}, Page: pageInfo}, nil
-			},
-			getRecordingFn: func(_ context.Context, recordingID string) (apitypes.RecordingListItem, error) {
-				calls = append(calls, "get-recording:"+recordingID)
-				return recording, nil
-			},
-			listRecordingVariantsFn: func(_ context.Context, req apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error) {
-				calls = append(calls, "recording-variants:"+req.RecordingID)
-				return apitypes.Page[apitypes.RecordingVariantItem]{Page: pageInfo}, nil
-			},
-			listAlbumVariantsFn: func(_ context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error) {
-				calls = append(calls, "album-variants:"+req.AlbumID)
-				return apitypes.Page[apitypes.AlbumVariantItem]{Page: pageInfo}, nil
-			},
-			setPreferredRecordingFn: func(_ context.Context, recordingID, variantRecordingID string) error {
-				calls = append(calls, "set-recording-pref:"+recordingID+":"+variantRecordingID)
-				return nil
-			},
-			setPreferredAlbumFn: func(_ context.Context, albumID, variantAlbumID string) error {
-				calls = append(calls, "set-album-pref:"+albumID+":"+variantAlbumID)
-				return nil
-			},
-			listAlbumTracksFn: func(_ context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
-				calls = append(calls, "album-tracks:"+req.AlbumID)
-				return apitypes.Page[apitypes.AlbumTrackItem]{Page: pageInfo}, nil
-			},
-			listPlaylistsFn: func(_ context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error) {
-				calls = append(calls, "list-playlists")
-				return apitypes.Page[apitypes.PlaylistListItem]{Items: []apitypes.PlaylistListItem{playlist}, Page: pageInfo}, nil
-			},
-			getPlaylistSummaryFn: func(_ context.Context, playlistID string) (apitypes.PlaylistListItem, error) {
-				calls = append(calls, "get-playlist:"+playlistID)
-				return playlist, nil
-			},
-			listPlaylistTracksFn: func(_ context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {
-				calls = append(calls, "playlist-tracks:"+req.PlaylistID)
-				return apitypes.Page[apitypes.PlaylistTrackItem]{Page: pageInfo}, nil
-			},
-			listLikedRecordingsFn: func(_ context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
-				calls = append(calls, "liked")
-				return apitypes.Page[apitypes.LikedRecordingItem]{Items: []apitypes.LikedRecordingItem{liked}, Page: pageInfo}, nil
-			},
-			createPlaylistFn: func(_ context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
-				calls = append(calls, "create-playlist:"+name+":"+kind)
-				return apitypes.PlaylistRecord{PlaylistID: "pl-1", Name: name, Kind: apitypes.PlaylistKind(kind)}, nil
-			},
-			renamePlaylistFn: func(_ context.Context, playlistID, name string) (apitypes.PlaylistRecord, error) {
-				calls = append(calls, "rename-playlist:"+playlistID+":"+name)
-				return apitypes.PlaylistRecord{PlaylistID: playlistID, Name: name}, nil
-			},
-			deletePlaylistFn: func(_ context.Context, playlistID string) error {
-				calls = append(calls, "delete-playlist:"+playlistID)
-				return nil
-			},
-			addPlaylistItemFn: func(_ context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error) {
-				calls = append(calls, "add-playlist-item:"+req.PlaylistID+":"+req.RecordingID)
-				return item, nil
-			},
-			movePlaylistItemFn: func(_ context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error) {
-				calls = append(calls, "move-playlist-item:"+req.PlaylistID+":"+req.ItemID)
-				return item, nil
-			},
-			removePlaylistItemFn: func(_ context.Context, playlistID, itemID string) error {
-				calls = append(calls, "remove-playlist-item:"+playlistID+":"+itemID)
-				return nil
-			},
-			likeRecordingFn: func(_ context.Context, recordingID string) error {
-				calls = append(calls, "like:"+recordingID)
-				return nil
-			},
-			unlikeRecordingFn: func(_ context.Context, recordingID string) error {
-				calls = append(calls, "unlike:"+recordingID)
-				return nil
-			},
-			isRecordingLikedFn: func(_ context.Context, recordingID string) (bool, error) {
-				calls = append(calls, "is-liked:"+recordingID)
-				return true, nil
-			},
+	host := newPassthroughHost(&passthroughBridgeStub{
+		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+		listArtistsFn: func(_ context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
+			calls = append(calls, "list-artists")
+			return apitypes.Page[apitypes.ArtistListItem]{Items: []apitypes.ArtistListItem{artist}, Page: pageInfo}, nil
 		},
-	}
+		getArtistFn: func(_ context.Context, artistID string) (apitypes.ArtistListItem, error) {
+			calls = append(calls, "get-artist:"+artistID)
+			return artist, nil
+		},
+		listArtistAlbumsFn: func(_ context.Context, req apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+			calls = append(calls, "artist-albums:"+req.ArtistID)
+			return apitypes.Page[apitypes.AlbumListItem]{Items: []apitypes.AlbumListItem{album}, Page: pageInfo}, nil
+		},
+		listAlbumsFn: func(_ context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+			calls = append(calls, "list-albums")
+			return apitypes.Page[apitypes.AlbumListItem]{Items: []apitypes.AlbumListItem{album}, Page: pageInfo}, nil
+		},
+		getAlbumFn: func(_ context.Context, albumID string) (apitypes.AlbumListItem, error) {
+			calls = append(calls, "get-album:"+albumID)
+			return album, nil
+		},
+		listRecordingsFn: func(_ context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
+			calls = append(calls, "list-recordings")
+			return apitypes.Page[apitypes.RecordingListItem]{Items: []apitypes.RecordingListItem{recording}, Page: pageInfo}, nil
+		},
+		getRecordingFn: func(_ context.Context, recordingID string) (apitypes.RecordingListItem, error) {
+			calls = append(calls, "get-recording:"+recordingID)
+			return recording, nil
+		},
+		listRecordingVariantsFn: func(_ context.Context, req apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error) {
+			calls = append(calls, "recording-variants:"+req.RecordingID)
+			return apitypes.Page[apitypes.RecordingVariantItem]{Page: pageInfo}, nil
+		},
+		listAlbumVariantsFn: func(_ context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error) {
+			calls = append(calls, "album-variants:"+req.AlbumID)
+			return apitypes.Page[apitypes.AlbumVariantItem]{Page: pageInfo}, nil
+		},
+		setPreferredRecordingFn: func(_ context.Context, recordingID, variantRecordingID string) error {
+			calls = append(calls, "set-recording-pref:"+recordingID+":"+variantRecordingID)
+			return nil
+		},
+		setPreferredAlbumFn: func(_ context.Context, albumID, variantAlbumID string) error {
+			calls = append(calls, "set-album-pref:"+albumID+":"+variantAlbumID)
+			return nil
+		},
+		listAlbumTracksFn: func(_ context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
+			calls = append(calls, "album-tracks:"+req.AlbumID)
+			return apitypes.Page[apitypes.AlbumTrackItem]{Page: pageInfo}, nil
+		},
+		listPlaylistsFn: func(_ context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error) {
+			calls = append(calls, "list-playlists")
+			return apitypes.Page[apitypes.PlaylistListItem]{Items: []apitypes.PlaylistListItem{playlist}, Page: pageInfo}, nil
+		},
+		getPlaylistSummaryFn: func(_ context.Context, playlistID string) (apitypes.PlaylistListItem, error) {
+			calls = append(calls, "get-playlist:"+playlistID)
+			return playlist, nil
+		},
+		listPlaylistTracksFn: func(_ context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {
+			calls = append(calls, "playlist-tracks:"+req.PlaylistID)
+			return apitypes.Page[apitypes.PlaylistTrackItem]{Page: pageInfo}, nil
+		},
+		listLikedRecordingsFn: func(_ context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
+			calls = append(calls, "liked")
+			return apitypes.Page[apitypes.LikedRecordingItem]{Items: []apitypes.LikedRecordingItem{liked}, Page: pageInfo}, nil
+		},
+		createPlaylistFn: func(_ context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
+			calls = append(calls, "create-playlist:"+name+":"+kind)
+			return apitypes.PlaylistRecord{PlaylistID: "pl-1", Name: name, Kind: apitypes.PlaylistKind(kind)}, nil
+		},
+		renamePlaylistFn: func(_ context.Context, playlistID, name string) (apitypes.PlaylistRecord, error) {
+			calls = append(calls, "rename-playlist:"+playlistID+":"+name)
+			return apitypes.PlaylistRecord{PlaylistID: playlistID, Name: name}, nil
+		},
+		deletePlaylistFn: func(_ context.Context, playlistID string) error {
+			calls = append(calls, "delete-playlist:"+playlistID)
+			return nil
+		},
+		addPlaylistItemFn: func(_ context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error) {
+			calls = append(calls, "add-playlist-item:"+req.PlaylistID+":"+req.RecordingID)
+			return item, nil
+		},
+		movePlaylistItemFn: func(_ context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error) {
+			calls = append(calls, "move-playlist-item:"+req.PlaylistID+":"+req.ItemID)
+			return item, nil
+		},
+		removePlaylistItemFn: func(_ context.Context, playlistID, itemID string) error {
+			calls = append(calls, "remove-playlist-item:"+playlistID+":"+itemID)
+			return nil
+		},
+		likeRecordingFn: func(_ context.Context, recordingID string) error {
+			calls = append(calls, "like:"+recordingID)
+			return nil
+		},
+		unlikeRecordingFn: func(_ context.Context, recordingID string) error {
+			calls = append(calls, "unlike:"+recordingID)
+			return nil
+		},
+		isRecordingLikedFn: func(_ context.Context, recordingID string) (bool, error) {
+			calls = append(calls, "is-liked:"+recordingID)
+			return true, nil
+		},
+	})
 	facade := NewCatalogFacade(host)
 
 	if _, err := facade.ListArtists(ctx, apitypes.ArtistListRequest{}); err != nil {
@@ -521,56 +516,53 @@ func TestInviteFacadeForwardsToBridge(t *testing.T) {
 	issued := apitypes.IssuedInviteRecord{InviteID: "invite-1", LibraryID: "lib-1", Status: "active"}
 	job := desktopcore.JobSnapshot{JobID: "join-finalize:session-1", Kind: "finalize-join-session", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
 	calls := make([]string, 0, 11)
-	host := &coreHost{
-		started: true,
-		runtime: &passthroughBridgeStub{
-			UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
-			createInviteCodeFn: func(_ context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
-				calls = append(calls, "create:"+req.Role)
-				return invite, nil
-			},
-			listIssuedInvitesFn: func(_ context.Context, status string) ([]apitypes.IssuedInviteRecord, error) {
-				calls = append(calls, "issued:"+status)
-				return []apitypes.IssuedInviteRecord{issued}, nil
-			},
-			revokeIssuedInviteFn: func(_ context.Context, inviteID, reason string) error {
-				calls = append(calls, "revoke:"+inviteID+":"+reason)
-				return nil
-			},
-			startJoinFromInviteFn: func(_ context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
-				calls = append(calls, "start:"+req.InviteCode)
-				return session, nil
-			},
-			getJoinSessionFn: func(_ context.Context, sessionID string) (apitypes.JoinSession, error) {
-				calls = append(calls, "get:"+sessionID)
-				return session, nil
-			},
-			finalizeJoinSessionFn: func(_ context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
-				calls = append(calls, "finalize:"+sessionID)
-				return result, nil
-			},
-			startFinalizeJoinSessionFn: func(_ context.Context, sessionID string) (desktopcore.JobSnapshot, error) {
-				calls = append(calls, "start-finalize:"+sessionID)
-				return job, nil
-			},
-			cancelJoinSessionFn: func(_ context.Context, sessionID string) error {
-				calls = append(calls, "cancel:"+sessionID)
-				return nil
-			},
-			listJoinRequestsFn: func(_ context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
-				calls = append(calls, "requests:"+status)
-				return []apitypes.InviteJoinRequestRecord{request}, nil
-			},
-			approveJoinRequestFn: func(_ context.Context, requestID, role string) error {
-				calls = append(calls, "approve:"+requestID+":"+role)
-				return nil
-			},
-			rejectJoinRequestFn: func(_ context.Context, requestID, reason string) error {
-				calls = append(calls, "reject:"+requestID+":"+reason)
-				return nil
-			},
+	host := newPassthroughHost(&passthroughBridgeStub{
+		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
+		createInviteCodeFn: func(_ context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
+			calls = append(calls, "create:"+req.Role)
+			return invite, nil
 		},
-	}
+		listIssuedInvitesFn: func(_ context.Context, status string) ([]apitypes.IssuedInviteRecord, error) {
+			calls = append(calls, "issued:"+status)
+			return []apitypes.IssuedInviteRecord{issued}, nil
+		},
+		revokeIssuedInviteFn: func(_ context.Context, inviteID, reason string) error {
+			calls = append(calls, "revoke:"+inviteID+":"+reason)
+			return nil
+		},
+		startJoinFromInviteFn: func(_ context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
+			calls = append(calls, "start:"+req.InviteCode)
+			return session, nil
+		},
+		getJoinSessionFn: func(_ context.Context, sessionID string) (apitypes.JoinSession, error) {
+			calls = append(calls, "get:"+sessionID)
+			return session, nil
+		},
+		finalizeJoinSessionFn: func(_ context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
+			calls = append(calls, "finalize:"+sessionID)
+			return result, nil
+		},
+		startFinalizeJoinSessionFn: func(_ context.Context, sessionID string) (desktopcore.JobSnapshot, error) {
+			calls = append(calls, "start-finalize:"+sessionID)
+			return job, nil
+		},
+		cancelJoinSessionFn: func(_ context.Context, sessionID string) error {
+			calls = append(calls, "cancel:"+sessionID)
+			return nil
+		},
+		listJoinRequestsFn: func(_ context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
+			calls = append(calls, "requests:"+status)
+			return []apitypes.InviteJoinRequestRecord{request}, nil
+		},
+		approveJoinRequestFn: func(_ context.Context, requestID, role string) error {
+			calls = append(calls, "approve:"+requestID+":"+role)
+			return nil
+		},
+		rejectJoinRequestFn: func(_ context.Context, requestID, reason string) error {
+			calls = append(calls, "reject:"+requestID+":"+reason)
+			return nil
+		},
+	})
 	facade := NewInviteFacade(host)
 
 	if _, err := facade.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: "member"}); err != nil {
@@ -654,87 +646,84 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 		t.Fatalf("write blob: %v", err)
 	}
 
-	host := &coreHost{
-		started:  true,
-		blobRoot: blobRoot,
-		runtime: &passthroughBridgeStub{
-			UnavailableCore:    desktopcore.NewUnavailableCore(errors.New("unused")),
-			getCacheOverviewFn: func(context.Context) (apitypes.CacheOverview, error) { return overview, nil },
-			listCacheEntriesFn: func(_ context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {
-				return cachePage, nil
-			},
-			cleanupCacheFn: func(_ context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
-				return cleanup, nil
-			},
-			ensureRecordingEncodingFn: func(_ context.Context, recordingID, preferredProfile string) (bool, error) {
-				return true, nil
-			},
-			startEnsureRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (desktopcore.JobSnapshot, error) {
-				return job, nil
-			},
-			ensureAlbumEncodingsFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
-				return encodingBatch, nil
-			},
-			startEnsureAlbumFn: func(_ context.Context, albumID, preferredProfile string) (desktopcore.JobSnapshot, error) {
-				return job, nil
-			},
-			ensurePlaylistEncodingsFn: func(_ context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
-				return encodingBatch, nil
-			},
-			startEnsurePlaylistFn: func(_ context.Context, playlistID, preferredProfile string) (desktopcore.JobSnapshot, error) {
-				return job, nil
-			},
-			ensurePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
-				return playbackResult, nil
-			},
-			inspectPlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
-				return status, nil
-			},
-			preparePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
-				return status, nil
-			},
-			startPreparePlaybackFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error) {
-				return job, nil
-			},
-			getPlaybackPreparationFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
-				return status, nil
-			},
-			resolvePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error) {
-				return resolve, nil
-			},
-			listRecordingAvailabilityFn: func(_ context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {
-				return []apitypes.RecordingAvailabilityItem{{DeviceID: "dev-1"}}, nil
-			},
-			getRecordingAvailabilityFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
-				return availability, nil
-			},
-			recordingAvailabilityOVFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {
-				return recordingOverview, nil
-			},
-			albumAvailabilityOVFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
-				return albumOverview, nil
-			},
-			resolveArtworkRefFn: func(_ context.Context, artwork apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error) {
-				return apitypes.ArtworkResolveResult{
-					Artwork:   apitypes.ArtworkRef{BlobID: artwork.BlobID, MIME: "image/webp", FileExt: ".webp"},
-					LocalPath: blobPath,
-					Available: true,
-				}, nil
-			},
-			ensurePlaybackAlbumFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-				return playbackBatch, nil
-			},
-			ensurePlaybackPlaylistFn: func(_ context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-				return playbackBatch, nil
-			},
-			resolveRecordingArtworkFn: func(_ context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error) {
-				return apitypes.RecordingArtworkResult{
-					RecordingID: recordingID,
-					Artwork:     apitypes.ArtworkRef{BlobID: "b3:" + hashHex, MIME: "image/webp", FileExt: ".webp"},
-				}, nil
-			},
+	host := newPassthroughHost(&passthroughBridgeStub{
+		UnavailableCore:    desktopcore.NewUnavailableCore(errors.New("unused")),
+		getCacheOverviewFn: func(context.Context) (apitypes.CacheOverview, error) { return overview, nil },
+		listCacheEntriesFn: func(_ context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {
+			return cachePage, nil
 		},
-	}
+		cleanupCacheFn: func(_ context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
+			return cleanup, nil
+		},
+		ensureRecordingEncodingFn: func(_ context.Context, recordingID, preferredProfile string) (bool, error) {
+			return true, nil
+		},
+		startEnsureRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+			return job, nil
+		},
+		ensureAlbumEncodingsFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+			return encodingBatch, nil
+		},
+		startEnsureAlbumFn: func(_ context.Context, albumID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+			return job, nil
+		},
+		ensurePlaylistEncodingsFn: func(_ context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
+			return encodingBatch, nil
+		},
+		startEnsurePlaylistFn: func(_ context.Context, playlistID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+			return job, nil
+		},
+		ensurePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
+			return playbackResult, nil
+		},
+		inspectPlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+			return status, nil
+		},
+		preparePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+			return status, nil
+		},
+		startPreparePlaybackFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error) {
+			return job, nil
+		},
+		getPlaybackPreparationFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+			return status, nil
+		},
+		resolvePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error) {
+			return resolve, nil
+		},
+		listRecordingAvailabilityFn: func(_ context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {
+			return []apitypes.RecordingAvailabilityItem{{DeviceID: "dev-1"}}, nil
+		},
+		getRecordingAvailabilityFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
+			return availability, nil
+		},
+		recordingAvailabilityOVFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {
+			return recordingOverview, nil
+		},
+		albumAvailabilityOVFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
+			return albumOverview, nil
+		},
+		resolveArtworkRefFn: func(_ context.Context, artwork apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error) {
+			return apitypes.ArtworkResolveResult{
+				Artwork:   apitypes.ArtworkRef{BlobID: artwork.BlobID, MIME: "image/webp", FileExt: ".webp"},
+				LocalPath: blobPath,
+				Available: true,
+			}, nil
+		},
+		ensurePlaybackAlbumFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+			return playbackBatch, nil
+		},
+		ensurePlaybackPlaylistFn: func(_ context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
+			return playbackBatch, nil
+		},
+		resolveRecordingArtworkFn: func(_ context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error) {
+			return apitypes.RecordingArtworkResult{
+				RecordingID: recordingID,
+				Artwork:     apitypes.ArtworkRef{BlobID: "b3:" + hashHex, MIME: "image/webp", FileExt: ".webp"},
+			}, nil
+		},
+	})
+	host.blobRoot = blobRoot
 
 	cacheFacade := NewCacheFacade(host)
 	if got, err := cacheFacade.GetCacheOverview(ctx); err != nil || got.UsedBytes != overview.UsedBytes {

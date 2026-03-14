@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 type scanFlight struct {

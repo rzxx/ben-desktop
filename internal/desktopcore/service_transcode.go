@@ -2,7 +2,6 @@ package desktopcore
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -12,9 +11,8 @@ import (
 	"sync"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
-	"lukechampine.com/blake3"
 )
 
 const (
@@ -244,7 +242,7 @@ func (s *TranscodeService) EnsureRecordingEncoding(ctx context.Context, local ap
 	now := time.Now().UTC()
 	encodingID := stableNameID("encoding", source.SourceFileID+"|"+spec.ID)
 	bitrate := measuredAverageBitrate(len(encoded), source.DurationMS)
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := s.app.upsertOptimizedAssetTx(tx, local, OptimizedAssetModel{
 			OptimizedAssetID:  encodingID,
 			SourceFileID:      source.SourceFileID,
@@ -288,7 +286,7 @@ WHERE sf.library_id = ? AND sf.device_id = ? AND sf.is_present = 1 AND req.track
 ORDER BY CASE WHEN sf.track_variant_id = ? THEN 0 ELSE 1 END ASC, sf.last_seen_at DESC, sf.quality_rank DESC, sf.size_bytes DESC, sf.local_path ASC
 LIMIT 1`
 	var row SourceFileModel
-	if err := s.app.db.WithContext(ctx).Raw(query, libraryID, deviceID, recordingID, recordingID).Scan(&row).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, deviceID, recordingID, recordingID).Scan(&row).Error; err != nil {
 		return SourceFileModel{}, false, err
 	}
 	if strings.TrimSpace(row.SourceFileID) == "" {
@@ -299,7 +297,7 @@ LIMIT 1`
 
 func (s *TranscodeService) findEncodingForSource(ctx context.Context, libraryID, sourceFileID, profile string) (OptimizedAssetModel, bool, error) {
 	var row OptimizedAssetModel
-	err := s.app.db.WithContext(ctx).
+	err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND source_file_id = ? AND profile = ?", libraryID, sourceFileID, profile).
 		Take(&row).Error
 	if err != nil {
@@ -313,7 +311,7 @@ func (s *TranscodeService) findEncodingForSource(ctx context.Context, libraryID,
 
 func (s *TranscodeService) markAssetCached(ctx context.Context, local apitypes.LocalContext, optimizedAssetID string) error {
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		lastVerified := now
 		return s.app.upsertDeviceAssetCacheTx(tx, local, DeviceAssetCacheModel{
 			DeviceID:         local.DeviceID,
@@ -326,74 +324,15 @@ func (s *TranscodeService) markAssetCached(ctx context.Context, local apitypes.L
 }
 
 func (s *TranscodeService) storeBlobBytes(data []byte) (string, error) {
-	blobID := blobIDForBytes(data)
-	path, err := s.blobPath(blobID)
-	if err != nil {
-		return "", err
-	}
-	if _, err := os.Stat(path); err == nil {
-		return blobID, nil
-	} else if !os.IsNotExist(err) {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
-		return "", err
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		if _, statErr := os.Stat(path); statErr == nil {
-			_ = os.Remove(tempPath)
-			return blobID, nil
-		}
-		_ = os.Remove(tempPath)
-		return "", err
-	}
-	return blobID, nil
-}
-
-func blobIDForBytes(data []byte) string {
-	sum := blake3.Sum256(data)
-	return "b3:" + hex.EncodeToString(sum[:])
-}
-
-func verifyBlobIDBytes(blobID string, data []byte) error {
-	if strings.TrimSpace(blobID) == "" {
-		return fmt.Errorf("blob id is required")
-	}
-	if actual := blobIDForBytes(data); strings.TrimSpace(actual) != strings.TrimSpace(blobID) {
-		return fmt.Errorf("blob hash mismatch")
-	}
-	return nil
+	return s.app.blobs.StoreBytes(data)
 }
 
 func (s *TranscodeService) readVerifiedBlob(blobID string) ([]byte, error) {
-	path, err := s.blobPath(blobID)
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if err := verifyBlobIDBytes(blobID, data); err != nil {
-		return nil, err
-	}
-	return data, nil
+	return s.app.blobs.ReadVerified(blobID)
 }
 
 func (s *TranscodeService) blobPath(blobID string) (string, error) {
-	parts := strings.SplitN(strings.TrimSpace(blobID), ":", 2)
-	if len(parts) != 2 || strings.TrimSpace(parts[0]) != "b3" {
-		return "", fmt.Errorf("invalid blob id")
-	}
-	hashHex := strings.ToLower(strings.TrimSpace(parts[1]))
-	if len(hashHex) != 64 {
-		return "", fmt.Errorf("invalid blob id")
-	}
-	return filepath.Join(s.app.cfg.BlobRoot, "b3", hashHex[:2], hashHex[2:4], hashHex), nil
+	return s.app.blobs.Path(blobID)
 }
 
 func measuredAverageBitrate(bytes int, durationMS int64) int {

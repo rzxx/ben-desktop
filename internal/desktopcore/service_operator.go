@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 const (
@@ -45,14 +45,14 @@ func (a *App) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, er
 func (a *App) Inspect(ctx context.Context) (apitypes.InspectSummary, error) {
 	count := func(model any) (int64, error) {
 		var total int64
-		if err := a.db.WithContext(ctx).Model(model).Count(&total).Error; err != nil {
+		if err := a.storage.WithContext(ctx).Model(model).Count(&total).Error; err != nil {
 			return 0, err
 		}
 		return total, nil
 	}
 	countWhere := func(model any, query string, args ...any) (int64, error) {
 		var total int64
-		if err := a.db.WithContext(ctx).Model(model).Where(query, args...).Count(&total).Error; err != nil {
+		if err := a.storage.WithContext(ctx).Model(model).Where(query, args...).Count(&total).Error; err != nil {
 			return 0, err
 		}
 		return total, nil
@@ -190,7 +190,7 @@ func (a *App) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointS
 	}
 
 	var checkpoint LibraryCheckpoint
-	err = a.db.WithContext(ctx).
+	err = a.storage.WithContext(ctx).
 		Where("library_id = ? AND published_at IS NOT NULL", libraryID).
 		Order("published_at DESC").
 		Limit(1).
@@ -207,7 +207,7 @@ func (a *App) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointS
 		Role     string
 	}
 	var members []memberRow
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Table("memberships").
 		Select("device_id, role").
 		Where("library_id = ?", libraryID).
@@ -217,7 +217,7 @@ func (a *App) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointS
 	}
 
 	var acks []DeviceCheckpointAck
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND checkpoint_id = ?", libraryID, checkpoint.CheckpointID).
 		Find(&acks).Error; err != nil {
 		return apitypes.LibraryCheckpointStatus{}, err
@@ -275,7 +275,7 @@ func (a *App) inspectOplogGroups(ctx context.Context, libraryID, column string) 
 	}
 
 	var rows []row
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Model(&OplogEntry{}).
 		Select(column+" AS key, COUNT(*) AS count").
 		Where("library_id = ?", strings.TrimSpace(libraryID)).
@@ -318,7 +318,7 @@ func (a *App) inspectOplogRecency(ctx context.Context, libraryID string, now tim
 	out := make([]apitypes.OplogRecencyBucket, 0, len(buckets))
 	for _, bucket := range buckets {
 		var total int64
-		query := a.db.WithContext(ctx).Model(&OplogEntry{}).Where("library_id = ?", strings.TrimSpace(libraryID))
+		query := a.storage.WithContext(ctx).Model(&OplogEntry{}).Where("library_id = ?", strings.TrimSpace(libraryID))
 		if bucket.name == "older" {
 			query = query.Where("tsns < ?", bucket.max)
 		} else {
@@ -335,14 +335,14 @@ func (a *App) inspectOplogRecency(ctx context.Context, libraryID string, now tim
 func (a *App) inspectLibraryMaterializedCounts(ctx context.Context, libraryID string) (apitypes.LibraryMaterializedCounts, error) {
 	count := func(model any) (int64, error) {
 		var total int64
-		if err := a.db.WithContext(ctx).Model(model).Where("library_id = ?", strings.TrimSpace(libraryID)).Count(&total).Error; err != nil {
+		if err := a.storage.WithContext(ctx).Model(model).Where("library_id = ?", strings.TrimSpace(libraryID)).Count(&total).Error; err != nil {
 			return 0, err
 		}
 		return total, nil
 	}
 	countWhere := func(model any, query string, args ...any) (int64, error) {
 		var total int64
-		if err := a.db.WithContext(ctx).Model(model).Where("library_id = ?", strings.TrimSpace(libraryID)).Where(query, args...).Count(&total).Error; err != nil {
+		if err := a.storage.WithContext(ctx).Model(model).Where("library_id = ?", strings.TrimSpace(libraryID)).Where(query, args...).Count(&total).Error; err != nil {
 			return 0, err
 		}
 		return total, nil
@@ -403,3 +403,4 @@ func groupCount(groups []apitypes.OplogDiagnosticsGroup, key string) int64 {
 	}
 	return 0
 }
+

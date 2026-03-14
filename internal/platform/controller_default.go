@@ -10,7 +10,7 @@ import (
 
 type noopController struct{}
 
-func NewController(_ *application.App, _ *playback.Session, _ playback.CorePlaybackBridge) playback.PlatformController {
+func NewController(_ *application.App, _ *playback.Session, _ playback.PlaybackCore) playback.PlatformController {
 	return &noopController{}
 }
 

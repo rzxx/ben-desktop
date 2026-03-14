@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -76,7 +76,7 @@ func (s *LibraryService) CreateLibrary(ctx context.Context, name string) (apityp
 
 	now := time.Now().UTC()
 	libraryID := uuid.NewString()
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&Library{
 			LibraryID: libraryID,
 			Name:      name,
@@ -133,7 +133,7 @@ func (s *LibraryService) SelectLibrary(ctx context.Context, libraryID string) (a
 	}
 
 	var membership Membership
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", libraryID, device.DeviceID).
 		Take(&membership).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -141,14 +141,14 @@ func (s *LibraryService) SelectLibrary(ctx context.Context, libraryID string) (a
 		}
 		return apitypes.LibrarySummary{}, err
 	}
-	if err := s.app.db.WithContext(ctx).Model(&Device{}).
+	if err := s.app.storage.WithContext(ctx).Model(&Device{}).
 		Where("device_id = ?", device.DeviceID).
 		Update("active_library_id", libraryID).Error; err != nil {
 		return apitypes.LibrarySummary{}, err
 	}
 
 	var library Library
-	if err := s.app.db.WithContext(ctx).Where("library_id = ?", libraryID).Take(&library).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Where("library_id = ?", libraryID).Take(&library).Error; err != nil {
 		return apitypes.LibrarySummary{}, err
 	}
 	if err := s.app.syncActiveRuntimeServices(ctx); err != nil {
@@ -176,7 +176,7 @@ func (s *LibraryService) RenameLibrary(ctx context.Context, libraryID, name stri
 	if !canManageLibrary(local.Role) {
 		return apitypes.LibrarySummary{}, fmt.Errorf("library rename requires admin role")
 	}
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&Library{}).
 			Where("library_id = ?", libraryID).
 			Update("name", name).Error; err != nil {
@@ -202,7 +202,7 @@ func (s *LibraryService) LeaveLibrary(ctx context.Context, libraryID string) err
 	if libraryID == "" {
 		return fmt.Errorf("library id is required")
 	}
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("library_id = ? AND device_id = ?", libraryID, device.DeviceID).Delete(&Membership{}).Error; err != nil {
 			return err
 		}
@@ -230,7 +230,7 @@ func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) er
 	if !canManageLibrary(local.Role) {
 		return fmt.Errorf("library delete requires admin role")
 	}
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&Device{}).Where("active_library_id = ?", libraryID).Update("active_library_id", nil).Error; err != nil {
 			return err
 		}
@@ -287,7 +287,7 @@ LEFT JOIN devices d ON d.device_id = m.device_id
 LEFT JOIN peer_sync_states ps ON ps.library_id = m.library_id AND ps.device_id = m.device_id
 WHERE m.library_id = ?
 ORDER BY CASE WHEN m.device_id = ? THEN 0 ELSE 1 END, m.device_id ASC`
-	if err := s.app.db.WithContext(ctx).Raw(query, local.LibraryID, local.DeviceID).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, local.DeviceID).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]apitypes.LibraryMemberStatus, 0, len(rows))
@@ -320,7 +320,7 @@ func (s *LibraryService) UpdateLibraryMemberRole(ctx context.Context, deviceID, 
 	if !canManageLibrary(local.Role) {
 		return fmt.Errorf("member role update requires admin role")
 	}
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		actor, err := loadManagedMembershipTx(tx, local.LibraryID, local.DeviceID)
 		if err != nil {
 			return err
@@ -389,7 +389,7 @@ func (s *LibraryService) RemoveLibraryMember(ctx context.Context, deviceID strin
 	if !canManageLibrary(local.Role) {
 		return fmt.Errorf("member removal requires admin role")
 	}
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		actor, err := loadManagedMembershipTx(tx, local.LibraryID, local.DeviceID)
 		if err != nil {
 			return err
@@ -435,16 +435,16 @@ func (a *App) ensureCurrentDevice(ctx context.Context) (Device, error) {
 	}
 
 	var setting LocalSetting
-	if err := a.db.WithContext(ctx).Where("key = ?", localSettingCurrentDevice).Take(&setting).Error; err == nil {
+	if err := a.storage.WithContext(ctx).Where("key = ?", localSettingCurrentDevice).Take(&setting).Error; err == nil {
 		var device Device
-		if err := a.db.WithContext(ctx).Where("device_id = ?", strings.TrimSpace(setting.Value)).Take(&device).Error; err == nil {
+		if err := a.storage.WithContext(ctx).Where("device_id = ?", strings.TrimSpace(setting.Value)).Take(&device).Error; err == nil {
 			now := time.Now().UTC()
 			updates := map[string]any{"last_seen_at": &now}
 			if strings.TrimSpace(host) != "" && device.Name != host {
 				updates["name"] = host
 				device.Name = host
 			}
-			if err := a.db.WithContext(ctx).Model(&Device{}).Where("device_id = ?", device.DeviceID).Updates(updates).Error; err != nil {
+			if err := a.storage.WithContext(ctx).Model(&Device{}).Where("device_id = ?", device.DeviceID).Updates(updates).Error; err != nil {
 				return Device{}, err
 			}
 			device.LastSeenAt = &now
@@ -459,7 +459,7 @@ func (a *App) ensureCurrentDevice(ctx context.Context) (Device, error) {
 		JoinedAt:   now,
 		LastSeenAt: &now,
 	}
-	if err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&device).Error; err != nil {
 			return err
 		}
@@ -476,7 +476,7 @@ func (a *App) ensureCurrentDevice(ctx context.Context) (Device, error) {
 
 func (a *App) activeLibraryForDevice(ctx context.Context, deviceID string) (deviceLibraryRow, bool, error) {
 	var device Device
-	if err := a.db.WithContext(ctx).Select("active_library_id").Where("device_id = ?", deviceID).Take(&device).Error; err != nil {
+	if err := a.storage.WithContext(ctx).Select("active_library_id").Where("device_id = ?", deviceID).Take(&device).Error; err != nil {
 		return deviceLibraryRow{}, false, err
 	}
 	if device.ActiveLibraryID == nil || strings.TrimSpace(*device.ActiveLibraryID) == "" {
@@ -485,7 +485,7 @@ func (a *App) activeLibraryForDevice(ctx context.Context, deviceID string) (devi
 	activeLibraryID := strings.TrimSpace(*device.ActiveLibraryID)
 
 	var row deviceLibraryRow
-	err := a.db.WithContext(ctx).
+	err := a.storage.WithContext(ctx).
 		Table("memberships AS m").
 		Select("l.library_id, l.name, m.role, m.joined_at").
 		Joins("JOIN libraries l ON l.library_id = m.library_id").
@@ -503,7 +503,7 @@ func (a *App) activeLibraryForDevice(ctx context.Context, deviceID string) (devi
 
 func (a *App) listLibrariesForDevice(ctx context.Context, deviceID string) ([]deviceLibraryRow, error) {
 	var device Device
-	if err := a.db.WithContext(ctx).Select("active_library_id").Where("device_id = ?", deviceID).Take(&device).Error; err != nil {
+	if err := a.storage.WithContext(ctx).Select("active_library_id").Where("device_id = ?", deviceID).Take(&device).Error; err != nil {
 		return nil, err
 	}
 	activeLibraryID := ""
@@ -512,7 +512,7 @@ func (a *App) listLibrariesForDevice(ctx context.Context, deviceID string) ([]de
 	}
 
 	var rows []deviceLibraryRow
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Table("memberships AS m").
 		Select("l.library_id, l.name, m.role, m.joined_at").
 		Joins("JOIN libraries l ON l.library_id = m.library_id").
@@ -547,3 +547,4 @@ func (a *App) requireActiveContext(ctx context.Context) (apitypes.LocalContext, 
 		PeerID:    device.PeerID,
 	}, nil
 }
+

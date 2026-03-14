@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 func TestPlaylistMutationsAppendOplogAndAdvanceClock(t *testing.T) {

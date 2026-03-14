@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
 )
 
@@ -279,7 +279,7 @@ func (s *ArtworkService) reconcileAlbumArtwork(ctx context.Context, local apityp
 	}
 	chosenSourceRef := ""
 	if len(existing) > 0 {
-		_, chosenSourceRef, _, err = localArtworkSourceRefForScopeTx(s.app.db.WithContext(ctx), local.LibraryID, "album", albumID, existing[0].Variant)
+		_, chosenSourceRef, _, err = localArtworkSourceRefForScopeTx(s.app.storage.WithContext(ctx), local.LibraryID, "album", albumID, existing[0].Variant)
 		if err != nil {
 			return err
 		}
@@ -359,7 +359,7 @@ func (s *ArtworkService) storeArtworkScope(ctx context.Context, local apitypes.L
 		return ErrNoArtworkFound
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, variant := range built.Variants {
 			blobID, err := s.app.transcode.storeBlobBytes(variant.Bytes)
 			if err != nil {
@@ -388,14 +388,14 @@ func (s *ArtworkService) storeArtworkScope(ctx context.Context, local apitypes.L
 }
 
 func (s *ArtworkService) deleteAlbumArtwork(ctx context.Context, local apitypes.LocalContext, albumID string) error {
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return s.app.deleteArtworkScopeTx(tx, local, "album", albumID)
 	})
 }
 
 func (s *ArtworkService) loadScopeArtwork(ctx context.Context, libraryID, scopeType, scopeID string) ([]ArtworkVariant, error) {
 	var rows []ArtworkVariant
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND scope_type = ? AND scope_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(scopeType), strings.TrimSpace(scopeID)).
 		Order("variant ASC").
 		Find(&rows).Error; err != nil {
@@ -412,7 +412,7 @@ FROM source_files sf
 JOIN album_tracks at ON at.library_id = sf.library_id AND at.track_variant_id = sf.track_variant_id
 WHERE sf.library_id = ? AND sf.device_id = ? AND at.album_variant_id = ? AND sf.is_present = 1
 ORDER BY sf.quality_rank DESC, sf.last_seen_at DESC, sf.size_bytes DESC, sf.local_path ASC`
-	if err := s.app.db.WithContext(ctx).Raw(query, strings.TrimSpace(libraryID), strings.TrimSpace(deviceID), strings.TrimSpace(albumID)).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, strings.TrimSpace(libraryID), strings.TrimSpace(deviceID), strings.TrimSpace(albumID)).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -440,7 +440,7 @@ func (s *ArtworkService) albumIDsForTrackVariants(ctx context.Context, libraryID
 		AlbumVariantID string
 	}
 	var rows []row
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Table("album_tracks").
 		Select("DISTINCT album_variant_id AS album_variant_id").
 		Where("library_id = ? AND track_variant_id IN ?", strings.TrimSpace(libraryID), clean).
@@ -465,7 +465,7 @@ func (s *ArtworkService) localDeviceOwnsArtworkSource(ctx context.Context, libra
 		return false, nil
 	}
 	var count int64
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Model(&LocalSourcePath{}).
 		Where("library_id = ? AND device_id = ? AND path_key = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID), localPathKey(sourceRef)).
 		Count(&count).Error; err != nil {
@@ -495,3 +495,4 @@ func artworkVariantsComplete(rows []ArtworkVariant) bool {
 	}
 	return true
 }
+

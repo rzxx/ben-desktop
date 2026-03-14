@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/settings"
 )
 

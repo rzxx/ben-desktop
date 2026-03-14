@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 func TestInviteIssueListRevokeFlow(t *testing.T) {

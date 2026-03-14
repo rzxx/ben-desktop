@@ -7,7 +7,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as apitypes$0 from "../core/api/types/models.js";
+import * as apitypes$0 from "./api/types/models.js";
 
 export function CleanupCache(req: apitypes$0.CacheCleanupRequest): $CancellablePromise<apitypes$0.CacheCleanupResult> {
     return $Call.ByID(2385592778, req).then(($result: any) => {

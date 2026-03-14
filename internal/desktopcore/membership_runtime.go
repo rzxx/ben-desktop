@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"golang.org/x/crypto/nacl/box"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -224,7 +224,7 @@ func (a *App) localMembershipRecoverySecret(ctx context.Context, libraryID, devi
 		return "", false, nil
 	}
 	var setting LocalSetting
-	if err := a.db.WithContext(ctx).Where("key = ?", key).Take(&setting).Error; err != nil {
+	if err := a.storage.WithContext(ctx).Where("key = ?", key).Take(&setting).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return "", false, nil
 		}
@@ -316,7 +316,7 @@ func (a *App) requestMembershipRefresh(ctx context.Context, local apitypes.Local
 			continue
 		}
 
-		if err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			if len(resp.AuthorityChain) > 0 {
 				if err := saveAdmissionAuthorityChainTx(tx, local.LibraryID, resp.AuthorityChain); err != nil {
 					return fmt.Errorf("store refreshed admission authority chain: %w", err)
@@ -360,7 +360,7 @@ func (a *App) requestMembershipRefresh(ctx context.Context, local apitypes.Local
 
 func (a *App) libraryRootPublicKey(ctx context.Context, libraryID string) (string, error) {
 	var library Library
-	if err := a.db.WithContext(ctx).Select("root_public_key").Where("library_id = ?", strings.TrimSpace(libraryID)).Take(&library).Error; err != nil {
+	if err := a.storage.WithContext(ctx).Select("root_public_key").Where("library_id = ?", strings.TrimSpace(libraryID)).Take(&library).Error; err != nil {
 		return "", fmt.Errorf("load library root public key: %w", err)
 	}
 	if strings.TrimSpace(library.RootPublicKey) == "" {
@@ -379,7 +379,7 @@ func (a *App) buildMembershipRefreshResponse(ctx context.Context, req Membership
 	}
 
 	var response MembershipRefreshResponse
-	err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		cert, err := refreshMembershipCertWithRecoveryTx(tx, req.LibraryID, req.DeviceID, req.PeerID, req.RecoveryToken, defaultMembershipCertTTL)
 		if err != nil {
 			return err
@@ -460,3 +460,4 @@ func decryptAdmissionMaterial(ciphertext []byte, refreshPubKey, refreshPrivKey *
 	}
 	return strings.TrimSpace(material.PrivateKey), nil
 }
+

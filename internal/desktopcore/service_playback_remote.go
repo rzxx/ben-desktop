@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -215,7 +215,7 @@ func (s *PlaybackService) storeFetchedPlaybackAsset(ctx context.Context, local a
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := mirrorOptimizedAssetTx(tx, asset); err != nil {
 			return err
 		}
@@ -315,7 +315,7 @@ func (s *PlaybackService) resolvePlaybackAssetTransfer(ctx context.Context, loca
 	}
 
 	var asset OptimizedAssetModel
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND optimized_asset_id = ?", local.LibraryID, encodingID).
 		Take(&asset).Error; err != nil {
 		return PlaybackAssetTransfer{}, err
@@ -340,3 +340,4 @@ func (s *PlaybackService) resolvePlaybackAssetTransfer(ctx context.Context, loca
 		Data:              data,
 	}, nil
 }
+

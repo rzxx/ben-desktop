@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -112,7 +112,7 @@ func (s *InviteService) CreateInviteCode(ctx context.Context, req apitypes.Invit
 		return apitypes.InviteCodeResult{}, err
 	}
 
-	if err := s.app.db.WithContext(ctx).Create(&IssuedInvite{
+	if err := s.app.storage.WithContext(ctx).Create(&IssuedInvite{
 		InviteID:   tokenID,
 		LibraryID:  local.LibraryID,
 		TokenID:    tokenID,
@@ -148,7 +148,7 @@ func (s *InviteService) ListIssuedInvites(ctx context.Context, status string) ([
 	}
 
 	var rows []IssuedInvite
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ?", local.LibraryID).
 		Order("created_at DESC").
 		Find(&rows).Error; err != nil {
@@ -185,7 +185,7 @@ func (s *InviteService) RevokeIssuedInvite(ctx context.Context, inviteID, reason
 	}
 
 	var row IssuedInvite
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND invite_id = ?", local.LibraryID, inviteID).
 		Take(&row).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -194,7 +194,7 @@ func (s *InviteService) RevokeIssuedInvite(ctx context.Context, inviteID, reason
 		return err
 	}
 
-	redemptions, err := countInviteRedemptions(ctx, s.app.db, row.LibraryID, row.TokenID)
+	redemptions, err := countInviteRedemptions(ctx, s.app.storage.DB(), row.LibraryID, row.TokenID)
 	if err != nil {
 		return err
 	}
@@ -207,7 +207,7 @@ func (s *InviteService) RevokeIssuedInvite(ctx context.Context, inviteID, reason
 	if reason == "" {
 		reason = "revoked"
 	}
-	return s.app.db.WithContext(ctx).Model(&IssuedInvite{}).
+	return s.app.storage.WithContext(ctx).Model(&IssuedInvite{}).
 		Where("library_id = ? AND invite_id = ?", local.LibraryID, inviteID).
 		Updates(map[string]any{
 			"revoked_at":    &now,
@@ -252,7 +252,7 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 	if !ok {
 		return apitypes.JoinSession{}, fmt.Errorf("invite not found")
 	}
-	redemptions, err := countInviteRedemptions(ctx, s.app.db, issued.LibraryID, issued.TokenID)
+	redemptions, err := countInviteRedemptions(ctx, s.app.storage.DB(), issued.LibraryID, issued.TokenID)
 	if err != nil {
 		return apitypes.JoinSession{}, err
 	}
@@ -273,7 +273,7 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 	fingerprint := fingerprintForDevice(deviceID, peerID)
 	job.Running(0.25, "creating join session")
 
-	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&InviteJoinRequest{
 			RequestID:         requestID,
 			LibraryID:         issued.LibraryID,
@@ -376,7 +376,7 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 	}
 
 	now := time.Now().UTC()
-	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := restoreJoinSessionMaterialTx(tx, session, material, now); err != nil {
 			return err
 		}
@@ -531,7 +531,7 @@ func (s *InviteService) CancelJoinSession(ctx context.Context, sessionID string)
 		return fmt.Errorf("cannot cancel a completed join session")
 	}
 	now := time.Now().UTC()
-	if err := s.app.db.WithContext(ctx).Model(&JoinSession{}).
+	if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
 		Where("session_id = ?", sessionID).
 		Updates(map[string]any{
 			"status":     joinSessionStatusFailed,
@@ -556,7 +556,7 @@ func (s *InviteService) ListJoinRequests(ctx context.Context, status string) ([]
 	}
 
 	var rows []InviteJoinRequest
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ?", local.LibraryID).
 		Order("created_at ASC").
 		Find(&rows).Error; err != nil {
@@ -568,7 +568,7 @@ func (s *InviteService) ListJoinRequests(ctx context.Context, status string) ([]
 	for _, row := range rows {
 		record, changed := normalizeJoinRequestRecord(row, now)
 		if changed {
-			if err := s.app.db.WithContext(ctx).Model(&InviteJoinRequest{}).
+			if err := s.app.storage.WithContext(ctx).Model(&InviteJoinRequest{}).
 				Where("request_id = ?", row.RequestID).
 				Updates(map[string]any{
 					"status":     record.Status,
@@ -616,7 +616,7 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 		return err
 	}
 
-	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var req InviteJoinRequest
 		if err := tx.Where("request_id = ?", requestID).Take(&req).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -804,7 +804,7 @@ func (s *InviteService) RejectJoinRequest(ctx context.Context, requestID, reason
 	}
 
 	now := time.Now().UTC()
-	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var req InviteJoinRequest
 		if err := tx.Where("request_id = ?", requestID).Take(&req).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -865,7 +865,7 @@ func (s *InviteService) RejectJoinRequest(ctx context.Context, requestID, reason
 }
 
 func (s *InviteService) toIssuedInviteRecord(ctx context.Context, row IssuedInvite, now time.Time) (apitypes.IssuedInviteRecord, error) {
-	redemptions, err := countInviteRedemptions(ctx, s.app.db, row.LibraryID, row.TokenID)
+	redemptions, err := countInviteRedemptions(ctx, s.app.storage.DB(), row.LibraryID, row.TokenID)
 	if err != nil {
 		return apitypes.IssuedInviteRecord{}, err
 	}
@@ -887,7 +887,7 @@ func (s *InviteService) toIssuedInviteRecord(ctx context.Context, row IssuedInvi
 
 func (s *InviteService) issuedInviteByToken(ctx context.Context, libraryID, tokenID string) (IssuedInvite, bool, error) {
 	var row IssuedInvite
-	err := s.app.db.WithContext(ctx).
+	err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND token_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(tokenID)).
 		Take(&row).Error
 	if err != nil {
@@ -901,7 +901,7 @@ func (s *InviteService) issuedInviteByToken(ctx context.Context, libraryID, toke
 
 func (s *InviteService) loadJoinSession(ctx context.Context, sessionID string) (JoinSession, error) {
 	var session JoinSession
-	if err := s.app.db.WithContext(ctx).Where("session_id = ?", sessionID).Take(&session).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Where("session_id = ?", sessionID).Take(&session).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return JoinSession{}, fmt.Errorf("join session %s not found", sessionID)
 		}
@@ -916,7 +916,7 @@ func (s *InviteService) loadJoinSessionByRequestID(ctx context.Context, requestI
 		return JoinSession{}, false, nil
 	}
 	var session JoinSession
-	err := s.app.db.WithContext(ctx).Where("request_id = ?", requestID).Take(&session).Error
+	err := s.app.storage.WithContext(ctx).Where("request_id = ?", requestID).Take(&session).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return JoinSession{}, false, nil
@@ -929,7 +929,7 @@ func (s *InviteService) loadJoinSessionByRequestID(ctx context.Context, requestI
 func (s *InviteService) refreshJoinSession(ctx context.Context, session JoinSession) (JoinSession, error) {
 	now := time.Now().UTC()
 	if strings.TrimSpace(session.Status) == joinSessionStatusPending && !session.ExpiresAt.IsZero() && session.ExpiresAt.Before(now) {
-		if err := s.app.db.WithContext(ctx).Model(&JoinSession{}).
+		if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
 			Where("session_id = ?", session.SessionID).
 			Updates(map[string]any{
 				"status":     joinSessionStatusExpired,
@@ -944,10 +944,10 @@ func (s *InviteService) refreshJoinSession(ctx context.Context, session JoinSess
 		strings.TrimSpace(session.Status) != joinSessionStatusCompleted &&
 		strings.TrimSpace(session.Status) != joinSessionStatusFailed {
 		var req InviteJoinRequest
-		if err := s.app.db.WithContext(ctx).Where("request_id = ?", session.RequestID).Take(&req).Error; err == nil {
+		if err := s.app.storage.WithContext(ctx).Where("request_id = ?", session.RequestID).Take(&req).Error; err == nil {
 			req, changed := normalizeJoinRequestRecord(req, now)
 			if changed {
-				if err := s.app.db.WithContext(ctx).Model(&InviteJoinRequest{}).
+				if err := s.app.storage.WithContext(ctx).Model(&InviteJoinRequest{}).
 					Where("request_id = ?", req.RequestID).
 					Updates(map[string]any{
 						"status":     req.Status,
@@ -968,7 +968,7 @@ func (s *InviteService) refreshJoinSession(ctx context.Context, session JoinSess
 				if len(req.EncryptedMaterial) > 0 {
 					nextMaterial = string(req.EncryptedMaterial)
 				}
-				if err := s.app.db.WithContext(ctx).Model(&JoinSession{}).
+				if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
 					Where("session_id = ?", session.SessionID).
 					Updates(map[string]any{
 						"status":        joinSessionStatusApproved,
@@ -980,7 +980,7 @@ func (s *InviteService) refreshJoinSession(ctx context.Context, session JoinSess
 					return JoinSession{}, err
 				}
 			case inviteJoinStatusRejected:
-				if err := s.app.db.WithContext(ctx).Model(&JoinSession{}).
+				if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
 					Where("session_id = ?", session.SessionID).
 					Updates(map[string]any{
 						"status":     joinSessionStatusRejected,
@@ -990,7 +990,7 @@ func (s *InviteService) refreshJoinSession(ctx context.Context, session JoinSess
 					return JoinSession{}, err
 				}
 			case inviteJoinStatusExpired:
-				if err := s.app.db.WithContext(ctx).Model(&JoinSession{}).
+				if err := s.app.storage.WithContext(ctx).Model(&JoinSession{}).
 					Where("session_id = ?", session.SessionID).
 					Updates(map[string]any{
 						"status":     joinSessionStatusExpired,
@@ -1302,13 +1302,13 @@ func (a *App) ensureDevicePeerID(ctx context.Context, deviceID, deviceName strin
 
 	now := time.Now().UTC()
 	var device Device
-	err := a.db.WithContext(ctx).Where("device_id = ?", deviceID).Take(&device).Error
+	err := a.storage.WithContext(ctx).Where("device_id = ?", deviceID).Take(&device).Error
 	if err == nil {
 		if strings.TrimSpace(device.PeerID) != "" && (expectedPeerID == "" || strings.TrimSpace(device.PeerID) == expectedPeerID) {
 			return strings.TrimSpace(device.PeerID), nil
 		}
 		peerID := firstNonEmpty(expectedPeerID, pseudoPeerID(deviceID))
-		if err := a.db.WithContext(ctx).Model(&Device{}).
+		if err := a.storage.WithContext(ctx).Model(&Device{}).
 			Where("device_id = ?", deviceID).
 			Updates(map[string]any{
 				"name":         chooseDeviceName(device.Name, deviceName, deviceID),
@@ -1324,7 +1324,7 @@ func (a *App) ensureDevicePeerID(ctx context.Context, deviceID, deviceName strin
 	}
 
 	peerID := firstNonEmpty(expectedPeerID, pseudoPeerID(deviceID))
-	if err := a.db.WithContext(ctx).Create(&Device{
+	if err := a.storage.WithContext(ctx).Create(&Device{
 		DeviceID:   deviceID,
 		Name:       chooseDeviceName("", deviceName, deviceID),
 		PeerID:     peerID,

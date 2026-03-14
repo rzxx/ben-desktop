@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
 )
 
@@ -231,7 +231,7 @@ func (a *App) publishCheckpoint(ctx context.Context, libraryID, deviceID string,
 	if job != nil {
 		job.Running(0.7, "persisting published checkpoint")
 	}
-	if err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := savePublishedCheckpointTx(tx, manifest, chunks); err != nil {
 			return err
 		}
@@ -273,7 +273,7 @@ func (a *App) compactCheckpoint(ctx context.Context, libraryID string, force boo
 	if job != nil {
 		job.Running(0.65, "deleting checkpoint-covered oplog entries")
 	}
-	if err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for deviceID, seq := range baseClocks {
 			deviceID = strings.TrimSpace(deviceID)
 			if deviceID == "" {
@@ -290,14 +290,14 @@ func (a *App) compactCheckpoint(ctx context.Context, libraryID string, force boo
 		return apitypes.CheckpointCompactionResult{}, err
 	}
 
-	_ = reclaimSQLiteSpace(ctx, a.db)
+	_ = reclaimSQLiteSpace(ctx, a.storage.DB())
 	result.Compactable = true
 	return result, nil
 }
 
 func (a *App) loadPublishedCheckpoint(ctx context.Context, libraryID string) (LibraryCheckpoint, map[string]int64, bool, error) {
 	var checkpoint LibraryCheckpoint
-	err := a.db.WithContext(ctx).
+	err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND published_at IS NOT NULL", strings.TrimSpace(libraryID)).
 		Order("published_at DESC").
 		Limit(1).
@@ -324,7 +324,7 @@ func (a *App) pendingCheckpointDevices(ctx context.Context, libraryID, checkpoin
 	}
 
 	var members []memberRow
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Table("memberships").
 		Select("device_id, role").
 		Where("library_id = ?", strings.TrimSpace(libraryID)).
@@ -334,7 +334,7 @@ func (a *App) pendingCheckpointDevices(ctx context.Context, libraryID, checkpoin
 	}
 
 	var acks []DeviceCheckpointAck
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND checkpoint_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(checkpointID)).
 		Find(&acks).Error; err != nil {
 		return nil, false, err
@@ -368,7 +368,7 @@ func (a *App) pendingCheckpointDevices(ctx context.Context, libraryID, checkpoin
 
 func (a *App) listCheckpointEntries(ctx context.Context, libraryID string) ([]checkpointOplogEntry, error) {
 	var rows []OplogEntry
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Where("library_id = ?", strings.TrimSpace(libraryID)).
 		Order("tsns ASC, device_id ASC, seq ASC, op_id ASC").
 		Find(&rows).Error; err != nil {
@@ -386,7 +386,7 @@ func (a *App) checkpointBaseClocks(ctx context.Context, libraryID string) (map[s
 	baseClocks := make(map[string]int64)
 
 	var clocks []DeviceClock
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Where("library_id = ?", strings.TrimSpace(libraryID)).
 		Find(&clocks).Error; err != nil {
 		return nil, err
@@ -404,7 +404,7 @@ func (a *App) checkpointBaseClocks(ctx context.Context, libraryID string) (map[s
 		MaxSeq   int64
 	}
 	var rows []row
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Model(&OplogEntry{}).
 		Select("device_id, MAX(seq) AS max_seq").
 		Where("library_id = ?", strings.TrimSpace(libraryID)).

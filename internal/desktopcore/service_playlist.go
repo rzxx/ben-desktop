@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -49,7 +49,7 @@ func (s *PlaylistService) CreatePlaylist(ctx context.Context, name, kind string)
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
@@ -93,7 +93,7 @@ func (s *PlaylistService) RenamePlaylist(ctx context.Context, playlistID, name s
 	}
 	row.Name = name
 	row.UpdatedAt = time.Now().UTC()
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&Playlist{}).
 			Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
 			Updates(map[string]any{"name": row.Name, "updated_at": row.UpdatedAt}).Error; err != nil {
@@ -133,7 +133,7 @@ func (s *PlaylistService) DeletePlaylist(ctx context.Context, playlistID string)
 		return fmt.Errorf("reserved playlists are not deletable")
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&Playlist{}).
 			Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
@@ -191,7 +191,7 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 
 	var item PlaylistItem
 	now := time.Now().UTC()
-	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		positionKey, err := playlistItemPositionKeyTx(tx, local.LibraryID, playlistID, req.AfterItemID, req.BeforeItemID, "")
 		if err != nil {
 			return err
@@ -247,7 +247,7 @@ func (s *PlaylistService) MovePlaylistItem(ctx context.Context, req apitypes.Pla
 	}
 
 	var item PlaylistItem
-	err = s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		current, ok, err := playlistItemByIDTx(tx, local.LibraryID, playlistID, itemID)
 		if err != nil {
 			return err
@@ -314,7 +314,7 @@ func (s *PlaylistService) RemovePlaylistItem(ctx context.Context, playlistID, it
 		return s.UnlikeRecording(ctx, item.TrackVariantID)
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&PlaylistItem{}).
 			Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, playlistID, itemID).
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
@@ -364,7 +364,7 @@ func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string)
 		UpdatedAt:      now,
 		PositionKey:    defaultPositionKey(),
 	}
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := ensureLikedPlaylistTx(tx, local.LibraryID, local.DeviceID, now); err != nil {
 			return err
 		}
@@ -416,7 +416,7 @@ func (s *PlaylistService) UnlikeRecording(ctx context.Context, recordingID strin
 		return nil
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&PlaylistItem{}).
 			Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, item.PlaylistID, item.ItemID).
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
@@ -466,7 +466,7 @@ func (s *PlaylistService) toPlaylistRecord(ctx context.Context, row Playlist) (a
 
 func (s *PlaylistService) playlistByID(ctx context.Context, libraryID, playlistID string) (Playlist, bool, error) {
 	var row Playlist
-	err := s.app.db.WithContext(ctx).
+	err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND playlist_id = ? AND deleted_at IS NULL", libraryID, playlistID).
 		Take(&row).Error
 	if err == gorm.ErrRecordNotFound {
@@ -479,12 +479,12 @@ func (s *PlaylistService) playlistByID(ctx context.Context, libraryID, playlistI
 }
 
 func (s *PlaylistService) playlistItemByID(ctx context.Context, libraryID, playlistID, itemID string) (PlaylistItem, bool, error) {
-	return playlistItemByIDTx(s.app.db.WithContext(ctx), libraryID, playlistID, itemID)
+	return playlistItemByIDTx(s.app.storage.WithContext(ctx), libraryID, playlistID, itemID)
 }
 
 func (s *PlaylistService) playlistItemByTrackVariant(ctx context.Context, libraryID, playlistID, recordingID string) (PlaylistItem, bool, error) {
 	var row PlaylistItem
-	err := s.app.db.WithContext(ctx).
+	err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND playlist_id = ? AND track_variant_id = ? AND deleted_at IS NULL", libraryID, playlistID, recordingID).
 		Order("updated_at DESC, added_at DESC, item_id DESC").
 		Take(&row).Error
@@ -499,7 +499,7 @@ func (s *PlaylistService) playlistItemByTrackVariant(ctx context.Context, librar
 
 func (s *PlaylistService) recordingExists(ctx context.Context, libraryID, recordingID string) (bool, error) {
 	var count int64
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Model(&TrackVariantModel{}).
 		Where("library_id = ? AND track_variant_id = ?", libraryID, recordingID).
 		Count(&count).Error; err != nil {
@@ -509,14 +509,14 @@ func (s *PlaylistService) recordingExists(ctx context.Context, libraryID, record
 }
 
 func (s *PlaylistService) ensureLikedPlaylist(ctx context.Context, libraryID, deviceID string) error {
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return ensureLikedPlaylistTx(tx, libraryID, deviceID, time.Now().UTC())
 	})
 }
 
 func (s *PlaylistService) isRecordingLikedInLibrary(ctx context.Context, libraryID, recordingID string) (bool, error) {
 	var count int64
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Table("playlist_items AS pi").
 		Joins("JOIN track_variants tv ON tv.library_id = pi.library_id AND tv.track_variant_id = pi.track_variant_id").
 		Where("pi.library_id = ? AND pi.playlist_id = ? AND pi.track_variant_id = ? AND pi.deleted_at IS NULL",
@@ -760,3 +760,4 @@ func maxPositionKeyValue() *big.Int {
 	max.Sub(max, big.NewInt(1))
 	return max
 }
+

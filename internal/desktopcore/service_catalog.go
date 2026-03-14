@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -77,7 +77,7 @@ WHERE a.library_id = ?
 GROUP BY a.artist_id, a.name
 ORDER BY LOWER(a.name) ASC, a.artist_id ASC`
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, local.LibraryID).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.ArtistListItem]{}, err
 	}
 	pagedRows, pageInfo := pageItems(rows, req.PageRequest)
@@ -187,7 +187,7 @@ WHERE r.library_id = ?
 GROUP BY r.track_variant_id, r.track_cluster_id, r.title, r.duration_ms
 ORDER BY LOWER(r.title) ASC, r.track_variant_id ASC`
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, local.LibraryID).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.RecordingListItem]{}, err
 	}
 	seeds := make([]row, 0, len(rows))
@@ -412,7 +412,7 @@ func (s *CatalogService) SetPreferredRecordingVariant(ctx context.Context, recor
 		return fmt.Errorf("chosen recording is not in the same cluster")
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing DeviceVariantPreference
 		err := tx.Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", local.LibraryID, local.DeviceID, "track", clusterID).
 			Take(&existing).Error
@@ -466,7 +466,7 @@ func (s *CatalogService) SetPreferredAlbumVariant(ctx context.Context, albumID, 
 		return fmt.Errorf("chosen album is not in the same cluster")
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing DeviceVariantPreference
 		err := tx.Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", local.LibraryID, local.DeviceID, "album", clusterID).
 			Take(&existing).Error
@@ -531,7 +531,7 @@ WHERE at.library_id = ? AND at.album_variant_id = ?
 GROUP BY at.track_variant_id, r.track_cluster_id, r.title, r.duration_ms, at.disc_no, at.track_no
 ORDER BY at.disc_no ASC, at.track_no ASC, at.track_variant_id ASC`
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, local.LibraryID, strings.TrimSpace(req.AlbumID)).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, strings.TrimSpace(req.AlbumID)).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.AlbumTrackItem]{}, err
 	}
 	paged, pageInfo := pageItems(rows, req.PageRequest)
@@ -589,7 +589,7 @@ WHERE p.library_id = ? AND p.deleted_at IS NULL
 GROUP BY p.playlist_id, p.name, p.kind, p.created_by, p.updated_at
 ORDER BY CASE WHEN p.kind = ? THEN 0 ELSE 1 END ASC, LOWER(p.name) ASC, p.playlist_id ASC`
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, local.LibraryID, playlistKindLiked).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, playlistKindLiked).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.PlaylistListItem]{}, err
 	}
 	out := make([]apitypes.PlaylistListItem, 0, len(rows))
@@ -662,7 +662,7 @@ ORDER BY CASE WHEN p.kind = 'liked' THEN 0 ELSE 1 END ASC,
 	CASE WHEN p.kind <> 'liked' THEN pi.position_key END ASC,
 	pi.item_id ASC`
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, local.LibraryID, strings.TrimSpace(req.PlaylistID)).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, strings.TrimSpace(req.PlaylistID)).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.PlaylistTrackItem]{}, err
 	}
 	paged, pageInfo := pageItems(rows, req.PageRequest)
@@ -719,7 +719,7 @@ WHERE pi.library_id = ? AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.d
 GROUP BY pi.item_id, pi.track_variant_id, r.track_cluster_id, r.title, r.duration_ms, pi.added_at
 ORDER BY pi.added_at DESC, pi.item_id DESC`
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, local.LibraryID, likedPlaylistIDForLibrary(local.LibraryID)).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, likedPlaylistIDForLibrary(local.LibraryID)).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.LikedRecordingItem]{}, err
 	}
 	paged, pageInfo := pageItems(rows, req.PageRequest)
@@ -751,7 +751,7 @@ func (s *CatalogService) listCollapsedAlbums(ctx context.Context, libraryID, dev
 		AlbumClusterID string
 	}
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.AlbumListItem]{}, err
 	}
 	seeds := make([]row, 0, len(rows))
@@ -818,7 +818,7 @@ func collapsedAlbumFromVariants(variants []apitypes.AlbumVariantItem) (apitypes.
 
 func (s *CatalogService) trackClusterIDForVariant(ctx context.Context, libraryID, recordingID string) (string, bool, error) {
 	var row TrackVariantModel
-	if err := s.app.db.WithContext(ctx).Where("library_id = ? AND track_variant_id = ?", libraryID, recordingID).Take(&row).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Where("library_id = ? AND track_variant_id = ?", libraryID, recordingID).Take(&row).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return "", false, nil
 		}
@@ -829,7 +829,7 @@ func (s *CatalogService) trackClusterIDForVariant(ctx context.Context, libraryID
 
 func (s *CatalogService) albumClusterIDForVariant(ctx context.Context, libraryID, albumID string) (string, bool, error) {
 	var row AlbumVariantModel
-	if err := s.app.db.WithContext(ctx).Where("library_id = ? AND album_variant_id = ?", libraryID, albumID).Take(&row).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Where("library_id = ? AND album_variant_id = ?", libraryID, albumID).Take(&row).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return "", false, nil
 		}
@@ -844,7 +844,7 @@ func (s *CatalogService) preferredRecordingVariantID(ctx context.Context, librar
 		return "", false, err
 	}
 	var pref DeviceVariantPreference
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", libraryID, deviceID, "track", clusterID).
 		Take(&pref).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -861,7 +861,7 @@ func (s *CatalogService) preferredAlbumVariantID(ctx context.Context, libraryID,
 		return "", false, err
 	}
 	var pref DeviceVariantPreference
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", libraryID, deviceID, "album", clusterID).
 		Take(&pref).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -935,7 +935,7 @@ GROUP BY r.track_variant_id, r.track_cluster_id, r.title, r.duration_ms`
 		LocalPath      string
 	}
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, deviceID, deviceID, deviceID, preferredProfile, preferredProfile, libraryID, clusterID).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, deviceID, deviceID, deviceID, preferredProfile, preferredProfile, libraryID, clusterID).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]recordingVariantRow, 0, len(rows))
@@ -1009,7 +1009,7 @@ GROUP BY a.album_variant_id, a.album_cluster_id, a.title, a.year, a.edition`
 		LocalTrackCount int64
 	}
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, deviceID, libraryID, clusterID).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, deviceID, libraryID, clusterID).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]albumVariantRow, 0, len(rows))
@@ -1061,7 +1061,7 @@ LEFT JOIN devices d ON d.device_id = sf.device_id
 WHERE tv.library_id = ? AND tv.track_cluster_id IN ?
 GROUP BY tv.track_cluster_id, sf.device_id, m.role, d.last_seen_at`
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query, libraryID, clusterIDs).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, clusterIDs).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	cachedQuery := `
@@ -1075,7 +1075,7 @@ WHERE tv.library_id = ?
 	AND dac.device_id = ?
 	AND dac.is_cached = 1`
 	var cachedRows []cachedRow
-	if err := s.app.db.WithContext(ctx).Raw(cachedQuery, libraryID, clusterIDs, localDeviceID).Scan(&cachedRows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(cachedQuery, libraryID, clusterIDs, localDeviceID).Scan(&cachedRows).Error; err != nil {
 		return nil, err
 	}
 	type facts struct {
@@ -1149,7 +1149,7 @@ FROM album_tracks at
 JOIN track_variants tv ON tv.library_id = at.library_id AND tv.track_variant_id = at.track_variant_id
 WHERE at.library_id = ? AND at.album_variant_id IN ?
 GROUP BY at.album_variant_id, tv.track_cluster_id`
-	if err := s.app.db.WithContext(ctx).Raw(query, libraryID, albumIDs).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, albumIDs).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	grouped := make(map[string][]string)
@@ -1179,7 +1179,7 @@ FROM credits c
 JOIN track_variants tv ON tv.library_id = c.library_id AND tv.track_variant_id = c.entity_id
 WHERE c.library_id = ? AND c.entity_type = 'track' AND c.artist_id IN ?
 GROUP BY c.artist_id, tv.track_cluster_id`
-	if err := s.app.db.WithContext(ctx).Raw(query, libraryID, artistIDs).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, artistIDs).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	grouped := make(map[string][]string)
@@ -1366,7 +1366,7 @@ func compareAlbumVariants(left, right albumVariantRow, explicitPreferredID strin
 
 func (s *CatalogService) loadAlbumArtworkRef(ctx context.Context, libraryID, albumID string) (apitypes.ArtworkRef, error) {
 	var rows []ArtworkVariant
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND scope_type = 'album' AND scope_id = ?", libraryID, albumID).
 		Order("variant ASC").
 		Find(&rows).Error; err != nil {
@@ -1377,7 +1377,7 @@ func (s *CatalogService) loadAlbumArtworkRef(ctx context.Context, libraryID, alb
 
 func (s *CatalogService) loadPlaylistArtworkRef(ctx context.Context, libraryID, playlistID string) (apitypes.ArtworkRef, bool, error) {
 	var rows []ArtworkVariant
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND scope_type = 'playlist' AND scope_id = ?", libraryID, playlistID).
 		Order("variant ASC").
 		Find(&rows).Error; err != nil {
@@ -1406,3 +1406,4 @@ func choosePreferredArtwork(rows []ArtworkVariant) apitypes.ArtworkRef {
 	}
 	return choices[0]
 }
+

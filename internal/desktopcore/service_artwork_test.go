@@ -7,7 +7,7 @@ import (
 	"sort"
 	"testing"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 type artworkBuilderByPathStub struct {

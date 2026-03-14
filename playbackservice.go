@@ -25,7 +25,7 @@ type PlaybackService struct {
 
 	app      *application.App
 	host     *coreHost
-	bridge   playback.CorePlaybackBridge
+	core     playback.PlaybackCore
 	session  *playback.Session
 	platform playback.PlatformController
 	store    interface{ Close() error }
@@ -63,10 +63,10 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		_ = store.Close()
 		return err
 	}
-	playbackRuntime := host.Runtime()
+	playbackCore := host
 
 	session := playback.NewSession(
-		playbackRuntime,
+		playbackCore,
 		playback.NewBackend(),
 		store,
 		host.PreferredProfile(),
@@ -75,22 +75,22 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 	session.SetSnapshotEmitter(s.handlePlaybackSnapshot)
 	if err := session.Start(ctx); err != nil {
 		_ = store.Close()
-		_ = playbackRuntime.Close()
+		_ = playbackCore.Close()
 		return err
 	}
 
-	controller := platform.NewController(app, session, playbackRuntime)
+	controller := platform.NewController(app, session, playbackCore)
 	if err := controller.Start(); err != nil {
 		_ = session.Close()
 		_ = store.Close()
-		_ = playbackRuntime.Close()
+		_ = playbackCore.Close()
 		return err
 	}
 
 	s.mu.Lock()
 	s.app = app
 	s.host = host
-	s.bridge = playbackRuntime
+	s.core = playbackCore
 	s.session = session
 	s.platform = controller
 	s.store = store
@@ -104,12 +104,12 @@ func (s *PlaybackService) ServiceShutdown() error {
 	s.mu.Lock()
 	controller := s.platform
 	session := s.session
-	bridge := s.bridge
+	core := s.core
 	host := s.host
 	store := s.store
 	s.platform = nil
 	s.session = nil
-	s.bridge = nil
+	s.core = nil
 	s.host = nil
 	s.store = nil
 	s.app = nil
@@ -135,8 +135,8 @@ func (s *PlaybackService) ServiceShutdown() error {
 		if err := host.Close(); err != nil && shutdownErr == nil {
 			shutdownErr = err
 		}
-	} else if bridge != nil {
-		if err := bridge.Close(); err != nil && shutdownErr == nil {
+	} else if core != nil {
+		if err := core.Close(); err != nil && shutdownErr == nil {
 			shutdownErr = err
 		}
 	}
@@ -312,7 +312,11 @@ func (s *PlaybackService) SetShuffle(enabled bool) (playback.SessionSnapshot, er
 }
 
 func (s *PlaybackService) PlayAlbum(ctx context.Context, albumID string) (playback.SessionSnapshot, error) {
-	contextInput, err := s.requireLoader().LoadAlbumContext(ctx, albumID)
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	contextInput, err := loader.LoadAlbumContext(ctx, albumID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -320,7 +324,11 @@ func (s *PlaybackService) PlayAlbum(ctx context.Context, albumID string) (playba
 }
 
 func (s *PlaybackService) PlayAlbumTrack(ctx context.Context, albumID string, recordingID string) (playback.SessionSnapshot, error) {
-	contextInput, err := s.requireLoader().LoadAlbumTrackContext(ctx, albumID, recordingID)
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	contextInput, err := loader.LoadAlbumTrackContext(ctx, albumID, recordingID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -328,7 +336,11 @@ func (s *PlaybackService) PlayAlbumTrack(ctx context.Context, albumID string, re
 }
 
 func (s *PlaybackService) QueueAlbum(ctx context.Context, albumID string) (playback.SessionSnapshot, error) {
-	contextInput, err := s.requireLoader().LoadAlbumContext(ctx, albumID)
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	contextInput, err := loader.LoadAlbumContext(ctx, albumID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -336,7 +348,11 @@ func (s *PlaybackService) QueueAlbum(ctx context.Context, albumID string) (playb
 }
 
 func (s *PlaybackService) PlayPlaylist(ctx context.Context, playlistID string) (playback.SessionSnapshot, error) {
-	contextInput, err := s.requireLoader().LoadPlaylistContext(ctx, playlistID)
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	contextInput, err := loader.LoadPlaylistContext(ctx, playlistID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -344,7 +360,11 @@ func (s *PlaybackService) PlayPlaylist(ctx context.Context, playlistID string) (
 }
 
 func (s *PlaybackService) PlayPlaylistTrack(ctx context.Context, playlistID string, itemID string) (playback.SessionSnapshot, error) {
-	contextInput, err := s.requireLoader().LoadPlaylistTrackContext(ctx, playlistID, itemID)
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	contextInput, err := loader.LoadPlaylistTrackContext(ctx, playlistID, itemID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -352,7 +372,11 @@ func (s *PlaybackService) PlayPlaylistTrack(ctx context.Context, playlistID stri
 }
 
 func (s *PlaybackService) QueuePlaylist(ctx context.Context, playlistID string) (playback.SessionSnapshot, error) {
-	contextInput, err := s.requireLoader().LoadPlaylistContext(ctx, playlistID)
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	contextInput, err := loader.LoadPlaylistContext(ctx, playlistID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -360,7 +384,11 @@ func (s *PlaybackService) QueuePlaylist(ctx context.Context, playlistID string) 
 }
 
 func (s *PlaybackService) PlayRecording(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
-	contextInput, err := s.requireLoader().LoadRecordingContext(ctx, recordingID)
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	contextInput, err := loader.LoadRecordingContext(ctx, recordingID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -368,7 +396,11 @@ func (s *PlaybackService) PlayRecording(ctx context.Context, recordingID string)
 }
 
 func (s *PlaybackService) QueueRecording(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
-	contextInput, err := s.requireLoader().LoadRecordingContext(ctx, recordingID)
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	contextInput, err := loader.LoadRecordingContext(ctx, recordingID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -376,7 +408,11 @@ func (s *PlaybackService) QueueRecording(ctx context.Context, recordingID string
 }
 
 func (s *PlaybackService) PlayLiked(ctx context.Context) (playback.SessionSnapshot, error) {
-	contextInput, err := s.requireLoader().LoadLikedContext(ctx)
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	contextInput, err := loader.LoadLikedContext(ctx)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -384,7 +420,11 @@ func (s *PlaybackService) PlayLiked(ctx context.Context) (playback.SessionSnapsh
 }
 
 func (s *PlaybackService) PlayLikedTrack(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
-	contextInput, err := s.requireLoader().LoadLikedTrackContext(ctx, recordingID)
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	contextInput, err := loader.LoadLikedTrackContext(ctx, recordingID)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -416,22 +456,22 @@ func (s *PlaybackService) replaceContextAndPlay(ctx context.Context, input playb
 	return session.Play(ctx)
 }
 
-func (s *PlaybackService) requireLoader() *playback.CatalogLoader {
-	return playback.NewCatalogLoader(s.requirePlaybackBridge())
+func (s *PlaybackService) requireLoader() (*playback.CatalogLoader, error) {
+	core, err := s.requirePlaybackCore()
+	if err != nil {
+		return nil, err
+	}
+	return playback.NewCatalogLoader(core), nil
 }
 
-func (s *PlaybackService) requirePlaybackBridge() playback.CorePlaybackBridge {
+func (s *PlaybackService) requirePlaybackCore() (playback.PlaybackCore, error) {
 	s.mu.RLock()
-	bridge := s.bridge
-	host := s.host
+	core := s.core
 	s.mu.RUnlock()
-	if bridge == nil {
-		if host != nil {
-			return host.Runtime()
-		}
-		return desktopcore.NewUnavailableCore(fmt.Errorf("core playback bridge is not available"))
+	if core == nil {
+		return nil, fmt.Errorf("playback core is not available")
 	}
-	return bridge
+	return core, nil
 }
 
 func (s *PlaybackService) requireHost() *coreHost {

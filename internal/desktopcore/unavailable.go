@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 type UnavailableCore struct {

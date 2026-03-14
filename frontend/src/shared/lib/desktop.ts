@@ -6,7 +6,7 @@ import * as JobsFacade from "../../../bindings/ben/desktop/jobsfacade";
 import * as LibraryFacade from "../../../bindings/ben/desktop/libraryfacade";
 import * as NetworkFacade from "../../../bindings/ben/desktop/networkfacade";
 import * as PlaybackFacade from "../../../bindings/ben/desktop/playbackfacade";
-import * as Types from "../../../bindings/ben/core/api/types/models";
+import * as Types from "../../../bindings/ben/desktop/api/types/models";
 import * as DesktopCoreModels from "../../../bindings/ben/desktop/internal/desktopcore/models";
 import * as PlaybackModels from "../../../bindings/ben/desktop/internal/playback/models";
 
@@ -233,6 +233,10 @@ export function getLibraryOplogDiagnostics(libraryId = "") {
 
 export function connectPeer(peerAddr: string) {
   return NetworkFacade.ConnectPeer(peerAddr);
+}
+
+export function startConnectPeer(peerAddr: string) {
+  return NetworkFacade.StartConnectPeer(peerAddr);
 }
 
 export function addScanRoots(roots: string[]) {

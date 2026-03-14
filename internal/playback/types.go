@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 const EventSnapshotChanged = "playback:snapshot"
@@ -114,7 +114,7 @@ type EntryPreparation struct {
 	Status  apitypes.PlaybackPreparationStatus `json:"status"`
 }
 
-type CorePlaybackBridge interface {
+type PlaybackCore interface {
 	Close() error
 	ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error)
 	GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error)

@@ -119,7 +119,7 @@ func autoMigrate(db *gorm.DB) error {
 const pathPrivacyEpoch = "2"
 
 func (a *App) runPathPrivacyMigration(ctx context.Context) error {
-	if a == nil || a.db == nil {
+	if a == nil || a.storage == nil {
 		return nil
 	}
 
@@ -133,7 +133,7 @@ func (a *App) runPathPrivacyMigration(ctx context.Context) error {
 	}
 
 	var setting LocalSetting
-	err = a.db.WithContext(ctx).Where("key = ?", localSettingPathPrivacyEpoch).Take(&setting).Error
+	err = a.storage.WithContext(ctx).Where("key = ?", localSettingPathPrivacyEpoch).Take(&setting).Error
 	switch {
 	case err == nil && strings.TrimSpace(setting.Value) == pathPrivacyEpoch:
 		return nil
@@ -142,7 +142,7 @@ func (a *App) runPathPrivacyMigration(ctx context.Context) error {
 	}
 
 	now := time.Now().UTC()
-	return a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var sources []SourceFileModel
 		if err := tx.Order("library_id ASC, device_id ASC, source_file_id ASC").Find(&sources).Error; err != nil {
 			return err

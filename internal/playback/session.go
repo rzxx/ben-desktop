@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 var errPendingPlayback = errors.New("playback is waiting for an available source")
@@ -31,7 +31,7 @@ type Logger interface {
 type Session struct {
 	mu sync.Mutex
 
-	bridge           CorePlaybackBridge
+	core             PlaybackCore
 	backend          Backend
 	store            SessionStore
 	preferredProfile string
@@ -61,12 +61,12 @@ type Session struct {
 	pendingToken  uint64
 }
 
-func NewSession(bridge CorePlaybackBridge, backend Backend, store SessionStore, preferredProfile string, logger Logger) *Session {
+func NewSession(core PlaybackCore, backend Backend, store SessionStore, preferredProfile string, logger Logger) *Session {
 	if backend == nil {
 		backend = NewBackend()
 	}
 	return &Session{
-		bridge:           bridge,
+		core:             core,
 		backend:          backend,
 		store:            store,
 		preferredProfile: strings.TrimSpace(preferredProfile),
@@ -628,15 +628,15 @@ func (s *Session) playEntry(
 		restorePosition = s.Snapshot().PositionMS
 	}
 	backend := s.backend
-	bridge := s.bridge
-	if bridge == nil {
-		return s.Snapshot(), errors.New("core playback bridge is not configured")
+	core := s.core
+	if core == nil {
+		return s.Snapshot(), errors.New("playback core is not configured")
 	}
 	if backend == nil {
 		return s.Snapshot(), errors.New("playback backend is not configured")
 	}
 
-	preparation, err := bridge.PreparePlaybackRecording(ctx, entry.Item.RecordingID, s.preferredProfile, apitypes.PlaybackPreparationPlayNow)
+	preparation, err := core.PreparePlaybackRecording(ctx, entry.Item.RecordingID, s.preferredProfile, apitypes.PlaybackPreparationPlayNow)
 	if err != nil {
 		return s.Snapshot(), err
 	}
@@ -731,10 +731,10 @@ func (s *Session) preloadNext(ctx context.Context) {
 	}
 	currentNext := cloneEntryPreparation(s.snapshot.NextPreparation)
 	backend := s.backend
-	bridge := s.bridge
+	core := s.core
 	s.mu.Unlock()
 
-	if bridge == nil || backend == nil {
+	if core == nil || backend == nil {
 		return
 	}
 
@@ -752,7 +752,7 @@ func (s *Session) preloadNext(ctx context.Context) {
 			s.mu.Unlock()
 			return
 		case apitypes.PlaybackPreparationPreparingFetch, apitypes.PlaybackPreparationPreparingTranscode:
-			status, err := bridge.GetPlaybackPreparation(ctx, nextEntry.Item.RecordingID, s.preferredProfile)
+			status, err := core.GetPlaybackPreparation(ctx, nextEntry.Item.RecordingID, s.preferredProfile)
 			if err != nil {
 				return
 			}
@@ -761,7 +761,7 @@ func (s *Session) preloadNext(ctx context.Context) {
 		}
 	}
 
-	status, err := bridge.PreparePlaybackRecording(ctx, nextEntry.Item.RecordingID, s.preferredProfile, apitypes.PlaybackPreparationPreloadNext)
+	status, err := core.PreparePlaybackRecording(ctx, nextEntry.Item.RecordingID, s.preferredProfile, apitypes.PlaybackPreparationPreloadNext)
 	if err != nil {
 		return
 	}
@@ -1020,14 +1020,14 @@ func (s *Session) tryPendingPlayback(ctx context.Context, token uint64, entryID 
 		return true
 	}
 	entry := cloneEntryPtr(s.snapshot.CurrentEntry)
-	bridge := s.bridge
+	core := s.core
 	s.mu.Unlock()
 
-	if entry == nil || entry.EntryID != entryID || bridge == nil {
+	if entry == nil || entry.EntryID != entryID || core == nil {
 		return true
 	}
 
-	status, err := bridge.GetPlaybackPreparation(ctx, entry.Item.RecordingID, s.preferredProfile)
+	status, err := core.GetPlaybackPreparation(ctx, entry.Item.RecordingID, s.preferredProfile)
 	if err != nil {
 		return false
 	}

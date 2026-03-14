@@ -3,7 +3,7 @@ package desktopcore
 import (
 	"context"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 type LibraryRuntime interface {
@@ -127,15 +127,4 @@ type PlaybackRuntime interface {
 	GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error)
 	GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error)
 	GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error)
-}
-
-type Runtime interface {
-	Close() error
-	LibraryRuntime
-	NetworkRuntime
-	JobsRuntime
-	CatalogRuntime
-	InviteRuntime
-	CacheRuntime
-	PlaybackRuntime
 }

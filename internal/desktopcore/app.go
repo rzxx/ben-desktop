@@ -6,13 +6,17 @@ import (
 	"os"
 	"sync"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
 )
 
 type App struct {
-	cfg Config
-	db  *gorm.DB
+	cfg      Config
+	db       *gorm.DB
+	storage  *DBService
+	blobs    *BlobStoreService
+	identity *IdentityMembershipService
+	sync     *SyncService
 
 	activityMu sync.RWMutex
 	activity   apitypes.ActivityStatus
@@ -49,23 +53,23 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 		return nil, fmt.Errorf("create blob root: %w", err)
 	}
 
-	db, err := openSQLite(resolved.DBPath)
+	storage, err := OpenDBService(resolved.DBPath)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	openOK := false
 	defer func() {
 		if !openOK {
-			_ = closeSQL(db)
+			_ = storage.Close()
 		}
 	}()
-	if err := autoMigrate(db); err != nil {
-		return nil, fmt.Errorf("migrate schema: %w", err)
-	}
+	db := storage.DB()
 
 	app := &App{
 		cfg:      resolved,
 		db:       db,
+		storage:  storage,
+		blobs:    NewBlobStoreService(resolved.BlobRoot),
 		activity: newActivityStatus(),
 		jobs:     NewJobsService(),
 		tagReader: func() TagReader {
@@ -75,6 +79,8 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 			return NewTagReader()
 		}(),
 	}
+	app.identity = newIdentityMembershipService(app)
+	app.sync = newSyncService(app)
 	app.library = &LibraryService{app: app}
 	app.ingest = &IngestService{app: app}
 	app.catalog = &CatalogService{app: app}
@@ -101,7 +107,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 }
 
 func (a *App) Close() error {
-	if a == nil || a.db == nil {
+	if a == nil || a.storage == nil {
 		return nil
 	}
 	a.stopActiveScanWatcher()
@@ -109,7 +115,7 @@ func (a *App) Close() error {
 		a.transportService.Stop()
 	}
 	a.clearActiveLibraryRuntime()
-	return closeSQL(a.db)
+	return a.storage.Close()
 }
 
 func (a *App) BlobRoot() string {

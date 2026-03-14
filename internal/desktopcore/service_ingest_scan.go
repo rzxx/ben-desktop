@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -440,7 +440,7 @@ type fileState struct {
 
 func (s *IngestService) lookupFileState(ctx context.Context, libraryID, deviceID, path string) (fileState, error) {
 	var row SourceFileModel
-	err := s.app.db.WithContext(ctx).
+	err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ? AND path_key = ?", libraryID, deviceID, localPathKey(path)).
 		Take(&row).Error
 	if err != nil {
@@ -474,7 +474,7 @@ func (s *IngestService) upsertIngest(ctx context.Context, in ingestRecord) error
 	local := apitypes.LocalContext{LibraryID: in.LibraryID, DeviceID: in.DeviceID}
 	_, albumKey, _ := normalizedRecordKeys(in.Tags)
 	albumVariantID := stableNameID("album", albumKey)
-	if err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		pathKey := localPathKey(in.Path)
 		sourceFingerprint := in.HashAlgo + ":" + in.HashHex
 		conflicts, err := conflictingPathSourceFilesTx(tx, in.LibraryID, in.DeviceID, pathKey, sourceFingerprint)
@@ -597,7 +597,7 @@ func (s *IngestService) reconcileRootPresence(ctx context.Context, libraryID, de
 	}
 
 	var rows []SourceFileModel
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ? AND is_present = ?", libraryID, deviceID, true).
 		Find(&rows).Error; err != nil {
 		return 0, err
@@ -622,7 +622,7 @@ func (s *IngestService) reconcileRootPresence(ctx context.Context, libraryID, de
 	var rowsAffected int64
 	missingTrackVariantIDs := make([]string, 0, len(missingIDs))
 	missingRowCount := 0
-	err := s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.
 			Model(&SourceFileModel{}).
 			Where("library_id = ? AND device_id = ? AND source_file_id IN ? AND is_present = ?", libraryID, deviceID, missingIDs, true).
@@ -774,3 +774,4 @@ func sha256File(path string) (string, error) {
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
+

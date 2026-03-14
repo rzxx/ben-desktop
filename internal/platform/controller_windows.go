@@ -24,7 +24,7 @@ const (
 type windowsController struct {
 	app     *application.App
 	session *playback.Session
-	bridge  playback.CorePlaybackBridge
+	core    playback.PlaybackCore
 
 	smtc     *smtcService
 	thumbbar *thumbbarService
@@ -40,12 +40,12 @@ type windowsController struct {
 	lastState     playback.SessionSnapshot
 }
 
-func NewController(app *application.App, session *playback.Session, bridge playback.CorePlaybackBridge) playback.PlatformController {
+func NewController(app *application.App, session *playback.Session, core playback.PlaybackCore) playback.PlatformController {
 	return &windowsController{
 		app:      app,
 		session:  session,
-		bridge:   bridge,
-		smtc:     newSMTCService(session, bridge),
+		core:     core,
+		smtc:     newSMTCService(session, core),
 		thumbbar: newThumbbarService(session),
 	}
 }

@@ -5,12 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -298,7 +297,7 @@ func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recording
 			return apitypes.PlaybackRecordingResult{}, err
 		}
 		var asset OptimizedAssetModel
-		if err := s.app.db.WithContext(ctx).
+		if err := s.app.storage.WithContext(ctx).
 			Where("library_id = ? AND optimized_asset_id = ?", local.LibraryID, encodingID).
 			Take(&asset).Error; err != nil {
 			return apitypes.PlaybackRecordingResult{}, err
@@ -742,7 +741,7 @@ func (s *PlaybackService) ResolveRecordingArtwork(ctx context.Context, recording
 		return result, nil
 	}
 	var rows []ArtworkVariant
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND scope_type = 'album' AND scope_id = ? AND variant = ?", local.LibraryID, albumID, strings.TrimSpace(variant)).
 		Find(&rows).Error; err != nil {
 		return apitypes.RecordingArtworkResult{}, err
@@ -807,7 +806,7 @@ LEFT JOIN peer_sync_states pss ON pss.library_id = m.library_id AND pss.device_i
 WHERE m.library_id = ?
 ORDER BY CASE WHEN m.device_id = ? THEN 0 ELSE 1 END, m.device_id ASC`
 	var rows []row
-	if err := s.app.db.WithContext(ctx).Raw(query,
+	if err := s.app.storage.WithContext(ctx).Raw(query,
 		resolvedRecordingID,
 		resolvedRecordingID, profile, profile, aliasProfile,
 		resolvedRecordingID, profile, profile, aliasProfile,
@@ -1192,7 +1191,7 @@ WHERE sf.library_id = ? AND sf.device_id = ? AND sf.is_present = 1 AND req.track
 ORDER BY CASE WHEN sf.track_variant_id = ? THEN 0 ELSE 1 END ASC, sf.last_seen_at DESC, sf.quality_rank DESC, sf.size_bytes DESC, sf.local_path ASC
 LIMIT 1`
 	var result localPathRow
-	if err := s.app.db.WithContext(ctx).Raw(query, libraryID, deviceID, recordingID, recordingID).Scan(&result).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, deviceID, recordingID, recordingID).Scan(&result).Error; err != nil {
 		return "", false, err
 	}
 	if strings.TrimSpace(result.LocalPath) == "" {
@@ -1223,7 +1222,7 @@ WHERE e.library_id = ? AND cand.track_cluster_id = req.track_cluster_id AND COAL
 ORDER BY CASE WHEN sf.track_variant_id = ? THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC
 LIMIT 1`
 	var result encodingRow
-	if err := s.app.db.WithContext(ctx).Raw(query, recordingID, libraryID, deviceID, libraryID, profile, profile, aliasProfile, recordingID).Scan(&result).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, recordingID, libraryID, deviceID, libraryID, profile, profile, aliasProfile, recordingID).Scan(&result).Error; err != nil {
 		return "", "", false, err
 	}
 	if strings.TrimSpace(result.BlobID) == "" {
@@ -1236,15 +1235,7 @@ LIMIT 1`
 }
 
 func (s *PlaybackService) pathForBlob(blobID string) (string, error) {
-	parts := strings.SplitN(strings.TrimSpace(blobID), ":", 2)
-	if len(parts) != 2 || strings.TrimSpace(parts[0]) != "b3" {
-		return "", fmt.Errorf("invalid blob id")
-	}
-	hashHex := strings.ToLower(strings.TrimSpace(parts[1]))
-	if len(hashHex) != 64 {
-		return "", fmt.Errorf("invalid blob id")
-	}
-	return filepath.Join(s.app.cfg.BlobRoot, "b3", hashHex[:2], hashHex[2:4], hashHex), nil
+	return s.app.blobs.Path(blobID)
 }
 
 func (s *PlaybackService) fileURIForBlob(blobID string) (string, error) {
@@ -1312,7 +1303,7 @@ func (s *PlaybackService) prepareRecordingOfflineResult(ctx context.Context, loc
 			return apitypes.PlaybackRecordingResult{}, err
 		}
 		var asset OptimizedAssetModel
-		if err := s.app.db.WithContext(ctx).
+		if err := s.app.storage.WithContext(ctx).
 			Where("library_id = ? AND optimized_asset_id = ?", local.LibraryID, encodingID).
 			Take(&asset).Error; err != nil {
 			return apitypes.PlaybackRecordingResult{}, err
@@ -1360,7 +1351,7 @@ func (s *PlaybackService) upsertOfflinePin(ctx context.Context, local apitypes.L
 		return fmt.Errorf("offline pin scope and scope id are required")
 	}
 	now := time.Now().UTC()
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing OfflinePin
 		err := tx.Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, scope, scopeID).
 			Take(&existing).Error
@@ -1407,7 +1398,7 @@ func (s *PlaybackService) deleteOfflinePin(ctx context.Context, local apitypes.L
 	if scopeID == "" {
 		return fmt.Errorf("%s id is required", scope)
 	}
-	return s.app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, scope, scopeID).
 			Delete(&OfflinePin{})
 		if result.Error != nil || result.RowsAffected == 0 {
@@ -1425,7 +1416,7 @@ func (s *PlaybackService) deleteOfflinePin(ctx context.Context, local apitypes.L
 func (s *PlaybackService) recordingIDsForAlbum(ctx context.Context, libraryID, albumID string) ([]string, error) {
 	type row struct{ RecordingID string }
 	var rows []row
-	if err := s.app.db.WithContext(ctx).
+	if err := s.app.storage.WithContext(ctx).
 		Table("album_tracks").
 		Select("track_variant_id AS recording_id").
 		Where("library_id = ? AND album_variant_id = ?", libraryID, strings.TrimSpace(albumID)).
@@ -1458,7 +1449,7 @@ FROM playlist_items pi
 JOIN playlists p ON p.library_id = pi.library_id AND p.playlist_id = pi.playlist_id
 WHERE pi.library_id = ? AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.deleted_at IS NULL
 ORDER BY pi.position_key ASC, pi.item_id ASC`
-	if err := s.app.db.WithContext(ctx).Raw(query, libraryID, strings.TrimSpace(playlistID)).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, strings.TrimSpace(playlistID)).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]string, 0, len(rows))

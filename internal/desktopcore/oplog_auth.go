@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"gorm.io/gorm"
 )
@@ -93,7 +93,7 @@ func (a *App) ensureLocalOplogSignatures(ctx context.Context, local apitypes.Loc
 		return fmt.Errorf("load transport identity: %w", err)
 	}
 
-	return a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []OplogEntry
 		if err := tx.Where("library_id = ? AND device_id = ?", strings.TrimSpace(local.LibraryID), strings.TrimSpace(local.DeviceID)).
 			Order("seq ASC").
@@ -195,3 +195,4 @@ func verifyCheckpointOplogEntryTx(tx *gorm.DB, libraryID string, entry checkpoin
 	}
 	return nil
 }
+

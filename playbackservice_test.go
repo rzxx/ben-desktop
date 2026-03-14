@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/settings"
 )
@@ -22,6 +22,7 @@ type passthroughBridgeStub struct {
 	syncNowFn                   func(context.Context) error
 	startSyncNowFn              func(context.Context) (desktopcore.JobSnapshot, error)
 	connectPeerFn               func(context.Context, string) error
+	startConnectPeerFn          func(context.Context, string) (desktopcore.JobSnapshot, error)
 	checkpointStatusFn          func(context.Context) (apitypes.LibraryCheckpointStatus, error)
 	publishCheckpointFn         func(context.Context) (apitypes.LibraryCheckpointManifest, error)
 	startPublishCheckpointFn    func(context.Context) (desktopcore.JobSnapshot, error)
@@ -146,6 +147,10 @@ func (b *passthroughBridgeStub) StartSyncNow(ctx context.Context) (desktopcore.J
 
 func (b *passthroughBridgeStub) ConnectPeer(ctx context.Context, peerAddr string) error {
 	return b.connectPeerFn(ctx, peerAddr)
+}
+
+func (b *passthroughBridgeStub) StartConnectPeer(ctx context.Context, peerAddr string) (desktopcore.JobSnapshot, error) {
+	return b.startConnectPeerFn(ctx, peerAddr)
 }
 
 func (b *passthroughBridgeStub) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
@@ -514,6 +519,19 @@ func (b *passthroughBridgeStub) GetRecordingAvailability(ctx context.Context, re
 
 func (b *passthroughBridgeStub) GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error) {
 	return b.albumAvailabilityOVFn(ctx, albumID, preferredProfile)
+}
+
+func newPassthroughHost(stub *passthroughBridgeStub) *coreHost {
+	return &coreHost{
+		started:  true,
+		library:  stub,
+		network:  stub,
+		jobs:     stub,
+		catalog:  stub,
+		invite:   stub,
+		cache:    stub,
+		playback: stub,
+	}
 }
 
 func TestPreferredProfileDefaultsToSupportedAACProfile(t *testing.T) {

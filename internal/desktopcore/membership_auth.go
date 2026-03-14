@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -448,7 +448,7 @@ func issueMembershipCertTx(tx *gorm.DB, libraryID, deviceID, peerID, role string
 
 func (a *App) loadMembershipCert(ctx context.Context, libraryID, deviceID string) (MembershipCert, bool, error) {
 	var row MembershipCert
-	err := a.db.WithContext(ctx).
+	err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).
 		Take(&row).Error
 	if err != nil {
@@ -462,7 +462,7 @@ func (a *App) loadMembershipCert(ctx context.Context, libraryID, deviceID string
 
 func (a *App) loadAdmissionAuthorityChain(ctx context.Context, libraryID string) ([]AdmissionAuthority, error) {
 	var rows []AdmissionAuthority
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Where("library_id = ?", strings.TrimSpace(libraryID)).
 		Order("version ASC").
 		Find(&rows).Error; err != nil {
@@ -476,7 +476,7 @@ func (a *App) membershipCertRevoked(ctx context.Context, libraryID, deviceID str
 		return false, nil
 	}
 	var count int64
-	if err := a.db.WithContext(ctx).Model(&MembershipCertRevocation{}).
+	if err := a.storage.WithContext(ctx).Model(&MembershipCertRevocation{}).
 		Where("library_id = ? AND device_id = ? AND serial = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID), serial).
 		Count(&count).Error; err != nil {
 		return false, err
@@ -531,7 +531,7 @@ func (a *App) ensureLocalTransportMembershipAuth(ctx context.Context, local apit
 	case !ok:
 		refreshed, refreshErr := transportPeerAuth{}, fmt.Errorf("membership certificate missing")
 		if canManageLibrary(local.Role) {
-			refreshErr = a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			refreshErr = a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 				if _, _, _, err := ensureLibraryJoinMaterialTx(tx, local.LibraryID, time.Now().UTC()); err != nil {
 					return err
 				}
@@ -565,7 +565,7 @@ func (a *App) ensureLocalTransportMembershipAuth(ctx context.Context, local apit
 	if needsReissue {
 		refreshErr := fmt.Errorf("membership certificate requires refresh")
 		if canManageLibrary(local.Role) {
-			refreshErr = a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			refreshErr = a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 				if _, _, _, err := ensureLibraryJoinMaterialTx(tx, local.LibraryID, time.Now().UTC()); err != nil {
 					return err
 				}
@@ -647,7 +647,7 @@ func (a *App) verifyTransportPeerAuth(ctx context.Context, libraryID, claimedDev
 		return membershipCertEnvelope{}, fmt.Errorf("membership certificate is revoked")
 	}
 
-	if err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if len(auth.AuthorityChain) > 0 {
 			if err := saveAdmissionAuthorityChainTx(tx, libraryID, auth.AuthorityChain); err != nil {
 				return err
@@ -677,3 +677,4 @@ func (a *App) verifyTransportPeerAuth(ctx context.Context, libraryID, claimedDev
 	}
 	return auth.Cert, nil
 }
+

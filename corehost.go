@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"sync"
 
@@ -13,8 +12,15 @@ import (
 type coreHost struct {
 	mu sync.RWMutex
 
-	started          bool
-	runtime          desktopcore.Runtime
+	started bool
+	*desktopcore.App
+	library          desktopcore.LibraryRuntime
+	network          desktopcore.NetworkRuntime
+	jobs             desktopcore.JobsRuntime
+	catalog          desktopcore.CatalogRuntime
+	invite           desktopcore.InviteRuntime
+	cache            desktopcore.CacheRuntime
+	playback         desktopcore.PlaybackRuntime
 	blobRoot         string
 	preferredProfile string
 }
@@ -39,7 +45,14 @@ func (h *coreHost) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	h.runtime = runtime
+	h.App = runtime
+	h.library = nil
+	h.network = nil
+	h.jobs = nil
+	h.catalog = nil
+	h.invite = nil
+	h.cache = nil
+	h.playback = nil
 	h.blobRoot = resolvedBlobRoot(coreSettings)
 	h.preferredProfile = preferredProfile(coreSettings)
 	h.started = true
@@ -52,8 +65,15 @@ func (h *coreHost) Close() error {
 	}
 
 	h.mu.Lock()
-	runtime := h.runtime
-	h.runtime = nil
+	runtime := h.App
+	h.App = nil
+	h.library = nil
+	h.network = nil
+	h.jobs = nil
+	h.catalog = nil
+	h.invite = nil
+	h.cache = nil
+	h.playback = nil
 	h.blobRoot = ""
 	h.preferredProfile = ""
 	h.started = false
@@ -63,20 +83,6 @@ func (h *coreHost) Close() error {
 		return nil
 	}
 	return runtime.Close()
-}
-
-func (h *coreHost) Runtime() desktopcore.Runtime {
-	if h == nil {
-		return desktopcore.NewUnavailableCore(fmt.Errorf("core runtime is not available"))
-	}
-
-	h.mu.RLock()
-	runtime := h.runtime
-	h.mu.RUnlock()
-	if runtime == nil {
-		return desktopcore.NewUnavailableCore(fmt.Errorf("core runtime is not available"))
-	}
-	return runtime
 }
 
 func (h *coreHost) BlobRoot() string {
@@ -98,6 +104,90 @@ func (h *coreHost) PreferredProfile() string {
 		return settings.DefaultTranscodeProfile
 	}
 	return h.preferredProfile
+}
+
+func (h *coreHost) LibraryRuntime() desktopcore.LibraryRuntime {
+	if h == nil {
+		return nil
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.library != nil {
+		return h.library
+	}
+	return h.App
+}
+
+func (h *coreHost) NetworkRuntime() desktopcore.NetworkRuntime {
+	if h == nil {
+		return nil
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.network != nil {
+		return h.network
+	}
+	return h.App
+}
+
+func (h *coreHost) JobsRuntime() desktopcore.JobsRuntime {
+	if h == nil {
+		return nil
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.jobs != nil {
+		return h.jobs
+	}
+	return h.App
+}
+
+func (h *coreHost) CatalogRuntime() desktopcore.CatalogRuntime {
+	if h == nil {
+		return nil
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.catalog != nil {
+		return h.catalog
+	}
+	return h.App
+}
+
+func (h *coreHost) InviteRuntime() desktopcore.InviteRuntime {
+	if h == nil {
+		return nil
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.invite != nil {
+		return h.invite
+	}
+	return h.App
+}
+
+func (h *coreHost) CacheRuntime() desktopcore.CacheRuntime {
+	if h == nil {
+		return nil
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.cache != nil {
+		return h.cache
+	}
+	return h.App
+}
+
+func (h *coreHost) PlaybackRuntime() desktopcore.PlaybackRuntime {
+	if h == nil {
+		return nil
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.playback != nil {
+		return h.playback
+	}
+	return h.App
 }
 
 func loadCoreRuntimeSettings() settings.CoreRuntimeSettings {
@@ -127,7 +217,7 @@ func loadCoreRuntimeSettings() settings.CoreRuntimeSettings {
 	return state.Core
 }
 
-func openCoreRuntime(ctx context.Context, coreSettings settings.CoreRuntimeSettings) (desktopcore.Runtime, error) {
+func openCoreRuntime(ctx context.Context, coreSettings settings.CoreRuntimeSettings) (*desktopcore.App, error) {
 	runtime, err := desktopcore.OpenFromSettings(ctx, coreSettings)
 	if err != nil {
 		log.Printf("playback: desktop core runtime unavailable: %v", err)

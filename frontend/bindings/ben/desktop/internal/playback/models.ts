@@ -7,7 +7,7 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as apitypes$0 from "../../../core/api/types/models.js";
+import * as apitypes$0 from "../../api/types/models.js";
 
 export enum ContextKind {
     /**

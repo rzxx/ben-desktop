@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -582,13 +582,13 @@ func (a *App) buildSyncResponse(ctx context.Context, req SyncRequest) (SyncRespo
 		now := time.Now().UTC()
 		switch {
 		case strings.TrimSpace(req.InstalledCheckpointID) == strings.TrimSpace(published.Manifest.CheckpointID):
-			if err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 				return recordCheckpointAckTx(tx, req.LibraryID, req.DeviceID, published.Manifest.CheckpointID, checkpointAckSourceInstalled, now)
 			}); err != nil {
 				return SyncResponse{}, err
 			}
 		case clocksCoverCheckpoint(req.Clocks, published.Manifest.BaseClocks):
-			if err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 				return recordCheckpointAckTx(tx, req.LibraryID, req.DeviceID, published.Manifest.CheckpointID, checkpointAckSourceCovered, now)
 			}); err != nil {
 				return SyncResponse{}, err
@@ -653,7 +653,7 @@ func (a *App) buildCheckpointFetchResponse(ctx context.Context, req CheckpointFe
 
 func (a *App) membershipRole(ctx context.Context, libraryID, deviceID string) string {
 	var row Membership
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Select("role").
 		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).
 		Take(&row).Error; err != nil {
@@ -664,7 +664,7 @@ func (a *App) membershipRole(ctx context.Context, libraryID, deviceID string) st
 
 func (a *App) listDeviceClocks(ctx context.Context, libraryID string) ([]DeviceClock, error) {
 	var rows []DeviceClock
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Where("library_id = ?", strings.TrimSpace(libraryID)).
 		Order("device_id ASC").
 		Find(&rows).Error; err != nil {
@@ -773,7 +773,7 @@ func (a *App) listOplogByDevice(ctx context.Context, libraryID, deviceID string,
 		limit = defaultSyncBatchSize
 	}
 	var rows []OplogEntry
-	query := a.db.WithContext(ctx).
+	query := a.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).
 		Order("seq ASC").
 		Limit(limit)
@@ -807,7 +807,7 @@ func sortCheckpointEntries(entries []checkpointOplogEntry) {
 
 func (a *App) checkpointAckForDevice(ctx context.Context, libraryID, deviceID string) (DeviceCheckpointAck, bool, error) {
 	var row DeviceCheckpointAck
-	err := a.db.WithContext(ctx).
+	err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).
 		Take(&row).Error
 	if err != nil {
@@ -827,7 +827,7 @@ func (a *App) loadCheckpointTransferRecord(ctx context.Context, libraryID, check
 	}
 
 	var row LibraryCheckpoint
-	query := a.db.WithContext(ctx).Where("library_id = ?", libraryID)
+	query := a.storage.WithContext(ctx).Where("library_id = ?", libraryID)
 	if publishedOnly {
 		query = query.Where("published_at IS NOT NULL").Order("published_at DESC")
 	} else {
@@ -846,7 +846,7 @@ func (a *App) loadCheckpointTransferRecord(ctx context.Context, libraryID, check
 	}
 
 	var chunkRows []LibraryCheckpointChunk
-	if err := a.db.WithContext(ctx).
+	if err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND checkpoint_id = ?", row.LibraryID, row.CheckpointID).
 		Order("chunk_index ASC").
 		Find(&chunkRows).Error; err != nil {
@@ -911,7 +911,7 @@ func (a *App) installCheckpointRecordWithJob(ctx context.Context, localDeviceID 
 		job.Running(0.55, "installing checkpoint state")
 	}
 
-	err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		preservedTail, err := selectCheckpointTailOpsTx(tx, record.Manifest.LibraryID, record.Manifest.BaseClocks)
 		if err != nil {
 			return err
@@ -1071,7 +1071,7 @@ func (a *App) applyRemoteOps(ctx context.Context, libraryID string, ops []checkp
 
 func (a *App) applyRemoteOp(ctx context.Context, libraryID string, op checkpointOplogEntry) (int, error) {
 	inserted := 0
-	err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing int64
 		if err := tx.Model(&OplogEntry{}).
 			Where("library_id = ? AND op_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(op.OpID)).
@@ -1210,7 +1210,7 @@ func (a *App) upsertPeerSyncState(ctx context.Context, libraryID, deviceID, peer
 		LastApplied:   applied,
 		UpdatedAt:     time.Now().UTC(),
 	}
-	_ = a.db.WithContext(ctx).Clauses(clause.OnConflict{
+	_ = a.storage.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "library_id"},
 			{Name: "device_id"},
@@ -1228,7 +1228,7 @@ func (a *App) upsertPeerSyncState(ctx context.Context, libraryID, deviceID, peer
 
 func (a *App) isLibraryMember(ctx context.Context, libraryID, deviceID string) bool {
 	var count int64
-	if err := a.db.WithContext(ctx).Model(&Membership{}).
+	if err := a.storage.WithContext(ctx).Model(&Membership{}).
 		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).
 		Count(&count).Error; err != nil {
 		return false
@@ -1238,7 +1238,7 @@ func (a *App) isLibraryMember(ctx context.Context, libraryID, deviceID string) b
 
 func (a *App) peerSyncState(ctx context.Context, libraryID, deviceID string) (PeerSyncState, bool, error) {
 	var row PeerSyncState
-	err := a.db.WithContext(ctx).
+	err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).
 		Take(&row).Error
 	if err != nil {
@@ -1249,3 +1249,4 @@ func (a *App) peerSyncState(ctx context.Context, libraryID, deviceID string) (Pe
 	}
 	return row, true, nil
 }
+

@@ -7,7 +7,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as apitypes$0 from "../core/api/types/models.js";
+import * as apitypes$0 from "./api/types/models.js";
 
 export function AddPlaylistItem(req: apitypes$0.PlaylistAddItemRequest): $CancellablePromise<apitypes$0.PlaylistItemRecord> {
     return $Call.ByID(1149566815, req).then(($result: any) => {

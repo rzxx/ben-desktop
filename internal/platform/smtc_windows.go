@@ -34,7 +34,7 @@ const (
 type smtcService struct {
 	mu      sync.Mutex
 	session *playback.Session
-	bridge  playback.CorePlaybackBridge
+	core    playback.PlaybackCore
 	updates chan playback.SessionSnapshot
 	stop    chan struct{}
 	done    chan struct{}
@@ -43,7 +43,7 @@ type smtcService struct {
 
 type smtcRuntimeState struct {
 	session *playback.Session
-	bridge  playback.CorePlaybackBridge
+	core    playback.PlaybackCore
 
 	controls     *winrt.ISystemMediaTransportControls
 	controls2    *winrt.ISystemMediaTransportControls2
@@ -63,8 +63,8 @@ type smtcRuntimeState struct {
 	hasTrack        bool
 }
 
-func newSMTCService(session *playback.Session, bridge playback.CorePlaybackBridge) *smtcService {
-	return &smtcService{session: session, bridge: bridge}
+func newSMTCService(session *playback.Session, core playback.PlaybackCore) *smtcService {
+	return &smtcService{session: session, core: core}
 }
 
 func (s *smtcService) Start(hwnd win32.HWND) error {
@@ -155,7 +155,7 @@ func (s *smtcService) run(
 	init := winrt.InitializeMt()
 	defer init.Uninitialize()
 
-	runtimeState, err := newSMTCRuntimeState(s.session, s.bridge, hwnd)
+	runtimeState, err := newSMTCRuntimeState(s.session, s.core, hwnd)
 	if err != nil {
 		readyCh <- err
 		return
@@ -174,7 +174,7 @@ func (s *smtcService) run(
 	}
 }
 
-func newSMTCRuntimeState(session *playback.Session, bridge playback.CorePlaybackBridge, hwnd win32.HWND) (*smtcRuntimeState, error) {
+func newSMTCRuntimeState(session *playback.Session, core playback.PlaybackCore, hwnd win32.HWND) (*smtcRuntimeState, error) {
 	if hwnd == 0 {
 		return nil, errors.New("smtc requires a valid window handle")
 	}
@@ -204,7 +204,7 @@ func newSMTCRuntimeState(session *playback.Session, bridge playback.CorePlayback
 
 	state := &smtcRuntimeState{
 		session:  session,
-		bridge:   bridge,
+		core:     core,
 		controls: controls,
 	}
 
@@ -343,10 +343,10 @@ func (s *smtcRuntimeState) applyMetadata(item *playback.SessionItem, artworkPath
 }
 
 func (s *smtcRuntimeState) resolveArtworkPath(recordingID string) string {
-	if s.bridge == nil {
+	if s.core == nil {
 		return ""
 	}
-	result, err := s.bridge.ResolveRecordingArtwork(context.Background(), recordingID, artworkVariant96)
+	result, err := s.core.ResolveRecordingArtwork(context.Background(), recordingID, artworkVariant96)
 	if err != nil || !result.Available {
 		return ""
 	}

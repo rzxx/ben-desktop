@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 func TestOperatorReadsWithoutActiveLibrary(t *testing.T) {

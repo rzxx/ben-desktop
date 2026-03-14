@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
 )
 
@@ -259,7 +259,7 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 		LastApplied   int64
 	}
 	var latest row
-	err = s.app.db.WithContext(context.Background()).
+	err = s.app.storage.WithContext(context.Background()).
 		Table("peer_sync_states").
 		Select("peer_id, last_attempt_at, last_success_at, last_error, last_applied").
 		Where("library_id = ?", out.LibraryID).
@@ -473,7 +473,7 @@ func (a *App) upsertDevicePresence(ctx context.Context, deviceID, peerID, device
 	deviceName = chooseDeviceName("", deviceName, deviceID)
 
 	var existing Device
-	err := a.db.WithContext(ctx).Where("device_id = ?", deviceID).Take(&existing).Error
+	err := a.storage.WithContext(ctx).Where("device_id = ?", deviceID).Take(&existing).Error
 	switch {
 	case err == nil:
 		updates := map[string]any{
@@ -483,9 +483,9 @@ func (a *App) upsertDevicePresence(ctx context.Context, deviceID, peerID, device
 		if strings.TrimSpace(existing.Name) == "" || strings.TrimSpace(existing.Name) == deviceID {
 			updates["name"] = deviceName
 		}
-		return a.db.WithContext(ctx).Model(&Device{}).Where("device_id = ?", deviceID).Updates(updates).Error
+		return a.storage.WithContext(ctx).Model(&Device{}).Where("device_id = ?", deviceID).Updates(updates).Error
 	case err == gorm.ErrRecordNotFound:
-		return a.db.WithContext(ctx).Create(&Device{
+		return a.storage.WithContext(ctx).Create(&Device{
 			DeviceID:   deviceID,
 			Name:       deviceName,
 			PeerID:     peerID,
@@ -505,7 +505,7 @@ func (a *App) memberDeviceIDForPeer(ctx context.Context, libraryID, peerID strin
 		DeviceID string
 	}
 	var result row
-	err := a.db.WithContext(ctx).
+	err := a.storage.WithContext(ctx).
 		Table("memberships AS m").
 		Select("m.device_id AS device_id").
 		Joins("JOIN devices d ON d.device_id = m.device_id").
@@ -526,3 +526,4 @@ func sortedListenAddrs(items []string) []string {
 	sort.Strings(out)
 	return out
 }
+

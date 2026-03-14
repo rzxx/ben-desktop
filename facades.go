@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -15,39 +15,53 @@ type facadeBase struct {
 	host *coreHost
 }
 
-func (f facadeBase) runtime() desktopcore.Runtime {
-	if f.host == nil {
-		return desktopcore.NewUnavailableCore(fmt.Errorf("core runtime is not available"))
-	}
-	return f.host.Runtime()
-}
-
 func (f facadeBase) library() desktopcore.LibraryRuntime {
-	return f.runtime()
+	if f.host == nil {
+		return nil
+	}
+	return f.host.LibraryRuntime()
 }
 
 func (f facadeBase) network() desktopcore.NetworkRuntime {
-	return f.runtime()
+	if f.host == nil {
+		return nil
+	}
+	return f.host.NetworkRuntime()
 }
 
 func (f facadeBase) jobs() desktopcore.JobsRuntime {
-	return f.runtime()
+	if f.host == nil {
+		return nil
+	}
+	return f.host.JobsRuntime()
 }
 
 func (f facadeBase) catalog() desktopcore.CatalogRuntime {
-	return f.runtime()
+	if f.host == nil {
+		return nil
+	}
+	return f.host.CatalogRuntime()
 }
 
 func (f facadeBase) invite() desktopcore.InviteRuntime {
-	return f.runtime()
+	if f.host == nil {
+		return nil
+	}
+	return f.host.InviteRuntime()
 }
 
 func (f facadeBase) cache() desktopcore.CacheRuntime {
-	return f.runtime()
+	if f.host == nil {
+		return nil
+	}
+	return f.host.CacheRuntime()
 }
 
 func (f facadeBase) playback() desktopcore.PlaybackRuntime {
-	return f.runtime()
+	if f.host == nil {
+		return nil
+	}
+	return f.host.PlaybackRuntime()
 }
 
 func (f facadeBase) blobRoot() string {
@@ -179,6 +193,10 @@ func (s *NetworkFacade) StartSyncNow(ctx context.Context) (desktopcore.JobSnapsh
 
 func (s *NetworkFacade) ConnectPeer(ctx context.Context, peerAddr string) error {
 	return s.network().ConnectPeer(ctx, peerAddr)
+}
+
+func (s *NetworkFacade) StartConnectPeer(ctx context.Context, peerAddr string) (desktopcore.JobSnapshot, error) {
+	return s.network().StartConnectPeer(ctx, peerAddr)
 }
 
 func (s *NetworkFacade) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {

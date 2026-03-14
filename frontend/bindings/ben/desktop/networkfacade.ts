@@ -7,7 +7,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as apitypes$0 from "../core/api/types/models.js";
+import * as apitypes$0 from "./api/types/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as desktopcore$0 from "./internal/desktopcore/models.js";
@@ -66,6 +66,12 @@ export function PublishCheckpoint(): $CancellablePromise<apitypes$0.LibraryCheck
 
 export function StartCompactCheckpoint(force: boolean): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(2841628975, force).then(($result: any) => {
+        return $$createType8($result);
+    });
+}
+
+export function StartConnectPeer(peerAddr: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(733933558, peerAddr).then(($result: any) => {
         return $$createType8($result);
     });
 }

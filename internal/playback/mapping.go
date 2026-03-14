@@ -3,7 +3,7 @@ package playback
 import (
 	"strings"
 
-	apitypes "ben/core/api/types"
+	apitypes "ben/desktop/api/types"
 )
 
 const (
