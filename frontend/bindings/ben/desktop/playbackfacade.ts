@@ -94,10 +94,6 @@ export function ResolveAlbumArtworkURL(albumID: string, variant: string): $Cance
     return $Call.ByID(1336735319, albumID, variant);
 }
 
-export function ResolveBlobURL(blobID: string): $CancellablePromise<string> {
-    return $Call.ByID(749446225, blobID);
-}
-
 export function ResolvePlaybackRecording(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackResolveResult> {
     return $Call.ByID(1969384785, recordingID, preferredProfile).then(($result: any) => {
         return $$createType8($result);

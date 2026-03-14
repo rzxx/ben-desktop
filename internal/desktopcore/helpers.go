@@ -191,9 +191,13 @@ func fileURIFromPath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	urlPath := filepath.ToSlash(absPath)
+	if volume := filepath.VolumeName(absPath); volume != "" && !strings.HasPrefix(urlPath, "/") {
+		urlPath = "/" + urlPath
+	}
 	return (&url.URL{
 		Scheme: "file",
-		Path:   filepath.ToSlash(absPath),
+		Path:   urlPath,
 	}).String(), nil
 }
 

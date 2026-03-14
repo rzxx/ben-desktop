@@ -63,13 +63,6 @@ func (f facadeBase) playback() desktopcore.PlaybackRuntime {
 	return f.host.PlaybackRuntime()
 }
 
-func (f facadeBase) blobRoot() string {
-	if f.host == nil {
-		return ""
-	}
-	return f.host.BlobRoot()
-}
-
 type LibraryFacade struct {
 	facadeBase
 }
@@ -478,14 +471,6 @@ func (s *PlaybackFacade) ResolvePlaybackRecording(ctx context.Context, recording
 	return s.playback().ResolvePlaybackRecording(ctx, recordingID, preferredProfile)
 }
 
-func (s *PlaybackFacade) ResolveBlobURL(blobID string) (string, error) {
-	path, ok, err := blobPathForID(s.blobRoot(), blobID)
-	if err != nil || !ok {
-		return "", err
-	}
-	return fileURLFromPath(path)
-}
-
 func (s *PlaybackFacade) ResolveThumbnailURL(artwork apitypes.ArtworkRef) (string, error) {
 	artwork.BlobID = strings.TrimSpace(artwork.BlobID)
 	if artwork.BlobID == "" {
@@ -499,7 +484,7 @@ func (s *PlaybackFacade) ResolveThumbnailURL(artwork apitypes.ArtworkRef) (strin
 	if !resolved.Available || strings.TrimSpace(resolved.LocalPath) == "" {
 		return "", nil
 	}
-	return fileURLFromPath(resolved.LocalPath)
+	return artworkAssetURL(resolved.Artwork), nil
 }
 
 func (s *PlaybackFacade) ResolveAlbumArtworkURL(ctx context.Context, albumID, variant string) (string, error) {
@@ -507,7 +492,10 @@ func (s *PlaybackFacade) ResolveAlbumArtworkURL(ctx context.Context, albumID, va
 	if err != nil {
 		return "", err
 	}
-	return s.ResolveThumbnailURL(result.Artwork)
+	if !result.Available || strings.TrimSpace(result.LocalPath) == "" {
+		return "", nil
+	}
+	return artworkAssetURL(result.Artwork), nil
 }
 
 func (s *PlaybackFacade) ResolveRecordingArtworkURL(ctx context.Context, recordingID, variant string) (string, error) {
@@ -515,7 +503,10 @@ func (s *PlaybackFacade) ResolveRecordingArtworkURL(ctx context.Context, recordi
 	if err != nil {
 		return "", err
 	}
-	return s.ResolveThumbnailURL(result.Artwork)
+	if !result.Available || strings.TrimSpace(result.LocalPath) == "" {
+		return "", nil
+	}
+	return artworkAssetURL(result.Artwork), nil
 }
 
 func (s *PlaybackFacade) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {

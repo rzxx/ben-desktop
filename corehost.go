@@ -23,7 +23,6 @@ type coreHost struct {
 	invite           desktopcore.InviteRuntime
 	cache            desktopcore.CacheRuntime
 	playback         desktopcore.PlaybackRuntime
-	blobRoot         string
 	preferredProfile string
 }
 
@@ -57,7 +56,6 @@ func (h *coreHost) Start(ctx context.Context) error {
 	h.invite = runtime.InviteRuntime()
 	h.cache = runtime.CacheRuntime()
 	h.playback = runtime.PlaybackRuntime()
-	h.blobRoot = resolvedBlobRoot(coreSettings)
 	h.preferredProfile = preferredProfile(coreSettings)
 	h.started = true
 	return nil
@@ -78,7 +76,6 @@ func (h *coreHost) Close() error {
 	h.invite = nil
 	h.cache = nil
 	h.playback = nil
-	h.blobRoot = ""
 	h.preferredProfile = ""
 	h.started = false
 	h.mu.Unlock()
@@ -87,15 +84,6 @@ func (h *coreHost) Close() error {
 		return nil
 	}
 	return runtime.Close()
-}
-
-func (h *coreHost) BlobRoot() string {
-	if h == nil {
-		return ""
-	}
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.blobRoot
 }
 
 func (h *coreHost) PreferredProfile() string {

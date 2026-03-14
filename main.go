@@ -32,6 +32,9 @@ func main() {
 		Name:        "ben-desktop",
 		Description: "Desktop host for ben playback and core services",
 		Services: []application.Service{
+			application.NewServiceWithOptions(NewArtworkHTTPService(host), application.ServiceOptions{
+				Route: artworkServiceRoute,
+			}),
 			application.NewService(NewLibraryFacade(host)),
 			application.NewService(NewNetworkFacade(host)),
 			application.NewService(NewJobsFacade(host)),

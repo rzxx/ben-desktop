@@ -2,16 +2,10 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"log"
-	"net/url"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 
-	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/platform"
 	"ben/desktop/internal/playback"
 	"ben/desktop/internal/settings"
@@ -492,61 +486,6 @@ func (s *PlaybackService) requireSession() (*playback.Session, error) {
 
 func preferredProfile(coreSettings settings.CoreRuntimeSettings) string {
 	return settings.EffectiveTranscodeProfile(coreSettings.TranscodeProfile)
-}
-
-func resolvedBlobRoot(coreSettings settings.CoreRuntimeSettings) string {
-	cfg, err := desktopcore.ResolveConfigFromSettings(coreSettings)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(cfg.BlobRoot)
-}
-
-func blobPathForID(root string, blobID string) (string, bool, error) {
-	root = strings.TrimSpace(root)
-	if root == "" {
-		return "", false, nil
-	}
-
-	parts := strings.SplitN(strings.TrimSpace(blobID), ":", 2)
-	if len(parts) != 2 {
-		return "", false, fmt.Errorf("invalid blob id format")
-	}
-	algo := strings.TrimSpace(parts[0])
-	hashHex := strings.ToLower(strings.TrimSpace(parts[1]))
-	if algo != "b3" {
-		return "", false, fmt.Errorf("unsupported blob algo %q", algo)
-	}
-	if len(hashHex) != 64 {
-		return "", false, fmt.Errorf("invalid blob hash length")
-	}
-	if _, err := hex.DecodeString(hashHex); err != nil {
-		return "", false, fmt.Errorf("invalid blob hash: %w", err)
-	}
-
-	path := filepath.Join(root, algo, hashHex[:2], hashHex[2:4], hashHex)
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return "", false, nil
-		}
-		return "", false, err
-	}
-	return path, true, nil
-}
-
-func fileURLFromPath(path string) (string, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "", fmt.Errorf("path is required")
-	}
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	return (&url.URL{
-		Scheme: "file",
-		Path:   filepath.ToSlash(absPath),
-	}).String(), nil
 }
 
 type serviceLogger struct{}

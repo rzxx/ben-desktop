@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	apitypes "ben/desktop/api/types"
@@ -555,20 +553,5 @@ func TestPreferredProfileNormalizesLegacyDesktopProfile(t *testing.T) {
 	got := preferredProfile(settings.CoreRuntimeSettings{TranscodeProfile: " desktop "})
 	if got != settings.DefaultTranscodeProfile {
 		t.Fatalf("preferred profile = %q, want %q", got, settings.DefaultTranscodeProfile)
-	}
-}
-
-func TestResolvedBlobRootUsesCoreDefaultsWhenSettingsEmpty(t *testing.T) {
-	t.Parallel()
-
-	configRoot, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatalf("user config dir: %v", err)
-	}
-
-	got := resolvedBlobRoot(settings.CoreRuntimeSettings{})
-	want := filepath.Join(configRoot, "ben", "v2", "blobs")
-	if got != want {
-		t.Fatalf("resolved blob root = %q, want %q", got, want)
 	}
 }

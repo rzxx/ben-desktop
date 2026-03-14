@@ -579,16 +579,8 @@ func TestCacheAndPlaybackFacadesForwardToRuntime(t *testing.T) {
 	recordingOverview := apitypes.RecordingAvailabilityOverview{RecordingID: "rec-1", PreferredProfile: "default"}
 	albumOverview := apitypes.AlbumAvailabilityOverview{AlbumID: "album-1", PreferredProfile: "default"}
 	job := desktopcore.JobSnapshot{JobID: "job-prepare", Kind: "prepare-playback", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
-	blobRoot := t.TempDir()
 	hashHex := strings.Repeat("b", 64)
-	blobPath := filepath.Join(blobRoot, "b3", hashHex[:2], hashHex[2:4], hashHex)
-	typedBlobPath := blobPath + ".webp"
-	if err := os.MkdirAll(filepath.Dir(blobPath), 0o755); err != nil {
-		t.Fatalf("mkdir blob path: %v", err)
-	}
-	if err := os.WriteFile(blobPath, []byte("thumb"), 0o644); err != nil {
-		t.Fatalf("write blob: %v", err)
-	}
+	typedBlobPath := filepath.Join(t.TempDir(), "thumb.webp")
 	if err := os.WriteFile(typedBlobPath, []byte("thumb"), 0o644); err != nil {
 		t.Fatalf("write typed blob: %v", err)
 	}
@@ -668,8 +660,6 @@ func TestCacheAndPlaybackFacadesForwardToRuntime(t *testing.T) {
 			}, nil
 		},
 	})
-	host.blobRoot = blobRoot
-
 	cacheFacade := NewCacheFacade(host)
 	if got, err := cacheFacade.GetCacheOverview(ctx); err != nil || got.UsedBytes != overview.UsedBytes {
 		t.Fatalf("get cache overview = %+v, err=%v", got, err)
@@ -712,16 +702,13 @@ func TestCacheAndPlaybackFacadesForwardToRuntime(t *testing.T) {
 	if got, err := playbackFacade.EnsurePlaybackPlaylist(ctx, "playlist-1", "default"); err != nil || got.TotalBytes != playbackBatch.TotalBytes {
 		t.Fatalf("ensure playback playlist = %+v, err=%v", got, err)
 	}
-	if got, err := playbackFacade.ResolveBlobURL("b3:" + hashHex); err != nil || !strings.HasPrefix(got, "file:") {
-		t.Fatalf("resolve blob url = %q, err=%v", got, err)
-	}
-	if got, err := playbackFacade.ResolveThumbnailURL(apitypes.ArtworkRef{BlobID: "b3:" + hashHex, MIME: "image/webp", FileExt: ".webp"}); err != nil || !strings.HasPrefix(got, "file:") {
+	if got, err := playbackFacade.ResolveThumbnailURL(apitypes.ArtworkRef{BlobID: "b3:" + hashHex, MIME: "image/webp", FileExt: ".webp"}); err != nil || !strings.HasPrefix(got, artworkServiceRoute+"?") {
 		t.Fatalf("resolve thumbnail url = %q, err=%v", got, err)
 	}
-	if got, err := playbackFacade.ResolveAlbumArtworkURL(ctx, "album-1", "320_webp"); err != nil || !strings.HasPrefix(got, "file:") {
+	if got, err := playbackFacade.ResolveAlbumArtworkURL(ctx, "album-1", "320_webp"); err != nil || !strings.HasPrefix(got, artworkServiceRoute+"?") {
 		t.Fatalf("resolve album artwork url = %q, err=%v", got, err)
 	}
-	if got, err := playbackFacade.ResolveRecordingArtworkURL(ctx, "rec-1", "320_webp"); err != nil || !strings.HasPrefix(got, "file:") {
+	if got, err := playbackFacade.ResolveRecordingArtworkURL(ctx, "rec-1", "320_webp"); err != nil || !strings.HasPrefix(got, artworkServiceRoute+"?") {
 		t.Fatalf("resolve recording artwork url = %q, err=%v", got, err)
 	}
 	if _, err := playbackFacade.ListRecordingAvailability(ctx, "rec-1", "default"); err != nil {
