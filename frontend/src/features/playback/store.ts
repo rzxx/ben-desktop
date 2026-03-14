@@ -1,15 +1,9 @@
 import { Events } from "@wailsio/runtime";
 import { create } from "zustand";
 import * as PlaybackService from "../../../bindings/ben/desktop/playbackservice";
-import {
-  PlaybackModels,
-  type SessionSnapshot,
-  resolveRecordingArtworkURL,
-} from "../../shared/lib/desktop";
+import { PlaybackModels, type SessionSnapshot } from "../../shared/lib/desktop";
 
 type PlaybackStore = {
-  artworkUrl: string;
-  artworkRecordingId: string;
   error: string;
   started: boolean;
   snapshot: SessionSnapshot | null;
@@ -17,7 +11,6 @@ type PlaybackStore = {
   bootstrap: () => Promise<void>;
   teardown: () => void;
   setSnapshot: (snapshot: SessionSnapshot) => void;
-  refreshArtwork: (recordingId?: string) => Promise<void>;
   togglePlayback: () => Promise<void>;
   next: () => Promise<void>;
   previous: () => Promise<void>;
@@ -55,8 +48,6 @@ async function applySnapshot(
 }
 
 export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
-  artworkUrl: "",
-  artworkRecordingId: "",
   error: "",
   started: false,
   snapshot: null,
@@ -67,39 +58,6 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       snapshot,
       error: snapshot.lastError ?? "",
     });
-    void get().refreshArtwork(snapshot.currentItem?.artworkRef);
-  },
-
-  refreshArtwork: async (recordingId) => {
-    const trimmed = recordingId?.trim() ?? "";
-    if (!trimmed) {
-      set({
-        artworkRecordingId: "",
-        artworkUrl: "",
-      });
-      return;
-    }
-    if (get().artworkRecordingId === trimmed && get().artworkUrl) {
-      return;
-    }
-    try {
-      const artworkUrl = await resolveRecordingArtworkURL(trimmed, "96_jpeg");
-      if (get().snapshot?.currentItem?.artworkRef !== trimmed) {
-        return;
-      }
-      set({
-        artworkRecordingId: trimmed,
-        artworkUrl,
-      });
-    } catch {
-      if (get().snapshot?.currentItem?.artworkRef !== trimmed) {
-        return;
-      }
-      set({
-        artworkRecordingId: trimmed,
-        artworkUrl: "",
-      });
-    }
   },
 
   bootstrap: async () => {

@@ -442,10 +442,7 @@ func (s *PlaybackService) replaceContextAndPlay(ctx context.Context, input playb
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	if _, err := session.SetContext(input); err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.Play(ctx)
+	return session.ReplaceContextAndPlay(ctx, input)
 }
 
 func (s *PlaybackService) requireLoader() (*playback.CatalogLoader, error) {

@@ -53,7 +53,7 @@ export function QueueSidebar() {
             </span>
           </button>
         ) : (
-          <p className="text-sm text-white/45">Queue is empty.</p>
+          <p className="text-sm text-white/45">Player is empty.</p>
         )}
       </div>
 

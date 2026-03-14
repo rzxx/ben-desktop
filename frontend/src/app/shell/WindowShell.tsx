@@ -18,6 +18,7 @@ import {
 import { Link, useLocation } from "wouter";
 import { AppRouter } from "../router/AppRouter";
 import { routes } from "../router/routes";
+import { PlaybackLoadingPanel } from "../../features/playback/PlaybackLoadingPanel";
 import { QueueSidebar } from "../../features/playback/QueueSidebar";
 import { PlayerBar } from "../../features/playback/PlayerBar";
 import { usePlaybackStore } from "../../features/playback/store";
@@ -178,8 +179,11 @@ export function WindowShell() {
         <main className="route-panel min-h-0 overflow-hidden rounded-[1.9rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] p-4 shadow-[0_28px_70px_rgba(0,0,0,0.28)]">
           <AppRouter />
         </main>
-        <div className="max-xl:hidden">
-          <QueueSidebar />
+        <div className="hidden min-h-0 flex-col gap-4 max-xl:hidden xl:flex">
+          <PlaybackLoadingPanel />
+          <div className="min-h-0 flex-1">
+            <QueueSidebar />
+          </div>
         </div>
       </div>
       <PlayerBar />

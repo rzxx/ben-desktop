@@ -90,6 +90,8 @@ type SessionSnapshot struct {
 	CurrentEntryID      string                      `json:"currentEntryId,omitempty"`
 	CurrentEntry        *SessionEntry               `json:"currentEntry,omitempty"`
 	CurrentItem         *SessionItem                `json:"currentItem,omitempty"`
+	LoadingEntry        *SessionEntry               `json:"loadingEntry,omitempty"`
+	LoadingItem         *SessionItem                `json:"loadingItem,omitempty"`
 	UpcomingEntries     []SessionEntry              `json:"upcomingEntries"`
 	CurrentOrigin       EntryOrigin                 `json:"currentOrigin,omitempty"`
 	CurrentContextIndex int                         `json:"currentContextIndex"`
@@ -104,6 +106,7 @@ type SessionSnapshot struct {
 	LastError           string                      `json:"lastError,omitempty"`
 	CurrentSourceKind   apitypes.PlaybackSourceKind `json:"currentSourceKind,omitempty"`
 	CurrentPreparation  *EntryPreparation           `json:"currentPreparation,omitempty"`
+	LoadingPreparation  *EntryPreparation           `json:"loadingPreparation,omitempty"`
 	NextPreparation     *EntryPreparation           `json:"nextPreparation,omitempty"`
 	QueueLength         int                         `json:"queueLength"`
 	NextEntrySeq        int64                       `json:"nextEntrySeq,omitempty"`

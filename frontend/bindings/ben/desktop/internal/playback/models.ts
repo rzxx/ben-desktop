@@ -267,6 +267,8 @@ export class SessionSnapshot {
     "currentEntryId"?: string;
     "currentEntry"?: SessionEntry | null;
     "currentItem"?: SessionItem | null;
+    "loadingEntry"?: SessionEntry | null;
+    "loadingItem"?: SessionItem | null;
     "upcomingEntries": SessionEntry[];
     "currentOrigin"?: EntryOrigin;
     "currentContextIndex": number;
@@ -281,6 +283,7 @@ export class SessionSnapshot {
     "lastError"?: string;
     "currentSourceKind"?: apitypes$0.PlaybackSourceKind;
     "currentPreparation"?: EntryPreparation | null;
+    "loadingPreparation"?: EntryPreparation | null;
     "nextPreparation"?: EntryPreparation | null;
     "queueLength": number;
     "nextEntrySeq"?: number;
@@ -333,10 +336,13 @@ export class SessionSnapshot {
         const $$createField2_0 = $$createType8;
         const $$createField4_0 = $$createType9;
         const $$createField5_0 = $$createType10;
-        const $$createField6_0 = $$createType2;
-        const $$createField9_0 = $$createType11;
-        const $$createField19_0 = $$createType13;
-        const $$createField20_0 = $$createType13;
+        const $$createField6_0 = $$createType9;
+        const $$createField7_0 = $$createType10;
+        const $$createField8_0 = $$createType2;
+        const $$createField11_0 = $$createType11;
+        const $$createField21_0 = $$createType13;
+        const $$createField22_0 = $$createType13;
+        const $$createField23_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("context" in $$parsedSource) {
             $$parsedSource["context"] = $$createField0_0($$parsedSource["context"]);
@@ -353,17 +359,26 @@ export class SessionSnapshot {
         if ("currentItem" in $$parsedSource) {
             $$parsedSource["currentItem"] = $$createField5_0($$parsedSource["currentItem"]);
         }
+        if ("loadingEntry" in $$parsedSource) {
+            $$parsedSource["loadingEntry"] = $$createField6_0($$parsedSource["loadingEntry"]);
+        }
+        if ("loadingItem" in $$parsedSource) {
+            $$parsedSource["loadingItem"] = $$createField7_0($$parsedSource["loadingItem"]);
+        }
         if ("upcomingEntries" in $$parsedSource) {
-            $$parsedSource["upcomingEntries"] = $$createField6_0($$parsedSource["upcomingEntries"]);
+            $$parsedSource["upcomingEntries"] = $$createField8_0($$parsedSource["upcomingEntries"]);
         }
         if ("shuffleCycle" in $$parsedSource) {
-            $$parsedSource["shuffleCycle"] = $$createField9_0($$parsedSource["shuffleCycle"]);
+            $$parsedSource["shuffleCycle"] = $$createField11_0($$parsedSource["shuffleCycle"]);
         }
         if ("currentPreparation" in $$parsedSource) {
-            $$parsedSource["currentPreparation"] = $$createField19_0($$parsedSource["currentPreparation"]);
+            $$parsedSource["currentPreparation"] = $$createField21_0($$parsedSource["currentPreparation"]);
+        }
+        if ("loadingPreparation" in $$parsedSource) {
+            $$parsedSource["loadingPreparation"] = $$createField22_0($$parsedSource["loadingPreparation"]);
         }
         if ("nextPreparation" in $$parsedSource) {
-            $$parsedSource["nextPreparation"] = $$createField20_0($$parsedSource["nextPreparation"]);
+            $$parsedSource["nextPreparation"] = $$createField23_0($$parsedSource["nextPreparation"]);
         }
         return new SessionSnapshot($$parsedSource as Partial<SessionSnapshot>);
     }
