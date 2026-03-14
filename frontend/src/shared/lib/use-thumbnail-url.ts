@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type ArtworkRef, resolveThumbnailURL } from "./desktop";
 
 const thumbnailUrlCache = new Map<string, string>();
@@ -61,26 +61,43 @@ export function useResolvedUrl(cacheKey: string, load?: () => Promise<string>) {
     retryAttempt: 0,
     url: "",
   });
+  const loadRef = useRef(load);
+
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
 
   const cachedUrl = cacheKey ? (thumbnailUrlCache.get(cacheKey) ?? "") : "";
   const retryAttempt = state.key === cacheKey ? state.retryAttempt : 0;
 
   useEffect(() => {
-    if (!cacheKey || !load) {
+    const currentLoad = loadRef.current;
+    if (!cacheKey || !currentLoad) {
       return;
     }
     let active = true;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     void resolveCached(cacheKey, thumbnailUrlCache, thumbnailPendingCache, () =>
-      load(),
+      currentLoad(),
     )
       .then((value) => {
         if (active) {
-          setState((current) => ({
-            key: cacheKey,
-            retryAttempt: current.key === cacheKey ? current.retryAttempt : 0,
-            url: value,
-          }));
+          setState((current) => {
+            const nextRetryAttempt =
+              current.key === cacheKey ? current.retryAttempt : 0;
+            if (
+              current.key === cacheKey &&
+              nextRetryAttempt === current.retryAttempt &&
+              current.url === value
+            ) {
+              return current;
+            }
+            return {
+              key: cacheKey,
+              retryAttempt: nextRetryAttempt,
+              url: value,
+            };
+          });
           if (!value) {
             retryTimer = setTimeout(() => {
               setState((current) => ({
@@ -95,11 +112,22 @@ export function useResolvedUrl(cacheKey: string, load?: () => Promise<string>) {
       })
       .catch(() => {
         if (active) {
-          setState((current) => ({
-            key: cacheKey,
-            retryAttempt: current.key === cacheKey ? current.retryAttempt : 0,
-            url: "",
-          }));
+          setState((current) => {
+            const nextRetryAttempt =
+              current.key === cacheKey ? current.retryAttempt : 0;
+            if (
+              current.key === cacheKey &&
+              nextRetryAttempt === current.retryAttempt &&
+              current.url === ""
+            ) {
+              return current;
+            }
+            return {
+              key: cacheKey,
+              retryAttempt: nextRetryAttempt,
+              url: "",
+            };
+          });
           retryTimer = setTimeout(() => {
             setState((current) => ({
               key: cacheKey,
@@ -116,7 +144,7 @@ export function useResolvedUrl(cacheKey: string, load?: () => Promise<string>) {
         clearTimeout(retryTimer);
       }
     };
-  }, [cacheKey, load, retryAttempt]);
+  }, [cacheKey, retryAttempt]);
 
   if (!cacheKey) {
     return "";

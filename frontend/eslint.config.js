@@ -5,6 +5,7 @@ import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
+import pluginRouter from "@tanstack/eslint-plugin-router";
 
 export default defineConfig(
   globalIgnores(["bindings", "dist", "node_modules"]),
@@ -16,6 +17,7 @@ export default defineConfig(
       reactHooks.configs.flat["recommended-latest"],
       reactRefresh.configs.vite,
       eslintConfigPrettier,
+      ...pluginRouter.configs["flat/recommended"],
     ],
     languageOptions: {
       ecmaVersion: "latest",

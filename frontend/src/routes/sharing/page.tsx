@@ -257,10 +257,7 @@ export function SharingPage() {
   }, []);
 
   const runAction = useCallback(
-    async (
-      key: string,
-      action: () => Promise<void | JoinSession>,
-    ) => {
+    async (key: string, action: () => Promise<void | JoinSession>) => {
       setPendingAction(key);
       setActionError("");
       setFeedback("");

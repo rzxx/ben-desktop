@@ -1148,7 +1148,18 @@ func (s *Session) tryPendingPlayback(ctx context.Context, token uint64, entryID 
 	}
 
 	playErr := s.completePendingPlayback(ctx, *entry, status)
-	return playErr == nil
+	if playErr != nil {
+		_, _ = s.failPendingPlayback(entry, playErr)
+		s.mu.Lock()
+		if token == s.pendingToken && entryID == s.pendingEntry {
+			s.pendingCancel = nil
+			s.pendingEntry = ""
+			s.pendingToken++
+		}
+		s.mu.Unlock()
+		return true
+	}
+	return true
 }
 
 func (s *Session) buildContextLocked(input PlaybackContextInput) (*PlaybackContext, int, error) {

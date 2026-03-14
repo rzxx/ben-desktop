@@ -1,3 +1,4 @@
+import type { PropsWithChildren } from "react";
 import { useEffect, useState } from "react";
 import { Window, Events } from "@wailsio/runtime";
 import {
@@ -15,23 +16,21 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { Link, useLocation } from "wouter";
-import { AppRouter } from "../router/AppRouter";
-import { routes } from "../router/routes";
+import { Link, useLocation } from "@tanstack/react-router";
 import { PlaybackLoadingPanel } from "../../features/playback/PlaybackLoadingPanel";
 import { QueueSidebar } from "../../features/playback/QueueSidebar";
 import { PlayerBar } from "../../features/playback/PlayerBar";
 import { usePlaybackStore } from "../../features/playback/store";
 
 const navItems = [
-  { href: routes.libraries, label: "Libraries", icon: FolderCog },
-  { href: routes.albums, label: "Albums", icon: Disc3 },
-  { href: routes.artists, label: "Artists", icon: UsersRound },
-  { href: routes.sharing, label: "Sharing", icon: KeyRound },
-  { href: routes.cache, label: "Cache", icon: HardDrive },
-  { href: routes.operations, label: "Operations", icon: Activity },
-  { href: routes.tracks, label: "Tracks", icon: Music4 },
-  { href: routes.playlists, label: "Playlists", icon: LibraryBig },
+  { href: "/libraries", label: "Libraries", icon: FolderCog },
+  { href: "/albums", label: "Albums", icon: Disc3 },
+  { href: "/artists", label: "Artists", icon: UsersRound },
+  { href: "/sharing", label: "Sharing", icon: KeyRound },
+  { href: "/cache", label: "Cache", icon: HardDrive },
+  { href: "/operations", label: "Operations", icon: Activity },
+  { href: "/tracks", label: "Tracks", icon: Music4 },
+  { href: "/playlists", label: "Playlists", icon: LibraryBig },
 ];
 
 function TitleBar() {
@@ -116,7 +115,9 @@ function TitleBar() {
 }
 
 function NavigationSidebar() {
-  const [location] = useLocation();
+  const location = useLocation({
+    select: (current) => current.pathname,
+  });
 
   return (
     <aside className="navigation-sidebar flex h-full flex-col rounded-[1.8rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
@@ -138,8 +139,8 @@ function NavigationSidebar() {
           return (
             <Link
               className={`nav-link ${active ? "is-active" : ""}`}
-              href={item.href}
               key={item.href}
+              to={item.href}
             >
               <Icon className="h-4 w-4" />
               <span>{item.label}</span>
@@ -160,7 +161,7 @@ function NavigationSidebar() {
   );
 }
 
-export function WindowShell() {
+export function WindowShell({ children }: PropsWithChildren) {
   const bootstrap = usePlaybackStore((state) => state.bootstrap);
   const teardown = usePlaybackStore((state) => state.teardown);
 
@@ -177,7 +178,7 @@ export function WindowShell() {
       <div className="shell-grid absolute inset-x-0 top-14 bottom-28 grid grid-cols-[220px_minmax(0,1fr)_320px] gap-4 px-5 py-4 max-xl:grid-cols-[220px_minmax(0,1fr)] max-lg:grid-cols-1 max-lg:overflow-y-auto">
         <NavigationSidebar />
         <main className="route-panel min-h-0 overflow-hidden rounded-[1.9rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] p-4 shadow-[0_28px_70px_rgba(0,0,0,0.28)]">
-          <AppRouter />
+          {children}
         </main>
         <div className="hidden min-h-0 flex-col gap-4 max-xl:hidden xl:flex">
           <PlaybackLoadingPanel />

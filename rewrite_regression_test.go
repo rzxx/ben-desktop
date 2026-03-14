@@ -82,7 +82,7 @@ func TestDesktopRewriteRegression(t *testing.T) {
 	})
 
 	t.Run("sharing page uses async connect peer", func(t *testing.T) {
-		sharingPage, err := os.ReadFile(filepath.Join("frontend", "src", "features", "sharing", "page.tsx"))
+		sharingPage, err := os.ReadFile(filepath.Join("frontend", "src", "routes", "sharing", "page.tsx"))
 		if err != nil {
 			t.Fatalf("read sharing page: %v", err)
 		}

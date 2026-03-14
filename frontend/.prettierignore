@@ -2,3 +2,4 @@ bindings
 dist
 node_modules
 bun.lock
+src/routeTree.gen.ts

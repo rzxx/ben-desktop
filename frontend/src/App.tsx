@@ -1,12 +1,7 @@
-import { HashRouter } from "./app/router/HashRouter";
-import { WindowShell } from "./app/shell/WindowShell";
+import { AppRouterProvider } from "./app/router";
 
 function App() {
-  return (
-    <HashRouter>
-      <WindowShell />
-    </HashRouter>
-  );
+  return <AppRouterProvider />;
 }
 
 export default App;

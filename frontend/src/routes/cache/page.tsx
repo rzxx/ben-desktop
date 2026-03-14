@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   HardDrive,
   Image,
@@ -8,62 +8,13 @@ import {
   ShieldAlert,
   Trash2,
 } from "lucide-react";
-import {
-  type CacheEntryItem,
-  type CacheOverview,
-  type LibrarySummary,
-  type LocalContext,
-  type PageInfo,
-  Types,
-  cleanupCache,
-  getActiveLibrary,
-  getCacheOverview,
-  getLocalContext,
-  listCacheEntries,
-} from "../../shared/lib/desktop";
+import { Types } from "../../shared/lib/desktop";
 import { formatBytes, formatRelativeDate } from "../../shared/lib/format";
-
-const pageSize = 80;
-
-type CacheState = {
-  loading: boolean;
-  library: LibrarySummary | null;
-  local: LocalContext | null;
-  overview: CacheOverview | null;
-  entries: CacheEntryItem[];
-  page: PageInfo | null;
-  error: string;
-};
-
-const initialState: CacheState = {
-  loading: true,
-  library: null,
-  local: null,
-  overview: null,
-  entries: [],
-  page: null,
-  error: "",
-};
-
-function describeError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function formatDateTime(value?: Date | string | null) {
-  if (!value) {
-    return "No activity";
-  }
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "No activity";
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
+import {
+  entryTarget,
+  formatDateTime,
+  useCachePage,
+} from "./hooks/useCachePage";
 
 function kindLabel(kind: string) {
   switch (kind) {
@@ -87,104 +38,19 @@ function kindIcon(kind: string) {
   }
 }
 
-function entryTarget(entry: CacheEntryItem) {
-  if (entry.RecordingID) {
-    return `Recording ${entry.RecordingID}`;
-  }
-  if (entry.AlbumID) {
-    return `Album ${entry.AlbumID}`;
-  }
-  if (entry.PlaylistID) {
-    return `Playlist ${entry.PlaylistID}`;
-  }
-  if (entry.ThumbnailScope && entry.ThumbnailScopeID) {
-    return `${entry.ThumbnailScope} artwork ${entry.ThumbnailScopeID}`;
-  }
-  return "No linked entity";
-}
-
 export function CachePage() {
-  const [state, setState] = useState<CacheState>(initialState);
-  const [offset, setOffset] = useState(0);
-  const [pendingAction, setPendingAction] = useState("");
-  const [feedback, setFeedback] = useState("");
-  const [actionError, setActionError] = useState("");
-
-  const refresh = useCallback(async () => {
-    try {
-      const [{ library, found }, local] = await Promise.all([
-        getActiveLibrary(),
-        getLocalContext(),
-      ]);
-      if (!found || !library.LibraryID) {
-        setState({
-          loading: false,
-          library: null,
-          local,
-          overview: null,
-          entries: [],
-          page: null,
-          error: "",
-        });
-        return;
-      }
-
-      const [overview, page] = await Promise.all([
-        getCacheOverview(),
-        listCacheEntries(offset, pageSize),
-      ]);
-
-      setState({
-        loading: false,
-        library,
-        local,
-        overview,
-        entries: page.Items,
-        page: page.Page,
-        error: "",
-      });
-    } catch (error) {
-      setState((current) => ({
-        ...current,
-        loading: false,
-        error: describeError(error),
-      }));
-    }
-  }, [offset]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  const runCleanup = useCallback(
-    async (
-      key: string,
-      request: Types.CacheCleanupRequest,
-      success: string,
-    ) => {
-      setPendingAction(key);
-      setActionError("");
-      setFeedback("");
-      try {
-        const result = await cleanupCache(request);
-        setFeedback(
-          `${success}: removed ${result.DeletedBlobs.length} blob(s), ${formatBytes(
-            result.DeletedBytes,
-          )}`,
-        );
-        await refresh();
-      } catch (error) {
-        setActionError(describeError(error));
-      } finally {
-        setPendingAction("");
-      }
-    },
-    [refresh],
-  );
-
-  const byKind = useMemo(() => {
-    return state.overview?.ByKind ?? [];
-  }, [state.overview]);
+  const {
+    actionError,
+    byKind,
+    feedback,
+    offset,
+    pageSize,
+    pendingAction,
+    refresh,
+    runCleanup,
+    setOffset,
+    state,
+  } = useCachePage();
 
   if (state.loading) {
     return (
@@ -285,50 +151,30 @@ export function CachePage() {
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
-                    Used
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {formatBytes(state.overview.UsedBytes)}
-                  </p>
-                  <p className="mt-2 text-sm text-white/55">
-                    {state.overview.EntryCount} entries
-                  </p>
-                </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
-                    Limit
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {formatBytes(state.overview.LimitBytes)}
-                  </p>
-                  <p className="mt-2 text-sm text-white/55">
-                    {formatBytes(state.overview.FreeBytes)} free
-                  </p>
-                </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
-                    Pinned
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {formatBytes(state.overview.PinnedBytes)}
-                  </p>
-                  <p className="mt-2 text-sm text-white/55">
-                    {state.overview.PinnedEntries} entries
-                  </p>
-                </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
-                    Reclaimable
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {formatBytes(state.overview.ReclaimableBytes)}
-                  </p>
-                  <p className="mt-2 text-sm text-white/55">
-                    {state.overview.UnpinnedEntries} unpinned
-                  </p>
-                </div>
+                <StatCard
+                  body={`${state.overview.EntryCount} entries`}
+                  title="Used"
+                >
+                  {formatBytes(state.overview.UsedBytes)}
+                </StatCard>
+                <StatCard
+                  body={`${formatBytes(state.overview.FreeBytes)} free`}
+                  title="Limit"
+                >
+                  {formatBytes(state.overview.LimitBytes)}
+                </StatCard>
+                <StatCard
+                  body={`${state.overview.PinnedEntries} entries`}
+                  title="Pinned"
+                >
+                  {formatBytes(state.overview.PinnedBytes)}
+                </StatCard>
+                <StatCard
+                  body={`${state.overview.UnpinnedEntries} unpinned`}
+                  title="Reclaimable"
+                >
+                  {formatBytes(state.overview.ReclaimableBytes)}
+                </StatCard>
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -567,9 +413,9 @@ export function CachePage() {
                             void runCleanup(
                               `delete:${entry.BlobID}`,
                               new Types.CacheCleanupRequest({
+                                BlobIDs: [entry.BlobID],
                                 Mode: Types.CacheCleanupMode
                                   .CacheCleanupBlobIDs,
-                                BlobIDs: [entry.BlobID],
                               }),
                               "Blob cleanup complete",
                             );
@@ -588,8 +434,7 @@ export function CachePage() {
 
             {state.page && (
               <p className="mt-4 text-sm text-white/48">
-                Showing {state.page.Offset + 1}
-                {"-"}
+                Showing {state.page.Offset + 1}-
                 {state.page.Offset + state.page.Returned} of {state.page.Total}.
                 Refreshed {formatRelativeDate(new Date())}.
               </p>
@@ -597,6 +442,26 @@ export function CachePage() {
           </section>
         </>
       )}
+    </div>
+  );
+}
+
+function StatCard({
+  body,
+  children,
+  title,
+}: {
+  body: string;
+  children: ReactNode;
+  title: string;
+}) {
+  return (
+    <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
+      <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
+        {title}
+      </p>
+      <p className="mt-2 text-lg font-semibold text-white">{children}</p>
+      <p className="mt-2 text-sm text-white/55">{body}</p>
     </div>
   );
 }

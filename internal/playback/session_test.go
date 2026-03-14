@@ -133,6 +133,8 @@ func (b *mockBridge) nextPreparationStatus(recordingID string, advance bool) (ap
 type testBackend struct {
 	loadedURI       string
 	loadCalls       int
+	loadErr         error
+	playErr         error
 	preloadedURI    string
 	position        int64
 	duration        *int64
@@ -152,10 +154,10 @@ func (b *testBackend) Load(_ context.Context, uri string) error {
 	b.loadedURI = uri
 	b.loadCalls++
 	b.position = 0
-	return nil
+	return b.loadErr
 }
 
-func (b *testBackend) Play(context.Context) error  { return nil }
+func (b *testBackend) Play(context.Context) error  { return b.playErr }
 func (b *testBackend) Pause(context.Context) error { return nil }
 func (b *testBackend) Stop(context.Context) error {
 	b.stopCalls++
@@ -561,6 +563,61 @@ func TestSessionPlayPendingUsesLoadingStateWhenPlayerEmpty(t *testing.T) {
 	}
 
 	t.Fatalf("expected pending playback to resolve and load track, got %q", backend.loadedURI)
+}
+
+func TestSessionPendingReadyBackendFailureClearsLoadingState(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	backend.loadErr = errors.New("backend load failed")
+	session := NewSession(&mockBridge{
+		preparations: map[string][]apitypes.PlaybackPreparationStatus{
+			"rec-1": {
+				{RecordingID: "rec-1", Phase: apitypes.PlaybackPreparationPreparingTranscode, SourceKind: apitypes.PlaybackSourceRemoteOpt},
+				{RecordingID: "rec-1", Phase: apitypes.PlaybackPreparationReady, SourceKind: apitypes.PlaybackSourceRemoteOpt, PlayableURI: "file:///tmp/ready.mp3"},
+			},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind:  ContextKindCustom,
+		ID:    "custom",
+		Items: []SessionItem{{RecordingID: "rec-1", Title: "Track 1"}},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+
+	snapshot, err := session.Play(context.Background())
+	if !errors.Is(err, errPendingPlayback) {
+		t.Fatalf("expected pending playback error, got %v", err)
+	}
+	if snapshot.LoadingEntry == nil {
+		t.Fatalf("expected loading entry after pending playback")
+	}
+
+	session.mu.Lock()
+	token := session.pendingToken
+	entryID := session.pendingEntry
+	session.mu.Unlock()
+
+	if !session.tryPendingPlayback(context.Background(), token, entryID) {
+		t.Fatalf("expected backend failure to stop pending retry loop")
+	}
+
+	resolved := session.Snapshot()
+	if resolved.LoadingEntry != nil {
+		t.Fatalf("expected loading state cleared after backend failure, got %+v", resolved.LoadingEntry)
+	}
+	if resolved.Status != StatusPaused {
+		t.Fatalf("expected paused status after backend failure, got %q", resolved.Status)
+	}
+	if resolved.LastError != "backend load failed" {
+		t.Fatalf("expected backend load failure in last error, got %q", resolved.LastError)
+	}
 }
 
 func TestSessionPendingRequestPreservesCurrentPlayerState(t *testing.T) {

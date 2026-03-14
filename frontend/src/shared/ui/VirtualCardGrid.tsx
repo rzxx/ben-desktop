@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useNearEndScroll } from "./use-near-end-scroll";
 
 type VirtualCardGridProps<T> = {
   items: T[];
@@ -57,17 +58,10 @@ export function VirtualCardGrid<T>({
     estimateSize: () => rowHeight,
     overscan: 4,
   });
-
-  useEffect(() => {
-    const virtualItems = rowVirtualizer.getVirtualItems();
-    const last = virtualItems[virtualItems.length - 1];
-    if (!last || !hasMore || loading || loadingMore) {
-      return;
-    }
-    if (last.index >= rowCount - 3) {
-      onEndReached?.();
-    }
-  }, [hasMore, loading, loadingMore, onEndReached, rowCount, rowVirtualizer]);
+  useNearEndScroll(parentRef, {
+    enabled: Boolean(hasMore && !loading && !loadingMore),
+    onNearEnd: onEndReached,
+  });
 
   if (!loading && items.length === 0) {
     return (

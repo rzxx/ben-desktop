@@ -1,5 +1,6 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useNearEndScroll } from "./use-near-end-scroll";
 
 type VirtualRowsProps<T> = {
   items: T[];
@@ -32,24 +33,10 @@ export function VirtualRows<T>({
     estimateSize: () => estimateSize,
     overscan,
   });
-
-  useEffect(() => {
-    const virtualItems = rowVirtualizer.getVirtualItems();
-    const last = virtualItems[virtualItems.length - 1];
-    if (!last || !hasMore || loading || loadingMore) {
-      return;
-    }
-    if (last.index >= items.length - 5) {
-      onEndReached?.();
-    }
-  }, [
-    hasMore,
-    items.length,
-    loading,
-    loadingMore,
-    onEndReached,
-    rowVirtualizer,
-  ]);
+  useNearEndScroll(parentRef, {
+    enabled: Boolean(hasMore && !loading && !loadingMore),
+    onNearEnd: onEndReached,
+  });
 
   if (!loading && items.length === 0) {
     return (

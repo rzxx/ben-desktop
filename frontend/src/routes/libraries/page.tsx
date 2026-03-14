@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import {
   CircleAlert,
   FolderCog,
@@ -6,87 +6,22 @@ import {
   RefreshCw,
   UsersRound,
 } from "lucide-react";
-import {
-  type LibraryMemberStatus,
-  type LibrarySummary,
-  type LocalContext,
-  createLibrary,
-  deleteLibrary,
-  getActiveLibrary,
-  getLocalContext,
-  leaveLibrary,
-  listLibraries,
-  listLibraryMembers,
-  removeLibraryMember,
-  renameLibrary,
-  selectLibrary,
-  updateLibraryMemberRole,
-} from "../../shared/lib/desktop";
 import { formatCount, formatRelativeDate } from "../../shared/lib/format";
-
-type LibrariesState = {
-  loading: boolean;
-  libraries: LibrarySummary[];
-  members: LibraryMemberStatus[];
-  active: LibrarySummary | null;
-  local: LocalContext | null;
-  error: string;
-};
-
-const initialState: LibrariesState = {
-  loading: true,
-  libraries: [],
-  members: [],
-  active: null,
-  local: null,
-  error: "",
-};
-
-function describeError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function normalizeRole(role: string) {
-  return role.trim().toLowerCase();
-}
-
-function canManageLibrary(role: string) {
-  const normalized = normalizeRole(role);
-  return normalized === "owner" || normalized === "admin";
-}
-
-function formatDateTime(value?: Date | string | null) {
-  if (!value) {
-    return "No activity";
-  }
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "No activity";
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function MetricPill({ label }: { label: string }) {
-  return (
-    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
-      {label}
-    </span>
-  );
-}
+import { MetricPill } from "../catalog/components/MetricPill";
+import {
+  formatDateTime,
+  normalizeLibraryRole,
+  useLibrariesPage,
+} from "./hooks/useLibrariesPage";
 
 function EmptyState({
+  body,
   icon,
   title,
-  body,
 }: {
+  body: string;
   icon: ReactNode;
   title: string;
-  body: string;
 }) {
   return (
     <div className="rounded-[1.6rem] border border-dashed border-white/10 bg-black/10 px-8 py-10 text-center">
@@ -100,65 +35,20 @@ function EmptyState({
 }
 
 export function LibrariesPage() {
-  const [state, setState] = useState<LibrariesState>(initialState);
-  const [createName, setCreateName] = useState("");
-  const [renameName, setRenameName] = useState("");
-  const [pendingAction, setPendingAction] = useState("");
-  const [actionError, setActionError] = useState("");
-  const [notice, setNotice] = useState("");
-
-  async function refresh() {
-    try {
-      const [libraries, activeResult, local] = await Promise.all([
-        listLibraries(),
-        getActiveLibrary(),
-        getLocalContext(),
-      ]);
-      const active = activeResult.found ? activeResult.library : null;
-      const members = active ? await listLibraryMembers() : [];
-      setState({
-        loading: false,
-        libraries,
-        members,
-        active,
-        local,
-        error: "",
-      });
-      setRenameName(active?.Name ?? "");
-    } catch (error) {
-      setState((current) => ({
-        ...current,
-        loading: false,
-        error: describeError(error),
-      }));
-    }
-  }
-
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  const activeRole = state.active?.Role ?? state.local?.Role ?? "";
-  const canManage = canManageLibrary(activeRole);
-
-  async function runAction(
-    actionKey: string,
-    work: () => Promise<unknown>,
-    successMessage: string,
-  ) {
-    setPendingAction(actionKey);
-    setActionError("");
-    setNotice("");
-    try {
-      await work();
-      setNotice(successMessage);
-      await refresh();
-    } catch (error) {
-      setActionError(describeError(error));
-    } finally {
-      setPendingAction("");
-    }
-  }
+  const {
+    actionError,
+    actions,
+    canManage,
+    createName,
+    notice,
+    pendingAction,
+    refresh,
+    renameName,
+    runAction,
+    setCreateName,
+    setRenameName,
+    state,
+  } = useLibrariesPage();
 
   if (state.loading) {
     return (
@@ -224,13 +114,12 @@ export function LibrariesPage() {
             event.preventDefault();
             const nextName = createName.trim();
             if (!nextName) {
-              setActionError("Library name is required");
               return;
             }
             void runAction(
               "create-library",
               async () => {
-                await createLibrary(nextName);
+                await actions.createLibrary(nextName);
                 setCreateName("");
               },
               `Created library ${nextName}`,
@@ -342,7 +231,7 @@ export function LibrariesPage() {
                           onClick={() => {
                             void runAction(
                               `select:${library.LibraryID}`,
-                              () => selectLibrary(library.LibraryID),
+                              () => actions.selectLibrary(library.LibraryID),
                               `Activated ${library.Name}`,
                             );
                           }}
@@ -401,12 +290,15 @@ export function LibrariesPage() {
                     event.preventDefault();
                     const nextName = renameName.trim();
                     if (!nextName) {
-                      setActionError("Library name is required");
                       return;
                     }
                     void runAction(
                       "rename-library",
-                      () => renameLibrary(state.active!.LibraryID, nextName),
+                      () =>
+                        actions.renameLibrary(
+                          state.active!.LibraryID,
+                          nextName,
+                        ),
                       `Renamed library to ${nextName}`,
                     );
                   }}
@@ -433,7 +325,7 @@ export function LibrariesPage() {
                     onClick={() => {
                       void runAction(
                         "leave-library",
-                        () => leaveLibrary(state.active!.LibraryID),
+                        () => actions.leaveLibrary(state.active!.LibraryID),
                         `Left ${state.active!.Name}`,
                       );
                     }}
@@ -454,7 +346,7 @@ export function LibrariesPage() {
                       }
                       void runAction(
                         "delete-library",
-                        () => deleteLibrary(state.active!.LibraryID),
+                        () => actions.deleteLibrary(state.active!.LibraryID),
                         `Deleted ${state.active!.Name}`,
                       );
                     }}
@@ -469,7 +361,7 @@ export function LibrariesPage() {
                 {state.members.map((member) => {
                   const isLocalDevice =
                     member.DeviceID === state.local?.DeviceID;
-                  const normalizedRole = normalizeRole(member.Role);
+                  const normalizedRole = normalizeLibraryRole(member.Role);
                   const roleOptions =
                     normalizedRole === "owner"
                       ? ["owner", "admin", "member", "guest"]
@@ -522,7 +414,7 @@ export function LibrariesPage() {
                               void runAction(
                                 `role:${member.DeviceID}`,
                                 () =>
-                                  updateLibraryMemberRole(
+                                  actions.updateLibraryMemberRole(
                                     member.DeviceID,
                                     nextRole,
                                   ),
@@ -553,7 +445,8 @@ export function LibrariesPage() {
                               }
                               void runAction(
                                 `remove:${member.DeviceID}`,
-                                () => removeLibraryMember(member.DeviceID),
+                                () =>
+                                  actions.removeLibraryMember(member.DeviceID),
                                 `Removed ${member.DeviceID}`,
                               );
                             }}
