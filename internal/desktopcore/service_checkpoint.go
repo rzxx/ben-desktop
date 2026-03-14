@@ -50,7 +50,7 @@ type checkpointChunk struct {
 	Entries     []checkpointOplogEntry
 }
 
-func (a *App) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error) {
+func (a *CheckpointService) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error) {
 	local, err := a.requireCheckpointAdminContext(ctx, "checkpoint publish")
 	if err != nil {
 		return apitypes.LibraryCheckpointManifest{}, err
@@ -58,7 +58,7 @@ func (a *App) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpoint
 	return a.publishCheckpointForLocalContext(ctx, local)
 }
 
-func (a *App) StartPublishCheckpoint(ctx context.Context) (JobSnapshot, error) {
+func (a *CheckpointService) StartPublishCheckpoint(ctx context.Context) (JobSnapshot, error) {
 	local, err := a.requireCheckpointAdminContext(ctx, "checkpoint publish")
 	if err != nil {
 		return JobSnapshot{}, err
@@ -78,7 +78,7 @@ func (a *App) StartPublishCheckpoint(ctx context.Context) (JobSnapshot, error) {
 	)
 }
 
-func (a *App) publishCheckpointForLocalContext(ctx context.Context, local apitypes.LocalContext) (apitypes.LibraryCheckpointManifest, error) {
+func (a *CheckpointService) publishCheckpointForLocalContext(ctx context.Context, local apitypes.LocalContext) (apitypes.LibraryCheckpointManifest, error) {
 	local.LibraryID = strings.TrimSpace(local.LibraryID)
 	local.DeviceID = strings.TrimSpace(local.DeviceID)
 	if local.LibraryID == "" {
@@ -111,7 +111,7 @@ func (a *App) publishCheckpointForLocalContext(ctx context.Context, local apityp
 	return manifest, nil
 }
 
-func (a *App) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
+func (a *CheckpointService) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
 	local, err := a.requireCheckpointAdminContext(ctx, "checkpoint compaction")
 	if err != nil {
 		return apitypes.CheckpointCompactionResult{}, err
@@ -119,7 +119,7 @@ func (a *App) CompactCheckpoint(ctx context.Context, force bool) (apitypes.Check
 	return a.compactCheckpointForLocalContext(ctx, local, force)
 }
 
-func (a *App) StartCompactCheckpoint(ctx context.Context, force bool) (JobSnapshot, error) {
+func (a *CheckpointService) StartCompactCheckpoint(ctx context.Context, force bool) (JobSnapshot, error) {
 	local, err := a.requireCheckpointAdminContext(ctx, "checkpoint compaction")
 	if err != nil {
 		return JobSnapshot{}, err
@@ -139,7 +139,7 @@ func (a *App) StartCompactCheckpoint(ctx context.Context, force bool) (JobSnapsh
 	)
 }
 
-func (a *App) compactCheckpointForLocalContext(ctx context.Context, local apitypes.LocalContext, force bool) (apitypes.CheckpointCompactionResult, error) {
+func (a *CheckpointService) compactCheckpointForLocalContext(ctx context.Context, local apitypes.LocalContext, force bool) (apitypes.CheckpointCompactionResult, error) {
 	local.LibraryID = strings.TrimSpace(local.LibraryID)
 	if local.LibraryID == "" {
 		return apitypes.CheckpointCompactionResult{}, apitypes.ErrNoActiveLibrary
@@ -175,7 +175,7 @@ func (a *App) compactCheckpointForLocalContext(ctx context.Context, local apityp
 	return result, nil
 }
 
-func (a *App) requireCheckpointAdminContext(ctx context.Context, action string) (apitypes.LocalContext, error) {
+func (a *CheckpointService) requireCheckpointAdminContext(ctx context.Context, action string) (apitypes.LocalContext, error) {
 	local, err := a.requireActiveContext(ctx)
 	if err != nil {
 		return apitypes.LocalContext{}, err
@@ -186,7 +186,7 @@ func (a *App) requireCheckpointAdminContext(ctx context.Context, action string) 
 	return local, nil
 }
 
-func (a *App) publishCheckpoint(ctx context.Context, libraryID, deviceID string, job *JobTracker) (apitypes.LibraryCheckpointManifest, error) {
+func (a *CheckpointService) publishCheckpoint(ctx context.Context, libraryID, deviceID string, job *JobTracker) (apitypes.LibraryCheckpointManifest, error) {
 	local, err := a.requireActiveContext(ctx)
 	if err != nil {
 		return apitypes.LibraryCheckpointManifest{}, err
@@ -242,7 +242,7 @@ func (a *App) publishCheckpoint(ctx context.Context, libraryID, deviceID string,
 	return manifest, nil
 }
 
-func (a *App) compactCheckpoint(ctx context.Context, libraryID string, force bool, job *JobTracker) (apitypes.CheckpointCompactionResult, error) {
+func (a *CheckpointService) compactCheckpoint(ctx context.Context, libraryID string, force bool, job *JobTracker) (apitypes.CheckpointCompactionResult, error) {
 	checkpoint, baseClocks, ok, err := a.loadPublishedCheckpoint(ctx, libraryID)
 	if err != nil {
 		return apitypes.CheckpointCompactionResult{}, err
@@ -295,7 +295,7 @@ func (a *App) compactCheckpoint(ctx context.Context, libraryID string, force boo
 	return result, nil
 }
 
-func (a *App) loadPublishedCheckpoint(ctx context.Context, libraryID string) (LibraryCheckpoint, map[string]int64, bool, error) {
+func (a *CheckpointService) loadPublishedCheckpoint(ctx context.Context, libraryID string) (LibraryCheckpoint, map[string]int64, bool, error) {
 	var checkpoint LibraryCheckpoint
 	err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND published_at IS NOT NULL", strings.TrimSpace(libraryID)).
@@ -317,7 +317,7 @@ func (a *App) loadPublishedCheckpoint(ctx context.Context, libraryID string) (Li
 	return checkpoint, baseClocks, true, nil
 }
 
-func (a *App) pendingCheckpointDevices(ctx context.Context, libraryID, checkpointID string) ([]apitypes.CheckpointDeviceCoverage, bool, error) {
+func (a *CheckpointService) pendingCheckpointDevices(ctx context.Context, libraryID, checkpointID string) ([]apitypes.CheckpointDeviceCoverage, bool, error) {
 	type memberRow struct {
 		DeviceID string
 		Role     string
@@ -366,7 +366,7 @@ func (a *App) pendingCheckpointDevices(ctx context.Context, libraryID, checkpoin
 	return devices, compactable, nil
 }
 
-func (a *App) listCheckpointEntries(ctx context.Context, libraryID string) ([]checkpointOplogEntry, error) {
+func (a *CheckpointService) listCheckpointEntries(ctx context.Context, libraryID string) ([]checkpointOplogEntry, error) {
 	var rows []OplogEntry
 	if err := a.storage.WithContext(ctx).
 		Where("library_id = ?", strings.TrimSpace(libraryID)).
@@ -382,7 +382,7 @@ func (a *App) listCheckpointEntries(ctx context.Context, libraryID string) ([]ch
 	return out, nil
 }
 
-func (a *App) checkpointBaseClocks(ctx context.Context, libraryID string) (map[string]int64, error) {
+func (a *CheckpointService) checkpointBaseClocks(ctx context.Context, libraryID string) (map[string]int64, error) {
 	baseClocks := make(map[string]int64)
 
 	var clocks []DeviceClock
@@ -650,7 +650,7 @@ func validateCheckpointTransferRecord(record checkpointTransferRecord) error {
 	return nil
 }
 
-func (a *App) backgroundCheckpointMaintenance(ctx context.Context, libraryID string) error {
+func (a *CheckpointService) backgroundCheckpointMaintenance(ctx context.Context, libraryID string) error {
 	libraryID = strings.TrimSpace(libraryID)
 	if libraryID == "" {
 		return nil
@@ -682,7 +682,7 @@ func (a *App) backgroundCheckpointMaintenance(ctx context.Context, libraryID str
 	return nil
 }
 
-func (a *App) checkpointBacklogCount(ctx context.Context, libraryID string, baseClocks map[string]int64) (int64, error) {
+func (a *CheckpointService) checkpointBacklogCount(ctx context.Context, libraryID string, baseClocks map[string]int64) (int64, error) {
 	clocks, err := a.listDeviceClocks(ctx, libraryID)
 	if err != nil {
 		return 0, err

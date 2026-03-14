@@ -385,58 +385,46 @@ func cloneNetworkSyncState(state apitypes.NetworkSyncState) apitypes.NetworkSync
 	return state
 }
 
-func (a *App) syncActiveRuntimeServices(ctx context.Context) error {
-	if a == nil {
-		return nil
-	}
-	if a.transportService != nil {
-		if err := a.transportService.syncActive(ctx); err != nil {
-			return err
-		}
-	}
-	return a.syncActiveScanWatcher(ctx)
-}
-
-func (a *App) hasTransportOverride() bool {
-	if a == nil {
+func (s *TransportService) hasTransportOverride() bool {
+	if s == nil || s.app == nil {
 		return false
 	}
-	a.transportMu.RLock()
-	defer a.transportMu.RUnlock()
-	return a.transport != nil
+	s.app.transportMu.RLock()
+	defer s.app.transportMu.RUnlock()
+	return s.app.transport != nil
 }
 
-func (a *App) activeSyncTransport() SyncTransport {
-	if a == nil {
+func (s *TransportService) activeSyncTransport() SyncTransport {
+	if s == nil || s.app == nil {
 		return nil
 	}
-	a.transportMu.RLock()
-	override := a.transport
-	a.transportMu.RUnlock()
+	s.app.transportMu.RLock()
+	override := s.app.transport
+	s.app.transportMu.RUnlock()
 	if override != nil {
 		return override
 	}
-	if a.transportService == nil {
+	if s.app.transportService == nil {
 		return nil
 	}
-	return a.transportService.SyncTransport()
+	return s.app.transportService.SyncTransport()
 }
 
-func (a *App) transportRunning() bool {
-	if a == nil {
+func (s *TransportService) transportRunning() bool {
+	if s == nil || s.app == nil {
 		return false
 	}
-	a.transportMu.RLock()
-	override := a.transport
-	a.transportMu.RUnlock()
+	s.app.transportMu.RLock()
+	override := s.app.transport
+	s.app.transportMu.RUnlock()
 	if override != nil {
 		return true
 	}
-	return a.transportService != nil && a.transportService.Running()
+	return s.app.transportService != nil && s.app.transportService.Running()
 }
 
-func (a *App) updateDevicePeerID(ctx context.Context, libraryID, deviceID, peerID, deviceName string) error {
-	if a == nil {
+func (s *TransportService) updateDevicePeerID(ctx context.Context, libraryID, deviceID, peerID, deviceName string) error {
+	if s == nil || s.app == nil {
 		return nil
 	}
 	libraryID = strings.TrimSpace(libraryID)
@@ -445,14 +433,14 @@ func (a *App) updateDevicePeerID(ctx context.Context, libraryID, deviceID, peerI
 	if deviceID == "" || peerID == "" {
 		return nil
 	}
-	if libraryID != "" && !a.isLibraryMember(ctx, libraryID, deviceID) {
+	if libraryID != "" && !s.app.isLibraryMember(ctx, libraryID, deviceID) {
 		return nil
 	}
-	return a.touchDevicePeerID(ctx, deviceID, peerID, deviceName)
+	return s.touchDevicePeerID(ctx, deviceID, peerID, deviceName)
 }
 
-func (a *App) touchDevicePeerID(ctx context.Context, deviceID, peerID, deviceName string) error {
-	if a == nil {
+func (s *TransportService) touchDevicePeerID(ctx context.Context, deviceID, peerID, deviceName string) error {
+	if s == nil || s.app == nil {
 		return nil
 	}
 	deviceID = strings.TrimSpace(deviceID)
@@ -460,10 +448,10 @@ func (a *App) touchDevicePeerID(ctx context.Context, deviceID, peerID, deviceNam
 	if deviceID == "" || peerID == "" {
 		return nil
 	}
-	return a.upsertDevicePresence(ctx, deviceID, peerID, deviceName)
+	return s.upsertDevicePresence(ctx, deviceID, peerID, deviceName)
 }
 
-func (a *App) upsertDevicePresence(ctx context.Context, deviceID, peerID, deviceName string) error {
+func (s *TransportService) upsertDevicePresence(ctx context.Context, deviceID, peerID, deviceName string) error {
 	deviceID = strings.TrimSpace(deviceID)
 	peerID = strings.TrimSpace(peerID)
 	if deviceID == "" || peerID == "" {
@@ -473,7 +461,7 @@ func (a *App) upsertDevicePresence(ctx context.Context, deviceID, peerID, device
 	deviceName = chooseDeviceName("", deviceName, deviceID)
 
 	var existing Device
-	err := a.storage.WithContext(ctx).Where("device_id = ?", deviceID).Take(&existing).Error
+	err := s.app.storage.WithContext(ctx).Where("device_id = ?", deviceID).Take(&existing).Error
 	switch {
 	case err == nil:
 		updates := map[string]any{
@@ -483,9 +471,9 @@ func (a *App) upsertDevicePresence(ctx context.Context, deviceID, peerID, device
 		if strings.TrimSpace(existing.Name) == "" || strings.TrimSpace(existing.Name) == deviceID {
 			updates["name"] = deviceName
 		}
-		return a.storage.WithContext(ctx).Model(&Device{}).Where("device_id = ?", deviceID).Updates(updates).Error
+		return s.app.storage.WithContext(ctx).Model(&Device{}).Where("device_id = ?", deviceID).Updates(updates).Error
 	case err == gorm.ErrRecordNotFound:
-		return a.storage.WithContext(ctx).Create(&Device{
+		return s.app.storage.WithContext(ctx).Create(&Device{
 			DeviceID:   deviceID,
 			Name:       deviceName,
 			PeerID:     peerID,
@@ -497,15 +485,15 @@ func (a *App) upsertDevicePresence(ctx context.Context, deviceID, peerID, device
 	}
 }
 
-func (a *App) memberDeviceIDForPeer(ctx context.Context, libraryID, peerID string) (string, bool, error) {
-	if a == nil {
+func (s *TransportService) memberDeviceIDForPeer(ctx context.Context, libraryID, peerID string) (string, bool, error) {
+	if s == nil || s.app == nil {
 		return "", false, nil
 	}
 	type row struct {
 		DeviceID string
 	}
 	var result row
-	err := a.storage.WithContext(ctx).
+	err := s.app.storage.WithContext(ctx).
 		Table("memberships AS m").
 		Select("m.device_id AS device_id").
 		Joins("JOIN devices d ON d.device_id = m.device_id").

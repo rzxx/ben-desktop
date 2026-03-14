@@ -446,7 +446,7 @@ func issueMembershipCertTx(tx *gorm.DB, libraryID, deviceID, peerID, role string
 	return cert, nil
 }
 
-func (a *App) loadMembershipCert(ctx context.Context, libraryID, deviceID string) (MembershipCert, bool, error) {
+func (a *IdentityMembershipService) loadMembershipCert(ctx context.Context, libraryID, deviceID string) (MembershipCert, bool, error) {
 	var row MembershipCert
 	err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).
@@ -460,7 +460,7 @@ func (a *App) loadMembershipCert(ctx context.Context, libraryID, deviceID string
 	return row, true, nil
 }
 
-func (a *App) loadAdmissionAuthorityChain(ctx context.Context, libraryID string) ([]AdmissionAuthority, error) {
+func (a *IdentityMembershipService) loadAdmissionAuthorityChain(ctx context.Context, libraryID string) ([]AdmissionAuthority, error) {
 	var rows []AdmissionAuthority
 	if err := a.storage.WithContext(ctx).
 		Where("library_id = ?", strings.TrimSpace(libraryID)).
@@ -471,7 +471,7 @@ func (a *App) loadAdmissionAuthorityChain(ctx context.Context, libraryID string)
 	return rows, nil
 }
 
-func (a *App) membershipCertRevoked(ctx context.Context, libraryID, deviceID string, serial int64) (bool, error) {
+func (a *IdentityMembershipService) membershipCertRevoked(ctx context.Context, libraryID, deviceID string, serial int64) (bool, error) {
 	if serial <= 0 {
 		return false, nil
 	}
@@ -484,7 +484,7 @@ func (a *App) membershipCertRevoked(ctx context.Context, libraryID, deviceID str
 	return count > 0, nil
 }
 
-func (a *App) transportIdentityPeerID() (string, error) {
+func (a *IdentityMembershipService) transportIdentityPeerID() (string, error) {
 	if a == nil {
 		return "", fmt.Errorf("app is nil")
 	}
@@ -499,7 +499,7 @@ func (a *App) transportIdentityPeerID() (string, error) {
 	return peerID.String(), nil
 }
 
-func (a *App) ensureLocalTransportMembershipAuth(ctx context.Context, local apitypes.LocalContext, transportPeerID string) (transportPeerAuth, error) {
+func (a *IdentityMembershipService) ensureLocalTransportMembershipAuth(ctx context.Context, local apitypes.LocalContext, transportPeerID string) (transportPeerAuth, error) {
 	if a == nil {
 		return transportPeerAuth{}, fmt.Errorf("app is nil")
 	}
@@ -598,7 +598,7 @@ func (a *App) ensureLocalTransportMembershipAuth(ctx context.Context, local apit
 	}, nil
 }
 
-func (a *App) verifyTransportPeerAuth(ctx context.Context, libraryID, claimedDeviceID, claimedPeerID, actualPeerID string, auth transportPeerAuth) (membershipCertEnvelope, error) {
+func (a *IdentityMembershipService) verifyTransportPeerAuth(ctx context.Context, libraryID, claimedDeviceID, claimedPeerID, actualPeerID string, auth transportPeerAuth) (membershipCertEnvelope, error) {
 	if a == nil {
 		return membershipCertEnvelope{}, fmt.Errorf("app is nil")
 	}

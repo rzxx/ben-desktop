@@ -15,7 +15,7 @@ const (
 	checkpointAckSourceInstalled = "installed"
 )
 
-func (a *App) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error) {
+func (a *OperatorService) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error) {
 	device, err := a.ensureCurrentDevice(ctx)
 	if err != nil {
 		return apitypes.LocalContext{}, fmt.Errorf("ensure current device: %w", err)
@@ -42,7 +42,7 @@ func (a *App) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, er
 	}, nil
 }
 
-func (a *App) Inspect(ctx context.Context) (apitypes.InspectSummary, error) {
+func (a *OperatorService) Inspect(ctx context.Context) (apitypes.InspectSummary, error) {
 	count := func(model any) (int64, error) {
 		var total int64
 		if err := a.storage.WithContext(ctx).Model(model).Count(&total).Error; err != nil {
@@ -117,7 +117,7 @@ func (a *App) Inspect(ctx context.Context) (apitypes.InspectSummary, error) {
 	return out, nil
 }
 
-func (a *App) InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error) {
+func (a *OperatorService) InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error) {
 	libraryID = strings.TrimSpace(libraryID)
 	if libraryID == "" {
 		local, err := a.EnsureLocalContext(ctx)
@@ -159,11 +159,11 @@ func (a *App) InspectLibraryOplog(ctx context.Context, libraryID string) (apityp
 	return report, nil
 }
 
-func (a *App) ActivityStatus(context.Context) (apitypes.ActivityStatus, error) {
+func (a *OperatorService) ActivityStatus(context.Context) (apitypes.ActivityStatus, error) {
 	return a.ActivityStatusSnapshot(), nil
 }
 
-func (a *App) NetworkStatus() apitypes.NetworkStatus {
+func (a *OperatorService) NetworkStatus() apitypes.NetworkStatus {
 	if a != nil && a.transportService != nil && !a.hasTransportOverride() {
 		return a.transportService.NetworkStatus()
 	}
@@ -179,7 +179,7 @@ func (a *App) NetworkStatus() apitypes.NetworkStatus {
 	}
 }
 
-func (a *App) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
+func (a *OperatorService) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
 	local, err := a.EnsureLocalContext(ctx)
 	if err != nil {
 		return apitypes.LibraryCheckpointStatus{}, err
@@ -268,7 +268,7 @@ func (a *App) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointS
 	}, nil
 }
 
-func (a *App) inspectOplogGroups(ctx context.Context, libraryID, column string) ([]apitypes.OplogDiagnosticsGroup, error) {
+func (a *OperatorService) inspectOplogGroups(ctx context.Context, libraryID, column string) ([]apitypes.OplogDiagnosticsGroup, error) {
 	type row struct {
 		Key   string
 		Count int64
@@ -300,7 +300,7 @@ func (a *App) inspectOplogGroups(ctx context.Context, libraryID, column string) 
 	return out, nil
 }
 
-func (a *App) inspectOplogRecency(ctx context.Context, libraryID string, now time.Time) ([]apitypes.OplogRecencyBucket, error) {
+func (a *OperatorService) inspectOplogRecency(ctx context.Context, libraryID string, now time.Time) ([]apitypes.OplogRecencyBucket, error) {
 	type bucket struct {
 		name string
 		min  int64
@@ -332,7 +332,7 @@ func (a *App) inspectOplogRecency(ctx context.Context, libraryID string, now tim
 	return out, nil
 }
 
-func (a *App) inspectLibraryMaterializedCounts(ctx context.Context, libraryID string) (apitypes.LibraryMaterializedCounts, error) {
+func (a *OperatorService) inspectLibraryMaterializedCounts(ctx context.Context, libraryID string) (apitypes.LibraryMaterializedCounts, error) {
 	count := func(model any) (int64, error) {
 		var total int64
 		if err := a.storage.WithContext(ctx).Model(model).Where("library_id = ?", strings.TrimSpace(libraryID)).Count(&total).Error; err != nil {

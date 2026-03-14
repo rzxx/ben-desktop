@@ -218,7 +218,7 @@ func refreshMembershipCertWithRecoveryTx(tx *gorm.DB, libraryID, deviceID, peerI
 	return issueMembershipCertTx(tx, libraryID, deviceID, peerID, membership.Role, ttl)
 }
 
-func (a *App) localMembershipRecoverySecret(ctx context.Context, libraryID, deviceID string) (string, bool, error) {
+func (a *IdentityMembershipService) localMembershipRecoverySecret(ctx context.Context, libraryID, deviceID string) (string, bool, error) {
 	key := membershipRecoveryLocalSettingKey(libraryID, deviceID)
 	if strings.TrimSpace(key) == "" {
 		return "", false, nil
@@ -237,7 +237,7 @@ func (a *App) localMembershipRecoverySecret(ctx context.Context, libraryID, devi
 	return value, true, nil
 }
 
-func (a *App) requestMembershipRefresh(ctx context.Context, local apitypes.LocalContext, peerID string) (transportPeerAuth, error) {
+func (a *IdentityMembershipService) requestMembershipRefresh(ctx context.Context, local apitypes.LocalContext, peerID string) (transportPeerAuth, error) {
 	recoveryToken, ok, err := a.localMembershipRecoverySecret(ctx, local.LibraryID, local.DeviceID)
 	if err != nil {
 		return transportPeerAuth{}, fmt.Errorf("load membership recovery secret: %w", err)
@@ -358,7 +358,7 @@ func (a *App) requestMembershipRefresh(ctx context.Context, local apitypes.Local
 	return transportPeerAuth{}, firstErr
 }
 
-func (a *App) libraryRootPublicKey(ctx context.Context, libraryID string) (string, error) {
+func (a *IdentityMembershipService) libraryRootPublicKey(ctx context.Context, libraryID string) (string, error) {
 	var library Library
 	if err := a.storage.WithContext(ctx).Select("root_public_key").Where("library_id = ?", strings.TrimSpace(libraryID)).Take(&library).Error; err != nil {
 		return "", fmt.Errorf("load library root public key: %w", err)
@@ -369,7 +369,7 @@ func (a *App) libraryRootPublicKey(ctx context.Context, libraryID string) (strin
 	return strings.TrimSpace(library.RootPublicKey), nil
 }
 
-func (a *App) buildMembershipRefreshResponse(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {
+func (a *IdentityMembershipService) buildMembershipRefreshResponse(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {
 	req.LibraryID = strings.TrimSpace(req.LibraryID)
 	req.DeviceID = strings.TrimSpace(req.DeviceID)
 	req.PeerID = strings.TrimSpace(req.PeerID)

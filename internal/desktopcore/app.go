@@ -209,6 +209,230 @@ func (a *App) PlaybackRuntime() PlaybackRuntime {
 	return a.playback
 }
 
+func (a *App) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error) {
+	return a.operator.EnsureLocalContext(ctx)
+}
+
+func (a *App) Inspect(ctx context.Context) (apitypes.InspectSummary, error) {
+	return a.operator.Inspect(ctx)
+}
+
+func (a *App) InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error) {
+	return a.operator.InspectLibraryOplog(ctx, libraryID)
+}
+
+func (a *App) ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error) {
+	return a.operator.ActivityStatus(ctx)
+}
+
+func (a *App) NetworkStatus() apitypes.NetworkStatus {
+	return a.operator.NetworkStatus()
+}
+
+func (a *App) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
+	return a.operator.CheckpointStatus(ctx)
+}
+
+func (a *App) SetSyncTransport(transport SyncTransport) {
+	a.sync.SetSyncTransport(transport)
+}
+
+func (a *App) SyncNow(ctx context.Context) error {
+	return a.sync.SyncNow(ctx)
+}
+
+func (a *App) StartSyncNow(ctx context.Context) (JobSnapshot, error) {
+	return a.sync.StartSyncNow(ctx)
+}
+
+func (a *App) ConnectPeer(ctx context.Context, peerAddr string) error {
+	return a.sync.ConnectPeer(ctx, peerAddr)
+}
+
+func (a *App) StartConnectPeer(ctx context.Context, peerAddr string) (JobSnapshot, error) {
+	return a.sync.StartConnectPeer(ctx, peerAddr)
+}
+
+func (a *App) catchupAllPeers(ctx context.Context, local apitypes.LocalContext, reason apitypes.NetworkSyncReason, job *JobTracker, failIfNoPeers bool) error {
+	return a.sync.catchupAllPeers(ctx, local, reason, job, failIfNoPeers)
+}
+
+func (a *App) buildSyncRequest(ctx context.Context, libraryID, deviceID, peerID string, maxOps int) (SyncRequest, error) {
+	return a.sync.buildSyncRequest(ctx, libraryID, deviceID, peerID, maxOps)
+}
+
+func (a *App) buildSyncResponse(ctx context.Context, req SyncRequest) (SyncResponse, error) {
+	return a.sync.buildSyncResponse(ctx, req)
+}
+
+func (a *App) buildCheckpointFetchResponse(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error) {
+	return a.sync.buildCheckpointFetchResponse(ctx, req)
+}
+
+func (a *App) installCheckpointRecord(ctx context.Context, localDeviceID string, record checkpointTransferRecord) (int, error) {
+	return a.sync.installCheckpointRecord(ctx, localDeviceID, record)
+}
+
+func (a *App) installCheckpointRecordWithJob(ctx context.Context, localDeviceID string, record checkpointTransferRecord, job *JobTracker) (int, error) {
+	return a.sync.installCheckpointRecordWithJob(ctx, localDeviceID, record, job)
+}
+
+func (a *App) applyRemoteOps(ctx context.Context, libraryID string, ops []checkpointOplogEntry) (int, error) {
+	return a.sync.applyRemoteOps(ctx, libraryID, ops)
+}
+
+func (a *App) ensureLocalPeerContext(ctx context.Context, local apitypes.LocalContext) (apitypes.LocalContext, error) {
+	return a.sync.ensureLocalPeerContext(ctx, local)
+}
+
+func (a *App) isLibraryMember(ctx context.Context, libraryID, deviceID string) bool {
+	return a.sync.isLibraryMember(ctx, libraryID, deviceID)
+}
+
+func (a *App) listDeviceClocks(ctx context.Context, libraryID string) ([]DeviceClock, error) {
+	return a.sync.listDeviceClocks(ctx, libraryID)
+}
+
+func (a *App) loadCheckpointTransferRecord(ctx context.Context, libraryID, checkpointID string, publishedOnly bool) (checkpointTransferRecord, bool, error) {
+	return a.sync.loadCheckpointTransferRecord(ctx, libraryID, checkpointID, publishedOnly)
+}
+
+func (a *App) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error) {
+	return a.checkpoint.PublishCheckpoint(ctx)
+}
+
+func (a *App) StartPublishCheckpoint(ctx context.Context) (JobSnapshot, error) {
+	return a.checkpoint.StartPublishCheckpoint(ctx)
+}
+
+func (a *App) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
+	return a.checkpoint.CompactCheckpoint(ctx, force)
+}
+
+func (a *App) StartCompactCheckpoint(ctx context.Context, force bool) (JobSnapshot, error) {
+	return a.checkpoint.StartCompactCheckpoint(ctx, force)
+}
+
+func (a *App) backgroundCheckpointMaintenance(ctx context.Context, libraryID string) error {
+	return a.checkpoint.backgroundCheckpointMaintenance(ctx, libraryID)
+}
+
+func (a *App) loadMembershipCert(ctx context.Context, libraryID, deviceID string) (MembershipCert, bool, error) {
+	return a.identity.loadMembershipCert(ctx, libraryID, deviceID)
+}
+
+func (a *App) loadAdmissionAuthorityChain(ctx context.Context, libraryID string) ([]AdmissionAuthority, error) {
+	return a.identity.loadAdmissionAuthorityChain(ctx, libraryID)
+}
+
+func (a *App) membershipCertRevoked(ctx context.Context, libraryID, deviceID string, serial int64) (bool, error) {
+	return a.identity.membershipCertRevoked(ctx, libraryID, deviceID, serial)
+}
+
+func (a *App) transportIdentityPeerID() (string, error) {
+	return a.identity.transportIdentityPeerID()
+}
+
+func (a *App) ensureLocalTransportMembershipAuth(ctx context.Context, local apitypes.LocalContext, transportPeerID string) (transportPeerAuth, error) {
+	return a.identity.ensureLocalTransportMembershipAuth(ctx, local, transportPeerID)
+}
+
+func (a *App) verifyTransportPeerAuth(ctx context.Context, libraryID, claimedDeviceID, claimedPeerID, actualPeerID string, auth transportPeerAuth) (membershipCertEnvelope, error) {
+	return a.identity.verifyTransportPeerAuth(ctx, libraryID, claimedDeviceID, claimedPeerID, actualPeerID, auth)
+}
+
+func (a *App) localMembershipRecoverySecret(ctx context.Context, libraryID, deviceID string) (string, bool, error) {
+	return a.identity.localMembershipRecoverySecret(ctx, libraryID, deviceID)
+}
+
+func (a *App) requestMembershipRefresh(ctx context.Context, local apitypes.LocalContext, peerID string) (transportPeerAuth, error) {
+	return a.identity.requestMembershipRefresh(ctx, local, peerID)
+}
+
+func (a *App) libraryRootPublicKey(ctx context.Context, libraryID string) (string, error) {
+	return a.identity.libraryRootPublicKey(ctx, libraryID)
+}
+
+func (a *App) buildMembershipRefreshResponse(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {
+	return a.identity.buildMembershipRefreshResponse(ctx, req)
+}
+
+func (a *App) syncActiveScanWatcher(ctx context.Context) error {
+	return a.scanner.syncActiveScanWatcher(ctx)
+}
+
+func (a *App) stopActiveScanWatcher() {
+	a.scanner.stopActiveScanWatcher()
+}
+
+func (a *App) logf(format string, args ...any) {
+	if a == nil || a.cfg.Logger == nil {
+		return
+	}
+	a.cfg.Logger.Printf(format, args...)
+}
+
+func (a *App) syncActiveRuntimeServices(ctx context.Context) error {
+	if a == nil {
+		return nil
+	}
+	if a.transportService != nil {
+		if err := a.transportService.syncActive(ctx); err != nil {
+			return err
+		}
+	}
+	return a.scanner.syncActiveScanWatcher(ctx)
+}
+
+func (a *App) hasTransportOverride() bool {
+	if a == nil || a.transportService == nil {
+		return false
+	}
+	return a.transportService.hasTransportOverride()
+}
+
+func (a *App) activeSyncTransport() SyncTransport {
+	if a == nil || a.transportService == nil {
+		return nil
+	}
+	return a.transportService.activeSyncTransport()
+}
+
+func (a *App) transportRunning() bool {
+	if a == nil || a.transportService == nil {
+		return false
+	}
+	return a.transportService.transportRunning()
+}
+
+func (a *App) updateDevicePeerID(ctx context.Context, libraryID, deviceID, peerID, deviceName string) error {
+	if a == nil || a.transportService == nil {
+		return nil
+	}
+	return a.transportService.updateDevicePeerID(ctx, libraryID, deviceID, peerID, deviceName)
+}
+
+func (a *App) touchDevicePeerID(ctx context.Context, deviceID, peerID, deviceName string) error {
+	if a == nil || a.transportService == nil {
+		return nil
+	}
+	return a.transportService.touchDevicePeerID(ctx, deviceID, peerID, deviceName)
+}
+
+func (a *App) upsertDevicePresence(ctx context.Context, deviceID, peerID, deviceName string) error {
+	if a == nil || a.transportService == nil {
+		return nil
+	}
+	return a.transportService.upsertDevicePresence(ctx, deviceID, peerID, deviceName)
+}
+
+func (a *App) memberDeviceIDForPeer(ctx context.Context, libraryID, peerID string) (string, bool, error) {
+	if a == nil || a.transportService == nil {
+		return "", false, nil
+	}
+	return a.transportService.memberDeviceIDForPeer(ctx, libraryID, peerID)
+}
+
 func (a *App) ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error) {
 	return a.library.ListLibraries(ctx)
 }

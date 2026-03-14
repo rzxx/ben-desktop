@@ -117,7 +117,7 @@ type checkpointTransferRecord struct {
 	Chunks   []checkpointChunk
 }
 
-func (a *App) SetSyncTransport(transport SyncTransport) {
+func (a *SyncService) SetSyncTransport(transport SyncTransport) {
 	if a == nil {
 		return
 	}
@@ -129,7 +129,7 @@ func (a *App) SetSyncTransport(transport SyncTransport) {
 	}
 }
 
-func (a *App) SyncNow(ctx context.Context) error {
+func (a *SyncService) SyncNow(ctx context.Context) error {
 	local, err := a.requireActiveContext(ctx)
 	if err != nil {
 		return err
@@ -137,7 +137,7 @@ func (a *App) SyncNow(ctx context.Context) error {
 	return a.syncNowForLocalContext(ctx, local, nil)
 }
 
-func (a *App) StartSyncNow(ctx context.Context) (JobSnapshot, error) {
+func (a *SyncService) StartSyncNow(ctx context.Context) (JobSnapshot, error) {
 	local, err := a.requireActiveContext(ctx)
 	if err != nil {
 		return JobSnapshot{}, err
@@ -161,7 +161,7 @@ func (a *App) StartSyncNow(ctx context.Context) (JobSnapshot, error) {
 	)
 }
 
-func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalContext, job *JobTracker) error {
+func (a *SyncService) syncNowForLocalContext(ctx context.Context, local apitypes.LocalContext, job *JobTracker) error {
 	local, err := a.ensureLocalPeerContext(ctx, local)
 	if err != nil {
 		if job != nil {
@@ -193,7 +193,7 @@ func (a *App) syncNowForLocalContext(ctx context.Context, local apitypes.LocalCo
 	return nil
 }
 
-func (a *App) catchupAllPeers(ctx context.Context, local apitypes.LocalContext, reason apitypes.NetworkSyncReason, job *JobTracker, failIfNoPeers bool) error {
+func (a *SyncService) catchupAllPeers(ctx context.Context, local apitypes.LocalContext, reason apitypes.NetworkSyncReason, job *JobTracker, failIfNoPeers bool) error {
 	transport := a.activeSyncTransport()
 	if transport == nil {
 		return fmt.Errorf("peer transport is not configured")
@@ -291,7 +291,7 @@ func syncJobCompletionMessage(successes, failures int) string {
 	}
 }
 
-func (a *App) ConnectPeer(ctx context.Context, peerAddr string) error {
+func (a *SyncService) ConnectPeer(ctx context.Context, peerAddr string) error {
 	local, err := a.requireActiveContext(ctx)
 	if err != nil {
 		return err
@@ -317,7 +317,7 @@ func (a *App) ConnectPeer(ctx context.Context, peerAddr string) error {
 	return err
 }
 
-func (a *App) StartConnectPeer(ctx context.Context, peerAddr string) (JobSnapshot, error) {
+func (a *SyncService) StartConnectPeer(ctx context.Context, peerAddr string) (JobSnapshot, error) {
 	local, err := a.requireActiveContext(ctx)
 	if err != nil {
 		return JobSnapshot{}, err
@@ -357,7 +357,7 @@ func (a *App) StartConnectPeer(ctx context.Context, peerAddr string) (JobSnapsho
 	)
 }
 
-func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, peer SyncPeer, reason apitypes.NetworkSyncReason, job *JobTracker) (int, error) {
+func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, peer SyncPeer, reason apitypes.NetworkSyncReason, job *JobTracker) (int, error) {
 	if peer == nil {
 		return 0, fmt.Errorf("sync peer is required")
 	}
@@ -496,21 +496,21 @@ func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, 
 	return totalApplied, err
 }
 
-func (a *App) noteNetworkSyncPeer(libraryID, peerID string) {
+func (a *SyncService) noteNetworkSyncPeer(libraryID, peerID string) {
 	if a == nil || a.transportService == nil {
 		return
 	}
 	a.transportService.noteRuntimeSyncPeer(libraryID, peerID)
 }
 
-func (a *App) noteNetworkSyncProgress(libraryID, peerID string, activity apitypes.NetworkSyncActivity, backlog int64, applied int) {
+func (a *SyncService) noteNetworkSyncProgress(libraryID, peerID string, activity apitypes.NetworkSyncActivity, backlog int64, applied int) {
 	if a == nil || a.transportService == nil {
 		return
 	}
 	a.transportService.noteRuntimeSyncProgress(libraryID, peerID, activity, backlog, applied)
 }
 
-func (a *App) ensureLocalPeerContext(ctx context.Context, local apitypes.LocalContext) (apitypes.LocalContext, error) {
+func (a *SyncService) ensureLocalPeerContext(ctx context.Context, local apitypes.LocalContext) (apitypes.LocalContext, error) {
 	if strings.TrimSpace(local.PeerID) != "" {
 		return local, nil
 	}
@@ -522,7 +522,7 @@ func (a *App) ensureLocalPeerContext(ctx context.Context, local apitypes.LocalCo
 	return local, nil
 }
 
-func (a *App) buildSyncRequest(ctx context.Context, libraryID, deviceID, peerID string, maxOps int) (SyncRequest, error) {
+func (a *SyncService) buildSyncRequest(ctx context.Context, libraryID, deviceID, peerID string, maxOps int) (SyncRequest, error) {
 	clocks, err := a.listDeviceClocks(ctx, libraryID)
 	if err != nil {
 		return SyncRequest{}, fmt.Errorf("list device clocks: %w", err)
@@ -558,7 +558,7 @@ func (a *App) buildSyncRequest(ctx context.Context, libraryID, deviceID, peerID 
 	return req, nil
 }
 
-func (a *App) buildSyncResponse(ctx context.Context, req SyncRequest) (SyncResponse, error) {
+func (a *SyncService) buildSyncResponse(ctx context.Context, req SyncRequest) (SyncResponse, error) {
 	local, err := a.requireActiveContext(ctx)
 	if err != nil {
 		return SyncResponse{}, err
@@ -624,7 +624,7 @@ func (a *App) buildSyncResponse(ctx context.Context, req SyncRequest) (SyncRespo
 	return resp, nil
 }
 
-func (a *App) buildCheckpointFetchResponse(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error) {
+func (a *SyncService) buildCheckpointFetchResponse(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error) {
 	local, err := a.requireActiveContext(ctx)
 	if err != nil {
 		return CheckpointFetchResponse{}, err
@@ -651,7 +651,7 @@ func (a *App) buildCheckpointFetchResponse(ctx context.Context, req CheckpointFe
 	return CheckpointFetchResponse{Record: record, Auth: auth}, nil
 }
 
-func (a *App) membershipRole(ctx context.Context, libraryID, deviceID string) string {
+func (a *SyncService) membershipRole(ctx context.Context, libraryID, deviceID string) string {
 	var row Membership
 	if err := a.storage.WithContext(ctx).
 		Select("role").
@@ -662,7 +662,7 @@ func (a *App) membershipRole(ctx context.Context, libraryID, deviceID string) st
 	return normalizeRole(row.Role)
 }
 
-func (a *App) listDeviceClocks(ctx context.Context, libraryID string) ([]DeviceClock, error) {
+func (a *SyncService) listDeviceClocks(ctx context.Context, libraryID string) ([]DeviceClock, error) {
 	var rows []DeviceClock
 	if err := a.storage.WithContext(ctx).
 		Where("library_id = ?", strings.TrimSpace(libraryID)).
@@ -702,7 +702,7 @@ func clocksCoverCheckpoint(clocks, baseClocks map[string]int64) bool {
 	return true
 }
 
-func (a *App) selectSyncBatch(ctx context.Context, libraryID string, clocks map[string]int64, limit int) (syncBatch, error) {
+func (a *SyncService) selectSyncBatch(ctx context.Context, libraryID string, clocks map[string]int64, limit int) (syncBatch, error) {
 	if limit <= 0 {
 		limit = defaultSyncBatchSize
 	}
@@ -768,7 +768,7 @@ func (a *App) selectSyncBatch(ctx context.Context, libraryID string, clocks map[
 	}, nil
 }
 
-func (a *App) listOplogByDevice(ctx context.Context, libraryID, deviceID string, sinceSeq int64, limit int) ([]checkpointOplogEntry, error) {
+func (a *SyncService) listOplogByDevice(ctx context.Context, libraryID, deviceID string, sinceSeq int64, limit int) ([]checkpointOplogEntry, error) {
 	if limit <= 0 {
 		limit = defaultSyncBatchSize
 	}
@@ -805,7 +805,7 @@ func sortCheckpointEntries(entries []checkpointOplogEntry) {
 	})
 }
 
-func (a *App) checkpointAckForDevice(ctx context.Context, libraryID, deviceID string) (DeviceCheckpointAck, bool, error) {
+func (a *SyncService) checkpointAckForDevice(ctx context.Context, libraryID, deviceID string) (DeviceCheckpointAck, bool, error) {
 	var row DeviceCheckpointAck
 	err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).
@@ -819,7 +819,7 @@ func (a *App) checkpointAckForDevice(ctx context.Context, libraryID, deviceID st
 	return row, true, nil
 }
 
-func (a *App) loadCheckpointTransferRecord(ctx context.Context, libraryID, checkpointID string, publishedOnly bool) (checkpointTransferRecord, bool, error) {
+func (a *SyncService) loadCheckpointTransferRecord(ctx context.Context, libraryID, checkpointID string, publishedOnly bool) (checkpointTransferRecord, bool, error) {
 	libraryID = strings.TrimSpace(libraryID)
 	checkpointID = strings.TrimSpace(checkpointID)
 	if libraryID == "" {
@@ -891,11 +891,11 @@ func checkpointManifestFromRow(row LibraryCheckpoint) (apitypes.LibraryCheckpoin
 	}, nil
 }
 
-func (a *App) installCheckpointRecord(ctx context.Context, localDeviceID string, record checkpointTransferRecord) (int, error) {
+func (a *SyncService) installCheckpointRecord(ctx context.Context, localDeviceID string, record checkpointTransferRecord) (int, error) {
 	return a.installCheckpointRecordWithJob(ctx, localDeviceID, record, nil)
 }
 
-func (a *App) installCheckpointRecordWithJob(ctx context.Context, localDeviceID string, record checkpointTransferRecord, job *JobTracker) (int, error) {
+func (a *SyncService) installCheckpointRecordWithJob(ctx context.Context, localDeviceID string, record checkpointTransferRecord, job *JobTracker) (int, error) {
 	if job != nil {
 		job.Running(0.35, "validating checkpoint manifest")
 	}
@@ -1057,7 +1057,7 @@ func insertCheckpointOpsTx(tx *gorm.DB, libraryID string, chunks []checkpointChu
 	return nil
 }
 
-func (a *App) applyRemoteOps(ctx context.Context, libraryID string, ops []checkpointOplogEntry) (int, error) {
+func (a *SyncService) applyRemoteOps(ctx context.Context, libraryID string, ops []checkpointOplogEntry) (int, error) {
 	applied := 0
 	for _, op := range ops {
 		inserted, err := a.applyRemoteOp(ctx, libraryID, op)
@@ -1069,7 +1069,7 @@ func (a *App) applyRemoteOps(ctx context.Context, libraryID string, ops []checkp
 	return applied, nil
 }
 
-func (a *App) applyRemoteOp(ctx context.Context, libraryID string, op checkpointOplogEntry) (int, error) {
+func (a *SyncService) applyRemoteOp(ctx context.Context, libraryID string, op checkpointOplogEntry) (int, error) {
 	inserted := 0
 	err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing int64
@@ -1175,7 +1175,7 @@ func upsertDeviceClockTx(tx *gorm.DB, libraryID, deviceID string, seq int64) err
 	}).Error
 }
 
-func (a *App) recordPeerSyncSuccess(ctx context.Context, libraryID, deviceID, peerID string, applied int64) {
+func (a *SyncService) recordPeerSyncSuccess(ctx context.Context, libraryID, deviceID, peerID string, applied int64) {
 	if applied == 0 {
 		if existing, ok, err := a.peerSyncState(ctx, libraryID, deviceID); err == nil && ok && existing.LastApplied > 0 {
 			applied = existing.LastApplied
@@ -1185,7 +1185,7 @@ func (a *App) recordPeerSyncSuccess(ctx context.Context, libraryID, deviceID, pe
 	a.upsertPeerSyncState(ctx, libraryID, deviceID, peerID, &now, &now, "", applied)
 }
 
-func (a *App) recordPeerSyncFailure(ctx context.Context, libraryID, deviceID, peerID string, syncErr error) {
+func (a *SyncService) recordPeerSyncFailure(ctx context.Context, libraryID, deviceID, peerID string, syncErr error) {
 	if syncErr == nil {
 		return
 	}
@@ -1193,7 +1193,7 @@ func (a *App) recordPeerSyncFailure(ctx context.Context, libraryID, deviceID, pe
 	a.upsertPeerSyncState(ctx, libraryID, deviceID, peerID, &now, nil, syncErr.Error(), 0)
 }
 
-func (a *App) upsertPeerSyncState(ctx context.Context, libraryID, deviceID, peerID string, attemptedAt, successAt *time.Time, lastError string, applied int64) {
+func (a *SyncService) upsertPeerSyncState(ctx context.Context, libraryID, deviceID, peerID string, attemptedAt, successAt *time.Time, lastError string, applied int64) {
 	libraryID = strings.TrimSpace(libraryID)
 	deviceID = strings.TrimSpace(deviceID)
 	peerID = strings.TrimSpace(peerID)
@@ -1226,7 +1226,7 @@ func (a *App) upsertPeerSyncState(ctx context.Context, libraryID, deviceID, peer
 	}).Create(&row).Error
 }
 
-func (a *App) isLibraryMember(ctx context.Context, libraryID, deviceID string) bool {
+func (a *SyncService) isLibraryMember(ctx context.Context, libraryID, deviceID string) bool {
 	var count int64
 	if err := a.storage.WithContext(ctx).Model(&Membership{}).
 		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).
@@ -1236,7 +1236,7 @@ func (a *App) isLibraryMember(ctx context.Context, libraryID, deviceID string) b
 	return count > 0
 }
 
-func (a *App) peerSyncState(ctx context.Context, libraryID, deviceID string) (PeerSyncState, bool, error) {
+func (a *SyncService) peerSyncState(ctx context.Context, libraryID, deviceID string) (PeerSyncState, bool, error) {
 	var row PeerSyncState
 	err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).

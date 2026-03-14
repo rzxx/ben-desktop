@@ -197,7 +197,7 @@ func (w *activeScanWatcher) affectedRoots(path string) []string {
 	return append([]string(nil), w.roots...)
 }
 
-func (a *App) syncActiveScanWatcher(ctx context.Context) error {
+func (a *ScannerService) syncActiveScanWatcher(ctx context.Context) error {
 	if a == nil {
 		return nil
 	}
@@ -226,7 +226,7 @@ func (a *App) syncActiveScanWatcher(ctx context.Context) error {
 		a.watcherMu.Unlock()
 		return nil
 	}
-	next := newActiveScanWatcher(a, local.LibraryID, local.DeviceID, roots)
+	next := newActiveScanWatcher(a.App, local.LibraryID, local.DeviceID, roots)
 	a.scanWatcher = next
 	a.watcherMu.Unlock()
 
@@ -236,14 +236,7 @@ func (a *App) syncActiveScanWatcher(ctx context.Context) error {
 	return next.start()
 }
 
-func (a *App) logf(format string, args ...any) {
-	if a == nil || a.cfg.Logger == nil {
-		return
-	}
-	a.cfg.Logger.Printf(format, args...)
-}
-
-func (a *App) stopActiveScanWatcher() {
+func (a *ScannerService) stopActiveScanWatcher() {
 	if a == nil {
 		return
 	}

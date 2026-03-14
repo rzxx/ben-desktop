@@ -221,6 +221,28 @@ func TestDesktopRewriteRegression(t *testing.T) {
 		}
 	})
 
+	t.Run("extracted service files do not keep app receivers", func(t *testing.T) {
+		paths := []string{
+			filepath.Join("internal", "desktopcore", "service_operator.go"),
+			filepath.Join("internal", "desktopcore", "service_checkpoint.go"),
+			filepath.Join("internal", "desktopcore", "service_sync.go"),
+			filepath.Join("internal", "desktopcore", "service_transport.go"),
+			filepath.Join("internal", "desktopcore", "membership_auth.go"),
+			filepath.Join("internal", "desktopcore", "membership_runtime.go"),
+			filepath.Join("internal", "desktopcore", "watcher.go"),
+		}
+
+		for _, path := range paths {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			if strings.Contains(string(raw), "func (a *App)") {
+				t.Fatalf("%s still defines App receiver methods", path)
+			}
+		}
+	})
+
 	t.Run("legacy corebridge package removed", func(t *testing.T) {
 		entries, err := os.ReadDir(filepath.Join("internal", "corebridge"))
 		if os.IsNotExist(err) {
