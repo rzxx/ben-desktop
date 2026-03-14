@@ -24,16 +24,6 @@ export function CheckpointStatus(): $CancellablePromise<apitypes$0.LibraryCheckp
     });
 }
 
-export function CompactCheckpoint(force: boolean): $CancellablePromise<apitypes$0.CheckpointCompactionResult> {
-    return $Call.ByID(327409483, force).then(($result: any) => {
-        return $$createType2($result);
-    });
-}
-
-export function ConnectPeer(peerAddr: string): $CancellablePromise<void> {
-    return $Call.ByID(1053404146, peerAddr);
-}
-
 export function EnsureLocalContext(): $CancellablePromise<apitypes$0.LocalContext> {
     return $Call.ByID(924842624).then(($result: any) => {
         return $$createType3($result);
@@ -55,12 +45,6 @@ export function InspectLibraryOplog(libraryID: string): $CancellablePromise<apit
 export function NetworkStatus(): $CancellablePromise<apitypes$0.NetworkStatus> {
     return $Call.ByID(1494915484).then(($result: any) => {
         return $$createType6($result);
-    });
-}
-
-export function PublishCheckpoint(): $CancellablePromise<apitypes$0.LibraryCheckpointManifest> {
-    return $Call.ByID(597119917).then(($result: any) => {
-        return $$createType7($result);
     });
 }
 
@@ -86,10 +70,6 @@ export function StartSyncNow(): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(1342290341).then(($result: any) => {
         return $$createType8($result);
     });
-}
-
-export function SyncNow(): $CancellablePromise<void> {
-    return $Call.ByID(2443585449);
 }
 
 // Private type creation functions

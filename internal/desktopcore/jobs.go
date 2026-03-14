@@ -1,6 +1,7 @@
 package desktopcore
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"sync"
@@ -178,6 +179,28 @@ func (s *JobsService) Get(jobID string) (JobSnapshot, bool) {
 	defer s.mu.RUnlock()
 	job, ok := s.jobs[jobID]
 	return job, ok
+}
+
+func (s *JobsService) ListJobs(_ context.Context, libraryID string) ([]JobSnapshot, error) {
+	if s == nil {
+		return nil, nil
+	}
+	return s.List(libraryID), nil
+}
+
+func (s *JobsService) GetJob(_ context.Context, jobID string) (JobSnapshot, bool, error) {
+	if s == nil {
+		return JobSnapshot{}, false, nil
+	}
+	job, ok := s.Get(jobID)
+	return job, ok, nil
+}
+
+func (s *JobsService) SubscribeJobSnapshots(listener func(JobSnapshot)) func() {
+	if s == nil {
+		return func() {}
+	}
+	return s.Subscribe(listener)
 }
 
 func (s *JobsService) List(libraryID string) []JobSnapshot {

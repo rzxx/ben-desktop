@@ -103,6 +103,124 @@ func TestDesktopRewriteRegression(t *testing.T) {
 		}
 	})
 
+	t.Run("corehost does not fall back to app runtimes", func(t *testing.T) {
+		corehost, err := os.ReadFile("corehost.go")
+		if err != nil {
+			t.Fatalf("read corehost.go: %v", err)
+		}
+		if strings.Contains(string(corehost), "return h.App") {
+			t.Fatalf("corehost still falls back to h.App")
+		}
+	})
+
+	t.Run("blocking long running APIs stay removed", func(t *testing.T) {
+		type fileCheck struct {
+			path      string
+			disallows []string
+		}
+
+		checks := []fileCheck{
+			{
+				path: filepath.Join("internal", "desktopcore", "runtime.go"),
+				disallows: []string{
+					"\tRescanNow(ctx context.Context)",
+					"\tRescanRoot(ctx context.Context",
+					"\tSyncNow(ctx context.Context)",
+					"\tConnectPeer(ctx context.Context",
+					"\tPublishCheckpoint(ctx context.Context)",
+					"\tCompactCheckpoint(ctx context.Context",
+					"\tFinalizeJoinSession(ctx context.Context",
+					"\tEnsureRecordingEncoding(ctx context.Context",
+					"\tEnsureAlbumEncodings(ctx context.Context",
+					"\tEnsurePlaylistEncodings(ctx context.Context",
+					"\tPreparePlaybackRecording(ctx context.Context",
+				},
+			},
+			{
+				path: "facades.go",
+				disallows: []string{
+					"func (s *LibraryFacade) RescanNow(",
+					"func (s *LibraryFacade) RescanRoot(",
+					"func (s *NetworkFacade) SyncNow(",
+					"func (s *NetworkFacade) ConnectPeer(",
+					"func (s *NetworkFacade) PublishCheckpoint(",
+					"func (s *NetworkFacade) CompactCheckpoint(",
+					"func (s *InviteFacade) FinalizeJoinSession(",
+					"func (s *PlaybackFacade) EnsureRecordingEncoding(",
+					"func (s *PlaybackFacade) EnsureAlbumEncodings(",
+					"func (s *PlaybackFacade) EnsurePlaylistEncodings(",
+					"func (s *PlaybackFacade) PreparePlaybackRecording(",
+				},
+			},
+			{
+				path: filepath.Join("internal", "desktopcore", "unavailable.go"),
+				disallows: []string{
+					"func (c *UnavailableCore) RescanNow(",
+					"func (c *UnavailableCore) RescanRoot(",
+					"func (c *UnavailableCore) SyncNow(",
+					"func (c *UnavailableCore) ConnectPeer(",
+					"func (c *UnavailableCore) PublishCheckpoint(",
+					"func (c *UnavailableCore) CompactCheckpoint(",
+					"func (c *UnavailableCore) FinalizeJoinSession(",
+					"func (c *UnavailableCore) EnsureRecordingEncoding(",
+					"func (c *UnavailableCore) EnsureAlbumEncodings(",
+					"func (c *UnavailableCore) EnsurePlaylistEncodings(",
+					"func (c *UnavailableCore) PreparePlaybackRecording(",
+				},
+			},
+			{
+				path: filepath.Join("frontend", "src", "shared", "lib", "desktop.ts"),
+				disallows: []string{
+					"export function connectPeer(",
+				},
+			},
+			{
+				path: filepath.Join("frontend", "bindings", "ben", "desktop", "libraryfacade.ts"),
+				disallows: []string{
+					"export function RescanNow",
+					"export function RescanRoot",
+				},
+			},
+			{
+				path: filepath.Join("frontend", "bindings", "ben", "desktop", "networkfacade.ts"),
+				disallows: []string{
+					"export function SyncNow",
+					"export function ConnectPeer",
+					"export function PublishCheckpoint",
+					"export function CompactCheckpoint",
+				},
+			},
+			{
+				path: filepath.Join("frontend", "bindings", "ben", "desktop", "invitefacade.ts"),
+				disallows: []string{
+					"export function FinalizeJoinSession",
+				},
+			},
+			{
+				path: filepath.Join("frontend", "bindings", "ben", "desktop", "playbackfacade.ts"),
+				disallows: []string{
+					"export function EnsureRecordingEncoding",
+					"export function EnsureAlbumEncodings",
+					"export function EnsurePlaylistEncodings",
+					"export function PreparePlaybackRecording",
+				},
+			},
+		}
+
+		for _, check := range checks {
+			raw, err := os.ReadFile(check.path)
+			if err != nil {
+				t.Fatalf("read %s: %v", check.path, err)
+			}
+			text := string(raw)
+			for _, disallowed := range check.disallows {
+				if strings.Contains(text, disallowed) {
+					t.Fatalf("%s still contains %q", check.path, disallowed)
+				}
+			}
+		}
+	})
+
 	t.Run("legacy corebridge package removed", func(t *testing.T) {
 		entries, err := os.ReadDir(filepath.Join("internal", "corebridge"))
 		if os.IsNotExist(err) {

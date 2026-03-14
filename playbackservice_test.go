@@ -11,7 +11,7 @@ import (
 	"ben/desktop/internal/settings"
 )
 
-type passthroughBridgeStub struct {
+type passthroughRuntimeStub struct {
 	*desktopcore.UnavailableCore
 
 	ensureLocalContextFn        func(context.Context) (apitypes.LocalContext, error)
@@ -117,59 +117,61 @@ type passthroughBridgeStub struct {
 	albumAvailabilityOVFn       func(context.Context, string, string) (apitypes.AlbumAvailabilityOverview, error)
 }
 
-func (b *passthroughBridgeStub) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error) {
+type passthroughBridgeStub = passthroughRuntimeStub
+
+func (b *passthroughRuntimeStub) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error) {
 	return b.ensureLocalContextFn(ctx)
 }
 
-func (b *passthroughBridgeStub) Inspect(ctx context.Context) (apitypes.InspectSummary, error) {
+func (b *passthroughRuntimeStub) Inspect(ctx context.Context) (apitypes.InspectSummary, error) {
 	return b.inspectFn(ctx)
 }
 
-func (b *passthroughBridgeStub) InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error) {
+func (b *passthroughRuntimeStub) InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error) {
 	return b.inspectLibraryOplogFn(ctx, libraryID)
 }
 
-func (b *passthroughBridgeStub) ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error) {
+func (b *passthroughRuntimeStub) ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error) {
 	return b.activityStatusFn(ctx)
 }
 
-func (b *passthroughBridgeStub) NetworkStatus() apitypes.NetworkStatus {
+func (b *passthroughRuntimeStub) NetworkStatus() apitypes.NetworkStatus {
 	return b.networkStatusFn()
 }
 
-func (b *passthroughBridgeStub) SyncNow(ctx context.Context) error {
+func (b *passthroughRuntimeStub) SyncNow(ctx context.Context) error {
 	return b.syncNowFn(ctx)
 }
 
-func (b *passthroughBridgeStub) StartSyncNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
+func (b *passthroughRuntimeStub) StartSyncNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
 	return b.startSyncNowFn(ctx)
 }
 
-func (b *passthroughBridgeStub) ConnectPeer(ctx context.Context, peerAddr string) error {
+func (b *passthroughRuntimeStub) ConnectPeer(ctx context.Context, peerAddr string) error {
 	return b.connectPeerFn(ctx, peerAddr)
 }
 
-func (b *passthroughBridgeStub) StartConnectPeer(ctx context.Context, peerAddr string) (desktopcore.JobSnapshot, error) {
+func (b *passthroughRuntimeStub) StartConnectPeer(ctx context.Context, peerAddr string) (desktopcore.JobSnapshot, error) {
 	return b.startConnectPeerFn(ctx, peerAddr)
 }
 
-func (b *passthroughBridgeStub) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
+func (b *passthroughRuntimeStub) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
 	return b.checkpointStatusFn(ctx)
 }
 
-func (b *passthroughBridgeStub) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error) {
+func (b *passthroughRuntimeStub) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error) {
 	return b.publishCheckpointFn(ctx)
 }
 
-func (b *passthroughBridgeStub) StartPublishCheckpoint(ctx context.Context) (desktopcore.JobSnapshot, error) {
+func (b *passthroughRuntimeStub) StartPublishCheckpoint(ctx context.Context) (desktopcore.JobSnapshot, error) {
 	return b.startPublishCheckpointFn(ctx)
 }
 
-func (b *passthroughBridgeStub) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
+func (b *passthroughRuntimeStub) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
 	return b.compactCheckpointFn(ctx, force)
 }
 
-func (b *passthroughBridgeStub) StartCompactCheckpoint(ctx context.Context, force bool) (desktopcore.JobSnapshot, error) {
+func (b *passthroughRuntimeStub) StartCompactCheckpoint(ctx context.Context, force bool) (desktopcore.JobSnapshot, error) {
 	return b.startCompactCheckpointFn(ctx, force)
 }
 
@@ -521,7 +523,7 @@ func (b *passthroughBridgeStub) GetAlbumAvailabilityOverview(ctx context.Context
 	return b.albumAvailabilityOVFn(ctx, albumID, preferredProfile)
 }
 
-func newPassthroughHost(stub *passthroughBridgeStub) *coreHost {
+func newPassthroughHost(stub *passthroughRuntimeStub) *coreHost {
 	return &coreHost{
 		started:  true,
 		library:  stub,

@@ -67,18 +67,6 @@ export function RenameLibrary(libraryID: string, name: string): $CancellableProm
     });
 }
 
-export function RescanNow(): $CancellablePromise<apitypes$0.ScanStats> {
-    return $Call.ByID(671533405).then(($result: any) => {
-        return $$createType5($result);
-    });
-}
-
-export function RescanRoot(root: string): $CancellablePromise<apitypes$0.ScanStats> {
-    return $Call.ByID(2043530319, root).then(($result: any) => {
-        return $$createType5($result);
-    });
-}
-
 export function ScanRoots(): $CancellablePromise<string[]> {
     return $Call.ByID(4034686803).then(($result: any) => {
         return $$createType1($result);

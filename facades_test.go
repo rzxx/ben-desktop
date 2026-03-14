@@ -13,16 +13,15 @@ import (
 	"ben/desktop/internal/desktopcore"
 )
 
-func TestLibraryFacadeForwardsToBridge(t *testing.T) {
+func TestLibraryFacadeForwardsToRuntime(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	summary := apitypes.LibrarySummary{LibraryID: "lib-1", Name: "Library", Role: "admin", JoinedAt: time.Now().UTC(), IsActive: true}
 	member := apitypes.LibraryMemberStatus{LibraryID: "lib-1", DeviceID: "dev-1", Role: "admin"}
-	scanStats := apitypes.ScanStats{Scanned: 1, Imported: 1}
 	job := desktopcore.JobSnapshot{JobID: "job-scan", Kind: "scan-library", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
-	calls := make([]string, 0, 14)
-	host := newPassthroughHost(&passthroughBridgeStub{
+	calls := make([]string, 0, 12)
+	host := newPassthroughHost(&passthroughRuntimeStub{
 		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 		listLibrariesFn: func(context.Context) ([]apitypes.LibrarySummary, error) {
 			calls = append(calls, "list")
@@ -64,17 +63,9 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 			calls = append(calls, "remove:"+deviceID)
 			return nil
 		},
-		rescanNowFn: func(context.Context) (apitypes.ScanStats, error) {
-			calls = append(calls, "rescan-now")
-			return scanStats, nil
-		},
 		startRescanNowFn: func(context.Context) (desktopcore.JobSnapshot, error) {
 			calls = append(calls, "start-rescan-now")
 			return job, nil
-		},
-		rescanRootFn: func(_ context.Context, root string) (apitypes.ScanStats, error) {
-			calls = append(calls, "rescan-root:"+root)
-			return scanStats, nil
 		},
 		startRescanRootFn: func(_ context.Context, root string) (desktopcore.JobSnapshot, error) {
 			calls = append(calls, "start-rescan-root:"+root)
@@ -113,14 +104,8 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 	if err := facade.RemoveLibraryMember(ctx, "dev-1"); err != nil {
 		t.Fatalf("remove library member: %v", err)
 	}
-	if got, err := facade.RescanNow(ctx); err != nil || got.Scanned != scanStats.Scanned {
-		t.Fatalf("rescan now = %+v, err=%v", got, err)
-	}
 	if got, err := facade.StartRescanNow(ctx); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start rescan now = %+v, err=%v", got, err)
-	}
-	if got, err := facade.RescanRoot(ctx, "C:/music"); err != nil || got.Imported != scanStats.Imported {
-		t.Fatalf("rescan root = %+v, err=%v", got, err)
 	}
 	if got, err := facade.StartRescanRoot(ctx, "C:/music"); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start rescan root = %+v, err=%v", got, err)
@@ -137,9 +122,7 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 		"members",
 		"role:dev-1:guest",
 		"remove:dev-1",
-		"rescan-now",
 		"start-rescan-now",
-		"rescan-root:C:/music",
 		"start-rescan-root:C:/music",
 	}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
@@ -147,7 +130,7 @@ func TestLibraryFacadeForwardsToBridge(t *testing.T) {
 	}
 }
 
-func TestNetworkFacadeForwardsToBridge(t *testing.T) {
+func TestNetworkFacadeForwardsToRuntime(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -157,11 +140,9 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	activity := apitypes.ActivityStatus{Scan: apitypes.ScanActivityStatus{Phase: "idle"}}
 	network := apitypes.NetworkStatus{LibraryID: "lib-1", DeviceID: "dev-1", ServiceTag: "ben-123"}
 	checkpoint := apitypes.LibraryCheckpointStatus{LibraryID: "lib-1", CheckpointID: "ckpt-1"}
-	manifest := apitypes.LibraryCheckpointManifest{LibraryID: "lib-1", CheckpointID: "ckpt-1"}
-	compaction := apitypes.CheckpointCompactionResult{LibraryID: "lib-1", CheckpointID: "ckpt-1", Compactable: true}
 	job := desktopcore.JobSnapshot{JobID: "job-checkpoint", Kind: "publish-checkpoint", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
-	calls := make([]string, 0, 13)
-	host := newPassthroughHost(&passthroughBridgeStub{
+	calls := make([]string, 0, 10)
+	host := newPassthroughHost(&passthroughRuntimeStub{
 		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 		ensureLocalContextFn: func(context.Context) (apitypes.LocalContext, error) {
 			calls = append(calls, "local")
@@ -183,17 +164,9 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 			calls = append(calls, "network")
 			return network
 		},
-		syncNowFn: func(context.Context) error {
-			calls = append(calls, "sync")
-			return nil
-		},
 		startSyncNowFn: func(context.Context) (desktopcore.JobSnapshot, error) {
 			calls = append(calls, "start-sync")
 			return job, nil
-		},
-		connectPeerFn: func(_ context.Context, peerAddr string) error {
-			calls = append(calls, "connect:"+peerAddr)
-			return nil
 		},
 		startConnectPeerFn: func(_ context.Context, peerAddr string) (desktopcore.JobSnapshot, error) {
 			calls = append(calls, "start-connect:"+peerAddr)
@@ -203,17 +176,9 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 			calls = append(calls, "checkpoint")
 			return checkpoint, nil
 		},
-		publishCheckpointFn: func(context.Context) (apitypes.LibraryCheckpointManifest, error) {
-			calls = append(calls, "publish")
-			return manifest, nil
-		},
 		startPublishCheckpointFn: func(context.Context) (desktopcore.JobSnapshot, error) {
 			calls = append(calls, "start-publish")
 			return job, nil
-		},
-		compactCheckpointFn: func(_ context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
-			calls = append(calls, "compact:true")
-			return compaction, nil
 		},
 		startCompactCheckpointFn: func(_ context.Context, force bool) (desktopcore.JobSnapshot, error) {
 			calls = append(calls, "start-compact:true")
@@ -237,14 +202,8 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	if got := facade.NetworkStatus(); got.ServiceTag != network.ServiceTag {
 		t.Fatalf("network status = %+v", got)
 	}
-	if err := facade.SyncNow(ctx); err != nil {
-		t.Fatalf("sync now: %v", err)
-	}
 	if got, err := facade.StartSyncNow(ctx); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start sync now = %+v, err=%v", got, err)
-	}
-	if err := facade.ConnectPeer(ctx, "peeraddr"); err != nil {
-		t.Fatalf("connect peer: %v", err)
 	}
 	if got, err := facade.StartConnectPeer(ctx, "peeraddr"); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start connect peer = %+v, err=%v", got, err)
@@ -252,20 +211,14 @@ func TestNetworkFacadeForwardsToBridge(t *testing.T) {
 	if got, err := facade.CheckpointStatus(ctx); err != nil || got.CheckpointID != checkpoint.CheckpointID {
 		t.Fatalf("checkpoint status = %+v, err=%v", got, err)
 	}
-	if got, err := facade.PublishCheckpoint(ctx); err != nil || got.CheckpointID != manifest.CheckpointID {
-		t.Fatalf("publish checkpoint = %+v, err=%v", got, err)
-	}
 	if got, err := facade.StartPublishCheckpoint(ctx); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start publish checkpoint = %+v, err=%v", got, err)
-	}
-	if got, err := facade.CompactCheckpoint(ctx, true); err != nil || got.CheckpointID != compaction.CheckpointID {
-		t.Fatalf("compact checkpoint = %+v, err=%v", got, err)
 	}
 	if got, err := facade.StartCompactCheckpoint(ctx, true); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start compact checkpoint = %+v, err=%v", got, err)
 	}
 
-	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "sync", "start-sync", "connect:peeraddr", "start-connect:peeraddr", "checkpoint", "publish", "start-publish", "compact:true", "start-compact:true"}
+	want := []string{"local", "inspect", "oplog:lib-1", "activity", "network", "start-sync", "start-connect:peeraddr", "checkpoint", "start-publish", "start-compact:true"}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("network facade calls = %v, want %v", calls, want)
 	}
@@ -282,7 +235,7 @@ func TestJobsFacadeForwardsToBridge(t *testing.T) {
 		Phase:     desktopcore.JobPhaseRunning,
 	}
 	calls := make([]string, 0, 2)
-	host := newPassthroughHost(&passthroughBridgeStub{
+	host := newPassthroughHost(&passthroughRuntimeStub{
 		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 		listJobsFn: func(_ context.Context, libraryID string) ([]desktopcore.JobSnapshot, error) {
 			calls = append(calls, "list:"+libraryID)
@@ -311,7 +264,7 @@ func TestJobsFacadeForwardsToBridge(t *testing.T) {
 	}
 }
 
-func TestCatalogFacadeForwardsToBridge(t *testing.T) {
+func TestCatalogFacadeForwardsToRuntime(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -323,7 +276,7 @@ func TestCatalogFacadeForwardsToBridge(t *testing.T) {
 	item := apitypes.PlaylistItemRecord{PlaylistID: "pl-1", ItemID: "item-1", RecordingID: "rec-1"}
 	pageInfo := apitypes.PageInfo{Returned: 1, Total: 1}
 	calls := make([]string, 0, 18)
-	host := newPassthroughHost(&passthroughBridgeStub{
+	host := newPassthroughHost(&passthroughRuntimeStub{
 		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 		listArtistsFn: func(_ context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
 			calls = append(calls, "list-artists")
@@ -505,18 +458,17 @@ func TestCatalogFacadeForwardsToBridge(t *testing.T) {
 	}
 }
 
-func TestInviteFacadeForwardsToBridge(t *testing.T) {
+func TestInviteFacadeForwardsToRuntime(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	invite := apitypes.InviteCodeResult{LibraryID: "lib-1", InviteCode: "code-1", Role: "member"}
 	session := apitypes.JoinSession{SessionID: "session-1", RequestID: "req-1", Status: "pending", LibraryID: "lib-1", Pending: true}
-	result := apitypes.JoinLibraryResult{LibraryID: "lib-1", DeviceID: "dev-join"}
 	request := apitypes.InviteJoinRequestRecord{RequestID: "req-1", LibraryID: "lib-1", Status: "pending"}
 	issued := apitypes.IssuedInviteRecord{InviteID: "invite-1", LibraryID: "lib-1", Status: "active"}
 	job := desktopcore.JobSnapshot{JobID: "join-finalize:session-1", Kind: "finalize-join-session", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
-	calls := make([]string, 0, 11)
-	host := newPassthroughHost(&passthroughBridgeStub{
+	calls := make([]string, 0, 10)
+	host := newPassthroughHost(&passthroughRuntimeStub{
 		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 		createInviteCodeFn: func(_ context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
 			calls = append(calls, "create:"+req.Role)
@@ -537,10 +489,6 @@ func TestInviteFacadeForwardsToBridge(t *testing.T) {
 		getJoinSessionFn: func(_ context.Context, sessionID string) (apitypes.JoinSession, error) {
 			calls = append(calls, "get:"+sessionID)
 			return session, nil
-		},
-		finalizeJoinSessionFn: func(_ context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
-			calls = append(calls, "finalize:"+sessionID)
-			return result, nil
 		},
 		startFinalizeJoinSessionFn: func(_ context.Context, sessionID string) (desktopcore.JobSnapshot, error) {
 			calls = append(calls, "start-finalize:"+sessionID)
@@ -580,9 +528,6 @@ func TestInviteFacadeForwardsToBridge(t *testing.T) {
 	if _, err := facade.GetJoinSession(ctx, "session-1"); err != nil {
 		t.Fatalf("get join session: %v", err)
 	}
-	if _, err := facade.FinalizeJoinSession(ctx, "session-1"); err != nil {
-		t.Fatalf("finalize join session: %v", err)
-	}
 	if got, err := facade.StartFinalizeJoinSession(ctx, "session-1"); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start finalize join session = %+v, err=%v", got, err)
 	}
@@ -605,7 +550,6 @@ func TestInviteFacadeForwardsToBridge(t *testing.T) {
 		"revoke:invite-1:manual",
 		"start:code-1",
 		"get:session-1",
-		"finalize:session-1",
 		"start-finalize:session-1",
 		"cancel:session-1",
 		"requests:pending",
@@ -617,7 +561,7 @@ func TestInviteFacadeForwardsToBridge(t *testing.T) {
 	}
 }
 
-func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
+func TestCacheAndPlaybackFacadesForwardToRuntime(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -627,7 +571,6 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 		Page:  apitypes.PageInfo{Returned: 1, Total: 1},
 	}
 	cleanup := apitypes.CacheCleanupResult{DeletedBytes: 64}
-	encodingBatch := apitypes.EnsureEncodingBatchResult{Recordings: 2, Created: 1, Skipped: 1}
 	playbackResult := apitypes.PlaybackRecordingResult{EncodingID: "enc-1", BlobID: "b3:" + strings.Repeat("c", 64), SourceKind: apitypes.PlaybackSourceCachedOpt}
 	playbackBatch := apitypes.PlaybackBatchResult{Tracks: 2, TotalBytes: 512, LocalHits: 2}
 	status := apitypes.PlaybackPreparationStatus{RecordingID: "rec-1", PreferredProfile: "default"}
@@ -646,7 +589,7 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 		t.Fatalf("write blob: %v", err)
 	}
 
-	host := newPassthroughHost(&passthroughBridgeStub{
+	host := newPassthroughHost(&passthroughRuntimeStub{
 		UnavailableCore:    desktopcore.NewUnavailableCore(errors.New("unused")),
 		getCacheOverviewFn: func(context.Context) (apitypes.CacheOverview, error) { return overview, nil },
 		listCacheEntriesFn: func(_ context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {
@@ -655,20 +598,11 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 		cleanupCacheFn: func(_ context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
 			return cleanup, nil
 		},
-		ensureRecordingEncodingFn: func(_ context.Context, recordingID, preferredProfile string) (bool, error) {
-			return true, nil
-		},
 		startEnsureRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (desktopcore.JobSnapshot, error) {
 			return job, nil
 		},
-		ensureAlbumEncodingsFn: func(_ context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
-			return encodingBatch, nil
-		},
 		startEnsureAlbumFn: func(_ context.Context, albumID, preferredProfile string) (desktopcore.JobSnapshot, error) {
 			return job, nil
-		},
-		ensurePlaylistEncodingsFn: func(_ context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
-			return encodingBatch, nil
 		},
 		startEnsurePlaylistFn: func(_ context.Context, playlistID, preferredProfile string) (desktopcore.JobSnapshot, error) {
 			return job, nil
@@ -677,9 +611,6 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 			return playbackResult, nil
 		},
 		inspectPlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
-			return status, nil
-		},
-		preparePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
 			return status, nil
 		},
 		startPreparePlaybackFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error) {
@@ -737,20 +668,11 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 	}
 
 	playbackFacade := NewPlaybackFacade(host)
-	if created, err := playbackFacade.EnsureRecordingEncoding(ctx, "rec-1", "default"); err != nil || !created {
-		t.Fatalf("ensure recording encoding = %v, err=%v", created, err)
-	}
 	if got, err := playbackFacade.StartEnsureRecordingEncoding(ctx, "rec-1", "default"); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start ensure recording encoding = %+v, err=%v", got, err)
 	}
-	if got, err := playbackFacade.EnsureAlbumEncodings(ctx, "album-1", "default"); err != nil || got.Recordings != encodingBatch.Recordings {
-		t.Fatalf("ensure album encodings = %+v, err=%v", got, err)
-	}
 	if got, err := playbackFacade.StartEnsureAlbumEncodings(ctx, "album-1", "default"); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start ensure album encodings = %+v, err=%v", got, err)
-	}
-	if got, err := playbackFacade.EnsurePlaylistEncodings(ctx, "playlist-1", "default"); err != nil || got.Created != encodingBatch.Created {
-		t.Fatalf("ensure playlist encodings = %+v, err=%v", got, err)
 	}
 	if got, err := playbackFacade.StartEnsurePlaylistEncodings(ctx, "playlist-1", "default"); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start ensure playlist encodings = %+v, err=%v", got, err)
@@ -760,9 +682,6 @@ func TestCacheAndPlaybackFacadesForwardToBridge(t *testing.T) {
 	}
 	if _, err := playbackFacade.InspectPlaybackRecording(ctx, "rec-1", "default"); err != nil {
 		t.Fatalf("inspect playback recording: %v", err)
-	}
-	if _, err := playbackFacade.PreparePlaybackRecording(ctx, "rec-1", "default", apitypes.PlaybackPreparationPlayNow); err != nil {
-		t.Fatalf("prepare playback recording: %v", err)
 	}
 	if got, err := playbackFacade.StartPreparePlaybackRecording(ctx, "rec-1", "default", apitypes.PlaybackPreparationPlayNow); err != nil || got.JobID != job.JobID {
 		t.Fatalf("start prepare playback recording = %+v, err=%v", got, err)

@@ -231,10 +231,6 @@ export function getLibraryOplogDiagnostics(libraryId = "") {
   return NetworkFacade.InspectLibraryOplog(libraryId);
 }
 
-export function connectPeer(peerAddr: string) {
-  return NetworkFacade.ConnectPeer(peerAddr);
-}
-
 export function startConnectPeer(peerAddr: string) {
   return NetworkFacade.StartConnectPeer(peerAddr);
 }

@@ -12,12 +12,6 @@ import * as apitypes$0 from "./api/types/models.js";
 // @ts-ignore: Unused imports
 import * as desktopcore$0 from "./internal/desktopcore/models.js";
 
-export function EnsureAlbumEncodings(albumID: string, preferredProfile: string): $CancellablePromise<apitypes$0.EnsureEncodingBatchResult> {
-    return $Call.ByID(4221005712, albumID, preferredProfile).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
 export function EnsurePlaybackAlbum(albumID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
     return $Call.ByID(3864517101, albumID, preferredProfile).then(($result: any) => {
         return $$createType1($result);
@@ -34,16 +28,6 @@ export function EnsurePlaybackRecording(recordingID: string, preferredProfile: s
     return $Call.ByID(1147125149, recordingID, preferredProfile).then(($result: any) => {
         return $$createType2($result);
     });
-}
-
-export function EnsurePlaylistEncodings(playlistID: string, preferredProfile: string): $CancellablePromise<apitypes$0.EnsureEncodingBatchResult> {
-    return $Call.ByID(1586100209, playlistID, preferredProfile).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
-export function EnsureRecordingEncoding(recordingID: string, preferredProfile: string): $CancellablePromise<boolean> {
-    return $Call.ByID(902791591, recordingID, preferredProfile);
 }
 
 export function GetAlbumAvailabilityOverview(albumID: string, preferredProfile: string): $CancellablePromise<apitypes$0.AlbumAvailabilityOverview> {
@@ -103,12 +87,6 @@ export function PinPlaylistOffline(playlistID: string, preferredProfile: string)
 export function PinRecordingOffline(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackRecordingResult> {
     return $Call.ByID(1761311306, recordingID, preferredProfile).then(($result: any) => {
         return $$createType2($result);
-    });
-}
-
-export function PreparePlaybackRecording(recordingID: string, preferredProfile: string, purpose: apitypes$0.PlaybackPreparationPurpose): $CancellablePromise<apitypes$0.PlaybackPreparationStatus> {
-    return $Call.ByID(3342113616, recordingID, preferredProfile, purpose).then(($result: any) => {
-        return $$createType4($result);
     });
 }
 

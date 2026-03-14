@@ -16,7 +16,10 @@ type App struct {
 	storage  *DBService
 	blobs    *BlobStoreService
 	identity *IdentityMembershipService
+	operator *OperatorService
 	sync     *SyncService
+	checkpoint *CheckpointService
+	scanner    *ScannerService
 
 	activityMu sync.RWMutex
 	activity   apitypes.ActivityStatus
@@ -80,7 +83,10 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 		}(),
 	}
 	app.identity = newIdentityMembershipService(app)
+	app.operator = newOperatorService(app)
 	app.sync = newSyncService(app)
+	app.checkpoint = newCheckpointService(app)
+	app.scanner = newScannerService(app)
 	app.library = &LibraryService{app: app}
 	app.ingest = &IngestService{app: app}
 	app.catalog = &CatalogService{app: app}
@@ -159,6 +165,48 @@ func (a *App) Config() Config {
 		return Config{}
 	}
 	return a.cfg
+}
+
+func (a *App) LibraryRuntime() LibraryRuntime {
+	if a == nil {
+		return nil
+	}
+	return newLibraryRuntimeAdapter(a.library, a.ingest)
+}
+
+func (a *App) NetworkRuntime() NetworkRuntime {
+	if a == nil {
+		return nil
+	}
+	return newNetworkRuntimeAdapter(a.operator, a.sync, a.checkpoint)
+}
+
+func (a *App) CatalogRuntime() CatalogRuntime {
+	if a == nil {
+		return nil
+	}
+	return newCatalogRuntimeAdapter(a.catalog, a.playlist)
+}
+
+func (a *App) InviteRuntime() InviteRuntime {
+	if a == nil {
+		return nil
+	}
+	return a.invite
+}
+
+func (a *App) CacheRuntime() CacheRuntime {
+	if a == nil {
+		return nil
+	}
+	return a.cache
+}
+
+func (a *App) PlaybackRuntime() PlaybackRuntime {
+	if a == nil {
+		return nil
+	}
+	return a.playback
 }
 
 func (a *App) ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error) {

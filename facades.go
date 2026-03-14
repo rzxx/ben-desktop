@@ -137,16 +137,8 @@ func (s *LibraryFacade) ScanRoots(ctx context.Context) ([]string, error) {
 	return s.library().ScanRoots(ctx)
 }
 
-func (s *LibraryFacade) RescanNow(ctx context.Context) (apitypes.ScanStats, error) {
-	return s.library().RescanNow(ctx)
-}
-
 func (s *LibraryFacade) StartRescanNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
 	return s.library().StartRescanNow(ctx)
-}
-
-func (s *LibraryFacade) RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error) {
-	return s.library().RescanRoot(ctx, root)
 }
 
 func (s *LibraryFacade) StartRescanRoot(ctx context.Context, root string) (desktopcore.JobSnapshot, error) {
@@ -183,16 +175,8 @@ func (s *NetworkFacade) NetworkStatus() apitypes.NetworkStatus {
 	return s.network().NetworkStatus()
 }
 
-func (s *NetworkFacade) SyncNow(ctx context.Context) error {
-	return s.network().SyncNow(ctx)
-}
-
 func (s *NetworkFacade) StartSyncNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
 	return s.network().StartSyncNow(ctx)
-}
-
-func (s *NetworkFacade) ConnectPeer(ctx context.Context, peerAddr string) error {
-	return s.network().ConnectPeer(ctx, peerAddr)
 }
 
 func (s *NetworkFacade) StartConnectPeer(ctx context.Context, peerAddr string) (desktopcore.JobSnapshot, error) {
@@ -203,16 +187,8 @@ func (s *NetworkFacade) CheckpointStatus(ctx context.Context) (apitypes.LibraryC
 	return s.network().CheckpointStatus(ctx)
 }
 
-func (s *NetworkFacade) PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error) {
-	return s.network().PublishCheckpoint(ctx)
-}
-
 func (s *NetworkFacade) StartPublishCheckpoint(ctx context.Context) (desktopcore.JobSnapshot, error) {
 	return s.network().StartPublishCheckpoint(ctx)
-}
-
-func (s *NetworkFacade) CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error) {
-	return s.network().CompactCheckpoint(ctx, force)
 }
 
 func (s *NetworkFacade) StartCompactCheckpoint(ctx context.Context, force bool) (desktopcore.JobSnapshot, error) {
@@ -419,10 +395,6 @@ func (s *InviteFacade) GetJoinSession(ctx context.Context, sessionID string) (ap
 	return s.invite().GetJoinSession(ctx, sessionID)
 }
 
-func (s *InviteFacade) FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
-	return s.invite().FinalizeJoinSession(ctx, sessionID)
-}
-
 func (s *InviteFacade) StartFinalizeJoinSession(ctx context.Context, sessionID string) (desktopcore.JobSnapshot, error) {
 	return s.invite().StartFinalizeJoinSession(ctx, sessionID)
 }
@@ -475,24 +447,12 @@ func NewPlaybackFacade(host *coreHost) *PlaybackFacade {
 
 func (s *PlaybackFacade) ServiceName() string { return "PlaybackFacade" }
 
-func (s *PlaybackFacade) EnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (bool, error) {
-	return s.playback().EnsureRecordingEncoding(ctx, recordingID, preferredProfile)
-}
-
 func (s *PlaybackFacade) StartEnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (desktopcore.JobSnapshot, error) {
 	return s.playback().StartEnsureRecordingEncoding(ctx, recordingID, preferredProfile)
 }
 
-func (s *PlaybackFacade) EnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
-	return s.playback().EnsureAlbumEncodings(ctx, albumID, preferredProfile)
-}
-
 func (s *PlaybackFacade) StartEnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (desktopcore.JobSnapshot, error) {
 	return s.playback().StartEnsureAlbumEncodings(ctx, albumID, preferredProfile)
-}
-
-func (s *PlaybackFacade) EnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
-	return s.playback().EnsurePlaylistEncodings(ctx, playlistID, preferredProfile)
 }
 
 func (s *PlaybackFacade) StartEnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (desktopcore.JobSnapshot, error) {
@@ -505,10 +465,6 @@ func (s *PlaybackFacade) EnsurePlaybackRecording(ctx context.Context, recordingI
 
 func (s *PlaybackFacade) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 	return s.playback().InspectPlaybackRecording(ctx, recordingID, preferredProfile)
-}
-
-func (s *PlaybackFacade) PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
-	return s.playback().PreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
 }
 
 func (s *PlaybackFacade) StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error) {

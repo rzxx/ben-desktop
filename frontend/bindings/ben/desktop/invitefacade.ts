@@ -26,12 +26,6 @@ export function CreateInviteCode(req: apitypes$0.InviteCodeRequest): $Cancellabl
     });
 }
 
-export function FinalizeJoinSession(sessionID: string): $CancellablePromise<apitypes$0.JoinLibraryResult> {
-    return $Call.ByID(2668803825, sessionID).then(($result: any) => {
-        return $$createType1($result);
-    });
-}
-
 export function GetJoinSession(sessionID: string): $CancellablePromise<apitypes$0.JoinSession> {
     return $Call.ByID(3812262537, sessionID).then(($result: any) => {
         return $$createType2($result);

@@ -21,9 +21,7 @@ type LibraryRuntime interface {
 	AddScanRoots(ctx context.Context, roots []string) ([]string, error)
 	RemoveScanRoots(ctx context.Context, roots []string) ([]string, error)
 	ScanRoots(ctx context.Context) ([]string, error)
-	RescanNow(ctx context.Context) (apitypes.ScanStats, error)
 	StartRescanNow(ctx context.Context) (JobSnapshot, error)
-	RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error)
 	StartRescanRoot(ctx context.Context, root string) (JobSnapshot, error)
 }
 
@@ -33,14 +31,10 @@ type NetworkRuntime interface {
 	InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error)
 	ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error)
 	NetworkStatus() apitypes.NetworkStatus
-	SyncNow(ctx context.Context) error
 	StartSyncNow(ctx context.Context) (JobSnapshot, error)
-	ConnectPeer(ctx context.Context, peerAddr string) error
 	StartConnectPeer(ctx context.Context, peerAddr string) (JobSnapshot, error)
 	CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error)
-	PublishCheckpoint(ctx context.Context) (apitypes.LibraryCheckpointManifest, error)
 	StartPublishCheckpoint(ctx context.Context) (JobSnapshot, error)
-	CompactCheckpoint(ctx context.Context, force bool) (apitypes.CheckpointCompactionResult, error)
 	StartCompactCheckpoint(ctx context.Context, force bool) (JobSnapshot, error)
 }
 
@@ -84,7 +78,6 @@ type InviteRuntime interface {
 	RevokeIssuedInvite(ctx context.Context, inviteID, reason string) error
 	StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error)
 	GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error)
-	FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error)
 	StartFinalizeJoinSession(ctx context.Context, sessionID string) (JobSnapshot, error)
 	CancelJoinSession(ctx context.Context, sessionID string) error
 	ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error)
@@ -99,15 +92,11 @@ type CacheRuntime interface {
 }
 
 type PlaybackRuntime interface {
-	EnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (bool, error)
 	StartEnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (JobSnapshot, error)
-	EnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error)
 	StartEnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (JobSnapshot, error)
-	EnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error)
 	StartEnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (JobSnapshot, error)
 	EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error)
 	InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error)
-	PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error)
 	StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (JobSnapshot, error)
 	GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error)
 	ResolvePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error)

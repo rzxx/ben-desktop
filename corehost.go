@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 
@@ -14,6 +15,7 @@ type coreHost struct {
 
 	started bool
 	*desktopcore.App
+	unavailable      *desktopcore.UnavailableCore
 	library          desktopcore.LibraryRuntime
 	network          desktopcore.NetworkRuntime
 	jobs             desktopcore.JobsRuntime
@@ -26,7 +28,9 @@ type coreHost struct {
 }
 
 func newCoreHost() *coreHost {
-	return &coreHost{}
+	return &coreHost{
+		unavailable: desktopcore.NewUnavailableCore(errors.New("desktop core is not started")),
+	}
 }
 
 func (h *coreHost) Start(ctx context.Context) error {
@@ -46,13 +50,13 @@ func (h *coreHost) Start(ctx context.Context) error {
 		return err
 	}
 	h.App = runtime
-	h.library = nil
-	h.network = nil
-	h.jobs = nil
-	h.catalog = nil
-	h.invite = nil
-	h.cache = nil
-	h.playback = nil
+	h.library = runtime.LibraryRuntime()
+	h.network = runtime.NetworkRuntime()
+	h.jobs = runtime.Jobs()
+	h.catalog = runtime.CatalogRuntime()
+	h.invite = runtime.InviteRuntime()
+	h.cache = runtime.CacheRuntime()
+	h.playback = runtime.PlaybackRuntime()
 	h.blobRoot = resolvedBlobRoot(coreSettings)
 	h.preferredProfile = preferredProfile(coreSettings)
 	h.started = true
@@ -112,10 +116,10 @@ func (h *coreHost) LibraryRuntime() desktopcore.LibraryRuntime {
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if h.library != nil {
-		return h.library
+	if h.library == nil {
+		return h.unavailable
 	}
-	return h.App
+	return h.library
 }
 
 func (h *coreHost) NetworkRuntime() desktopcore.NetworkRuntime {
@@ -124,10 +128,10 @@ func (h *coreHost) NetworkRuntime() desktopcore.NetworkRuntime {
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if h.network != nil {
-		return h.network
+	if h.network == nil {
+		return h.unavailable
 	}
-	return h.App
+	return h.network
 }
 
 func (h *coreHost) JobsRuntime() desktopcore.JobsRuntime {
@@ -136,10 +140,10 @@ func (h *coreHost) JobsRuntime() desktopcore.JobsRuntime {
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if h.jobs != nil {
-		return h.jobs
+	if h.jobs == nil {
+		return h.unavailable
 	}
-	return h.App
+	return h.jobs
 }
 
 func (h *coreHost) CatalogRuntime() desktopcore.CatalogRuntime {
@@ -148,10 +152,10 @@ func (h *coreHost) CatalogRuntime() desktopcore.CatalogRuntime {
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if h.catalog != nil {
-		return h.catalog
+	if h.catalog == nil {
+		return h.unavailable
 	}
-	return h.App
+	return h.catalog
 }
 
 func (h *coreHost) InviteRuntime() desktopcore.InviteRuntime {
@@ -160,10 +164,10 @@ func (h *coreHost) InviteRuntime() desktopcore.InviteRuntime {
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if h.invite != nil {
-		return h.invite
+	if h.invite == nil {
+		return h.unavailable
 	}
-	return h.App
+	return h.invite
 }
 
 func (h *coreHost) CacheRuntime() desktopcore.CacheRuntime {
@@ -172,10 +176,10 @@ func (h *coreHost) CacheRuntime() desktopcore.CacheRuntime {
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if h.cache != nil {
-		return h.cache
+	if h.cache == nil {
+		return h.unavailable
 	}
-	return h.App
+	return h.cache
 }
 
 func (h *coreHost) PlaybackRuntime() desktopcore.PlaybackRuntime {
@@ -184,10 +188,10 @@ func (h *coreHost) PlaybackRuntime() desktopcore.PlaybackRuntime {
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if h.playback != nil {
-		return h.playback
+	if h.playback == nil {
+		return h.unavailable
 	}
-	return h.App
+	return h.playback
 }
 
 func loadCoreRuntimeSettings() settings.CoreRuntimeSettings {

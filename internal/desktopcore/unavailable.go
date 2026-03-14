@@ -44,10 +44,6 @@ func (c *UnavailableCore) NetworkStatus() apitypes.NetworkStatus {
 	return apitypes.NetworkStatus{}
 }
 
-func (c *UnavailableCore) SyncNow(context.Context) error {
-	return c.err
-}
-
 func (c *UnavailableCore) StartSyncNow(context.Context) (JobSnapshot, error) {
 	return JobSnapshot{}, c.err
 }
@@ -56,24 +52,12 @@ func (c *UnavailableCore) StartPublishCheckpoint(context.Context) (JobSnapshot, 
 	return JobSnapshot{}, c.err
 }
 
-func (c *UnavailableCore) ConnectPeer(context.Context, string) error {
-	return c.err
-}
-
 func (c *UnavailableCore) StartConnectPeer(context.Context, string) (JobSnapshot, error) {
 	return JobSnapshot{}, c.err
 }
 
 func (c *UnavailableCore) CheckpointStatus(context.Context) (apitypes.LibraryCheckpointStatus, error) {
 	return apitypes.LibraryCheckpointStatus{}, c.err
-}
-
-func (c *UnavailableCore) PublishCheckpoint(context.Context) (apitypes.LibraryCheckpointManifest, error) {
-	return apitypes.LibraryCheckpointManifest{}, c.err
-}
-
-func (c *UnavailableCore) CompactCheckpoint(context.Context, bool) (apitypes.CheckpointCompactionResult, error) {
-	return apitypes.CheckpointCompactionResult{}, c.err
 }
 
 func (c *UnavailableCore) StartCompactCheckpoint(context.Context, bool) (JobSnapshot, error) {
@@ -220,10 +204,6 @@ func (c *UnavailableCore) GetJoinSession(context.Context, string) (apitypes.Join
 	return apitypes.JoinSession{}, c.err
 }
 
-func (c *UnavailableCore) FinalizeJoinSession(context.Context, string) (apitypes.JoinLibraryResult, error) {
-	return apitypes.JoinLibraryResult{}, c.err
-}
-
 func (c *UnavailableCore) StartFinalizeJoinSession(context.Context, string) (JobSnapshot, error) {
 	return JobSnapshot{}, c.err
 }
@@ -248,24 +228,12 @@ func (c *UnavailableCore) InspectPlaybackRecording(context.Context, string, stri
 	return apitypes.PlaybackPreparationStatus{}, c.err
 }
 
-func (c *UnavailableCore) EnsureRecordingEncoding(context.Context, string, string) (bool, error) {
-	return false, c.err
-}
-
 func (c *UnavailableCore) StartEnsureRecordingEncoding(context.Context, string, string) (JobSnapshot, error) {
 	return JobSnapshot{}, c.err
 }
 
-func (c *UnavailableCore) EnsureAlbumEncodings(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error) {
-	return apitypes.EnsureEncodingBatchResult{}, c.err
-}
-
 func (c *UnavailableCore) StartEnsureAlbumEncodings(context.Context, string, string) (JobSnapshot, error) {
 	return JobSnapshot{}, c.err
-}
-
-func (c *UnavailableCore) EnsurePlaylistEncodings(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error) {
-	return apitypes.EnsureEncodingBatchResult{}, c.err
 }
 
 func (c *UnavailableCore) StartEnsurePlaylistEncodings(context.Context, string, string) (JobSnapshot, error) {
@@ -274,10 +242,6 @@ func (c *UnavailableCore) StartEnsurePlaylistEncodings(context.Context, string, 
 
 func (c *UnavailableCore) EnsurePlaybackRecording(context.Context, string, string) (apitypes.PlaybackRecordingResult, error) {
 	return apitypes.PlaybackRecordingResult{}, c.err
-}
-
-func (c *UnavailableCore) PreparePlaybackRecording(context.Context, string, string, apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
-	return apitypes.PlaybackPreparationStatus{}, c.err
 }
 
 func (c *UnavailableCore) StartPreparePlaybackRecording(context.Context, string, string, apitypes.PlaybackPreparationPurpose) (JobSnapshot, error) {
@@ -412,16 +376,8 @@ func (c *UnavailableCore) ScanRoots(context.Context) ([]string, error) {
 	return nil, c.err
 }
 
-func (c *UnavailableCore) RescanNow(context.Context) (apitypes.ScanStats, error) {
-	return apitypes.ScanStats{}, c.err
-}
-
 func (c *UnavailableCore) StartRescanNow(context.Context) (JobSnapshot, error) {
 	return JobSnapshot{}, c.err
-}
-
-func (c *UnavailableCore) RescanRoot(context.Context, string) (apitypes.ScanStats, error) {
-	return apitypes.ScanStats{}, c.err
 }
 
 func (c *UnavailableCore) StartRescanRoot(context.Context, string) (JobSnapshot, error) {
