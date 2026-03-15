@@ -663,8 +663,8 @@ func TestSessionPlayPendingUsesLoadingStateWhenPlayerEmpty(t *testing.T) {
 	}
 
 	snapshot, err := session.Play(context.Background())
-	if !errors.Is(err, errPendingPlayback) {
-		t.Fatalf("expected pending playback error, got %v", err)
+	if err != nil {
+		t.Fatalf("play pending track: %v", err)
 	}
 	if snapshot.Status != StatusPending {
 		t.Fatalf("expected pending status, got %q", snapshot.Status)
@@ -724,8 +724,8 @@ func TestSessionPendingReadyBackendFailureClearsLoadingState(t *testing.T) {
 	}
 
 	snapshot, err := session.Play(context.Background())
-	if !errors.Is(err, errPendingPlayback) {
-		t.Fatalf("expected pending playback error, got %v", err)
+	if err != nil {
+		t.Fatalf("play pending track: %v", err)
 	}
 	if snapshot.LoadingEntry == nil {
 		t.Fatalf("expected loading entry after pending playback")
@@ -787,8 +787,8 @@ func TestSessionPendingRequestPreservesCurrentPlayerState(t *testing.T) {
 		ID:    "remote",
 		Items: []SessionItem{{RecordingID: "rec-remote", Title: "Remote"}},
 	})
-	if !errors.Is(err, errPendingPlayback) {
-		t.Fatalf("expected pending playback error, got %v", err)
+	if err != nil {
+		t.Fatalf("replace context with pending track: %v", err)
 	}
 	if snapshot.Status != StatusPlaying {
 		t.Fatalf("expected playing status to remain, got %q", snapshot.Status)
@@ -837,8 +837,8 @@ func TestSessionPendingRetryTimeoutClearsLoadingAndPreservesCurrent(t *testing.T
 		Kind:  ContextKindCustom,
 		ID:    "remote",
 		Items: []SessionItem{{RecordingID: "rec-remote", Title: "Remote"}},
-	}); !errors.Is(err, errPendingPlayback) {
-		t.Fatalf("expected pending playback error, got %v", err)
+	}); err != nil {
+		t.Fatalf("replace context with pending track: %v", err)
 	}
 
 	session.mu.Lock()
@@ -884,8 +884,8 @@ func TestSessionQueueMutationClearsPendingLoading(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("set context: %v", err)
 	}
-	if _, err := session.Play(context.Background()); !errors.Is(err, errPendingPlayback) {
-		t.Fatalf("expected pending playback error, got %v", err)
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play pending track: %v", err)
 	}
 	if _, err := session.QueueItems([]SessionItem{{RecordingID: "rec-2", Title: "Track 2"}}, QueueInsertLast); err != nil {
 		t.Fatalf("queue items: %v", err)

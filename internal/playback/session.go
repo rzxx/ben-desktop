@@ -12,8 +12,6 @@ import (
 	apitypes "ben/desktop/api/types"
 )
 
-var errPendingPlayback = errors.New("playback is waiting for an available source")
-
 const (
 	positionPollInterval = 500 * time.Millisecond
 	pendingRetryInterval = time.Second
@@ -444,7 +442,7 @@ func (s *Session) Play(ctx context.Context) (SessionSnapshot, error) {
 	if s.snapshot.LoadingEntry != nil && s.snapshot.CurrentEntry == nil {
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
-		return state, errPendingPlayback
+		return state, nil
 	}
 	target, origin, queueIndex, ok := s.playTargetLocked()
 	if !ok {
@@ -730,7 +728,7 @@ func (s *Session) playEntry(
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
 		s.publishSnapshot(state)
-		return state, errPendingPlayback
+		return state, nil
 	}
 
 	if preparation.Phase != apitypes.PlaybackPreparationReady || strings.TrimSpace(preparation.PlayableURI) == "" {
