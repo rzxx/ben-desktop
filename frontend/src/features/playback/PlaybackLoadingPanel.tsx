@@ -7,7 +7,13 @@ import {
   playbackLoadingLabel,
 } from "./loading-state";
 
-export function PlaybackLoadingPanel() {
+type PlaybackLoadingPanelProps = {
+  className?: string;
+};
+
+export function PlaybackLoadingPanel({
+  className = "",
+}: PlaybackLoadingPanelProps) {
   const snapshot = usePlaybackStore((state) => state.snapshot);
   const item = snapshot?.loadingItem ?? null;
   const status = snapshot?.loadingPreparation?.status ?? null;
@@ -18,13 +24,17 @@ export function PlaybackLoadingPanel() {
   }
 
   return (
-    <section className="playback-loading-panel rounded-[1.8rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+    <section
+      className={`playback-loading-panel rounded-[1.8rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-4 shadow-[0_24px_70px_rgba(0,0,0,0.35)] backdrop-blur-xl ${className}`.trim()}
+    >
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
-            Loading queue
+            Loading track
           </p>
-          <h2 className="text-lg font-semibold text-white">Requested track</h2>
+          <h2 className="text-lg font-semibold text-white">
+            Preparing playback
+          </h2>
         </div>
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-xs tracking-[0.18em] text-white/55 uppercase">
           <LoaderCircle className="h-3.5 w-3.5 animate-spin" />

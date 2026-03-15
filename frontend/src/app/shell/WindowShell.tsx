@@ -175,16 +175,16 @@ export function WindowShell({ children }: PropsWithChildren) {
   return (
     <div className="app-shell h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.18),transparent_28%),radial-gradient(circle_at_top_right,rgba(34,197,94,0.12),transparent_24%),linear-gradient(180deg,#090b12_0%,#101522_100%)] text-white">
       <TitleBar />
+      <div className="playback-loading-toast-layer pointer-events-none fixed inset-x-0 top-[4.5rem] z-[45] flex justify-end px-5 max-lg:px-4">
+        <PlaybackLoadingPanel className="playback-loading-toast pointer-events-auto w-full" />
+      </div>
       <div className="shell-grid absolute inset-x-0 top-14 bottom-28 grid grid-cols-[220px_minmax(0,1fr)_320px] gap-4 px-5 py-4 max-xl:grid-cols-[220px_minmax(0,1fr)] max-lg:grid-cols-1 max-lg:overflow-y-auto">
         <NavigationSidebar />
         <main className="route-panel min-h-0 overflow-hidden rounded-[1.9rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] p-4 shadow-[0_28px_70px_rgba(0,0,0,0.28)]">
           {children}
         </main>
-        <div className="hidden min-h-0 flex-col gap-4 max-xl:hidden xl:flex">
-          <PlaybackLoadingPanel />
-          <div className="min-h-0 flex-1">
-            <QueueSidebar />
-          </div>
+        <div className="hidden min-h-0 max-xl:hidden xl:block">
+          <QueueSidebar />
         </div>
       </div>
       <PlayerBar />

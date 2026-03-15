@@ -33,8 +33,17 @@ type PlaybackStore = {
   clearQueue: () => Promise<void>;
 };
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isPendingPlaybackSnapshot(snapshot: SessionSnapshot | null) {
+  return snapshot?.status === "pending" && Boolean(snapshot.loadingItem);
+}
+
 async function applySnapshot(
   runner: () => Promise<SessionSnapshot>,
+  recoverSnapshot: () => Promise<SessionSnapshot>,
   setSnapshot: (snapshot: SessionSnapshot) => void,
   setError: (message: string) => void,
 ) {
@@ -43,7 +52,19 @@ async function applySnapshot(
     setSnapshot(snapshot);
     setError("");
   } catch (error) {
-    setError(error instanceof Error ? error.message : String(error));
+    const recoveredSnapshot = await recoverSnapshot()
+      .then((snapshot) => {
+        setSnapshot(snapshot);
+        return snapshot;
+      })
+      .catch(() => null);
+
+    if (isPendingPlaybackSnapshot(recoveredSnapshot)) {
+      setError("");
+      return;
+    }
+
+    setError(errorMessage(error));
   }
 }
 
@@ -74,6 +95,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
 
     await applySnapshot(
       () => PlaybackService.GetPlaybackSnapshot(),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -90,6 +112,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   togglePlayback: async () => {
     await applySnapshot(
       () => PlaybackService.TogglePlayback(),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -97,6 +120,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   next: async () => {
     await applySnapshot(
       () => PlaybackService.Next(),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -104,6 +128,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   previous: async () => {
     await applySnapshot(
       () => PlaybackService.Previous(),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -111,6 +136,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   seekTo: async (positionMs) => {
     await applySnapshot(
       () => PlaybackService.SeekTo(Math.max(0, Math.trunc(positionMs))),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -121,6 +147,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
         PlaybackService.SetVolume(
           Math.max(0, Math.min(100, Math.trunc(volume))),
         ),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -128,6 +155,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   setShuffle: async (enabled) => {
     await applySnapshot(
       () => PlaybackService.SetShuffle(enabled),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -135,6 +163,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   setRepeatMode: async (mode) => {
     await applySnapshot(
       () => PlaybackService.SetRepeatMode(mode),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -142,6 +171,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   playAlbum: async (albumId) => {
     await applySnapshot(
       () => PlaybackService.PlayAlbum(albumId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -149,6 +179,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   playAlbumTrack: async (albumId, recordingId) => {
     await applySnapshot(
       () => PlaybackService.PlayAlbumTrack(albumId, recordingId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -156,6 +187,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   queueAlbum: async (albumId) => {
     await applySnapshot(
       () => PlaybackService.QueueAlbum(albumId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -163,6 +195,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   playPlaylist: async (playlistId) => {
     await applySnapshot(
       () => PlaybackService.PlayPlaylist(playlistId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -170,6 +203,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   playPlaylistTrack: async (playlistId, itemId) => {
     await applySnapshot(
       () => PlaybackService.PlayPlaylistTrack(playlistId, itemId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -177,6 +211,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   queuePlaylist: async (playlistId) => {
     await applySnapshot(
       () => PlaybackService.QueuePlaylist(playlistId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -184,6 +219,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   playRecording: async (recordingId) => {
     await applySnapshot(
       () => PlaybackService.PlayRecording(recordingId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -191,6 +227,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   queueRecording: async (recordingId) => {
     await applySnapshot(
       () => PlaybackService.QueueRecording(recordingId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -198,6 +235,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   playLiked: async () => {
     await applySnapshot(
       () => PlaybackService.PlayLiked(),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -205,6 +243,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   playLikedTrack: async (recordingId) => {
     await applySnapshot(
       () => PlaybackService.PlayLikedTrack(recordingId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -212,6 +251,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   selectEntry: async (entryId) => {
     await applySnapshot(
       () => PlaybackService.SelectEntry(entryId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -219,6 +259,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   removeQueuedEntry: async (entryId) => {
     await applySnapshot(
       () => PlaybackService.RemoveQueuedEntry(entryId),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -226,6 +267,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   clearQueue: async () => {
     await applySnapshot(
       () => PlaybackService.ClearQueue(),
+      () => PlaybackService.GetPlaybackSnapshot(),
       get().setSnapshot,
       (error) => set({ error }),
     );
