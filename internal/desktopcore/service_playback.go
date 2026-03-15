@@ -530,12 +530,79 @@ func (s *PlaybackService) StartPreparePlaybackRecording(ctx context.Context, rec
 		"queued playback preparation",
 		"playback preparation canceled because the library is no longer active",
 		func(runCtx context.Context) {
-			_, _ = s.preparePlaybackRecordingForLocalContext(runCtx, local, recordingID, profile, purpose)
+			_, _ = s.finishPlaybackPreparationForLocalContext(runCtx, local, recordingID, profile, purpose)
 		},
 	)
 }
 
 func (s *PlaybackService) preparePlaybackRecordingForLocalContext(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	purpose = normalizePlaybackPreparationPurpose(purpose)
+
+	status, shouldPrepareAsync, err := s.inspectPlaybackPreparationStatus(ctx, local, recordingID, profile, purpose)
+	if err != nil {
+		return apitypes.PlaybackPreparationStatus{}, err
+	}
+	if shouldPrepareAsync {
+		jobID := playbackPreparationJobID(local.LibraryID, recordingID, profile, purpose)
+		if _, err := s.app.startActiveLibraryJob(
+			ctx,
+			jobID,
+			jobKindPreparePlayback,
+			local.LibraryID,
+			"queued playback preparation",
+			"playback preparation canceled because the library is no longer active",
+			func(runCtx context.Context) {
+				_, _ = s.finishPlaybackPreparationForLocalContext(runCtx, local, recordingID, profile, purpose)
+			},
+		); err != nil {
+			failed := status
+			failed.Phase = apitypes.PlaybackPreparationFailed
+			failed.UpdatedAt = time.Now().UTC()
+			s.storePreparation(failed)
+			return apitypes.PlaybackPreparationStatus{}, err
+		}
+		return status, nil
+	}
+	return s.finishPlaybackPreparationForLocalContext(ctx, local, recordingID, profile, purpose)
+}
+
+func (s *PlaybackService) inspectPlaybackPreparationStatus(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, bool, error) {
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	purpose = normalizePlaybackPreparationPurpose(purpose)
+	status, err := s.inspectPlaybackRecording(ctx, local, recordingID, profile)
+	if err != nil {
+		return apitypes.PlaybackPreparationStatus{}, false, err
+	}
+	status.Purpose = purpose
+	if status.Phase == apitypes.PlaybackPreparationReady {
+		return status, false, nil
+	}
+	switch status.Reason {
+	case apitypes.PlaybackUnavailableNetworkOff, apitypes.PlaybackUnavailableProviderOffline:
+		availability, err := s.GetRecordingAvailability(ctx, recordingID, profile)
+		if err != nil {
+			return apitypes.PlaybackPreparationStatus{}, false, err
+		}
+		switch availability.State {
+		case apitypes.AvailabilityPlayableRemoteOpt:
+			status.Phase = apitypes.PlaybackPreparationPreparingFetch
+			status.SourceKind = apitypes.PlaybackSourceRemoteOpt
+			status.UpdatedAt = time.Now().UTC()
+			s.storePreparation(status)
+			return status, true, nil
+		case apitypes.AvailabilityWaitingProviderTranscode:
+			status.Phase = apitypes.PlaybackPreparationPreparingTranscode
+			status.SourceKind = apitypes.PlaybackSourceRemoteOpt
+			status.UpdatedAt = time.Now().UTC()
+			s.storePreparation(status)
+			return status, true, nil
+		}
+	}
+	return status, false, nil
+}
+
+func (s *PlaybackService) finishPlaybackPreparationForLocalContext(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
 	profile := s.resolvePlaybackProfile(preferredProfile)
 	purpose = normalizePlaybackPreparationPurpose(purpose)
 	job := s.app.jobs.Track(playbackPreparationJobID(local.LibraryID, recordingID, profile, purpose), jobKindPreparePlayback, local.LibraryID)
@@ -571,6 +638,9 @@ func (s *PlaybackService) preparePlaybackRecordingForLocalContext(ctx context.Co
 				s.storePreparation(status)
 				job.Running(0.65, "fetching remote optimized asset")
 				if _, fetched, fetchErr := s.ensureRemotePlaybackRecording(ctx, local, recordingID, profile); fetchErr != nil {
+					status.Phase = apitypes.PlaybackPreparationFailed
+					status.UpdatedAt = time.Now().UTC()
+					s.storePreparation(status)
 					if errors.Is(fetchErr, context.Canceled) {
 						job.Fail(1, "playback preparation canceled because the library is no longer active", nil)
 						return apitypes.PlaybackPreparationStatus{}, fetchErr
@@ -595,6 +665,9 @@ func (s *PlaybackService) preparePlaybackRecordingForLocalContext(ctx context.Co
 				s.storePreparation(status)
 				job.Running(0.65, "requesting provider transcode")
 				if _, fetched, fetchErr := s.ensureRemotePlaybackRecording(ctx, local, recordingID, profile); fetchErr != nil {
+					status.Phase = apitypes.PlaybackPreparationFailed
+					status.UpdatedAt = time.Now().UTC()
+					s.storePreparation(status)
 					if errors.Is(fetchErr, context.Canceled) {
 						job.Fail(1, "playback preparation canceled because the library is no longer active", nil)
 						return apitypes.PlaybackPreparationStatus{}, fetchErr

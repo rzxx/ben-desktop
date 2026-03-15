@@ -30,12 +30,14 @@ func (s *memoryStore) Clear(context.Context) error {
 }
 
 type mockBridge struct {
-	results         map[string]apitypes.PlaybackResolveResult
-	preparations    map[string][]apitypes.PlaybackPreparationStatus
-	recording       map[string]apitypes.RecordingListItem
-	albumTracks     map[string][]apitypes.AlbumTrackItem
-	playlistTracks  map[string][]apitypes.PlaylistTrackItem
-	likedRecordings []apitypes.LikedRecordingItem
+	results             map[string]apitypes.PlaybackResolveResult
+	preparations        map[string][]apitypes.PlaybackPreparationStatus
+	recording           map[string]apitypes.RecordingListItem
+	albumTracks         map[string][]apitypes.AlbumTrackItem
+	playlistTracks      map[string][]apitypes.PlaylistTrackItem
+	likedRecordings     []apitypes.LikedRecordingItem
+	prepareCalls        map[string]int
+	getPreparationCalls map[string]int
 }
 
 func (b *mockBridge) Close() error { return nil }
@@ -84,10 +86,18 @@ func (b *mockBridge) InspectPlaybackRecording(_ context.Context, recordingID, _ 
 }
 
 func (b *mockBridge) PreparePlaybackRecording(_ context.Context, recordingID, _ string, _ apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+	if b.prepareCalls == nil {
+		b.prepareCalls = make(map[string]int)
+	}
+	b.prepareCalls[recordingID]++
 	return b.nextPreparationStatus(recordingID, true)
 }
 
 func (b *mockBridge) GetPlaybackPreparation(_ context.Context, recordingID, _ string) (apitypes.PlaybackPreparationStatus, error) {
+	if b.getPreparationCalls == nil {
+		b.getPreparationCalls = make(map[string]int)
+	}
+	b.getPreparationCalls[recordingID]++
 	return b.nextPreparationStatus(recordingID, true)
 }
 
@@ -136,6 +146,7 @@ type testBackend struct {
 	loadErr         error
 	playErr         error
 	preloadedURI    string
+	preloadCalls    int
 	position        int64
 	duration        *int64
 	volume          int
@@ -181,6 +192,7 @@ func (b *testBackend) Events() <-chan BackendEvent { return b.events }
 func (b *testBackend) SupportsPreload() bool       { return b.supportsPreload }
 func (b *testBackend) PreloadNext(_ context.Context, uri string) error {
 	b.preloadedURI = uri
+	b.preloadCalls++
 	return nil
 }
 
@@ -502,6 +514,126 @@ func TestSessionQueueMutationClearsStalePreload(t *testing.T) {
 	}
 	if backend.preloadedURI != "" {
 		t.Fatalf("expected stale preload cleared after queue mutation, got %q", backend.preloadedURI)
+	}
+}
+
+func TestSessionPreloadNextBacksOffUnavailablePreparation(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	bridge := &mockBridge{
+		preparations: map[string][]apitypes.PlaybackPreparationStatus{
+			"rec-2": {
+				{
+					RecordingID: "rec-2",
+					Phase:       apitypes.PlaybackPreparationUnavailable,
+					Reason:      apitypes.PlaybackUnavailableProviderOffline,
+					SourceKind:  apitypes.PlaybackSourceRemoteOpt,
+				},
+				{
+					RecordingID: "rec-2",
+					Phase:       apitypes.PlaybackPreparationReady,
+					SourceKind:  apitypes.PlaybackSourceRemoteOpt,
+					PlayableURI: "file:///tmp/two.mp3",
+				},
+			},
+		},
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+		},
+	}
+	session := NewSession(bridge, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", DurationMS: duration},
+			{RecordingID: "rec-2", Title: "Two", DurationMS: duration},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+
+	backend.duration = &duration
+	backend.position = 60000
+	session.refreshPosition()
+
+	session.preloadNext(context.Background())
+	if bridge.prepareCalls["rec-2"] != 1 {
+		t.Fatalf("expected initial preload preparation call, got %d", bridge.prepareCalls["rec-2"])
+	}
+
+	session.preloadNext(context.Background())
+	session.preloadNext(context.Background())
+	if bridge.prepareCalls["rec-2"] != 1 {
+		t.Fatalf("expected unavailable preload to back off, got %d prepare calls", bridge.prepareCalls["rec-2"])
+	}
+	if backend.preloadedURI != "" {
+		t.Fatalf("expected no preloaded URI while track unavailable, got %q", backend.preloadedURI)
+	}
+
+	session.mu.Lock()
+	session.nextPreparationRetryAt = time.Now().Add(-time.Second)
+	session.mu.Unlock()
+
+	session.preloadNext(context.Background())
+	if bridge.prepareCalls["rec-2"] != 2 {
+		t.Fatalf("expected preload retry after backoff, got %d prepare calls", bridge.prepareCalls["rec-2"])
+	}
+	if backend.preloadedURI != "file:///tmp/two.mp3" {
+		t.Fatalf("expected track to preload after retry, got %q", backend.preloadedURI)
+	}
+}
+
+func TestSessionPreloadNextDoesNotRepeatReadyBackendPreload(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"rec-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", DurationMS: duration},
+			{RecordingID: "rec-2", Title: "Two", DurationMS: duration},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+
+	backend.duration = &duration
+	backend.position = 60000
+	session.refreshPosition()
+
+	session.preloadNext(context.Background())
+	session.preloadNext(context.Background())
+	if backend.preloadCalls != 1 {
+		t.Fatalf("expected ready preload to be sent to backend once, got %d", backend.preloadCalls)
 	}
 }
 

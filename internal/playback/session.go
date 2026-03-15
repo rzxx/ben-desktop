@@ -21,6 +21,7 @@ const (
 	maxHistoryEntries    = 128
 	preloadListenedAfter = 45 * time.Second
 	preloadRemainingLead = 45 * time.Second
+	nextPreparationPoll  = 5 * time.Second
 )
 
 type Logger interface {
@@ -52,6 +53,9 @@ type Session struct {
 	loadedURI     string
 	preloadedID   string
 	preloadedURI  string
+
+	nextPreparationRetryEntryID string
+	nextPreparationRetryAt      time.Time
 
 	rng *rand.Rand
 
@@ -787,6 +791,8 @@ func (s *Session) refreshPosition() {
 }
 
 func (s *Session) preloadNext(ctx context.Context) {
+	now := time.Now()
+
 	s.mu.Lock()
 	if s.backend == nil || !s.backend.SupportsPreload() {
 		s.mu.Unlock()
@@ -803,6 +809,8 @@ func (s *Session) preloadNext(ctx context.Context) {
 	currentNext := cloneEntryPreparation(s.snapshot.NextPreparation)
 	backend := s.backend
 	core := s.core
+	preloadReady := false
+	useCachedStatus := false
 	s.mu.Unlock()
 
 	if core == nil || backend == nil {
@@ -812,24 +820,54 @@ func (s *Session) preloadNext(ctx context.Context) {
 	if currentNext != nil && currentNext.EntryID == nextEntry.EntryID {
 		switch currentNext.Status.Phase {
 		case apitypes.PlaybackPreparationReady:
-			if err := backend.PreloadNext(ctx, currentNext.Status.PlayableURI); err != nil {
-				s.logErrorf("playback: preload next failed: %v", err)
-				return
-			}
 			s.mu.Lock()
-			s.preloadedID = nextEntry.EntryID
-			s.preloadedURI = currentNext.Status.PlayableURI
-			s.snapshot.NextPreparation = &EntryPreparation{EntryID: nextEntry.EntryID, Status: currentNext.Status}
+			alreadyPreloaded := s.preloadedID == nextEntry.EntryID && s.preloadedURI == currentNext.Status.PlayableURI
 			s.mu.Unlock()
-			return
-		case apitypes.PlaybackPreparationPreparingFetch, apitypes.PlaybackPreparationPreparingTranscode:
-			status, err := core.GetPlaybackPreparation(ctx, nextEntry.Item.RecordingID, s.preferredProfile)
-			if err != nil {
+			if alreadyPreloaded {
 				return
 			}
-			s.applyNextPreparationStatus(ctx, nextEntry, status)
+			preloadReady = true
+		case apitypes.PlaybackPreparationPreparingFetch, apitypes.PlaybackPreparationPreparingTranscode:
+			s.mu.Lock()
+			if !s.shouldPollNextPreparationLocked(nextEntry.EntryID, now) {
+				s.mu.Unlock()
+				return
+			}
+			s.scheduleNextPreparationPollLocked(nextEntry.EntryID, now.Add(nextPreparationPoll))
+			s.mu.Unlock()
+			useCachedStatus = true
+		case apitypes.PlaybackPreparationUnavailable, apitypes.PlaybackPreparationFailed:
+			s.mu.Lock()
+			if !s.shouldPollNextPreparationLocked(nextEntry.EntryID, now) {
+				s.mu.Unlock()
+				return
+			}
+			s.scheduleNextPreparationPollLocked(nextEntry.EntryID, now.Add(nextPreparationPoll))
+			s.mu.Unlock()
+		}
+	}
+
+	if preloadReady {
+		if err := backend.PreloadNext(ctx, currentNext.Status.PlayableURI); err != nil {
+			s.logErrorf("playback: preload next failed: %v", err)
 			return
 		}
+		s.mu.Lock()
+		s.clearNextPreparationRetryLocked()
+		s.preloadedID = nextEntry.EntryID
+		s.preloadedURI = currentNext.Status.PlayableURI
+		s.snapshot.NextPreparation = &EntryPreparation{EntryID: nextEntry.EntryID, Status: currentNext.Status}
+		s.mu.Unlock()
+		return
+	}
+
+	if useCachedStatus {
+		status, err := core.GetPlaybackPreparation(ctx, nextEntry.Item.RecordingID, s.preferredProfile)
+		if err != nil {
+			return
+		}
+		s.applyNextPreparationStatus(ctx, nextEntry, status)
+		return
 	}
 
 	status, err := core.PreparePlaybackRecording(ctx, nextEntry.Item.RecordingID, s.preferredProfile, apitypes.PlaybackPreparationPreloadNext)
@@ -844,6 +882,7 @@ func (s *Session) applyNextPreparationStatus(ctx context.Context, entry SessionE
 	backend := s.backend
 	s.snapshot.NextPreparation = &EntryPreparation{EntryID: entry.EntryID, Status: status}
 	if status.Phase != apitypes.PlaybackPreparationReady || strings.TrimSpace(status.PlayableURI) == "" {
+		s.scheduleNextPreparationPollLocked(entry.EntryID, time.Now().Add(nextPreparationPoll))
 		s.preloadedID = ""
 		s.preloadedURI = ""
 		s.touchLocked()
@@ -853,6 +892,7 @@ func (s *Session) applyNextPreparationStatus(ctx context.Context, entry SessionE
 		}
 		return
 	}
+	s.clearNextPreparationRetryLocked()
 	s.touchLocked()
 	s.mu.Unlock()
 
@@ -891,6 +931,27 @@ func (s *Session) clearNextPreparationStateLocked() {
 	s.snapshot.NextPreparation = nil
 	s.preloadedID = ""
 	s.preloadedURI = ""
+	s.clearNextPreparationRetryLocked()
+}
+
+func (s *Session) shouldPollNextPreparationLocked(entryID string, now time.Time) bool {
+	if strings.TrimSpace(entryID) == "" {
+		return false
+	}
+	if s.nextPreparationRetryEntryID != entryID {
+		return true
+	}
+	return s.nextPreparationRetryAt.IsZero() || !now.Before(s.nextPreparationRetryAt)
+}
+
+func (s *Session) scheduleNextPreparationPollLocked(entryID string, when time.Time) {
+	s.nextPreparationRetryEntryID = strings.TrimSpace(entryID)
+	s.nextPreparationRetryAt = when
+}
+
+func (s *Session) clearNextPreparationRetryLocked() {
+	s.nextPreparationRetryEntryID = ""
+	s.nextPreparationRetryAt = time.Time{}
 }
 
 func (s *Session) runBackendEvents(ctx context.Context, events <-chan BackendEvent) {

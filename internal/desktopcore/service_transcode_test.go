@@ -476,11 +476,29 @@ func TestPreparePlaybackRecordingRequestsProviderTranscodeFromRemotePeer(t *test
 	if err != nil {
 		t.Fatalf("prepare playback recording: %v", err)
 	}
+	if status.Phase != apitypes.PlaybackPreparationPreparingTranscode {
+		t.Fatalf("preparation phase = %q, want %q", status.Phase, apitypes.PlaybackPreparationPreparingTranscode)
+	}
+	if status.SourceKind != apitypes.PlaybackSourceRemoteOpt {
+		t.Fatalf("preparation source kind = %q, want %q", status.SourceKind, apitypes.PlaybackSourceRemoteOpt)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		status, err = joiner.GetPlaybackPreparation(ctx, seedInput.RecordingID, "desktop")
+		if err != nil {
+			t.Fatalf("get playback preparation: %v", err)
+		}
+		if status.Phase == apitypes.PlaybackPreparationReady {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if status.Phase != apitypes.PlaybackPreparationReady {
-		t.Fatalf("preparation phase = %q, want %q", status.Phase, apitypes.PlaybackPreparationReady)
+		t.Fatalf("expected playback preparation to become ready, got %+v", status)
 	}
 	if status.SourceKind != apitypes.PlaybackSourceCachedOpt {
-		t.Fatalf("preparation source kind = %q, want %q", status.SourceKind, apitypes.PlaybackSourceCachedOpt)
+		t.Fatalf("ready preparation source kind = %q, want %q", status.SourceKind, apitypes.PlaybackSourceCachedOpt)
 	}
 	if status.PlayableURI == "" || status.BlobID == "" || status.EncodingID == "" {
 		t.Fatalf("expected ready preparation with local cached artifact: %+v", status)
