@@ -410,29 +410,33 @@ func (s *Session) SelectEntry(ctx context.Context, entryID string) (SessionSnaps
 
 func (s *Session) ClearQueue() (SessionSnapshot, error) {
 	s.mu.Lock()
+	hasCurrent := s.snapshot.CurrentEntry != nil
 	s.snapshot.Context = nil
 	s.snapshot.QueuedEntries = nil
 	s.snapshot.History = nil
 	s.snapshot.ShuffleCycle = nil
-	s.snapshot.PositionMS = 0
-	s.snapshot.DurationMS = nil
 	s.snapshot.LastError = ""
-	s.snapshot.Status = StatusIdle
-	s.snapshot.CurrentSourceKind = ""
-	s.snapshot.CurrentPreparation = nil
 	s.clearLoadingStateLocked()
-	s.snapshot.NextPreparation = nil
-	s.clearCurrentLocked()
+	s.clearNextPreparationStateLocked()
 	s.cancelPendingRetryLocked()
-	s.loadedEntryID = ""
-	s.loadedURI = ""
-	s.preloadedID = ""
-	s.preloadedURI = ""
+	shouldStopBackend := !hasCurrent
+	if !hasCurrent {
+		s.snapshot.PositionMS = 0
+		s.snapshot.DurationMS = nil
+		s.snapshot.Status = StatusIdle
+		s.snapshot.CurrentSourceKind = ""
+		s.snapshot.CurrentPreparation = nil
+		s.clearCurrentLocked()
+		s.loadedEntryID = ""
+		s.loadedURI = ""
+	}
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
 
-	_ = s.stopBackend()
+	if shouldStopBackend {
+		_ = s.stopBackend()
+	}
 	s.publishSnapshot(state)
 	return state, nil
 }

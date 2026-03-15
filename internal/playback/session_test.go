@@ -1063,6 +1063,74 @@ func TestSessionNextAtEndWithRepeatOffIsNoOp(t *testing.T) {
 	}
 }
 
+func TestSessionClearQueuePreservesCurrentPlayback(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {
+				State:       apitypes.AvailabilityPlayableLocalFile,
+				SourceKind:  apitypes.PlaybackSourceLocalFile,
+				PlayableURI: "file:///tmp/one.mp3",
+			},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", DurationMS: duration},
+			{RecordingID: "rec-2", Title: "Two", DurationMS: duration},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.QueueItems([]SessionItem{{RecordingID: "rec-3", Title: "Three", DurationMS: duration}}, QueueInsertLast); err != nil {
+		t.Fatalf("queue items: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	stopCallsBeforeClear := backend.stopCalls
+
+	snapshot, err := session.ClearQueue()
+	if err != nil {
+		t.Fatalf("clear queue: %v", err)
+	}
+
+	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-1" {
+		t.Fatalf("expected current entry rec-1, got %+v", snapshot.CurrentEntry)
+	}
+	if snapshot.Status != StatusPlaying {
+		t.Fatalf("status = %q, want playing", snapshot.Status)
+	}
+	if snapshot.Context != nil {
+		t.Fatalf("expected context to be cleared, got %+v", snapshot.Context)
+	}
+	if len(snapshot.QueuedEntries) != 0 {
+		t.Fatalf("expected queued entries to be cleared, got %d", len(snapshot.QueuedEntries))
+	}
+	if len(snapshot.UpcomingEntries) != 0 {
+		t.Fatalf("expected upcoming entries to be cleared, got %d", len(snapshot.UpcomingEntries))
+	}
+	if snapshot.QueueLength != 1 {
+		t.Fatalf("queue length = %d, want 1 for the current track", snapshot.QueueLength)
+	}
+	if snapshot.CurrentPreparation == nil {
+		t.Fatalf("expected current preparation to be preserved")
+	}
+	if backend.stopCalls != stopCallsBeforeClear {
+		t.Fatalf("stop calls after clear = %d, want %d", backend.stopCalls, stopCallsBeforeClear)
+	}
+}
+
 func TestSessionNextWithRepeatOneRestartsTrack(t *testing.T) {
 	t.Parallel()
 
