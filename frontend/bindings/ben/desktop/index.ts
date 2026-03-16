@@ -9,6 +9,7 @@ import * as LibraryFacade from "./libraryfacade.js";
 import * as NetworkFacade from "./networkfacade.js";
 import * as PlaybackFacade from "./playbackfacade.js";
 import * as PlaybackService from "./playbackservice.js";
+import * as ThemeFacade from "./themefacade.js";
 export {
     CacheFacade,
     CatalogFacade,
@@ -17,5 +18,6 @@ export {
     LibraryFacade,
     NetworkFacade,
     PlaybackFacade,
-    PlaybackService
+    PlaybackService,
+    ThemeFacade
 };

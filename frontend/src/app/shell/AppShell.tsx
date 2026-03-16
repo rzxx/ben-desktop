@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { PlaybackLoadingPanel } from "@/components/playback/PlaybackLoadingPanel";
 import { PlayerBar } from "@/components/playback/PlayerBar";
 import { QueueSidebar } from "@/components/playback/QueueSidebar";
+import { ThemeRuntime } from "@/components/theme/ThemeRuntime";
 import { NavigationSidebar } from "@/components/shell/NavigationSidebar";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { usePlaybackStore } from "@/stores/playback/store";
@@ -20,6 +21,7 @@ export function AppShell({ children }: PropsWithChildren) {
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+      <ThemeRuntime />
       <TitleBar />
       <div className="pointer-events-none fixed inset-x-0 top-16 z-40 flex justify-end px-4">
         <PlaybackLoadingPanel className="pointer-events-auto w-full max-w-md" />

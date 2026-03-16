@@ -41,6 +41,7 @@ func main() {
 			application.NewService(NewCatalogFacade(host)),
 			application.NewService(NewInviteFacade(host)),
 			application.NewService(NewPlaybackFacade(host)),
+			application.NewService(NewThemeFacade(host)),
 			application.NewService(NewCacheFacade(host)),
 			application.NewService(playbackService),
 		},
