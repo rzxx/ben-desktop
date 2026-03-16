@@ -75,6 +75,7 @@ func NewSession(core PlaybackCore, backend Backend, store SessionStore, preferre
 		logger:           logger,
 		snapshot: SessionSnapshot{
 			CurrentContextIndex: -1,
+			ResumeContextIndex:  -1,
 			RepeatMode:          RepeatOff,
 			Volume:              DefaultVolume,
 			Status:              StatusIdle,
@@ -181,6 +182,7 @@ func (s *Session) SetContext(input PlaybackContextInput) (SessionSnapshot, error
 	s.preloadedID = ""
 	s.preloadedURI = ""
 	s.snapshot.CurrentContextIndex = startIndex
+	s.snapshot.ResumeContextIndex = startIndex
 
 	if s.snapshot.CurrentEntry == nil {
 		s.snapshot.PositionMS = 0
@@ -192,13 +194,13 @@ func (s *Session) SetContext(input PlaybackContextInput) (SessionSnapshot, error
 		if len(contextData.Entries) == 0 {
 			s.clearCurrentLocked()
 			s.snapshot.Status = StatusIdle
-			s.snapshot.CurrentContextIndex = -1
+			s.snapshot.ResumeContextIndex = -1
 		} else {
 			s.clearCurrentLocked()
 			s.snapshot.Status = StatusPaused
 		}
 	} else if len(contextData.Entries) == 0 {
-		s.snapshot.CurrentContextIndex = -1
+		s.snapshot.ResumeContextIndex = -1
 	}
 
 	s.touchLocked()
@@ -234,6 +236,7 @@ func (s *Session) ReplaceContextAndPlay(ctx context.Context, input PlaybackConte
 	s.snapshot.ShuffleCycle = nil
 	s.cancelPendingRetryLocked()
 	s.snapshot.CurrentContextIndex = startIndex
+	s.snapshot.ResumeContextIndex = startIndex
 
 	if current == nil {
 		s.snapshot.PositionMS = 0
@@ -245,7 +248,7 @@ func (s *Session) ReplaceContextAndPlay(ctx context.Context, input PlaybackConte
 		s.clearCurrentLocked()
 		if len(contextData.Entries) == 0 {
 			s.snapshot.Status = StatusIdle
-			s.snapshot.CurrentContextIndex = -1
+			s.snapshot.ResumeContextIndex = -1
 		} else {
 			s.snapshot.Status = StatusPaused
 		}
@@ -415,6 +418,7 @@ func (s *Session) ClearQueue() (SessionSnapshot, error) {
 	s.snapshot.QueuedEntries = nil
 	s.snapshot.History = nil
 	s.snapshot.ShuffleCycle = nil
+	s.snapshot.ResumeContextIndex = -1
 	s.snapshot.LastError = ""
 	s.clearLoadingStateLocked()
 	s.clearNextPreparationStateLocked()
@@ -454,6 +458,7 @@ func (s *Session) Play(ctx context.Context) (SessionSnapshot, error) {
 		s.mu.Unlock()
 		return state, errors.New("queue is empty")
 	}
+	current := cloneEntryPtr(s.snapshot.CurrentEntry)
 	if s.loadedEntryID == s.snapshot.CurrentEntryID && s.loadedURI != "" && s.snapshot.Status == StatusPaused {
 		backend := s.backend
 		s.snapshot.Status = StatusPlaying
@@ -472,7 +477,7 @@ func (s *Session) Play(ctx context.Context) (SessionSnapshot, error) {
 		return state, nil
 	}
 	s.mu.Unlock()
-	return s.playEntry(ctx, target, origin, queueIndex, nil, false)
+	return s.playEntry(ctx, target, origin, queueIndex, current, current != nil)
 }
 
 func (s *Session) Pause(ctx context.Context) (SessionSnapshot, error) {
@@ -603,6 +608,7 @@ func (s *Session) SetRepeatMode(mode string) (SessionSnapshot, error) {
 
 	s.mu.Lock()
 	s.snapshot.RepeatMode = repeatMode
+	s.recalculateResumeContextIndexLocked()
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
@@ -619,6 +625,7 @@ func (s *Session) SetShuffle(enabled bool) (SessionSnapshot, error) {
 	} else {
 		s.snapshot.ShuffleCycle = nil
 	}
+	s.recalculateResumeContextIndexLocked()
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
@@ -1279,6 +1286,89 @@ func currentMatchesContext(snapshot SessionSnapshot) bool {
 	return snapshot.Context.Entries[snapshot.CurrentContextIndex].EntryID == snapshot.CurrentEntry.EntryID
 }
 
+func isValidContextIndex(snapshot SessionSnapshot, index int) bool {
+	return snapshot.Context != nil && index >= 0 && index < len(snapshot.Context.Entries)
+}
+
+func defaultFirstContextIndex(snapshot SessionSnapshot) int {
+	if snapshot.Context == nil || len(snapshot.Context.Entries) == 0 {
+		return -1
+	}
+	if !snapshot.Shuffle {
+		return 0
+	}
+	cycle := append([]int(nil), snapshot.ShuffleCycle...)
+	if len(cycle) == 0 {
+		cycle = buildSmartShuffleCycle(snapshot.Context.Entries, rand.New(rand.NewSource(1)))
+	}
+	if len(cycle) == 0 {
+		return -1
+	}
+	return cycle[0]
+}
+
+func nextContextIndexFromAnchor(snapshot SessionSnapshot, anchorIndex int, ignoreRepeatOne bool) int {
+	if !isValidContextIndex(snapshot, anchorIndex) {
+		return defaultFirstContextIndex(snapshot)
+	}
+
+	if !snapshot.Shuffle {
+		if !ignoreRepeatOne && snapshot.RepeatMode == RepeatOne {
+			return anchorIndex
+		}
+		next := anchorIndex + 1
+		if next < len(snapshot.Context.Entries) {
+			return next
+		}
+		if snapshot.RepeatMode == RepeatAll {
+			return 0
+		}
+		return -1
+	}
+
+	cycle := append([]int(nil), snapshot.ShuffleCycle...)
+	if len(cycle) == 0 {
+		cycle = buildSmartShuffleCycle(snapshot.Context.Entries, rand.New(rand.NewSource(1)))
+	}
+	if len(cycle) == 0 {
+		return -1
+	}
+	if !ignoreRepeatOne && snapshot.RepeatMode == RepeatOne {
+		return anchorIndex
+	}
+	position := indexOfInt(cycle, anchorIndex)
+	if position < 0 {
+		return cycle[0]
+	}
+	nextPosition := position + 1
+	if nextPosition < len(cycle) {
+		return cycle[nextPosition]
+	}
+	if snapshot.RepeatMode == RepeatAll {
+		return cycle[0]
+	}
+	return -1
+}
+
+func normalizeResumeContextIndex(snapshot SessionSnapshot) int {
+	if snapshot.Context == nil || len(snapshot.Context.Entries) == 0 {
+		return -1
+	}
+	if currentMatchesContext(snapshot) {
+		return nextContextIndexFromAnchor(snapshot, snapshot.CurrentContextIndex, false)
+	}
+	if snapshot.CurrentEntry != nil && snapshot.CurrentOrigin != EntryOriginContext && isValidContextIndex(snapshot, snapshot.CurrentContextIndex) {
+		return nextContextIndexFromAnchor(snapshot, snapshot.CurrentContextIndex, false)
+	}
+	if isValidContextIndex(snapshot, snapshot.ResumeContextIndex) {
+		return snapshot.ResumeContextIndex
+	}
+	if snapshot.CurrentEntry == nil && isValidContextIndex(snapshot, snapshot.CurrentContextIndex) {
+		return snapshot.CurrentContextIndex
+	}
+	return defaultFirstContextIndex(snapshot)
+}
+
 func (s *Session) resolveEntrySelectionLocked(entryID string) (SessionEntry, EntryOrigin, int, error) {
 	if current := s.snapshot.CurrentEntry; current != nil && current.EntryID == entryID {
 		return *current, current.Origin, -1, nil
@@ -1309,6 +1399,7 @@ func (s *Session) switchCurrentLocked(entry SessionEntry, origin EntryOrigin, qu
 		s.snapshot.QueuedEntries = append(s.snapshot.QueuedEntries[:queueIndex], s.snapshot.QueuedEntries[queueIndex+1:]...)
 	}
 	s.setCurrentLocked(entry, origin)
+	s.recalculateResumeContextIndexLocked()
 	s.snapshot.CurrentPreparation = nil
 	if !keepPosition {
 		s.snapshot.PositionMS = 0
@@ -1344,6 +1435,10 @@ func (s *Session) clearCurrentLocked() {
 	s.snapshot.CurrentItem = nil
 	s.snapshot.CurrentOrigin = ""
 	s.snapshot.CurrentContextIndex = -1
+}
+
+func (s *Session) recalculateResumeContextIndexLocked() {
+	s.snapshot.ResumeContextIndex = normalizeResumeContextIndex(s.snapshot)
 }
 
 func (s *Session) clearLoadingStateLocked() {
@@ -1384,25 +1479,16 @@ func (s *Session) peekNextLocked(ignoreRepeatOne bool) (SessionEntry, EntryOrigi
 }
 
 func (s *Session) firstContextIndexLocked() int {
-	if s.snapshot.Context == nil || len(s.snapshot.Context.Entries) == 0 {
-		return -1
-	}
-	if s.snapshot.CurrentEntry == nil && s.snapshot.CurrentContextIndex >= 0 && s.snapshot.CurrentContextIndex < len(s.snapshot.Context.Entries) {
-		return s.snapshot.CurrentContextIndex
-	}
-	if !s.snapshot.Shuffle {
-		return 0
-	}
-	s.ensureShuffleCycleLocked()
-	if s.snapshot.CurrentEntry == nil && s.snapshot.CurrentContextIndex >= 0 && s.snapshot.CurrentContextIndex < len(s.snapshot.Context.Entries) {
-		if indexOfInt(s.snapshot.ShuffleCycle, s.snapshot.CurrentContextIndex) >= 0 {
-			return s.snapshot.CurrentContextIndex
+	if isValidContextIndex(s.snapshot, s.snapshot.ResumeContextIndex) {
+		if !s.snapshot.Shuffle {
+			return s.snapshot.ResumeContextIndex
+		}
+		s.ensureShuffleCycleLocked()
+		if indexOfInt(s.snapshot.ShuffleCycle, s.snapshot.ResumeContextIndex) >= 0 {
+			return s.snapshot.ResumeContextIndex
 		}
 	}
-	if len(s.snapshot.ShuffleCycle) == 0 {
-		return -1
-	}
-	return s.snapshot.ShuffleCycle[0]
+	return defaultFirstContextIndex(s.snapshot)
 }
 
 func (s *Session) nextContextIndexLocked(ignoreRepeatOne bool) int {
@@ -1412,44 +1498,7 @@ func (s *Session) nextContextIndexLocked(ignoreRepeatOne bool) int {
 	if !currentMatchesContext(s.snapshot) {
 		return s.firstContextIndexLocked()
 	}
-	currentIndex := s.snapshot.CurrentContextIndex
-	if currentIndex < 0 || currentIndex >= len(s.snapshot.Context.Entries) {
-		return s.firstContextIndexLocked()
-	}
-
-	if !s.snapshot.Shuffle {
-		if s.snapshot.CurrentOrigin == EntryOriginContext && !ignoreRepeatOne && s.snapshot.RepeatMode == RepeatOne {
-			return currentIndex
-		}
-		next := currentIndex + 1
-		if next < len(s.snapshot.Context.Entries) {
-			return next
-		}
-		if s.snapshot.RepeatMode == RepeatAll {
-			return 0
-		}
-		return -1
-	}
-
-	s.ensureShuffleCycleLocked()
-	if len(s.snapshot.ShuffleCycle) == 0 {
-		return -1
-	}
-	if s.snapshot.CurrentOrigin == EntryOriginContext && !ignoreRepeatOne && s.snapshot.RepeatMode == RepeatOne {
-		return currentIndex
-	}
-	position := indexOfInt(s.snapshot.ShuffleCycle, currentIndex)
-	if position < 0 {
-		return s.snapshot.ShuffleCycle[0]
-	}
-	nextPosition := position + 1
-	if nextPosition < len(s.snapshot.ShuffleCycle) {
-		return s.snapshot.ShuffleCycle[nextPosition]
-	}
-	if s.snapshot.RepeatMode == RepeatAll {
-		return s.snapshot.ShuffleCycle[0]
-	}
-	return -1
+	return nextContextIndexFromAnchor(s.snapshot, s.snapshot.CurrentContextIndex, ignoreRepeatOne)
 }
 
 func (s *Session) ensureShuffleCycleLocked() {
@@ -1715,6 +1764,7 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 
 	if snapshot.Context == nil {
 		snapshot.ShuffleCycle = nil
+		snapshot.ResumeContextIndex = -1
 		if snapshot.CurrentOrigin == EntryOriginContext && snapshot.CurrentEntry == nil {
 			snapshot.CurrentContextIndex = -1
 		}
@@ -1722,6 +1772,7 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 	if snapshot.CurrentContextIndex >= 0 && snapshot.Context != nil && snapshot.CurrentContextIndex >= len(snapshot.Context.Entries) {
 		snapshot.CurrentContextIndex = -1
 	}
+	snapshot.ResumeContextIndex = normalizeResumeContextIndex(snapshot)
 	if snapshot.DurationMS != nil && snapshot.PositionMS > *snapshot.DurationMS {
 		snapshot.PositionMS = *snapshot.DurationMS
 	}
@@ -1798,6 +1849,7 @@ func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 		if len(cycle) == 0 {
 			cycle = buildSmartShuffleCycle(snapshot.Context.Entries, rand.New(rand.NewSource(1)))
 		}
+		resumeIndex := snapshot.ResumeContextIndex
 		startAdded := false
 		if currentIsInContext && snapshot.CurrentContextIndex >= 0 {
 			position := indexOfInt(cycle, snapshot.CurrentContextIndex)
@@ -1813,8 +1865,8 @@ func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 				startAdded = true
 			}
 		}
-		if !startAdded && snapshot.CurrentContextIndex >= 0 && snapshot.CurrentContextIndex < len(snapshot.Context.Entries) {
-			position := indexOfInt(cycle, snapshot.CurrentContextIndex)
+		if !startAdded && resumeIndex >= 0 && resumeIndex < len(snapshot.Context.Entries) {
+			position := indexOfInt(cycle, resumeIndex)
 			if position >= 0 {
 				for index := position; index < len(cycle); index++ {
 					out = append(out, snapshot.Context.Entries[cycle[index]])
@@ -1838,8 +1890,8 @@ func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 	start := 0
 	if currentIsInContext && snapshot.CurrentContextIndex >= 0 {
 		start = snapshot.CurrentContextIndex + 1
-	} else if snapshot.CurrentContextIndex >= 0 && snapshot.CurrentContextIndex < len(snapshot.Context.Entries) {
-		start = snapshot.CurrentContextIndex
+	} else if snapshot.ResumeContextIndex >= 0 && snapshot.ResumeContextIndex < len(snapshot.Context.Entries) {
+		start = snapshot.ResumeContextIndex
 	}
 	for index := start; index < len(snapshot.Context.Entries); index++ {
 		out = append(out, snapshot.Context.Entries[index])

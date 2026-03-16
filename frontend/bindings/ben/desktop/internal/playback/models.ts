@@ -272,6 +272,7 @@ export class SessionSnapshot {
     "upcomingEntries": SessionEntry[];
     "currentOrigin"?: EntryOrigin;
     "currentContextIndex": number;
+    "resumeContextIndex": number;
     "shuffleCycle"?: number[];
     "repeatMode": RepeatMode;
     "shuffle": boolean;
@@ -301,6 +302,9 @@ export class SessionSnapshot {
         }
         if (!("currentContextIndex" in $$source)) {
             this["currentContextIndex"] = 0;
+        }
+        if (!("resumeContextIndex" in $$source)) {
+            this["resumeContextIndex"] = 0;
         }
         if (!("repeatMode" in $$source)) {
             this["repeatMode"] = RepeatMode.$zero;
@@ -339,10 +343,10 @@ export class SessionSnapshot {
         const $$createField6_0 = $$createType9;
         const $$createField7_0 = $$createType10;
         const $$createField8_0 = $$createType2;
-        const $$createField11_0 = $$createType11;
-        const $$createField21_0 = $$createType13;
+        const $$createField12_0 = $$createType11;
         const $$createField22_0 = $$createType13;
         const $$createField23_0 = $$createType13;
+        const $$createField24_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("context" in $$parsedSource) {
             $$parsedSource["context"] = $$createField0_0($$parsedSource["context"]);
@@ -369,16 +373,16 @@ export class SessionSnapshot {
             $$parsedSource["upcomingEntries"] = $$createField8_0($$parsedSource["upcomingEntries"]);
         }
         if ("shuffleCycle" in $$parsedSource) {
-            $$parsedSource["shuffleCycle"] = $$createField11_0($$parsedSource["shuffleCycle"]);
+            $$parsedSource["shuffleCycle"] = $$createField12_0($$parsedSource["shuffleCycle"]);
         }
         if ("currentPreparation" in $$parsedSource) {
-            $$parsedSource["currentPreparation"] = $$createField21_0($$parsedSource["currentPreparation"]);
+            $$parsedSource["currentPreparation"] = $$createField22_0($$parsedSource["currentPreparation"]);
         }
         if ("loadingPreparation" in $$parsedSource) {
-            $$parsedSource["loadingPreparation"] = $$createField22_0($$parsedSource["loadingPreparation"]);
+            $$parsedSource["loadingPreparation"] = $$createField23_0($$parsedSource["loadingPreparation"]);
         }
         if ("nextPreparation" in $$parsedSource) {
-            $$parsedSource["nextPreparation"] = $$createField23_0($$parsedSource["nextPreparation"]);
+            $$parsedSource["nextPreparation"] = $$createField24_0($$parsedSource["nextPreparation"]);
         }
         return new SessionSnapshot($$parsedSource as Partial<SessionSnapshot>);
     }

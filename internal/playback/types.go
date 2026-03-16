@@ -95,6 +95,7 @@ type SessionSnapshot struct {
 	UpcomingEntries     []SessionEntry              `json:"upcomingEntries"`
 	CurrentOrigin       EntryOrigin                 `json:"currentOrigin,omitempty"`
 	CurrentContextIndex int                         `json:"currentContextIndex"`
+	ResumeContextIndex  int                         `json:"resumeContextIndex"`
 	ShuffleCycle        []int                       `json:"shuffleCycle,omitempty"`
 	RepeatMode          RepeatMode                  `json:"repeatMode"`
 	Shuffle             bool                        `json:"shuffle"`

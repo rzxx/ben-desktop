@@ -21,6 +21,9 @@ type mpvBackend struct {
 
 	currentURI   string
 	preloadedURI string
+	loading      bool
+	pendingSeek  int64
+	hasSeek      bool
 }
 
 func newBackend() Backend {
@@ -48,6 +51,9 @@ func (b *mpvBackend) Load(_ context.Context, uri string) error {
 	b.mu.Lock()
 	b.currentURI = uri
 	b.preloadedURI = ""
+	b.loading = true
+	b.pendingSeek = 0
+	b.hasSeek = false
 	b.mu.Unlock()
 	return nil
 }
@@ -68,11 +74,23 @@ func (b *mpvBackend) Stop(_ context.Context) error {
 	b.mu.Lock()
 	b.currentURI = ""
 	b.preloadedURI = ""
+	b.loading = false
+	b.pendingSeek = 0
+	b.hasSeek = false
 	b.mu.Unlock()
 	return nil
 }
 
 func (b *mpvBackend) SeekTo(_ context.Context, positionMS int64) error {
+	b.mu.Lock()
+	if b.loading {
+		b.pendingSeek = positionMS
+		b.hasSeek = true
+		b.mu.Unlock()
+		return nil
+	}
+	b.mu.Unlock()
+
 	seconds := float64(positionMS) / 1000.0
 	return b.client.SetProperty("time-pos", mpv.FormatDouble, seconds)
 }
@@ -188,10 +206,31 @@ func (b *mpvBackend) runEvents() {
 			b.pushEvent(BackendEvent{Type: BackendEventError, Err: ev.Error})
 		}
 		switch ev.EventID {
+		case mpv.EventFileLoaded:
+			var positionMS int64
+			shouldSeek := false
+			b.mu.Lock()
+			b.loading = false
+			if b.hasSeek {
+				positionMS = b.pendingSeek
+				b.pendingSeek = 0
+				b.hasSeek = false
+				shouldSeek = true
+			}
+			b.mu.Unlock()
+			if shouldSeek {
+				seconds := float64(positionMS) / 1000.0
+				if err := b.client.SetProperty("time-pos", mpv.FormatDouble, seconds); err != nil {
+					b.pushEvent(BackendEvent{Type: BackendEventError, Err: err})
+				}
+			}
 		case mpv.EventEnd:
 			end := ev.EndFile()
 			if end.Reason == mpv.EndFileEOF {
 				b.mu.Lock()
+				b.loading = false
+				b.pendingSeek = 0
+				b.hasSeek = false
 				if b.preloadedURI != "" {
 					b.currentURI = b.preloadedURI
 					b.preloadedURI = ""
