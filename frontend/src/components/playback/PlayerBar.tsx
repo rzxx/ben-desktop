@@ -1,22 +1,20 @@
+import type { ReactNode } from "react";
+import { Slider } from "@base-ui/react/slider";
+import { Link } from "@tanstack/react-router";
 import {
   Pause,
   Play,
   Repeat,
   Repeat1,
+  Shuffle,
   SkipBack,
   SkipForward,
   Volume2,
-  Waves,
 } from "lucide-react";
-import { Badge } from "@/components/ui/Badge";
-import { IconButton } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { formatDuration } from "@/lib/format";
 import { useRecordingArtworkUrl } from "@/hooks/media/useRecordingArtworkUrl";
-import {
-  playbackLoadingLabel,
-  playbackLoadingDescription,
-} from "@/lib/playback/loading-state";
+import { playbackLoadingDescription } from "@/lib/playback/loading-state";
 import { usePlaybackStore } from "@/stores/playback/store";
 
 function nextRepeatMode(mode: string) {
@@ -28,6 +26,10 @@ function nextRepeatMode(mode: string) {
     default:
       return "off";
   }
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 export function PlayerBar() {
@@ -66,64 +68,66 @@ export function PlayerBar() {
     hasCurrent && (repeatMode === "one" ? hasCurrent : hasUpcoming);
   const canResume =
     !isLoadingOnly && (hasCurrent || (snapshot?.queueLength ?? 0) > 0);
-  const statusLabel = currentItem
-    ? (snapshot?.status ?? "idle")
-    : loadingItem
-      ? playbackLoadingLabel(snapshot?.loadingPreparation?.status)
-      : "idle";
 
   return (
-    <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-800 bg-zinc-950 px-4 py-3">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1.35fr)_minmax(260px,0.9fr)]">
-        <div className="flex min-w-0 items-center gap-4">
+    <footer className="border-theme-500/15 bg-theme-900/75 rounded-2xl border px-6 py-4 shadow-xl shadow-black/25 backdrop-blur-xl backdrop-saturate-150 lg:px-8">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
+        <div className="flex min-w-0 items-center gap-3 lg:w-72 lg:shrink-0">
           <ArtworkTile
             alt={currentTitle}
-            className="h-16 w-16 shrink-0"
+            className="h-12 w-12 shrink-0 rounded-md border-black/10"
             rounded="soft"
             src={artworkUrl}
             title={currentTitle}
           />
           <div className="min-w-0">
-            <p className="truncate text-xs tracking-wide text-zinc-500 uppercase">
-              {statusLabel}
-            </p>
-            <h2 className="truncate text-lg font-semibold text-zinc-100">
-              {currentTitle}
-            </h2>
-            <p className="truncate text-sm text-zinc-400">{currentSubtitle}</p>
+            {visibleItem?.albumId ? (
+              <Link
+                className="text-theme-100 hover:text-theme-50 block truncate text-left text-sm font-medium transition-colors"
+                params={{ albumId: visibleItem.albumId }}
+                to="/albums/$albumId"
+              >
+                {currentTitle}
+              </Link>
+            ) : (
+              <h2 className="text-theme-100 truncate text-sm font-medium">
+                {currentTitle}
+              </h2>
+            )}
+            <p className="text-theme-500 truncate text-xs">{currentSubtitle}</p>
             {isLoadingOnly && (
-              <p className="truncate text-xs text-zinc-500">
+              <p className="text-theme-500 truncate text-[11px]">
                 Requested track is still preparing.
               </p>
             )}
-            {error && <p className="truncate text-xs text-red-300">{error}</p>}
+            {error && (
+              <p className="truncate text-[11px] text-red-300">{error}</p>
+            )}
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-col justify-center gap-3">
-          <div className="flex items-center justify-center gap-3">
-            <IconButton
-              className={
-                shuffle ? "border-zinc-500 bg-zinc-800 text-zinc-50" : ""
-              }
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="flex items-center justify-center gap-2">
+            <PlayerIconButton
+              active={shuffle}
               label="Toggle shuffle"
               onClick={() => {
                 void setShuffle(!shuffle);
               }}
             >
-              <Waves className="h-4 w-4" />
-            </IconButton>
-            <IconButton
+              <Shuffle className="h-4 w-4" />
+            </PlayerIconButton>
+            <PlayerIconButton
               disabled={!hasCurrent}
               label="Previous track"
               onClick={() => {
                 void previous();
               }}
             >
-              <SkipBack className="h-5 w-5" />
-            </IconButton>
+              <SkipBack className="h-4 w-4 fill-current" />
+            </PlayerIconButton>
             <button
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-600 bg-zinc-100 text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
+              className="bg-accent-100 text-accent-950 hover:bg-accent-50 inline-flex h-11 w-11 items-center justify-center rounded-full bg-linear-to-b from-white/21 to-black/21 shadow-md shadow-black/25 transition hover:scale-105 active:scale-95 disabled:cursor-default disabled:opacity-50"
               disabled={!canResume}
               onClick={() => {
                 void togglePlayback();
@@ -131,26 +135,22 @@ export function PlayerBar() {
               type="button"
             >
               {isPlaying ? (
-                <Pause className="h-6 w-6" />
+                <Pause size={18} fill="true" />
               ) : (
-                <Play className="ml-0.5 h-6 w-6" />
+                <Play size={18} fill="true" />
               )}
             </button>
-            <IconButton
+            <PlayerIconButton
               disabled={!canGoNext}
               label="Next track"
               onClick={() => {
                 void next();
               }}
             >
-              <SkipForward className="h-5 w-5" />
-            </IconButton>
-            <IconButton
-              className={
-                repeatMode !== "off"
-                  ? "border-zinc-500 bg-zinc-800 text-zinc-50"
-                  : ""
-              }
+              <SkipForward className="h-4 w-4 fill-current" />
+            </PlayerIconButton>
+            <PlayerIconButton
+              active={repeatMode !== "off"}
               label="Toggle repeat mode"
               onClick={() => {
                 void setRepeatMode(nextRepeatMode(repeatMode));
@@ -161,46 +161,121 @@ export function PlayerBar() {
               ) : (
                 <Repeat className="h-4 w-4" />
               )}
-            </IconButton>
+            </PlayerIconButton>
           </div>
-          <div className="flex items-center gap-3 text-xs text-zinc-400">
-            <span className="w-12 text-right tabular-nums">
+          <div className="flex items-center justify-center gap-3">
+            <span className="text-theme-500 -mt-0.5 w-10 shrink-0 text-right text-xs tabular-nums">
               {formatDuration(positionMs)}
             </span>
-            <input
-              className="flex-1 accent-zinc-100"
+            <PlayerSlider
               disabled={!hasCurrent}
               max={Math.max(durationMs, 1)}
               min={0}
-              onChange={(event) => {
-                void seekTo(Number(event.target.value));
+              ariaLabel="Seek position"
+              onValueChange={(nextValue) => {
+                void seekTo(nextValue);
               }}
-              type="range"
               value={Math.min(positionMs, Math.max(durationMs, 1))}
             />
-            <span className="w-12 tabular-nums">
+            <span className="text-theme-500 -mt-0.5 w-10 shrink-0 text-xs tabular-nums">
               {formatDuration(durationMs)}
             </span>
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3">
-          <div className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2">
-            <Volume2 className="h-4 w-4 text-zinc-400" />
-            <input
-              className="w-28 accent-zinc-100"
-              max={100}
-              min={0}
-              onChange={(event) => {
-                void setVolume(Number(event.target.value));
-              }}
-              type="range"
-              value={volume}
-            />
-          </div>
-          <Badge>Queue {snapshot?.queueLength ?? 0}</Badge>
+        <div className="flex items-center gap-2 lg:w-56 lg:shrink-0">
+          <Volume2 className="text-theme-400 h-4 w-4" />
+          <PlayerSlider
+            ariaLabel="Volume"
+            max={100}
+            min={0}
+            onValueChange={(nextValue) => {
+              void setVolume(nextValue);
+            }}
+            value={volume}
+          />
         </div>
       </div>
     </footer>
+  );
+}
+
+function PlayerIconButton({
+  active = false,
+  children,
+  className = "",
+  disabled,
+  label,
+  onClick,
+}: {
+  active?: boolean;
+  children: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-label={label}
+      className={[
+        "rounded p-2 transition-colors disabled:cursor-default disabled:opacity-50",
+        active
+          ? "text-accent-200 hover:text-accent-100"
+          : "text-theme-400 hover:text-theme-100",
+        className,
+      ].join(" ")}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
+
+function PlayerSlider({
+  ariaLabel,
+  disabled,
+  max,
+  min,
+  onValueChange,
+  step = 1,
+  value,
+}: {
+  ariaLabel: string;
+  disabled?: boolean;
+  max: number;
+  min: number;
+  onValueChange: (value: number) => void;
+  step?: number;
+  value: number;
+}) {
+  const safeMax = Math.max(max, min + 1);
+  const clampedValue = clamp(value, min, safeMax);
+
+  return (
+    <Slider.Root
+      className={[
+        "flex min-w-0 flex-1 items-center",
+        disabled ? "opacity-45" : "",
+      ].join(" ")}
+      disabled={disabled}
+      max={safeMax}
+      min={min}
+      onValueChange={onValueChange}
+      step={step}
+      value={clampedValue}
+    >
+      <Slider.Control className="flex h-4 w-full items-center">
+        <Slider.Track className="relative h-1.5 w-full rounded-full bg-black/50">
+          <Slider.Indicator className="bg-theme-300 absolute h-full rounded-full bg-linear-to-b from-white/7 to-black/7" />
+          <Slider.Thumb
+            className="bg-theme-100 block h-4 w-4 rounded-full border border-black/28 bg-linear-to-b from-white/15 to-black/15 shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-theme-100"
+            getAriaLabel={() => ariaLabel}
+          />
+        </Slider.Track>
+      </Slider.Control>
+    </Slider.Root>
   );
 }

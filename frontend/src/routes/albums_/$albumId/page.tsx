@@ -1,31 +1,36 @@
-import { getRouteApi } from "@tanstack/react-router";
-import { Play, Plus } from "lucide-react";
+import { getRouteApi, Link } from "@tanstack/react-router";
+import { ArrowLeft, Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import type {
   AlbumListItem,
   AlbumTrackItem,
   AlbumVariantItem,
 } from "@/lib/api/models";
-import { resolveAlbumArtworkURL } from "@/lib/api/playback";
-import { formatCount, joinArtists } from "@/lib/format";
-import { useResolvedUrl } from "@/hooks/media/useResolvedUrl";
+import { Button } from "@/components/ui/Button";
+import { ArtworkTile } from "@/components/ui/ArtworkTile";
+import { AlbumTracksEmptyState } from "@/components/catalog/EmptyState";
+import { TrackListRow } from "@/components/catalog/TrackListRow";
 import { VirtualRows } from "@/components/ui/VirtualRows";
+import {
+  useStoreInfiniteQuery,
+  useStoreQuery,
+} from "@/hooks/catalog/useCatalogQuery";
+import { useResolvedUrl } from "@/hooks/media/useResolvedUrl";
+import { EMPTY_THUMB } from "@/lib/catalog/album";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
+import {
+  aggregateAvailabilityLabel,
+  formatCount,
+  formatDuration,
+  joinArtists,
+} from "@/lib/format";
+import { resolveAlbumArtworkURL } from "@/lib/api/playback";
 import {
   getDetailRecord,
   getValueQuery,
   useCatalogStore,
 } from "@/stores/catalog/store";
-import {
-  useStoreInfiniteQuery,
-  useStoreQuery,
-} from "@/hooks/catalog/useCatalogQuery";
 import { usePlaybackStore } from "@/stores/playback/store";
-import { buildAlbumSubtitle, EMPTY_THUMB } from "@/lib/catalog/album";
-import { AlbumTracksEmptyState } from "@/components/catalog/EmptyState";
-import { MetricPill } from "@/components/catalog/MetricPill";
-import { ActionButton, DetailHero } from "@/components/catalog/SurfaceHeader";
-import { TrackRow } from "@/components/catalog/TrackRow";
 import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
 const albumDetailRouteApi = getRouteApi("/albums_/$albumId");
@@ -35,7 +40,6 @@ export function AlbumDetailPage() {
   const [selectedVariantId, setSelectedVariantId] = useState(albumId);
   const playAlbum = usePlaybackStore((state) => state.playAlbum);
   const playAlbumTrack = usePlaybackStore((state) => state.playAlbumTrack);
-  const queueAlbum = usePlaybackStore((state) => state.queueAlbum);
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
 
   const detail = useStoreQuery(
@@ -133,6 +137,23 @@ export function AlbumDetailPage() {
       VariantCount: variants.data?.length ?? 0,
       Year: activeVariant?.Year ?? null,
     } as AlbumListItem);
+  const trackCount = activeVariant?.TrackCount ?? detail.data?.TrackCount ?? 0;
+  const totalDurationMs = trackQuery.items.reduce(
+    (total, track) => total + track.DurationMS,
+    0,
+  );
+  const discCount = Math.max(
+    trackQuery.items.reduce(
+      (maxDiscNo, track) => Math.max(maxDiscNo, track.DiscNo || 1),
+      1,
+    ),
+    1,
+  );
+  const releaseDateLabel = activeVariant?.Year
+    ? String(activeVariant.Year)
+    : detail.data?.Year
+      ? String(detail.data.Year)
+      : "Unknown release date";
   const error =
     detail.error ||
     variants.error ||
@@ -140,101 +161,163 @@ export function AlbumDetailPage() {
     "Album tracks will render here when the selected variant contains recordings.";
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <DetailHero
-        actions={
-          <>
-            <ActionButton
-              icon={<Play className="h-4 w-4" />}
-              label="Play album"
-              onClick={() => {
-                void playAlbum(selectedVariantId);
-              }}
-              priority="primary"
-            />
-            <ActionButton
-              icon={<Plus className="h-4 w-4" />}
-              label="Queue album"
-              onClick={() => {
-                void queueAlbum(selectedVariantId);
-              }}
-            />
-          </>
-        }
-        artworkUrl={highResArtworkUrl || lowResArtworkUrl}
-        eyebrow="Album detail"
-        meta={
-          <>
-            <MetricPill label={joinArtists(heroArtists)} />
-            <MetricPill
-              label={formatCount(
-                activeVariant?.TrackCount ?? detail.data?.TrackCount ?? 0,
-                "track",
-              )}
-            />
-            {activeVariant?.Year && (
-              <MetricPill label={String(activeVariant.Year)} />
-            )}
-          </>
-        }
-        subtitle={buildAlbumSubtitle(heroAlbum)}
-        thumb={heroThumb}
-        title={heroTitle}
-      />
+    <div className="flex h-full min-h-0 gap-8 max-xl:flex-col">
+      <aside className="max-xl:w-full xl:sticky xl:top-4 xl:h-fit xl:w-2/5 xl:shrink-0">
+        <div className="space-y-4">
+          <Link
+            className="text-theme-500 hover:text-theme-100 inline-flex w-fit items-center gap-2 rounded-md py-1 text-sm transition-colors"
+            to="/albums"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to albums
+          </Link>
 
-      {variants.data && variants.data.length > 0 && (
-        <div className="flex flex-wrap gap-2 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-          {variants.data.map((variant: AlbumVariantItem) => (
-            <button
-              className={[
-                "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition",
-                variant.AlbumID === selectedVariantId
-                  ? "border-zinc-500 bg-zinc-800 text-zinc-50"
-                  : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800",
-              ].join(" ")}
-              key={variant.AlbumID}
-              onClick={() => {
-                setSelectedVariantId(variant.AlbumID);
-              }}
-              type="button"
-            >
-              <span>{variant.Edition || variant.Title}</span>
-              {variant.Year && (
-                <small className="text-xs text-zinc-500">{variant.Year}</small>
-              )}
-            </button>
-          ))}
+          <ArtworkTile
+            alt={heroTitle}
+            className="w-full rounded-2xl border-black/10 shadow-[0_24px_65px_rgba(0,0,0,0.3)]"
+            src={highResArtworkUrl || lowResArtworkUrl}
+            title={heroTitle}
+          />
+
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <h1 className="text-theme-100 text-xl font-bold lg:text-2xl">
+                {heroTitle}
+              </h1>
+              <p className="text-theme-300">{joinArtists(heroArtists)}</p>
+              <p className="text-theme-500 text-xs">
+                {releaseDateLabel} • {formatCount(trackCount, "track")}
+              </p>
+            </div>
+
+            <div>
+              <Button
+                icon={<Play className="h-4 w-4" />}
+                onClick={() => {
+                  void playAlbum(selectedVariantId);
+                }}
+                tone="primary"
+              >
+                Play all tracks
+              </Button>
+            </div>
+
+            <dl className="grid grid-cols-2 gap-3 rounded-xl">
+              <div>
+                <dt className="text-theme-500 text-xs tracking-wide uppercase">
+                  Length
+                </dt>
+                <dd className="text-theme-100 text-sm font-medium">
+                  {formatDuration(totalDurationMs)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-theme-500 text-xs tracking-wide uppercase">
+                  Discs
+                </dt>
+                <dd className="text-theme-100 text-sm font-medium">
+                  {discCount}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-theme-500 text-xs tracking-wide uppercase">
+                  Variants
+                </dt>
+                <dd className="text-theme-100 text-sm font-medium">
+                  {detail.data?.VariantCount ?? variants.data?.length ?? 1}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-theme-500 text-xs tracking-wide uppercase">
+                  Availability
+                </dt>
+                <dd className="text-theme-100 text-sm font-medium">
+                  {aggregateAvailabilityLabel(
+                    activeVariant?.Availability ?? heroAlbum.Availability,
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          {variants.data && variants.data.length > 1 ? (
+            <div className="space-y-2">
+              <p className="text-theme-500 text-[11px] tracking-[0.28em] uppercase">
+                Variants
+              </p>
+              <div className="space-y-2">
+                {variants.data.map((variant: AlbumVariantItem) => (
+                  <button
+                    className={[
+                      "block w-full rounded-lg border px-3 py-3 text-left transition",
+                      variant.AlbumID === selectedVariantId
+                        ? "text-theme-100 border-white/18 bg-white/[0.08]"
+                        : "text-theme-300 border-white/8 bg-white/[0.03] hover:border-white/14 hover:bg-white/[0.05]",
+                    ].join(" ")}
+                    key={variant.AlbumID}
+                    onClick={() => {
+                      setSelectedVariantId(variant.AlbumID);
+                    }}
+                    type="button"
+                  >
+                    <span className="block text-sm font-medium">
+                      {variant.Edition || variant.Title}
+                    </span>
+                    <span className="text-theme-500 mt-1 block text-xs">
+                      {[
+                        variant.Year ? String(variant.Year) : null,
+                        formatCount(variant.TrackCount, "track"),
+                        aggregateAvailabilityLabel(variant.Availability),
+                      ]
+                        .filter(Boolean)
+                        .join(" • ")}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
-      )}
+      </aside>
 
-      <div className="min-h-0 flex-1">
-        <VirtualRows
-          emptyState={<AlbumTracksEmptyState body={error} />}
-          estimateSize={72}
-          hasMore={trackQuery.hasMore}
-          items={trackQuery.items}
-          loading={trackQuery.isLoading}
-          loadingMore={trackQuery.isRefreshing}
-          onEndReached={() => {
-            void trackQuery.fetchNextPage();
-          }}
-          renderRow={(track) => (
-            <TrackRow
-              availabilityState={track.Availability.State}
-              durationMs={track.DurationMS}
-              indexLabel={`${track.DiscNo}.${track.TrackNo}`}
-              onPlay={() => {
-                void playAlbumTrack(selectedVariantId, track.RecordingID);
-              }}
-              onQueue={() => {
-                void queueRecording(track.RecordingID);
-              }}
-              subtitle={joinArtists(track.Artists)}
-              title={track.Title}
-            />
-          )}
-        />
-      </div>
+      <section className="mt-10 flex min-h-0 flex-1 flex-col gap-4 xl:w-3/5">
+        <div className="min-h-0 flex-1">
+          <VirtualRows
+            className="min-h-0 flex-1"
+            emptyState={<AlbumTracksEmptyState body={error} />}
+            estimateSize={64}
+            gap={8}
+            hasMore={trackQuery.hasMore}
+            items={trackQuery.items}
+            loading={trackQuery.isLoading}
+            loadingMore={trackQuery.isRefreshing}
+            onEndReached={() => {
+              void trackQuery.fetchNextPage();
+            }}
+            renderRow={(track) => (
+              <TrackListRow
+                availabilityState={track.Availability.State}
+                durationMs={track.DurationMS}
+                indexLabel={
+                  track.DiscNo > 1
+                    ? `${track.DiscNo}-${track.TrackNo}`
+                    : String(track.TrackNo)
+                }
+                mode="album"
+                onPlay={() => {
+                  void playAlbumTrack(selectedVariantId, track.RecordingID);
+                }}
+                onQueue={() => {
+                  void queueRecording(track.RecordingID);
+                }}
+                subtitle={joinArtists(track.Artists)}
+                title={track.Title}
+              />
+            )}
+            viewportClassName="pr-2"
+          />
+        </div>
+      </section>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { useNearEndScroll } from "@/hooks/app/useNearEndScroll";
 type VirtualRowsProps<T> = {
   items: T[];
   estimateSize: number;
+  gap?: number;
   overscan?: number;
   loading: boolean;
   loadingMore?: boolean;
@@ -12,6 +13,8 @@ type VirtualRowsProps<T> = {
   onEndReached?: () => void;
   emptyState?: ReactNode;
   renderRow: (item: T, index: number) => ReactNode;
+  className?: string;
+  viewportClassName?: string;
 };
 
 export function VirtualRows<T>({
@@ -24,6 +27,9 @@ export function VirtualRows<T>({
   onEndReached,
   emptyState,
   renderRow,
+  className = "",
+  viewportClassName = "",
+  gap = 0,
 }: VirtualRowsProps<T>) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -31,6 +37,7 @@ export function VirtualRows<T>({
     count: items.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => estimateSize,
+    gap: gap,
     overscan,
   });
   useNearEndScroll(parentRef, {
@@ -47,8 +54,21 @@ export function VirtualRows<T>({
   }
 
   return (
-    <div className="relative h-full min-h-0 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
-      <div className="h-full overflow-y-auto px-2" ref={parentRef}>
+    <div
+      className={["relative h-full min-h-0 overflow-hidden", className].join(
+        " ",
+      )}
+    >
+      <div
+        className={[
+          "ben-scrollbar h-full overflow-y-auto",
+          viewportClassName,
+        ].join(" ")}
+        ref={parentRef}
+        style={{
+          scrollPaddingBottom: "var(--shell-player-clearance, 0px)",
+        }}
+      >
         <div
           className="relative w-full"
           style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
@@ -66,8 +86,12 @@ export function VirtualRows<T>({
             </div>
           ))}
         </div>
+        <div
+          aria-hidden="true"
+          style={{ height: "var(--shell-player-clearance, 0px)" }}
+        />
         {(loading || loadingMore) && (
-          <div className="px-4 py-5 text-sm text-zinc-400">Loading...</div>
+          <div className="text-theme-500 px-4 py-5 text-sm">Loading...</div>
         )}
       </div>
     </div>

@@ -1,20 +1,21 @@
 import { getRouteApi } from "@tanstack/react-router";
 import type { AlbumListItem } from "@/lib/api/models";
-import { formatCount } from "@/lib/format";
+import { AlbumGridTile } from "@/components/catalog/AlbumGridTile";
+import { AlbumsEmptyState } from "@/components/catalog/EmptyState";
+import { MetricPill } from "@/components/catalog/MetricPill";
+import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
+import {
+  useStoreInfiniteQuery,
+  useStoreQuery,
+} from "@/hooks/catalog/useCatalogQuery";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
+import { formatCount } from "@/lib/format";
 import {
   getDetailRecord,
   getValueQuery,
   useCatalogStore,
 } from "@/stores/catalog/store";
-import {
-  useStoreInfiniteQuery,
-  useStoreQuery,
-} from "@/hooks/catalog/useCatalogQuery";
-import { AlbumCard } from "@/components/catalog/Cards";
-import { AlbumsEmptyState } from "@/components/catalog/EmptyState";
-import { MetricPill } from "@/components/catalog/MetricPill";
 import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
 const artistDetailRouteApi = getRouteApi("/artists_/$artistId");
@@ -49,35 +50,34 @@ export function ArtistDetailPage() {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-end">
-          <div className="flex h-36 w-36 items-center justify-center rounded-full border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.35),transparent_60%),rgba(255,255,255,0.05)] text-6xl font-semibold text-white/85">
-            {detail.data?.Name?.slice(0, 1).toUpperCase() || "A"}
-          </div>
-          <div>
-            <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
-              Artist detail
-            </p>
-            <h1 className="mt-3 text-4xl font-semibold text-white">
-              {detail.data?.Name ?? "Artist"}
-            </h1>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <MetricPill
-                label={formatCount(detail.data?.AlbumCount ?? 0, "album")}
-              />
-              <MetricPill
-                label={formatCount(detail.data?.TrackCount ?? 0, "track")}
-              />
-            </div>
-            {detail.error && (
-              <p className="mt-4 text-sm text-amber-300">{detail.error}</p>
-            )}
-          </div>
+    <div className="flex h-full min-h-0 flex-col gap-5">
+      <section className="flex flex-wrap items-end gap-5">
+        <div className="text-theme-100 flex h-28 w-28 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-4xl font-semibold">
+          {detail.data?.Name?.slice(0, 1).toUpperCase() || "A"}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <SectionHeading
+            meta={
+              <>
+                <MetricPill
+                  label={formatCount(detail.data?.AlbumCount ?? 0, "album")}
+                />
+                <MetricPill
+                  label={formatCount(detail.data?.TrackCount ?? 0, "track")}
+                />
+              </>
+            }
+            title={detail.data?.Name ?? "Artist"}
+          />
+          {detail.error ? (
+            <p className="text-sm text-amber-300">{detail.error}</p>
+          ) : null}
         </div>
       </section>
+
       <div className="min-h-0 flex-1">
         <VirtualCardGrid
+          className="min-h-0 flex-1"
           emptyState={
             <AlbumsEmptyState body="Artist albums will appear here when the artist has catalog entries." />
           }
@@ -90,8 +90,9 @@ export function ArtistDetailPage() {
           onEndReached={() => {
             void albumQuery.fetchNextPage();
           }}
-          renderCard={(album) => <AlbumCard album={album} />}
-          rowHeight={320}
+          renderCard={(album) => <AlbumGridTile album={album} />}
+          rowHeight={298}
+          viewportClassName="px-1 py-3"
         />
       </div>
     </div>

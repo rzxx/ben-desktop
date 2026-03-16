@@ -17,7 +17,6 @@ export function ArtworkTile({
   subtitle,
   alt,
   square = true,
-  rounded = "soft",
   className = "",
 }: ArtworkTileProps) {
   const [loadState, setLoadState] = useState<{ failed: boolean; src: string }>({
@@ -25,19 +24,14 @@ export function ArtworkTile({
     src: "",
   });
 
-  const shape =
-    rounded === "full"
-      ? "rounded-full"
-      : "rounded-[1.2rem] sm:rounded-[1.35rem]";
   const visibleSrc =
     src && !(loadState.failed && loadState.src === src) ? src : "";
 
   return (
     <div
       className={[
-        "relative overflow-hidden border border-zinc-800 bg-zinc-900",
-        square ? "aspect-square" : "aspect-[4/3]",
-        shape,
+        "relative overflow-hidden border border-white/8 bg-white/5",
+        square ? "aspect-square" : "aspect-4/3",
         className,
       ].join(" ")}
     >
@@ -55,11 +49,11 @@ export function ArtworkTile({
           src={visibleSrc}
         />
       ) : (
-        <div className="flex h-full w-full flex-col justify-between bg-zinc-900 p-4">
-          <span className="text-xs tracking-wide text-zinc-500 uppercase">
+        <div className="flex h-full w-full flex-col justify-between bg-white/5 p-4">
+          <span className="text-theme-500 text-xs tracking-wide uppercase">
             {subtitle || "Library"}
           </span>
-          <span className="text-4xl font-semibold text-zinc-100">
+          <span className="text-theme-100 text-4xl font-semibold">
             {artistLetter(title)}
           </span>
         </div>

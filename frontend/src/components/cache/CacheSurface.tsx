@@ -60,7 +60,7 @@ export function CacheSurface() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
+    <div className="ben-scrollbar ben-shell-scroll-offset flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
       <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(140deg,rgba(14,165,233,0.14),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">

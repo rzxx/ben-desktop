@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+:root {
+  --shell-player-clearance: 9rem;
+}
+
+#root {
+  isolation: isolate;
+}
+
 @theme {
   --color-theme-50: oklch(0.985 0 0);
   --color-theme-100: oklch(0.97 0 0);
@@ -30,14 +38,36 @@
   );
 }
 
-html,
-body,
-#root {
-  height: 100%;
+.ben-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-theme-300) 52%, transparent)
+    transparent;
 }
 
-body {
-  margin: 0;
+.ben-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.ben-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ben-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--color-theme-300) 44%, transparent);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.ben-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--color-theme-200) 62%, transparent);
+  background-clip: padding-box;
+}
+
+.ben-shell-scroll-offset {
+  padding-bottom: var(--shell-player-clearance);
+  scroll-padding-bottom: var(--shell-player-clearance);
 }
 
 .wails-drag {

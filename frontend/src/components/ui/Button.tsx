@@ -9,11 +9,11 @@ const toneClasses: Record<NonNullable<ButtonProps["tone"]>, string> = {
   danger:
     "border-red-500/30 bg-red-500/10 text-red-100 hover:border-red-400/40 hover:bg-red-500/15",
   default:
-    "border-zinc-700 bg-zinc-900 text-zinc-100 hover:border-zinc-600 hover:bg-zinc-800",
+    "border-white/10 bg-white/[0.06] text-theme-100 hover:border-white/18 hover:bg-white/[0.09]",
   primary:
-    "border-zinc-500 bg-zinc-100 text-zinc-950 hover:border-zinc-300 hover:bg-white",
+    "border-theme-100 bg-theme-100 text-theme-950 hover:border-white hover:bg-white",
   quiet:
-    "border-zinc-800 bg-transparent text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900",
+    "border-white/8 bg-transparent text-theme-300 hover:border-white/14 hover:bg-white/[0.05]",
 };
 
 export function Button({
@@ -57,7 +57,7 @@ export function IconButton({
     <button
       aria-label={label}
       className={[
-        "inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-200 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50",
+        "inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-theme-200 transition hover:border-white/18 hover:bg-white/[0.1] disabled:cursor-default disabled:opacity-50",
         className,
       ].join(" ")}
       disabled={disabled}

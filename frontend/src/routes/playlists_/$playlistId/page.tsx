@@ -1,23 +1,26 @@
 import { getRouteApi } from "@tanstack/react-router";
 import { Play, Plus } from "lucide-react";
 import type { PlaylistTrackItem } from "@/lib/api/models";
-import { formatCount, formatRelativeDate, joinArtists } from "@/lib/format";
+import { Button } from "@/components/ui/Button";
+import { ArtworkTile } from "@/components/ui/ArtworkTile";
+import { MetricPill } from "@/components/catalog/MetricPill";
+import { SectionHeading } from "@/components/catalog/SectionHeading";
+import { TrackListRow } from "@/components/catalog/TrackListRow";
+import { TracksEmptyState } from "@/components/catalog/EmptyState";
 import { VirtualRows } from "@/components/ui/VirtualRows";
+import {
+  useStoreInfiniteQuery,
+  useStoreQuery,
+} from "@/hooks/catalog/useCatalogQuery";
+import { useThumbnailUrl } from "@/hooks/media/useThumbnailUrl";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
+import { formatCount, formatRelativeDate, joinArtists } from "@/lib/format";
 import {
   getDetailRecord,
   getValueQuery,
   useCatalogStore,
 } from "@/stores/catalog/store";
-import {
-  useStoreInfiniteQuery,
-  useStoreQuery,
-} from "@/hooks/catalog/useCatalogQuery";
 import { usePlaybackStore } from "@/stores/playback/store";
-import { TracksEmptyState } from "@/components/catalog/EmptyState";
-import { MetricPill } from "@/components/catalog/MetricPill";
-import { ActionButton, DetailHero } from "@/components/catalog/SurfaceHeader";
-import { TrackRow } from "@/components/catalog/TrackRow";
 import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
 const playlistDetailRouteApi = getRouteApi("/playlists_/$playlistId");
@@ -35,6 +38,7 @@ export function PlaylistDetailPage() {
       selectDetail(getDetailRecord(state.playlistSummaries, playlistId)),
     () => catalogLoaderClient.refetchPlaylist(playlistId),
   );
+  const artworkUrl = useThumbnailUrl(detail.data?.Thumb);
   const trackQuery = useStoreInfiniteQuery<PlaylistTrackItem>(
     (state) =>
       selectValueQuery<PlaylistTrackItem>(
@@ -63,44 +67,55 @@ export function PlaylistDetailPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <DetailHero
-        actions={
-          <>
-            <ActionButton
+      <section className="flex flex-wrap items-end gap-5">
+        <ArtworkTile
+          alt={detail.data?.Name ?? "Playlist"}
+          className="h-40 w-40 shrink-0 border-black/10"
+          src={artworkUrl}
+          subtitle="Playlist"
+          title={detail.data?.Name ?? "Playlist"}
+        />
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <SectionHeading
+            meta={
+              <>
+                <MetricPill
+                  label={formatCount(
+                    detail.data?.ItemCount ?? trackQuery.pageInfo?.Total ?? 0,
+                    "track",
+                  )}
+                />
+                <MetricPill
+                  label={formatRelativeDate(detail.data?.UpdatedAt)}
+                />
+              </>
+            }
+            title={detail.data?.Name ?? "Playlist"}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
               icon={<Play className="h-4 w-4" />}
-              label="Play playlist"
               onClick={() => {
                 void playPlaylist(playlistId);
               }}
-              priority="primary"
-            />
-            <ActionButton
+              tone="primary"
+            >
+              Play playlist
+            </Button>
+            <Button
               icon={<Plus className="h-4 w-4" />}
-              label="Queue playlist"
               onClick={() => {
                 void queuePlaylist(playlistId);
               }}
-            />
-          </>
-        }
-        eyebrow="Playlist detail"
-        meta={
-          <>
-            <MetricPill
-              label={formatCount(
-                detail.data?.ItemCount ?? trackQuery.pageInfo?.Total ?? 0,
-                "track",
-              )}
-            />
-            <MetricPill label={formatRelativeDate(detail.data?.UpdatedAt)} />
-          </>
-        }
-        subtitle="Playlist header with track list below. This view stays read-only in this slice."
-        thumb={detail.data?.Thumb}
-        title={detail.data?.Name ?? "Playlist"}
-      />
+            >
+              Queue playlist
+            </Button>
+          </div>
+        </div>
+      </section>
       <div className="min-h-0 flex-1">
         <VirtualRows
+          className="min-h-0 flex-1"
           emptyState={
             <TracksEmptyState
               body={
@@ -118,10 +133,11 @@ export function PlaylistDetailPage() {
             void trackQuery.fetchNextPage();
           }}
           renderRow={(track, index) => (
-            <TrackRow
+            <TrackListRow
               availabilityState={track.Availability.State}
               durationMs={track.DurationMS}
               indexLabel={String(index + 1).padStart(2, "0")}
+              mode="list"
               onPlay={() => {
                 void playPlaylistTrack(playlistId, track.ItemID);
               }}
@@ -132,6 +148,7 @@ export function PlaylistDetailPage() {
               title={track.Title}
             />
           )}
+          viewportClassName="pr-2"
         />
       </div>
     </div>

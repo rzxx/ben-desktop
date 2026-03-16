@@ -27,12 +27,8 @@ export function NavigationSidebar() {
   });
 
   return (
-    <aside className="flex h-full flex-col gap-4 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
-      <div>
-        <p className="text-xs tracking-wide text-zinc-500 uppercase">Browse</p>
-        <h2 className="mt-2 text-lg font-semibold text-zinc-100">Library</h2>
-      </div>
-      <nav className="space-y-2">
+    <aside className="fixed top-8 bottom-0 left-0 z-20 flex w-56 flex-col border-r border-white/5 px-4 pt-4 max-lg:hidden">
+      <nav className="flex min-h-0 flex-1 flex-col gap-1.5">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active =
@@ -41,10 +37,10 @@ export function NavigationSidebar() {
           return (
             <Link
               className={[
-                "flex items-center gap-3 rounded-md border px-3 py-2 text-sm transition",
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition",
                 active
-                  ? "border-zinc-600 bg-zinc-800 text-zinc-50"
-                  : "border-transparent text-zinc-400 hover:border-zinc-800 hover:bg-zinc-900 hover:text-zinc-100",
+                  ? "bg-theme-100 text-theme-900"
+                  : "text-theme-300 hover:text-theme-100 hover:bg-white/6",
               ].join(" ")}
               key={item.href}
               to={item.href}
@@ -55,9 +51,6 @@ export function NavigationSidebar() {
           );
         })}
       </nav>
-      <div className="mt-auto rounded-md border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-400">
-        Wails runtime shell with route content and playback controls.
-      </div>
     </aside>
   );
 }

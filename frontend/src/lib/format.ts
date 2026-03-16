@@ -123,3 +123,24 @@ export function isCatalogTrackActionable(state?: string) {
       return false;
   }
 }
+
+export function availabilityTone(
+  state?: string | { LocalTrackCount?: number | null; CachedTrackCount?: number | null; ProviderOnlineTrackCount?: number | null; ProviderOfflineTrackCount?: number | null },
+): "default" | "success" | "warning" | "danger" {
+  const resolvedState =
+    typeof state === "string" ? state : aggregateAvailabilityLabel(state).toUpperCase();
+
+  switch (resolvedState) {
+    case "LOCAL":
+    case "CACHED":
+      return "success";
+    case "ONLINE":
+    case "PROVIDER_ONLINE":
+      return "default";
+    case "OFFLINE":
+    case "PROVIDER_OFFLINE":
+      return "warning";
+    default:
+      return "danger";
+  }
+}

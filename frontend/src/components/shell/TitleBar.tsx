@@ -28,10 +28,10 @@ export function TitleBar() {
   return (
     <header
       onDoubleClick={handleDoubleClick}
-      className="wails-drag fixed inset-x-0 top-0 z-50 flex h-8 items-center justify-between border-b border-zinc-800 bg-zinc-950 select-none"
+      className="wails-drag fixed inset-x-0 top-0 z-50 flex h-8 items-center justify-between border-b border-white/3 select-none"
     >
       <div className="pl-4">
-        <p className="text-sm font-medium tracking-wide text-zinc-100">ben</p>
+        <p className="text-theme-100 text-sm font-medium tracking-wide">ben</p>
       </div>
 
       <div className="wails-no-drag flex h-full items-center gap-px">
@@ -90,8 +90,8 @@ function ControlButton(props: ControlButtonProps) {
       onClick={props.onClick}
       className={`wails-no-drag inline-flex h-full w-12 items-center justify-center transition-colors ${
         props.danger
-          ? "text-zinc-300 hover:bg-red-500 hover:text-white"
-          : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+          ? "text-theme-200 hover:text-theme-100 hover:bg-red-500"
+          : "text-theme-200 hover:bg-theme-800 hover:text-theme-100"
       }`}
     >
       {props.children}

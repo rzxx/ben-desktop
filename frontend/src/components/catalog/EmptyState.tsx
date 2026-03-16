@@ -11,12 +11,12 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-lg border border-dashed border-zinc-800 bg-zinc-950 px-8 py-10 text-center">
-      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 text-zinc-400">
+    <div className="rounded-xl border border-dashed border-white/8 bg-white/[0.025] px-8 py-10 text-center">
+      <div className="text-theme-500 mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/8 bg-white/[0.05]">
         {icon}
       </div>
-      <h2 className="text-lg font-semibold text-zinc-100">{title}</h2>
-      <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">{body}</p>
+      <h2 className="text-theme-100 text-lg font-semibold">{title}</h2>
+      <p className="text-theme-500 mx-auto mt-2 max-w-md text-sm">{body}</p>
     </div>
   );
 }

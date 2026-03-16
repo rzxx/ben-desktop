@@ -1,16 +1,18 @@
-import type { LikedRecordingItem } from "@/lib/api/models";
-import { formatCount, formatRelativeDate, joinArtists } from "@/lib/format";
-import { VirtualRows } from "@/components/ui/VirtualRows";
-import { catalogLoaderClient } from "@/lib/catalog/loader-client";
-import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
-import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
-import { usePlaybackStore } from "@/stores/playback/store";
-import { TracksEmptyState } from "@/components/catalog/EmptyState";
-import { MetricPill } from "@/components/catalog/MetricPill";
-import { ActionButton, DetailHero } from "@/components/catalog/SurfaceHeader";
-import { TrackRow } from "@/components/catalog/TrackRow";
-import { selectValueQuery } from "@/stores/catalog/query-state";
 import { Play } from "lucide-react";
+import type { LikedRecordingItem } from "@/lib/api/models";
+import { Button } from "@/components/ui/Button";
+import { ArtworkTile } from "@/components/ui/ArtworkTile";
+import { MetricPill } from "@/components/catalog/MetricPill";
+import { SectionHeading } from "@/components/catalog/SectionHeading";
+import { TrackListRow } from "@/components/catalog/TrackListRow";
+import { TracksEmptyState } from "@/components/catalog/EmptyState";
+import { VirtualRows } from "@/components/ui/VirtualRows";
+import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
+import { catalogLoaderClient } from "@/lib/catalog/loader-client";
+import { formatCount, formatRelativeDate, joinArtists } from "@/lib/format";
+import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
+import { usePlaybackStore } from "@/stores/playback/store";
+import { selectValueQuery } from "@/stores/catalog/query-state";
 
 export function LikedPlaylistPage() {
   const playLiked = usePlaybackStore((state) => state.playLiked);
@@ -36,31 +38,39 @@ export function LikedPlaylistPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <DetailHero
-        actions={
-          <ActionButton
+      <section className="flex flex-wrap items-end gap-5">
+        <ArtworkTile
+          alt="Liked songs"
+          className="h-40 w-40 shrink-0 border-black/10"
+          subtitle="Liked"
+          title="Liked songs"
+        />
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <SectionHeading
+            meta={
+              <MetricPill
+                label={formatCount(
+                  query.pageInfo?.Total ?? query.items.length,
+                  "track",
+                )}
+              />
+            }
+            title="Liked songs"
+          />
+          <Button
             icon={<Play className="h-4 w-4" />}
-            label="Play liked"
             onClick={() => {
               void playLiked();
             }}
-            priority="primary"
-          />
-        }
-        eyebrow="Reserved playlist"
-        meta={
-          <MetricPill
-            label={formatCount(
-              query.pageInfo?.Total ?? query.items.length,
-              "track",
-            )}
-          />
-        }
-        subtitle="Special liked songs view backed by the reserved playlist in core."
-        title="Liked songs"
-      />
+            tone="primary"
+          >
+            Play liked
+          </Button>
+        </div>
+      </section>
       <div className="min-h-0 flex-1">
         <VirtualRows
+          className="min-h-0 flex-1"
           emptyState={
             <TracksEmptyState body="Liked recordings will appear here when tracks are liked in other surfaces." />
           }
@@ -73,10 +83,11 @@ export function LikedPlaylistPage() {
             void query.fetchNextPage();
           }}
           renderRow={(track, index) => (
-            <TrackRow
+            <TrackListRow
               availabilityState={track.Availability.State}
               durationMs={track.DurationMS}
               indexLabel={String(index + 1).padStart(2, "0")}
+              mode="list"
               onPlay={() => {
                 void playLikedTrack(track.RecordingID);
               }}
@@ -87,6 +98,7 @@ export function LikedPlaylistPage() {
               title={track.Title}
             />
           )}
+          viewportClassName="pr-2"
         />
       </div>
     </div>

@@ -1,13 +1,13 @@
 import type { ArtistListItem } from "@/lib/api/models";
-import { formatCount } from "@/lib/format";
-import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
-import { catalogLoaderClient } from "@/lib/catalog/loader-client";
-import { getIdQuery, useCatalogStore } from "@/stores/catalog/store";
-import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
-import { ArtistCard } from "@/components/catalog/Cards";
+import { ArtistGridTile } from "@/components/catalog/ArtistGridTile";
 import { ArtistsEmptyState } from "@/components/catalog/EmptyState";
 import { MetricPill } from "@/components/catalog/MetricPill";
-import { PageHeader } from "@/components/catalog/SurfaceHeader";
+import { SectionHeading } from "@/components/catalog/SectionHeading";
+import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
+import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
+import { catalogLoaderClient } from "@/lib/catalog/loader-client";
+import { formatCount } from "@/lib/format";
+import { getIdQuery, useCatalogStore } from "@/stores/catalog/store";
 import { selectEntityQuery } from "@/stores/catalog/query-state";
 
 export function ArtistsPage() {
@@ -33,9 +33,7 @@ export function ArtistsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <PageHeader
-        description="Artist directory with album and track counts. Open an artist to inspect their album catalog."
-        eyebrow="Artists"
+      <SectionHeading
         meta={
           <MetricPill
             label={formatCount(
@@ -48,6 +46,7 @@ export function ArtistsPage() {
       />
       <div className="min-h-0 flex-1">
         <VirtualCardGrid
+          className="min-h-0 flex-1"
           emptyState={
             <ArtistsEmptyState body="Artist entries will appear here once library metadata is available." />
           }
@@ -60,8 +59,9 @@ export function ArtistsPage() {
           onEndReached={() => {
             void query.fetchNextPage();
           }}
-          renderCard={(artist) => <ArtistCard artist={artist} />}
-          rowHeight={250}
+          renderCard={(artist) => <ArtistGridTile artist={artist} />}
+          rowHeight={240}
+          viewportClassName="px-1 py-3"
         />
       </div>
     </div>

@@ -1,14 +1,14 @@
 import type { RecordingListItem } from "@/lib/api/models";
-import { formatCount, joinArtists } from "@/lib/format";
-import { VirtualRows } from "@/components/ui/VirtualRows";
-import { catalogLoaderClient } from "@/lib/catalog/loader-client";
-import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
-import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
-import { usePlaybackStore } from "@/stores/playback/store";
-import { TracksEmptyState } from "@/components/catalog/EmptyState";
 import { MetricPill } from "@/components/catalog/MetricPill";
-import { PageHeader } from "@/components/catalog/SurfaceHeader";
-import { TrackRow } from "@/components/catalog/TrackRow";
+import { SectionHeading } from "@/components/catalog/SectionHeading";
+import { TrackListRow } from "@/components/catalog/TrackListRow";
+import { TracksEmptyState } from "@/components/catalog/EmptyState";
+import { VirtualRows } from "@/components/ui/VirtualRows";
+import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
+import { catalogLoaderClient } from "@/lib/catalog/loader-client";
+import { formatCount, joinArtists } from "@/lib/format";
+import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
+import { usePlaybackStore } from "@/stores/playback/store";
 import { selectValueQuery } from "@/stores/catalog/query-state";
 
 export function TracksPage() {
@@ -34,9 +34,7 @@ export function TracksPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <PageHeader
-        description="Flat track browser with virtualized rows and direct play or queue actions."
-        eyebrow="Tracks"
+      <SectionHeading
         meta={
           <MetricPill
             label={formatCount(
@@ -49,6 +47,7 @@ export function TracksPage() {
       />
       <div className="min-h-0 flex-1">
         <VirtualRows
+          className="min-h-0 flex-1"
           emptyState={
             <TracksEmptyState body="Track rows appear here after the core runtime exposes recordings." />
           }
@@ -61,10 +60,11 @@ export function TracksPage() {
             void query.fetchNextPage();
           }}
           renderRow={(track, index) => (
-            <TrackRow
+            <TrackListRow
               availabilityState={track.Availability.State}
               durationMs={track.DurationMS}
               indexLabel={String(index + 1).padStart(2, "0")}
+              mode="list"
               onPlay={() => {
                 void playRecording(track.RecordingID);
               }}
@@ -75,6 +75,7 @@ export function TracksPage() {
               title={track.Title}
             />
           )}
+          viewportClassName="pr-2"
         />
       </div>
     </div>

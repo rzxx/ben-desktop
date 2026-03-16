@@ -1,13 +1,11 @@
 import type { AlbumListItem } from "@/lib/api/models";
-import { formatCount } from "@/lib/format";
+import { AlbumGridTile } from "@/components/catalog/AlbumGridTile";
+import { AlbumsEmptyState } from "@/components/catalog/EmptyState";
+import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
+import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import { getIdQuery, useCatalogStore } from "@/stores/catalog/store";
-import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
-import { AlbumCard } from "@/components/catalog/Cards";
-import { AlbumsEmptyState } from "@/components/catalog/EmptyState";
-import { MetricPill } from "@/components/catalog/MetricPill";
-import { PageHeader } from "@/components/catalog/SurfaceHeader";
 import { selectEntityQuery } from "@/stores/catalog/query-state";
 
 export function AlbumsPage() {
@@ -33,21 +31,10 @@ export function AlbumsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <PageHeader
-        description="Default view. Browse the library by release, then jump into album detail pages and playback."
-        eyebrow="Albums"
-        meta={
-          <MetricPill
-            label={formatCount(
-              query.pageInfo?.Total ?? query.items.length,
-              "album",
-            )}
-          />
-        }
-        title="Albums"
-      />
+      <SectionHeading title="Albums" />
       <div className="min-h-0 flex-1">
         <VirtualCardGrid
+          className="min-h-0 flex-1"
           emptyState={
             <AlbumsEmptyState body="Albums will appear here when the core catalog has materialized media." />
           }
@@ -60,8 +47,9 @@ export function AlbumsPage() {
           onEndReached={() => {
             void query.fetchNextPage();
           }}
-          renderCard={(album) => <AlbumCard album={album} />}
-          rowHeight={320}
+          renderCard={(album) => <AlbumGridTile album={album} />}
+          rowHeight={298}
+          viewportClassName="px-1 py-3"
         />
       </div>
     </div>
