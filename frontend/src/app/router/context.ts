@@ -1,5 +1,6 @@
-import type { CatalogLoaderClient } from "../../features/library/catalog-loader-client";
+import type { CatalogLoaderClient } from "@/lib/catalog/loader-client";
 
 export type AppRouterContext = {
   catalog: CatalogLoaderClient;
 };
+

@@ -37,8 +37,8 @@ import {
   startRootRescan,
   startSyncNow,
   subscribeJobEvents,
-} from "../../shared/lib/desktop";
-import { formatCount } from "../../shared/lib/format";
+} from "@/lib/api";
+import { formatCount } from "@/lib/format";
 
 type OperationsState = {
   loading: boolean;
@@ -545,7 +545,7 @@ export function OperationsPage() {
             </div>
           </div>
           <button
-            className="action-button"
+            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
             onClick={() => {
               void refresh();
             }}
@@ -769,7 +769,7 @@ export function OperationsPage() {
 
               <div className="mt-5 flex flex-wrap gap-3">
                 <button
-                  className="action-button is-primary"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
                   disabled={!canScan || pendingAction === "scan-library"}
                   onClick={() => {
                     void runAction(
@@ -784,7 +784,7 @@ export function OperationsPage() {
                   <span>Scan library</span>
                 </button>
                 <button
-                  className="action-button"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                   disabled={pendingAction === "sync-now"}
                   onClick={() => {
                     void runAction("sync-now", startSyncNow, "Started");
@@ -795,7 +795,7 @@ export function OperationsPage() {
                   <span>Sync now</span>
                 </button>
                 <button
-                  className="action-button"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                   disabled={
                     !canCheckpoint || pendingAction === "checkpoint-publish"
                   }
@@ -812,7 +812,7 @@ export function OperationsPage() {
                   <span>Publish checkpoint</span>
                 </button>
                 <button
-                  className="action-button"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                   disabled={
                     !canCheckpoint || pendingAction === "checkpoint-compact"
                   }
@@ -829,7 +829,7 @@ export function OperationsPage() {
                   <span>Compact checkpoint</span>
                 </button>
                 <button
-                  className="action-button"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                   disabled={
                     !canCheckpoint || pendingAction === "checkpoint-force"
                   }
@@ -870,7 +870,7 @@ export function OperationsPage() {
                 {canScan && (
                   <div className="ml-auto">
                     <button
-                      className="action-button"
+                      className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                       disabled={pendingAction === "scan-root:add"}
                       onClick={() => {
                         void handleAddRoot();
@@ -907,7 +907,7 @@ export function OperationsPage() {
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <button
-                            className="action-button"
+                            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                             disabled={!canScan || pendingAction === key}
                             onClick={() => {
                               void runAction(
@@ -923,7 +923,7 @@ export function OperationsPage() {
                           </button>
                           {canScan && (
                             <button
-                              className="action-button"
+                              className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                               disabled={
                                 pendingAction === `scan-root:remove:${root}`
                               }
@@ -1114,3 +1114,5 @@ export function OperationsPage() {
     </div>
   );
 }
+
+

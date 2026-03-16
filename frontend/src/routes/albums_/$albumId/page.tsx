@@ -5,31 +5,31 @@ import type {
   AlbumListItem,
   AlbumTrackItem,
   AlbumVariantItem,
-} from "../../../shared/lib/desktop";
-import { resolveAlbumArtworkURL } from "../../../shared/lib/desktop";
-import { formatCount, joinArtists } from "../../../shared/lib/format";
-import { useResolvedUrl } from "../../../shared/lib/use-thumbnail-url";
-import { VirtualRows } from "../../../shared/ui/VirtualRows";
-import { catalogLoaderClient } from "../../../features/library/catalog-loader-client";
+} from "@/lib/api";
+import { resolveAlbumArtworkURL } from "@/lib/api";
+import { formatCount, joinArtists } from "@/lib/format";
+import { useResolvedUrl } from "@/lib/media/useThumbnailUrl";
+import { VirtualRows } from "@/components/ui/VirtualRows";
+import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import {
   getDetailRecord,
   getValueQuery,
   useCatalogStore,
-} from "../../../features/library/catalog-store";
+} from "@/stores/catalog/store";
 import {
   useStoreInfiniteQuery,
   useStoreQuery,
-} from "../../../features/library/use-store-query";
-import { usePlaybackStore } from "../../../features/playback/store";
-import { buildAlbumSubtitle, EMPTY_THUMB } from "../../catalog/album";
-import { AlbumTracksEmptyState } from "../../catalog/components/EmptyState";
-import { MetricPill } from "../../catalog/components/MetricPill";
+} from "@/hooks/catalog/useCatalogQuery";
+import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { buildAlbumSubtitle, EMPTY_THUMB } from "@/lib/catalog/album";
+import { AlbumTracksEmptyState } from "@/components/catalog/EmptyState";
+import { MetricPill } from "@/components/catalog/MetricPill";
 import {
   ActionButton,
   DetailHero,
-} from "../../catalog/components/SurfaceHeader";
-import { TrackRow } from "../../catalog/components/TrackRow";
-import { selectDetail, selectValueQuery } from "../../catalog/query-state";
+} from "@/components/catalog/SurfaceHeader";
+import { TrackRow } from "@/components/catalog/TrackRow";
+import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
 const albumDetailRouteApi = getRouteApi("/albums_/$albumId");
 
@@ -49,7 +49,7 @@ export function AlbumDetailPage() {
     (state) => selectDetail(getDetailRecord(state.albumVariants, albumId)),
     () => catalogLoaderClient.refetchAlbum(albumId),
   );
-  const trackQuery = useStoreInfiniteQuery(
+  const trackQuery = useStoreInfiniteQuery<AlbumTrackItem>(
     (state) =>
       selectValueQuery<AlbumTrackItem>(
         state,
@@ -186,10 +186,15 @@ export function AlbumDetailPage() {
       />
 
       {variants.data && variants.data.length > 0 && (
-        <div className="flex flex-wrap gap-2 rounded-[1.4rem] border border-white/8 bg-black/10 p-3">
+        <div className="flex flex-wrap gap-2 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
           {variants.data.map((variant: AlbumVariantItem) => (
             <button
-              className={`variant-chip ${variant.AlbumID === selectedVariantId ? "is-active" : ""}`}
+              className={[
+                "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition",
+                variant.AlbumID === selectedVariantId
+                  ? "border-zinc-500 bg-zinc-800 text-zinc-50"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800",
+              ].join(" ")}
               key={variant.AlbumID}
               onClick={() => {
                 setSelectedVariantId(variant.AlbumID);
@@ -197,7 +202,9 @@ export function AlbumDetailPage() {
               type="button"
             >
               <span>{variant.Edition || variant.Title}</span>
-              {variant.Year && <small>{variant.Year}</small>}
+              {variant.Year && (
+                <small className="text-xs text-zinc-500">{variant.Year}</small>
+              )}
             </button>
           ))}
         </div>
@@ -234,3 +241,5 @@ export function AlbumDetailPage() {
     </div>
   );
 }
+
+

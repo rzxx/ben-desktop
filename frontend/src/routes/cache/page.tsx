@@ -8,13 +8,13 @@ import {
   ShieldAlert,
   Trash2,
 } from "lucide-react";
-import { Types } from "../../shared/lib/desktop";
-import { formatBytes, formatRelativeDate } from "../../shared/lib/format";
+import { Types } from "@/lib/api";
+import { formatBytes, formatRelativeDate } from "@/lib/format";
 import {
   entryTarget,
   formatDateTime,
   useCachePage,
-} from "./hooks/useCachePage";
+} from "@/hooks/cache/useCachePage";
 
 function kindLabel(kind: string) {
   switch (kind) {
@@ -89,7 +89,7 @@ export function CachePage() {
             </div>
           </div>
           <button
-            className="action-button"
+            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
             onClick={() => {
               void refresh();
             }}
@@ -222,7 +222,7 @@ export function CachePage() {
 
               <div className="mt-5 flex flex-wrap gap-3">
                 <button
-                  className="action-button is-primary"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
                   disabled={pendingAction === "cleanup-over-limit"}
                   onClick={() => {
                     void runCleanup(
@@ -239,7 +239,7 @@ export function CachePage() {
                   <span>Trim over limit</span>
                 </button>
                 <button
-                  className="action-button"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                   disabled={pendingAction === "cleanup-unpinned"}
                   onClick={() => {
                     void runCleanup(
@@ -327,7 +327,7 @@ export function CachePage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
-                  className="action-button"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                   disabled={offset <= 0}
                   onClick={() => {
                     setOffset((current) => Math.max(0, current - pageSize));
@@ -337,7 +337,7 @@ export function CachePage() {
                   Previous
                 </button>
                 <button
-                  className="action-button"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                   disabled={!state.page?.HasMore}
                   onClick={() => {
                     setOffset(state.page?.NextOffset ?? offset);
@@ -404,7 +404,7 @@ export function CachePage() {
                         </div>
 
                         <button
-                          className="action-button"
+                          className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                           disabled={
                             entry.Pinned ||
                             pendingAction === `delete:${entry.BlobID}`
@@ -465,3 +465,5 @@ function StatCard({
     </div>
   );
 }
+
+

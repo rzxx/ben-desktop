@@ -1,5 +1,5 @@
 import { createHashHistory, createRouter } from "@tanstack/react-router";
-import { catalogLoaderClient } from "../../features/library/catalog-loader-client";
+import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import { routeTree } from "../../routeTree.gen";
 import { PendingRouteView } from "./PendingRouteView";
 
@@ -18,3 +18,4 @@ declare module "@tanstack/react-router" {
     router: typeof router;
   }
 }
+

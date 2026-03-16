@@ -6,13 +6,13 @@ import {
   RefreshCw,
   UsersRound,
 } from "lucide-react";
-import { formatCount, formatRelativeDate } from "../../shared/lib/format";
-import { MetricPill } from "../catalog/components/MetricPill";
+import { formatCount, formatRelativeDate } from "@/lib/format";
+import { MetricPill } from "@/components/catalog/MetricPill";
 import {
   formatDateTime,
   normalizeLibraryRole,
   useLibrariesPage,
-} from "./hooks/useLibrariesPage";
+} from "@/hooks/library/useLibrariesPage";
 
 function EmptyState({
   body,
@@ -97,7 +97,7 @@ export function LibrariesPage() {
             </div>
           </div>
           <button
-            className="action-button"
+            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
             onClick={() => {
               void refresh();
             }}
@@ -135,7 +135,7 @@ export function LibrariesPage() {
             value={createName}
           />
           <button
-            className="action-button is-primary"
+            className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
             disabled={pendingAction === "create-library"}
             type="submit"
           >
@@ -224,7 +224,7 @@ export function LibrariesPage() {
                       </div>
                       {!isActive && (
                         <button
-                          className="action-button is-primary"
+                          className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
                           disabled={
                             pendingAction === `select:${library.LibraryID}`
                           }
@@ -313,14 +313,14 @@ export function LibrariesPage() {
                     value={renameName}
                   />
                   <button
-                    className="action-button"
+                    className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                     disabled={!canManage || pendingAction === "rename-library"}
                     type="submit"
                   >
                     <span>Rename</span>
                   </button>
                   <button
-                    className="action-button"
+                    className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                     disabled={pendingAction === "leave-library"}
                     onClick={() => {
                       void runAction(
@@ -334,7 +334,7 @@ export function LibrariesPage() {
                     <span>Leave</span>
                   </button>
                   <button
-                    className="action-button"
+                    className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                     disabled={!canManage || pendingAction === "delete-library"}
                     onClick={() => {
                       if (
@@ -429,7 +429,7 @@ export function LibrariesPage() {
                             ))}
                           </select>
                           <button
-                            className="action-button"
+                            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                             disabled={
                               !canManage ||
                               isLocalDevice ||
@@ -473,3 +473,6 @@ export function LibrariesPage() {
     </div>
   );
 }
+
+
+

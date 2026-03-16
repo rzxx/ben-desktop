@@ -1,31 +1,31 @@
 import { getRouteApi } from "@tanstack/react-router";
 import { Play, Plus } from "lucide-react";
-import type { PlaylistTrackItem } from "../../../shared/lib/desktop";
+import type { PlaylistTrackItem } from "@/lib/api";
 import {
   formatCount,
   formatRelativeDate,
   joinArtists,
-} from "../../../shared/lib/format";
-import { VirtualRows } from "../../../shared/ui/VirtualRows";
-import { catalogLoaderClient } from "../../../features/library/catalog-loader-client";
+} from "@/lib/format";
+import { VirtualRows } from "@/components/ui/VirtualRows";
+import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import {
   getDetailRecord,
   getValueQuery,
   useCatalogStore,
-} from "../../../features/library/catalog-store";
+} from "@/stores/catalog/store";
 import {
   useStoreInfiniteQuery,
   useStoreQuery,
-} from "../../../features/library/use-store-query";
-import { usePlaybackStore } from "../../../features/playback/store";
-import { TracksEmptyState } from "../../catalog/components/EmptyState";
-import { MetricPill } from "../../catalog/components/MetricPill";
+} from "@/hooks/catalog/useCatalogQuery";
+import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { TracksEmptyState } from "@/components/catalog/EmptyState";
+import { MetricPill } from "@/components/catalog/MetricPill";
 import {
   ActionButton,
   DetailHero,
-} from "../../catalog/components/SurfaceHeader";
-import { TrackRow } from "../../catalog/components/TrackRow";
-import { selectDetail, selectValueQuery } from "../../catalog/query-state";
+} from "@/components/catalog/SurfaceHeader";
+import { TrackRow } from "@/components/catalog/TrackRow";
+import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
 const playlistDetailRouteApi = getRouteApi("/playlists_/$playlistId");
 
@@ -42,7 +42,7 @@ export function PlaylistDetailPage() {
       selectDetail(getDetailRecord(state.playlistSummaries, playlistId)),
     () => catalogLoaderClient.refetchPlaylist(playlistId),
   );
-  const trackQuery = useStoreInfiniteQuery(
+  const trackQuery = useStoreInfiniteQuery<PlaylistTrackItem>(
     (state) =>
       selectValueQuery<PlaylistTrackItem>(
         state,
@@ -144,3 +144,5 @@ export function PlaylistDetailPage() {
     </div>
   );
 }
+
+

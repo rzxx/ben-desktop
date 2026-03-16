@@ -1,20 +1,20 @@
-import type { PlaylistListItem } from "../../shared/lib/desktop";
-import { formatCount } from "../../shared/lib/format";
-import { VirtualRows } from "../../shared/ui/VirtualRows";
-import { catalogLoaderClient } from "../../features/library/catalog-loader-client";
+import type { PlaylistListItem } from "@/lib/api";
+import { formatCount } from "@/lib/format";
+import { VirtualRows } from "@/components/ui/VirtualRows";
+import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import {
   getIdQuery,
   useCatalogStore,
-} from "../../features/library/catalog-store";
-import { useStoreInfiniteQuery } from "../../features/library/use-store-query";
-import { PlaylistCard } from "../catalog/components/Cards";
-import { PlaylistEmptyState } from "../catalog/components/EmptyState";
-import { MetricPill } from "../catalog/components/MetricPill";
-import { PageHeader } from "../catalog/components/SurfaceHeader";
-import { selectEntityQuery } from "../catalog/query-state";
+} from "@/stores/catalog/store";
+import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
+import { PlaylistCard } from "@/components/catalog/Cards";
+import { PlaylistEmptyState } from "@/components/catalog/EmptyState";
+import { MetricPill } from "@/components/catalog/MetricPill";
+import { PageHeader } from "@/components/catalog/SurfaceHeader";
+import { selectEntityQuery } from "@/stores/catalog/query-state";
 
 export function PlaylistsPage() {
-  const query = useStoreInfiniteQuery(
+  const query = useStoreInfiniteQuery<PlaylistListItem>(
     (state) =>
       selectEntityQuery<PlaylistListItem>(
         state,
@@ -68,3 +68,5 @@ export function PlaylistsPage() {
     </div>
   );
 }
+
+

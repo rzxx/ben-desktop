@@ -1,20 +1,20 @@
-import type { AlbumListItem } from "../../shared/lib/desktop";
-import { formatCount } from "../../shared/lib/format";
-import { VirtualCardGrid } from "../../shared/ui/VirtualCardGrid";
-import { catalogLoaderClient } from "../../features/library/catalog-loader-client";
+import type { AlbumListItem } from "@/lib/api";
+import { formatCount } from "@/lib/format";
+import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
+import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import {
   getIdQuery,
   useCatalogStore,
-} from "../../features/library/catalog-store";
-import { useStoreInfiniteQuery } from "../../features/library/use-store-query";
-import { AlbumCard } from "../catalog/components/Cards";
-import { AlbumsEmptyState } from "../catalog/components/EmptyState";
-import { MetricPill } from "../catalog/components/MetricPill";
-import { PageHeader } from "../catalog/components/SurfaceHeader";
-import { selectEntityQuery } from "../catalog/query-state";
+} from "@/stores/catalog/store";
+import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
+import { AlbumCard } from "@/components/catalog/Cards";
+import { AlbumsEmptyState } from "@/components/catalog/EmptyState";
+import { MetricPill } from "@/components/catalog/MetricPill";
+import { PageHeader } from "@/components/catalog/SurfaceHeader";
+import { selectEntityQuery } from "@/stores/catalog/query-state";
 
 export function AlbumsPage() {
-  const query = useStoreInfiniteQuery(
+  const query = useStoreInfiniteQuery<AlbumListItem>(
     (state) =>
       selectEntityQuery<AlbumListItem>(
         state,
@@ -70,3 +70,5 @@ export function AlbumsPage() {
     </div>
   );
 }
+
+

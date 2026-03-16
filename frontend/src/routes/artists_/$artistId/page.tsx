@@ -1,21 +1,21 @@
 import { getRouteApi } from "@tanstack/react-router";
-import type { AlbumListItem } from "../../../shared/lib/desktop";
-import { formatCount } from "../../../shared/lib/format";
-import { VirtualCardGrid } from "../../../shared/ui/VirtualCardGrid";
-import { catalogLoaderClient } from "../../../features/library/catalog-loader-client";
+import type { AlbumListItem } from "@/lib/api";
+import { formatCount } from "@/lib/format";
+import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
+import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import {
   getDetailRecord,
   getValueQuery,
   useCatalogStore,
-} from "../../../features/library/catalog-store";
+} from "@/stores/catalog/store";
 import {
   useStoreInfiniteQuery,
   useStoreQuery,
-} from "../../../features/library/use-store-query";
-import { AlbumCard } from "../../catalog/components/Cards";
-import { AlbumsEmptyState } from "../../catalog/components/EmptyState";
-import { MetricPill } from "../../catalog/components/MetricPill";
-import { selectDetail, selectValueQuery } from "../../catalog/query-state";
+} from "@/hooks/catalog/useCatalogQuery";
+import { AlbumCard } from "@/components/catalog/Cards";
+import { AlbumsEmptyState } from "@/components/catalog/EmptyState";
+import { MetricPill } from "@/components/catalog/MetricPill";
+import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
 const artistDetailRouteApi = getRouteApi("/artists_/$artistId");
 
@@ -25,7 +25,7 @@ export function ArtistDetailPage() {
     (state) => selectDetail(getDetailRecord(state.artistDetails, artistId)),
     () => catalogLoaderClient.refetchArtist(artistId),
   );
-  const albumQuery = useStoreInfiniteQuery(
+  const albumQuery = useStoreInfiniteQuery<AlbumListItem>(
     (state) =>
       selectValueQuery<AlbumListItem>(state, `artistAlbums:${artistId}`),
     {
@@ -97,3 +97,5 @@ export function ArtistDetailPage() {
     </div>
   );
 }
+
+

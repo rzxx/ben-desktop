@@ -1,32 +1,32 @@
-import type { LikedRecordingItem } from "../../../shared/lib/desktop";
+import type { LikedRecordingItem } from "@/lib/api";
 import {
   formatCount,
   formatRelativeDate,
   joinArtists,
-} from "../../../shared/lib/format";
-import { VirtualRows } from "../../../shared/ui/VirtualRows";
-import { catalogLoaderClient } from "../../../features/library/catalog-loader-client";
+} from "@/lib/format";
+import { VirtualRows } from "@/components/ui/VirtualRows";
+import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import {
   getValueQuery,
   useCatalogStore,
-} from "../../../features/library/catalog-store";
-import { useStoreInfiniteQuery } from "../../../features/library/use-store-query";
-import { usePlaybackStore } from "../../../features/playback/store";
-import { TracksEmptyState } from "../../catalog/components/EmptyState";
-import { MetricPill } from "../../catalog/components/MetricPill";
+} from "@/stores/catalog/store";
+import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
+import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { TracksEmptyState } from "@/components/catalog/EmptyState";
+import { MetricPill } from "@/components/catalog/MetricPill";
 import {
   ActionButton,
   DetailHero,
-} from "../../catalog/components/SurfaceHeader";
-import { TrackRow } from "../../catalog/components/TrackRow";
-import { selectValueQuery } from "../../catalog/query-state";
+} from "@/components/catalog/SurfaceHeader";
+import { TrackRow } from "@/components/catalog/TrackRow";
+import { selectValueQuery } from "@/stores/catalog/query-state";
 import { Play } from "lucide-react";
 
 export function LikedPlaylistPage() {
   const playLiked = usePlaybackStore((state) => state.playLiked);
   const playLikedTrack = usePlaybackStore((state) => state.playLikedTrack);
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
-  const query = useStoreInfiniteQuery(
+  const query = useStoreInfiniteQuery<LikedRecordingItem>(
     (state) => selectValueQuery<LikedRecordingItem>(state, "liked"),
     {
       fetchNextPage: () => {
@@ -102,3 +102,5 @@ export function LikedPlaylistPage() {
     </div>
   );
 }
+
+

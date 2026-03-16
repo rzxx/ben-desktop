@@ -36,8 +36,8 @@ import {
   startFinalizeJoinSession,
   startJoinFromInvite,
   subscribeJobEvents,
-} from "../../shared/lib/desktop";
-import { formatRelativeDate } from "../../shared/lib/format";
+} from "@/lib/api";
+import { formatRelativeDate } from "@/lib/format";
 
 const inviteExpiryHourOptions = [1, 6, 24, 72];
 const inviteRoles = ["guest", "member", "admin"] as const;
@@ -325,7 +325,7 @@ export function SharingPage() {
             </div>
           </div>
           <button
-            className="action-button"
+            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
             onClick={() => {
               void refresh();
             }}
@@ -387,7 +387,7 @@ export function SharingPage() {
               />
             </label>
             <button
-              className="action-button is-primary"
+              className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
               disabled={!peerAddress.trim() || pendingAction === "connect-peer"}
               onClick={() => {
                 void runAction("connect-peer", async () => {
@@ -481,7 +481,7 @@ export function SharingPage() {
             </label>
             <div className="flex flex-wrap gap-3">
               <button
-                className="action-button is-primary"
+                className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
                 disabled={!inviteCode.trim() || pendingAction === "start-join"}
                 onClick={() => {
                   void runAction("start-join", async () => {
@@ -501,7 +501,7 @@ export function SharingPage() {
                 <span>Start join</span>
               </button>
               <button
-                className="action-button"
+                className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                 disabled={
                   !trackedSessionId.trim() ||
                   pendingAction === "refresh-session"
@@ -550,7 +550,7 @@ export function SharingPage() {
             </div>
             <div className="flex flex-wrap gap-3">
               <button
-                className="action-button"
+                className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                 onClick={() => {
                   void copyText(state.trackedSession?.SessionID ?? "")
                     .then(() => {
@@ -566,7 +566,7 @@ export function SharingPage() {
                 <span>Copy session id</span>
               </button>
               <button
-                className="action-button is-primary"
+                className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
                 disabled={
                   normalizeRole(state.trackedSession.Status) !== "approved" ||
                   pendingAction === "finalize-session"
@@ -585,7 +585,7 @@ export function SharingPage() {
                 <span>Finalize join</span>
               </button>
               <button
-                className="action-button"
+                className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                 disabled={
                   normalizeRole(state.trackedSession.Status) === "completed" ||
                   pendingAction === "cancel-session"
@@ -727,7 +727,7 @@ export function SharingPage() {
 
               <div className="mt-4 flex flex-wrap gap-3">
                 <button
-                  className="action-button is-primary"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
                   disabled={!manageLibrary || pendingAction === "create-invite"}
                   onClick={() => {
                     void runAction("create-invite", async () => {
@@ -773,7 +773,7 @@ export function SharingPage() {
                       </p>
                     </div>
                     <button
-                      className="action-button"
+                      className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                       onClick={() => {
                         void copyText(latestInvite.InviteCode)
                           .then(() => {
@@ -875,7 +875,7 @@ export function SharingPage() {
                               ))}
                             </select>
                             <button
-                              className="action-button is-primary"
+                              className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
                               disabled={
                                 pendingAction === `approve:${request.RequestID}`
                               }
@@ -901,7 +901,7 @@ export function SharingPage() {
                               <span>Approve</span>
                             </button>
                             <button
-                              className="action-button"
+                              className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                               disabled={
                                 pendingAction === `reject:${request.RequestID}`
                               }
@@ -984,7 +984,7 @@ export function SharingPage() {
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button
-                          className="action-button"
+                          className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                           onClick={() => {
                             void copyText(invite.InviteCode)
                               .then(() => {
@@ -1000,7 +1000,7 @@ export function SharingPage() {
                           <span>Copy</span>
                         </button>
                         <button
-                          className="action-button"
+                          className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
                           disabled={
                             !manageLibrary ||
                             normalizeRole(invite.Status) !== "active" ||
@@ -1057,3 +1057,5 @@ export function SharingPage() {
     </div>
   );
 }
+
+
