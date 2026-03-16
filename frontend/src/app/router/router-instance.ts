@@ -1,13 +1,13 @@
 import { createHashHistory, createRouter } from "@tanstack/react-router";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import { routeTree } from "../../routeTree.gen";
-import { PendingRouteView } from "./PendingRouteView";
+import { RouterPendingView } from "./RouterPendingView";
 
 export const router = createRouter({
   context: {
     catalog: catalogLoaderClient,
   },
-  defaultPendingComponent: PendingRouteView,
+  defaultPendingComponent: RouterPendingView,
   history: createHashHistory(),
   routeTree,
   scrollRestoration: true,

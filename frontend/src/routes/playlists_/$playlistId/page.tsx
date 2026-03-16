@@ -1,6 +1,6 @@
 import { getRouteApi } from "@tanstack/react-router";
 import { Play, Plus } from "lucide-react";
-import type { PlaylistTrackItem } from "@/lib/api";
+import type { PlaylistTrackItem } from "@/lib/api/models";
 import {
   formatCount,
   formatRelativeDate,
@@ -17,7 +17,7 @@ import {
   useStoreInfiniteQuery,
   useStoreQuery,
 } from "@/hooks/catalog/useCatalogQuery";
-import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { usePlaybackStore } from "@/stores/playback/store";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import {

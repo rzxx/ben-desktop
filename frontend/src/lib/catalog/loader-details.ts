@@ -2,13 +2,13 @@ import type {
   AlbumListItem,
   AlbumTrackItem,
   PlaylistTrackItem,
-} from "@/lib/api";
+} from "@/lib/api/models";
 import {
   getAlbum,
   getArtist,
   getPlaylistSummary,
   listAlbumVariants,
-} from "@/lib/api";
+} from "@/lib/api/catalog";
 import {
   getDetailRecord,
   getValueQuery,

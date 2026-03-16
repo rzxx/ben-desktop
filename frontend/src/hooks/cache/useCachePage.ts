@@ -5,15 +5,15 @@ import type {
   LibrarySummary,
   LocalContext,
   PageInfo,
-} from "@/lib/api";
+} from "@/lib/api/models";
 import {
-  Types,
   cleanupCache,
-  getActiveLibrary,
   getCacheOverview,
-  getLocalContext,
   listCacheEntries,
-} from "@/lib/api";
+} from "@/lib/api/cache";
+import { getActiveLibrary } from "@/lib/api/library";
+import { getLocalContext } from "@/lib/api/network";
+import { Types } from "@/lib/api/models";
 import { formatBytes } from "@/lib/format";
 
 const pageSize = 80;
@@ -40,22 +40,6 @@ const initialState: CacheState = {
 
 function describeError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
-}
-
-export function formatDateTime(value?: Date | string | null) {
-  if (!value) {
-    return "No activity";
-  }
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "No activity";
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-  }).format(date);
 }
 
 export function entryTarget(entry: CacheEntryItem) {

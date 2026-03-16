@@ -12,12 +12,12 @@ import { Badge } from "@/components/ui/Badge";
 import { IconButton } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { formatDuration } from "@/lib/format";
-import { useRecordingArtworkUrl } from "@/lib/media/useRecordingArtworkUrl";
+import { useRecordingArtworkUrl } from "@/hooks/media/useRecordingArtworkUrl";
 import {
   playbackLoadingLabel,
   playbackLoadingDescription,
 } from "@/lib/playback/loading-state";
-import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { usePlaybackStore } from "@/stores/playback/store";
 
 function nextRepeatMode(mode: string) {
   switch (mode) {

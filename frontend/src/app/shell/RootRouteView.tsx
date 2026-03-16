@@ -1,5 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
-import { AppShell } from "@/components/layout/AppShell";
+import { AppShell } from "./AppShell";
 
 export function RootNotFoundView() {
   return (
@@ -18,4 +18,3 @@ export function RootRouteView() {
     </AppShell>
   );
 }
-

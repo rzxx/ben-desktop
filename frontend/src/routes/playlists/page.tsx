@@ -1,4 +1,4 @@
-import type { PlaylistListItem } from "@/lib/api";
+import type { PlaylistListItem } from "@/lib/api/models";
 import { formatCount } from "@/lib/format";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";

@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { PageInfo } from "@/lib/api";
+import type { PageInfo } from "@/lib/api/models";
 import { useShallow } from "zustand/react/shallow";
 import { useCatalogStore, type CatalogStore } from "@/stores/catalog/store";
 

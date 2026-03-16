@@ -1,4 +1,4 @@
-import type { ArtistListItem } from "@/lib/api";
+import type { ArtistListItem } from "@/lib/api/models";
 import { formatCount } from "@/lib/format";
 import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";

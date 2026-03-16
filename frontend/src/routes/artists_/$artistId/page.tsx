@@ -1,5 +1,5 @@
 import { getRouteApi } from "@tanstack/react-router";
-import type { AlbumListItem } from "@/lib/api";
+import type { AlbumListItem } from "@/lib/api/models";
 import { formatCount } from "@/lib/format";
 import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";

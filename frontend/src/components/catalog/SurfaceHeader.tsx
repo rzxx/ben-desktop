@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { Button } from "@/components/ui/Button";
-import { useThumbnailUrl } from "@/lib/media/useThumbnailUrl";
-import type { ArtworkRef } from "@/lib/api";
+import { useThumbnailUrl } from "@/hooks/media/useThumbnailUrl";
+import type { ArtworkRef } from "@/lib/api/models";
 
 export function ActionButton({
   icon,

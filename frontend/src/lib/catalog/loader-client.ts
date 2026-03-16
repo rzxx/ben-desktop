@@ -2,7 +2,7 @@ import {
   listAlbumsPage,
   listArtistsPage,
   listPlaylistsPage,
-} from "@/lib/api";
+} from "@/lib/api/catalog";
 import { getIdQuery, getValueQuery, useCatalogStore } from "@/stores/catalog/store";
 import {
   ensureAlbumRoute,

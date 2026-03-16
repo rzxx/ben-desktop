@@ -1,7 +1,7 @@
 import { LoaderCircle } from "lucide-react";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
-import { useRecordingArtworkUrl } from "@/lib/media/useRecordingArtworkUrl";
-import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { useRecordingArtworkUrl } from "@/hooks/media/useRecordingArtworkUrl";
+import { usePlaybackStore } from "@/stores/playback/store";
 import {
   playbackLoadingDescription,
   playbackLoadingLabel,

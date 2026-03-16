@@ -8,7 +8,7 @@ import type {
   PlaylistListItem,
   PlaylistTrackItem,
   RecordingListItem,
-} from "@/lib/api";
+} from "@/lib/api/models";
 
 export type QueryStatus = "idle" | "loading" | "success" | "error";
 

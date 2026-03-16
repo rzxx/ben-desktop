@@ -1,6 +1,6 @@
 import { ListMusic, Trash2 } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/Button";
-import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { usePlaybackStore } from "@/stores/playback/store";
 import { formatDuration } from "@/lib/format";
 
 export function QueueSidebar() {

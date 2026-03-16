@@ -1,4 +1,4 @@
-import type { PlaybackPreparationStatus } from "@/lib/api";
+import type { PlaybackPreparationStatus } from "@/lib/api/models";
 
 export function playbackLoadingLabel(
   status?: PlaybackPreparationStatus | null,

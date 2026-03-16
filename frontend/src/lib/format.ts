@@ -52,6 +52,22 @@ export function formatRelativeDate(value?: Date | string | null) {
   }).format(date);
 }
 
+export function formatDateTime(value?: Date | string | null) {
+  if (!value) {
+    return "No activity";
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "No activity";
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
 export function artistLetter(name: string) {
   const match = name.trim().match(/[A-Za-z0-9]/);
   return match ? match[0]!.toUpperCase() : "#";

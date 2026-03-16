@@ -5,10 +5,10 @@ import type {
   AlbumListItem,
   AlbumTrackItem,
   AlbumVariantItem,
-} from "@/lib/api";
-import { resolveAlbumArtworkURL } from "@/lib/api";
+} from "@/lib/api/models";
+import { resolveAlbumArtworkURL } from "@/lib/api/playback";
 import { formatCount, joinArtists } from "@/lib/format";
-import { useResolvedUrl } from "@/lib/media/useThumbnailUrl";
+import { useResolvedUrl } from "@/hooks/media/useResolvedUrl";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import {
@@ -20,7 +20,7 @@ import {
   useStoreInfiniteQuery,
   useStoreQuery,
 } from "@/hooks/catalog/useCatalogQuery";
-import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { usePlaybackStore } from "@/stores/playback/store";
 import { buildAlbumSubtitle, EMPTY_THUMB } from "@/lib/catalog/album";
 import { AlbumTracksEmptyState } from "@/components/catalog/EmptyState";
 import { MetricPill } from "@/components/catalog/MetricPill";

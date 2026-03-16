@@ -5,14 +5,14 @@ import type {
   PageInfo,
   PlaylistTrackItem,
   RecordingListItem,
-} from "@/lib/api";
+} from "@/lib/api/models";
 import {
   listAlbumTracksPage,
   listArtistAlbumsPage,
   listLikedRecordingsPage,
   listPlaylistTracksPage,
   listTracksPage,
-} from "@/lib/api";
+} from "@/lib/api/catalog";
 import { getIdQuery, getValueQuery, useCatalogStore } from "@/stores/catalog/store";
 import {
   dedupeRequest,

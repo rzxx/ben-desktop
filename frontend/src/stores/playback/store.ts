@@ -1,7 +1,30 @@
 import { Events } from "@wailsio/runtime";
 import { create } from "zustand";
-import * as PlaybackService from "../../../bindings/ben/desktop/playbackservice";
-import { PlaybackModels, type SessionSnapshot } from "@/lib/api";
+import {
+  clearQueue,
+  getPlaybackSnapshot,
+  nextTrack,
+  playAlbum,
+  playAlbumTrack,
+  playLiked,
+  playLikedTrack,
+  playPlaylist,
+  playPlaylistTrack,
+  playRecording,
+  previousTrack,
+  queueAlbum,
+  queuePlaylist,
+  queueRecording,
+  removeQueuedEntry,
+  selectQueueEntry,
+  setRepeatMode,
+  setShuffle,
+  setVolume,
+  seekTo,
+  subscribePlaybackEvents,
+  togglePlayback,
+} from "@/lib/api/playback";
+import { PlaybackModels, type SessionSnapshot } from "@/lib/api/models";
 
 type PlaybackStore = {
   error: string;
@@ -87,15 +110,15 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
     }
     set({ started: true });
 
-    const eventName = await PlaybackService.SubscribePlaybackEvents();
+    const eventName = await subscribePlaybackEvents();
     const stopListening = Events.On(eventName, (event) => {
       get().setSnapshot(PlaybackModels.SessionSnapshot.createFrom(event.data));
     });
     set({ stopListening });
 
     await applySnapshot(
-      () => PlaybackService.GetPlaybackSnapshot(),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      getPlaybackSnapshot,
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
@@ -111,166 +134,162 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
 
   togglePlayback: async () => {
     await applySnapshot(
-      () => PlaybackService.TogglePlayback(),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      togglePlayback,
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   next: async () => {
     await applySnapshot(
-      () => PlaybackService.Next(),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      nextTrack,
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   previous: async () => {
     await applySnapshot(
-      () => PlaybackService.Previous(),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      previousTrack,
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   seekTo: async (positionMs) => {
     await applySnapshot(
-      () => PlaybackService.SeekTo(Math.max(0, Math.trunc(positionMs))),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => seekTo(Math.max(0, Math.trunc(positionMs))),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   setVolume: async (volume) => {
     await applySnapshot(
-      () =>
-        PlaybackService.SetVolume(
-          Math.max(0, Math.min(100, Math.trunc(volume))),
-        ),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => setVolume(Math.max(0, Math.min(100, Math.trunc(volume)))),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   setShuffle: async (enabled) => {
     await applySnapshot(
-      () => PlaybackService.SetShuffle(enabled),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => setShuffle(enabled),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   setRepeatMode: async (mode) => {
     await applySnapshot(
-      () => PlaybackService.SetRepeatMode(mode),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => setRepeatMode(mode),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   playAlbum: async (albumId) => {
     await applySnapshot(
-      () => PlaybackService.PlayAlbum(albumId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => playAlbum(albumId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   playAlbumTrack: async (albumId, recordingId) => {
     await applySnapshot(
-      () => PlaybackService.PlayAlbumTrack(albumId, recordingId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => playAlbumTrack(albumId, recordingId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   queueAlbum: async (albumId) => {
     await applySnapshot(
-      () => PlaybackService.QueueAlbum(albumId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => queueAlbum(albumId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   playPlaylist: async (playlistId) => {
     await applySnapshot(
-      () => PlaybackService.PlayPlaylist(playlistId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => playPlaylist(playlistId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   playPlaylistTrack: async (playlistId, itemId) => {
     await applySnapshot(
-      () => PlaybackService.PlayPlaylistTrack(playlistId, itemId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => playPlaylistTrack(playlistId, itemId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   queuePlaylist: async (playlistId) => {
     await applySnapshot(
-      () => PlaybackService.QueuePlaylist(playlistId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => queuePlaylist(playlistId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   playRecording: async (recordingId) => {
     await applySnapshot(
-      () => PlaybackService.PlayRecording(recordingId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => playRecording(recordingId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   queueRecording: async (recordingId) => {
     await applySnapshot(
-      () => PlaybackService.QueueRecording(recordingId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => queueRecording(recordingId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   playLiked: async () => {
     await applySnapshot(
-      () => PlaybackService.PlayLiked(),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      playLiked,
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   playLikedTrack: async (recordingId) => {
     await applySnapshot(
-      () => PlaybackService.PlayLikedTrack(recordingId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => playLikedTrack(recordingId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   selectEntry: async (entryId) => {
     await applySnapshot(
-      () => PlaybackService.SelectEntry(entryId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => selectQueueEntry(entryId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   removeQueuedEntry: async (entryId) => {
     await applySnapshot(
-      () => PlaybackService.RemoveQueuedEntry(entryId),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      () => removeQueuedEntry(entryId),
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
   clearQueue: async () => {
     await applySnapshot(
-      () => PlaybackService.ClearQueue(),
-      () => PlaybackService.GetPlaybackSnapshot(),
+      clearQueue,
+      getPlaybackSnapshot,
       get().setSnapshot,
       (error) => set({ error }),
     );
   },
 }));
-

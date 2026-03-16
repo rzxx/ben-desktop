@@ -1,5 +1,5 @@
 import { resolveRecordingArtworkURL } from "@/lib/api/playback";
-import { useResolvedUrl } from "@/lib/media/useThumbnailUrl";
+import { useResolvedUrl } from "./useResolvedUrl";
 
 function recordingArtworkKey(recordingId?: string | null) {
   const trimmed = recordingId?.trim() ?? "";
@@ -16,4 +16,3 @@ export function useRecordingArtworkUrl(recordingId?: string | null) {
     trimmed ? () => resolveRecordingArtworkURL(trimmed, "96_jpeg") : undefined,
   );
 }
-

@@ -1,4 +1,4 @@
-import type { AlbumListItem, ArtworkRef } from "@/lib/api";
+import type { AlbumListItem, ArtworkRef } from "@/lib/api/models";
 import { joinArtists } from "@/lib/format";
 
 export const EMPTY_THUMB: ArtworkRef = {

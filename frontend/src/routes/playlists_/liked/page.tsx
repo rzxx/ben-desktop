@@ -1,4 +1,4 @@
-import type { LikedRecordingItem } from "@/lib/api";
+import type { LikedRecordingItem } from "@/lib/api/models";
 import {
   formatCount,
   formatRelativeDate,
@@ -11,7 +11,7 @@ import {
   useCatalogStore,
 } from "@/stores/catalog/store";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
-import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { usePlaybackStore } from "@/stores/playback/store";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import {

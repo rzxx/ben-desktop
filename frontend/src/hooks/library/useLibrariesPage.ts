@@ -3,12 +3,11 @@ import type {
   LibraryMemberStatus,
   LibrarySummary,
   LocalContext,
-} from "@/lib/api";
+} from "@/lib/api/models";
 import {
   createLibrary,
   deleteLibrary,
   getActiveLibrary,
-  getLocalContext,
   leaveLibrary,
   listLibraries,
   listLibraryMembers,
@@ -16,7 +15,8 @@ import {
   renameLibrary,
   selectLibrary,
   updateLibraryMemberRole,
-} from "@/lib/api";
+} from "@/lib/api/library";
+import { getLocalContext } from "@/lib/api/network";
 
 type LibrariesState = {
   active: LibrarySummary | null;
@@ -47,22 +47,6 @@ function normalizeRole(role: string) {
 export function canManageLibrary(role: string) {
   const normalized = normalizeRole(role);
   return normalized === "owner" || normalized === "admin";
-}
-
-export function formatDateTime(value?: Date | string | null) {
-  if (!value) {
-    return "No activity";
-  }
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "No activity";
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-  }).format(date);
 }
 
 export function normalizeLibraryRole(role: string) {

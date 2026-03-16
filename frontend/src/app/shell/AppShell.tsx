@@ -20,7 +20,7 @@ import { PlaybackLoadingPanel } from "@/components/playback/PlaybackLoadingPanel
 import { PlayerBar } from "@/components/playback/PlayerBar";
 import { QueueSidebar } from "@/components/playback/QueueSidebar";
 import { IconButton } from "@/components/ui/Button";
-import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { usePlaybackStore } from "@/stores/playback/store";
 
 const navItems = [
   { href: "/libraries", icon: FolderCog, label: "Libraries" },

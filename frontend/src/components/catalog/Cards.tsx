@@ -5,7 +5,7 @@ import type {
   AlbumListItem,
   ArtistListItem,
   PlaylistListItem,
-} from "@/lib/api";
+} from "@/lib/api/models";
 import {
   aggregateAvailabilityLabel,
   artistLetter,
@@ -13,9 +13,9 @@ import {
   formatRelativeDate,
   joinArtists,
 } from "@/lib/format";
-import { useThumbnailUrl } from "@/lib/media/useThumbnailUrl";
+import { useThumbnailUrl } from "@/hooks/media/useThumbnailUrl";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
-import { usePlaybackStore } from "@/stores/playback/usePlaybackStore";
+import { usePlaybackStore } from "@/stores/playback/store";
 
 export function AlbumCard({ album }: { album: AlbumListItem }) {
   const artworkUrl = useThumbnailUrl(album.Thumb);
