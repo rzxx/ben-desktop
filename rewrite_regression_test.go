@@ -81,17 +81,52 @@ func TestDesktopRewriteRegression(t *testing.T) {
 		}
 	})
 
-	t.Run("sharing page uses async connect peer", func(t *testing.T) {
-		sharingPage, err := os.ReadFile(filepath.Join("frontend", "src", "routes", "sharing", "page.tsx"))
+	t.Run("sharing frontend uses async connect peer", func(t *testing.T) {
+		var foundAsyncConnect bool
+		err := filepath.WalkDir(filepath.Join("frontend", "src"), func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			switch filepath.Ext(path) {
+			case ".ts", ".tsx":
+			default:
+				return nil
+			}
+
+			raw, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			text := string(raw)
+
+			if strings.Contains(path, filepath.Join("sharing")) && strings.Contains(text, "startConnectPeer(") {
+				foundAsyncConnect = true
+			}
+			if strings.Contains(text, "await connectPeer(") {
+				t.Fatalf("%s still calls blocking connectPeer", path)
+			}
+			return nil
+		})
 		if err != nil {
-			t.Fatalf("read sharing page: %v", err)
+			t.Fatalf("walk frontend/src: %v", err)
 		}
-		text := string(sharingPage)
-		if !strings.Contains(text, "startConnectPeer(") {
-			t.Fatalf("sharing page does not call startConnectPeer")
+		if !foundAsyncConnect {
+			t.Fatalf("sharing frontend does not call startConnectPeer")
 		}
-		if strings.Contains(text, "await connectPeer(") {
-			t.Fatalf("sharing page still calls blocking connectPeer")
+
+		apiLayer, err := os.ReadFile(filepath.Join("frontend", "src", "lib", "api", "network.ts"))
+		if err != nil {
+			t.Fatalf("read network api layer: %v", err)
+		}
+		apiText := string(apiLayer)
+		if !strings.Contains(apiText, "export function startConnectPeer") {
+			t.Fatalf("network api layer is missing startConnectPeer")
+		}
+		if strings.Contains(apiText, "export function connectPeer(") {
+			t.Fatalf("network api layer still exports blocking connectPeer")
 		}
 
 		binding, err := os.ReadFile(filepath.Join("frontend", "bindings", "ben", "desktop", "networkfacade.ts"))
@@ -169,9 +204,10 @@ func TestDesktopRewriteRegression(t *testing.T) {
 				},
 			},
 			{
-				path: filepath.Join("frontend", "src", "shared", "lib", "desktop.ts"),
+				path: filepath.Join("frontend", "src", "lib", "api", "network.ts"),
 				disallows: []string{
 					"export function connectPeer(",
+					"NetworkFacade.ConnectPeer(",
 				},
 			},
 			{
