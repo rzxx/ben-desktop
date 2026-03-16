@@ -22,14 +22,14 @@ export function playbackLoadingDescription(
 ) {
   switch (status?.phase) {
     case "preparing_fetch":
-      return "Fetching audio from another device.";
+      return "Fetching audio from another device...";
     case "preparing_transcode":
-      return "Preparing a playable file.";
+      return "Preparing a playable file...";
     case "ready":
-      return "Sending the track into the player.";
+      return "Sending the track into the player...";
     case "failed":
-      return "Playback preparation failed.";
+      return "Playback preparation failed...";
     default:
-      return "Waiting for playback to become ready.";
+      return "Waiting for playback to become ready...";
   }
 }

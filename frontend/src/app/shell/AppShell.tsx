@@ -63,9 +63,7 @@ export function AppShell({ children }: PropsWithChildren) {
           Math.max(playerBarRect.top, queueSidebarRect.top),
       );
       const queueScrollClearance =
-        overlapWidth > 0
-          ? Math.round(overlapHeight + playerScrollBuffer)
-          : 0;
+        overlapWidth > 0 ? Math.round(overlapHeight + playerScrollBuffer) : 0;
       shell.style.setProperty(
         "--shell-queue-scroll-clearance",
         `${queueScrollClearance}px`,
@@ -94,13 +92,11 @@ export function AppShell({ children }: PropsWithChildren) {
   }, []);
 
   return (
-    <div
-      className="bg-theme-950 text-theme-100 h-screen overflow-hidden"
-      ref={shellRef}
-    >
+    <div className="text-theme-100 h-screen overflow-hidden" ref={shellRef}>
+      <div className="bg-theme-950 fixed -z-100 h-screen w-screen"></div>
       <ThemeRuntime />
       <TitleBar />
-      <div className="pointer-events-none fixed inset-x-0 top-12 z-40 flex justify-end px-6">
+      <div className="pointer-events-none fixed inset-x-0 top-12 right-4 z-40 flex justify-end">
         <PlaybackLoadingPanel className="pointer-events-auto w-full max-w-md" />
       </div>
 
@@ -119,7 +115,7 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
       </main>
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-4">
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
         <div
           className="pointer-events-auto w-full max-w-[min(72rem,calc(100vw-19rem))] max-lg:max-w-none"
           ref={playerBarRef}
