@@ -870,5 +870,3 @@ export function SharingSurface() {
     </div>
   );
 }
-
-

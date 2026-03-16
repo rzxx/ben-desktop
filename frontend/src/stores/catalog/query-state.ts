@@ -108,4 +108,3 @@ export function selectDetail<TEntity>(
     status: record.status,
   };
 }
-

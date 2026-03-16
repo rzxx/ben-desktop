@@ -29,14 +29,14 @@ export function PlaybackLoadingPanel({
     >
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-wide text-zinc-500">
+          <p className="text-xs tracking-wide text-zinc-500 uppercase">
             Loading track
           </p>
           <h2 className="text-lg font-semibold text-zinc-100">
             Preparing playback
           </h2>
         </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs uppercase tracking-wide text-zinc-300">
+        <div className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs tracking-wide text-zinc-300 uppercase">
           <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
           {playbackLoadingLabel(status)}
         </div>
@@ -67,5 +67,3 @@ export function PlaybackLoadingPanel({
     </section>
   );
 }
-
-

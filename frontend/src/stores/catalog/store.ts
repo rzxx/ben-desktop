@@ -297,4 +297,3 @@ export const useCatalogStore = create<CatalogStore>((set) => {
     },
   };
 });
-

@@ -84,7 +84,7 @@ export function PlayerBar() {
             title={currentTitle}
           />
           <div className="min-w-0">
-            <p className="truncate text-xs uppercase tracking-wide text-zinc-500">
+            <p className="truncate text-xs tracking-wide text-zinc-500 uppercase">
               {statusLabel}
             </p>
             <h2 className="truncate text-lg font-semibold text-zinc-100">
@@ -96,16 +96,16 @@ export function PlayerBar() {
                 Requested track is still preparing.
               </p>
             )}
-            {error && (
-              <p className="truncate text-xs text-red-300">{error}</p>
-            )}
+            {error && <p className="truncate text-xs text-red-300">{error}</p>}
           </div>
         </div>
 
         <div className="flex min-w-0 flex-col justify-center gap-3">
           <div className="flex items-center justify-center gap-3">
             <IconButton
-              className={shuffle ? "border-zinc-500 bg-zinc-800 text-zinc-50" : ""}
+              className={
+                shuffle ? "border-zinc-500 bg-zinc-800 text-zinc-50" : ""
+              }
               label="Toggle shuffle"
               onClick={() => {
                 void setShuffle(!shuffle);
@@ -146,7 +146,11 @@ export function PlayerBar() {
               <SkipForward className="h-5 w-5" />
             </IconButton>
             <IconButton
-              className={repeatMode !== "off" ? "border-zinc-500 bg-zinc-800 text-zinc-50" : ""}
+              className={
+                repeatMode !== "off"
+                  ? "border-zinc-500 bg-zinc-800 text-zinc-50"
+                  : ""
+              }
               label="Toggle repeat mode"
               onClick={() => {
                 void setRepeatMode(nextRepeatMode(repeatMode));
@@ -200,5 +204,3 @@ export function PlayerBar() {
     </footer>
   );
 }
-
-

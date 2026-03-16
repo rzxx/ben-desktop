@@ -57,5 +57,3 @@ export function useStoreInfiniteQuery<TItem>(
     refetch,
   };
 }
-
-

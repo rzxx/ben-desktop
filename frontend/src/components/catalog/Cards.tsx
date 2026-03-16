@@ -34,7 +34,7 @@ export function AlbumCard({ album }: { album: AlbumListItem }) {
         <p className="mt-1 truncate text-sm text-zinc-400">
           {joinArtists(album.Artists)}
         </p>
-        <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-wide text-zinc-500">
+        <div className="mt-3 flex items-center justify-between text-xs tracking-wide text-zinc-500 uppercase">
           <span>{formatCount(album.TrackCount, "track")}</span>
           <span>{aggregateAvailabilityLabel(album.Availability)}</span>
         </div>
@@ -85,7 +85,7 @@ export function PlaylistCard({ playlist }: { playlist: PlaylistListItem }) {
             title={playlist.Name}
           />
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-wide text-zinc-500">
+            <p className="text-xs tracking-wide text-zinc-500 uppercase">
               Reserved
             </p>
             <h2 className="truncate text-base font-semibold text-zinc-100">
@@ -110,7 +110,7 @@ export function PlaylistCard({ playlist }: { playlist: PlaylistListItem }) {
             title={playlist.Name}
           />
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-wide text-zinc-500">
+            <p className="text-xs tracking-wide text-zinc-500 uppercase">
               Playlist
             </p>
             <h2 className="truncate text-base font-semibold text-zinc-100">
@@ -151,5 +151,3 @@ export function PlaylistCard({ playlist }: { playlist: PlaylistListItem }) {
     </div>
   );
 }
-
-

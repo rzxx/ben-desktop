@@ -2,10 +2,7 @@ import type { PlaylistListItem } from "@/lib/api/models";
 import { formatCount } from "@/lib/format";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
-import {
-  getIdQuery,
-  useCatalogStore,
-} from "@/stores/catalog/store";
+import { getIdQuery, useCatalogStore } from "@/stores/catalog/store";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { PlaylistCard } from "@/components/catalog/Cards";
 import { PlaylistEmptyState } from "@/components/catalog/EmptyState";
@@ -68,5 +65,3 @@ export function PlaylistsPage() {
     </div>
   );
 }
-
-

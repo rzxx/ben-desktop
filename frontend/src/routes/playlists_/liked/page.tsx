@@ -1,23 +1,13 @@
 import type { LikedRecordingItem } from "@/lib/api/models";
-import {
-  formatCount,
-  formatRelativeDate,
-  joinArtists,
-} from "@/lib/format";
+import { formatCount, formatRelativeDate, joinArtists } from "@/lib/format";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
-import {
-  getValueQuery,
-  useCatalogStore,
-} from "@/stores/catalog/store";
+import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { usePlaybackStore } from "@/stores/playback/store";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
 import { MetricPill } from "@/components/catalog/MetricPill";
-import {
-  ActionButton,
-  DetailHero,
-} from "@/components/catalog/SurfaceHeader";
+import { ActionButton, DetailHero } from "@/components/catalog/SurfaceHeader";
 import { TrackRow } from "@/components/catalog/TrackRow";
 import { selectValueQuery } from "@/stores/catalog/query-state";
 import { Play } from "lucide-react";
@@ -102,5 +92,3 @@ export function LikedPlaylistPage() {
     </div>
   );
 }
-
-

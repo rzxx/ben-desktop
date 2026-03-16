@@ -56,7 +56,7 @@ export function ArtworkTile({
         />
       ) : (
         <div className="flex h-full w-full flex-col justify-between bg-zinc-900 p-4">
-          <span className="text-xs uppercase tracking-wide text-zinc-500">
+          <span className="text-xs tracking-wide text-zinc-500 uppercase">
             {subtitle || "Library"}
           </span>
           <span className="text-4xl font-semibold text-zinc-100">
@@ -67,4 +67,3 @@ export function ArtworkTile({
     </div>
   );
 }
-

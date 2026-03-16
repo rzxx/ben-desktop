@@ -10,10 +10,7 @@ import type {
   LocalContext,
 } from "@/lib/api/models";
 import { DesktopCoreModels } from "@/lib/api/models";
-import {
-  getLocalContext,
-  startConnectPeer,
-} from "@/lib/api/network";
+import { getLocalContext, startConnectPeer } from "@/lib/api/network";
 import { getActiveLibrary } from "@/lib/api/library";
 import {
   getJoinSession,

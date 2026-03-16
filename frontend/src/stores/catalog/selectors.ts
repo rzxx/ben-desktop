@@ -40,4 +40,3 @@ export function getDetailRecord<T>(
 ) {
   return record[id] ?? (EMPTY_DETAIL_RECORD as DetailRecord<T>);
 }
-

@@ -246,10 +246,13 @@ export function useOperationsPage() {
       if (refreshTimerRef.current !== null) {
         window.clearTimeout(refreshTimerRef.current);
       }
-      refreshTimerRef.current = window.setTimeout(() => {
-        refreshTimerRef.current = null;
-        void refresh();
-      }, Math.max(0, delay));
+      refreshTimerRef.current = window.setTimeout(
+        () => {
+          refreshTimerRef.current = null;
+          void refresh();
+        },
+        Math.max(0, delay),
+      );
     },
     [refresh],
   );

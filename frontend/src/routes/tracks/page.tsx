@@ -2,10 +2,7 @@ import type { RecordingListItem } from "@/lib/api/models";
 import { formatCount, joinArtists } from "@/lib/format";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
-import {
-  getValueQuery,
-  useCatalogStore,
-} from "@/stores/catalog/store";
+import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { usePlaybackStore } from "@/stores/playback/store";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
@@ -83,5 +80,3 @@ export function TracksPage() {
     </div>
   );
 }
-
-

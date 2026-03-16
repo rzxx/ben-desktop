@@ -10,10 +10,7 @@ import {
 } from "lucide-react";
 import { Types } from "@/lib/api/models";
 import { formatBytes, formatRelativeDate } from "@/lib/format";
-import {
-  entryTarget,
-  useCachePage,
-} from "@/hooks/cache/useCachePage";
+import { entryTarget, useCachePage } from "@/hooks/cache/useCachePage";
 import { formatDateTime } from "@/lib/format";
 
 function kindLabel(kind: string) {
@@ -465,5 +462,3 @@ function StatCard({
     </div>
   );
 }
-
-

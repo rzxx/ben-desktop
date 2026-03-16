@@ -14,6 +14,8 @@ export function listCacheEntries(offset = 0, limit = DEFAULT_PAGE_SIZE) {
   );
 }
 
-export function cleanupCache(req: InstanceType<typeof Types.CacheCleanupRequest>) {
+export function cleanupCache(
+  req: InstanceType<typeof Types.CacheCleanupRequest>,
+) {
   return CacheFacade.CleanupCache(req);
 }

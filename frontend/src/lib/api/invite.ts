@@ -1,7 +1,9 @@
 import * as InviteFacade from "../../../bindings/ben/desktop/invitefacade";
 import { Types } from "./models";
 
-export function createInviteCode(req: InstanceType<typeof Types.InviteCodeRequest>) {
+export function createInviteCode(
+  req: InstanceType<typeof Types.InviteCodeRequest>,
+) {
   return InviteFacade.CreateInviteCode(req);
 }
 

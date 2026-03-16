@@ -128,4 +128,3 @@ export type CatalogStoreActions = {
 };
 
 export type CatalogStore = CatalogStoreState & CatalogStoreActions;
-

@@ -1,11 +1,7 @@
 import { getRouteApi } from "@tanstack/react-router";
 import { Play, Plus } from "lucide-react";
 import type { PlaylistTrackItem } from "@/lib/api/models";
-import {
-  formatCount,
-  formatRelativeDate,
-  joinArtists,
-} from "@/lib/format";
+import { formatCount, formatRelativeDate, joinArtists } from "@/lib/format";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import {
@@ -20,10 +16,7 @@ import {
 import { usePlaybackStore } from "@/stores/playback/store";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
 import { MetricPill } from "@/components/catalog/MetricPill";
-import {
-  ActionButton,
-  DetailHero,
-} from "@/components/catalog/SurfaceHeader";
+import { ActionButton, DetailHero } from "@/components/catalog/SurfaceHeader";
 import { TrackRow } from "@/components/catalog/TrackRow";
 import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
@@ -144,5 +137,3 @@ export function PlaylistDetailPage() {
     </div>
   );
 }
-
-

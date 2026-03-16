@@ -24,10 +24,7 @@ import { usePlaybackStore } from "@/stores/playback/store";
 import { buildAlbumSubtitle, EMPTY_THUMB } from "@/lib/catalog/album";
 import { AlbumTracksEmptyState } from "@/components/catalog/EmptyState";
 import { MetricPill } from "@/components/catalog/MetricPill";
-import {
-  ActionButton,
-  DetailHero,
-} from "@/components/catalog/SurfaceHeader";
+import { ActionButton, DetailHero } from "@/components/catalog/SurfaceHeader";
 import { TrackRow } from "@/components/catalog/TrackRow";
 import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
@@ -241,5 +238,3 @@ export function AlbumDetailPage() {
     </div>
   );
 }
-
-

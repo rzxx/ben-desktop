@@ -16,4 +16,3 @@ export function buildAlbumSubtitle(album: AlbumListItem) {
   const year = album.Year ? ` • ${album.Year}` : "";
   return `${artists}${year}`;
 }
-

@@ -43,7 +43,7 @@ export function PageHeader({
     <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">
+          <p className="text-xs tracking-wide text-zinc-500 uppercase">
             {eyebrow}
           </p>
           <h1 className="mt-3 text-3xl font-semibold text-zinc-100">{title}</h1>
@@ -88,7 +88,7 @@ export function DetailHero({
           title={title}
         />
         <div className="flex min-w-0 flex-1 flex-col justify-end">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">
+          <p className="text-xs tracking-wide text-zinc-500 uppercase">
             {eyebrow}
           </p>
           <h1 className="mt-3 text-4xl font-semibold text-zinc-100">{title}</h1>
@@ -104,5 +104,3 @@ export function DetailHero({
     </section>
   );
 }
-
-

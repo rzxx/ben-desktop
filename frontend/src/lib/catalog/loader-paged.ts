@@ -13,7 +13,11 @@ import {
   listPlaylistTracksPage,
   listTracksPage,
 } from "@/lib/api/catalog";
-import { getIdQuery, getValueQuery, useCatalogStore } from "@/stores/catalog/store";
+import {
+  getIdQuery,
+  getValueQuery,
+  useCatalogStore,
+} from "@/stores/catalog/store";
 import {
   dedupeRequest,
   describeError,
@@ -195,5 +199,3 @@ export function ensurePlaylistTracksPage(
     (track: PlaylistTrackItem) => track.ItemID,
   );
 }
-
-

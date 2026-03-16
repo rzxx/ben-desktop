@@ -3,7 +3,11 @@ import {
   listArtistsPage,
   listPlaylistsPage,
 } from "@/lib/api/catalog";
-import { getIdQuery, getValueQuery, useCatalogStore } from "@/stores/catalog/store";
+import {
+  getIdQuery,
+  getValueQuery,
+  useCatalogStore,
+} from "@/stores/catalog/store";
 import {
   ensureAlbumRoute,
   ensureArtistRoute,
@@ -177,5 +181,3 @@ export const catalogLoaderClient = {
 };
 
 export type CatalogLoaderClient = typeof catalogLoaderClient;
-
-

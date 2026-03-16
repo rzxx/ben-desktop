@@ -1,8 +1,4 @@
-import type {
-  DetailRecord,
-  IdQueryRecord,
-  ValueQueryRecord,
-} from "./types";
+import type { DetailRecord, IdQueryRecord, ValueQueryRecord } from "./types";
 
 const EMPTY_PAGE_INFO = null;
 const EMPTY_OFFSETS: number[] = [];
@@ -107,4 +103,3 @@ export function mergeItemsByKey<TItem>(
     ...incoming.filter((item) => !existingKeys.has(getItemKey(item))),
   ];
 }
-

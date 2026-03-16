@@ -10,6 +10,10 @@ body {
   margin: 0;
 }
 
-.no-drag {
+.wails-drag {
+  --wails-draggable: drag;
+}
+
+.wails-no-drag {
   --wails-draggable: no-drag;
 }

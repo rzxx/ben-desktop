@@ -18,10 +18,7 @@ import {
   startPublishCheckpoint,
   startSyncNow,
 } from "@/lib/api/network";
-import {
-  startLibraryRescan,
-  startRootRescan,
-} from "@/lib/api/library";
+import { startLibraryRescan, startRootRescan } from "@/lib/api/library";
 import { formatCount, formatDateTime } from "@/lib/format";
 import { useOperationsPage } from "@/hooks/operations/useOperationsPage";
 
@@ -746,5 +743,3 @@ export function OperationsSurface() {
     </div>
   );
 }
-
-

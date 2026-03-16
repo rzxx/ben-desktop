@@ -27,11 +27,13 @@ export function TrackRow({
 
   return (
     <div className="flex h-full items-center gap-4 rounded-md border border-transparent px-3 hover:border-zinc-800 hover:bg-zinc-900">
-      <div className="flex w-16 shrink-0 justify-center text-xs uppercase tracking-wide text-zinc-500">
+      <div className="flex w-16 shrink-0 justify-center text-xs tracking-wide text-zinc-500 uppercase">
         {indexLabel}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-zinc-100">{title}</div>
+        <div className="truncate text-sm font-medium text-zinc-100">
+          {title}
+        </div>
         <div className="truncate text-xs text-zinc-400">{subtitle}</div>
       </div>
       <div className="hidden w-28 shrink-0 justify-center text-xs text-zinc-500 xl:flex">
@@ -59,5 +61,3 @@ export function TrackRow({
     </div>
   );
 }
-
-

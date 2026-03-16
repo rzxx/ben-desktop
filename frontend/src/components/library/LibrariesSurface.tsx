@@ -473,6 +473,3 @@ export function LibrariesSurface() {
     </div>
   );
 }
-
-
-

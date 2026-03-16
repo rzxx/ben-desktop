@@ -2,10 +2,7 @@ import type { ArtistListItem } from "@/lib/api/models";
 import { formatCount } from "@/lib/format";
 import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
-import {
-  getIdQuery,
-  useCatalogStore,
-} from "@/stores/catalog/store";
+import { getIdQuery, useCatalogStore } from "@/stores/catalog/store";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { ArtistCard } from "@/components/catalog/Cards";
 import { ArtistsEmptyState } from "@/components/catalog/EmptyState";
@@ -70,5 +67,3 @@ export function ArtistsPage() {
     </div>
   );
 }
-
-

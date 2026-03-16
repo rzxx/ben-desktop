@@ -19,16 +19,13 @@ export function QueueSidebar() {
     : (snapshot?.upcomingEntries ?? []);
   const activeEntryId =
     snapshot?.loadingEntry?.entryId ?? currentEntry?.entryId ?? "";
-  const hasVisibleEntries =
-    queuedEntries.length > 0 || listEntries.length > 0;
+  const hasVisibleEntries = queuedEntries.length > 0 || listEntries.length > 0;
 
   return (
     <aside className="flex h-full min-h-0 flex-col rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-wide text-zinc-500">
-            Queue
-          </p>
+          <p className="text-xs tracking-wide text-zinc-500 uppercase">Queue</p>
           <h2 className="text-lg font-semibold text-zinc-100">Queue</h2>
         </div>
         <Button
@@ -42,7 +39,7 @@ export function QueueSidebar() {
       </div>
 
       <div className="mb-4 rounded-md border border-zinc-800 bg-zinc-900 p-4">
-        <p className="mb-2 text-xs uppercase tracking-wide text-zinc-500">
+        <p className="mb-2 text-xs tracking-wide text-zinc-500 uppercase">
           Now playing
         </p>
         {currentEntry ? (
@@ -77,7 +74,7 @@ export function QueueSidebar() {
           <div className="space-y-2">
             {queuedEntries.length > 0 && (
               <>
-                <p className="px-2 text-xs uppercase tracking-wide text-zinc-500">
+                <p className="px-2 text-xs tracking-wide text-zinc-500 uppercase">
                   Play next
                 </p>
                 {queuedEntries.map((entry, index) => (
@@ -103,7 +100,7 @@ export function QueueSidebar() {
 
             {contextEntries?.length ? (
               <>
-                <p className="px-2 pt-2 text-xs uppercase tracking-wide text-zinc-500">
+                <p className="px-2 pt-2 text-xs tracking-wide text-zinc-500 uppercase">
                   Context order
                 </p>
                 {contextEntries.map((entry, index) => (
@@ -111,7 +108,11 @@ export function QueueSidebar() {
                     entry={entry}
                     isActive={entry.entryId === activeEntryId}
                     key={entry.entryId}
-                    label={entry.entryId === activeEntryId ? "Current" : `#${index + 1}`}
+                    label={
+                      entry.entryId === activeEntryId
+                        ? "Current"
+                        : `#${index + 1}`
+                    }
                     onSelect={() => {
                       void selectEntry(entry.entryId);
                     }}
@@ -146,7 +147,9 @@ export function QueueSidebar() {
 }
 
 type QueueEntryRowProps = {
-  entry: NonNullable<ReturnType<typeof usePlaybackStore.getState>["snapshot"]>["queuedEntries"][number];
+  entry: NonNullable<
+    ReturnType<typeof usePlaybackStore.getState>["snapshot"]
+  >["queuedEntries"][number];
   isActive: boolean;
   label: string;
   onSelect: () => void;
@@ -169,7 +172,7 @@ function QueueEntryRow(props: QueueEntryRowProps) {
         type="button"
       >
         <span
-          className={`text-xs uppercase tracking-wide ${props.isActive ? "text-zinc-300" : "text-zinc-500"}`}
+          className={`text-xs tracking-wide uppercase ${props.isActive ? "text-zinc-300" : "text-zinc-500"}`}
         >
           {props.label}
         </span>
@@ -179,7 +182,8 @@ function QueueEntryRow(props: QueueEntryRowProps) {
           {props.entry.item.title}
         </span>
         <span className="truncate text-xs text-zinc-400">
-          {props.entry.item.subtitle} • {formatDuration(props.entry.item.durationMs)}
+          {props.entry.item.subtitle} •{" "}
+          {formatDuration(props.entry.item.durationMs)}
         </span>
       </button>
       {props.onRemove && (
@@ -194,5 +198,3 @@ function QueueEntryRow(props: QueueEntryRowProps) {
     </div>
   );
 }
-
-

@@ -12,7 +12,12 @@ const toneClasses: Record<NonNullable<NoticeProps["tone"]>, string> = {
 
 export function Notice({ message, tone = "default" }: NoticeProps) {
   return (
-    <div className={["rounded-md border px-4 py-3 text-sm", toneClasses[tone]].join(" ")}>
+    <div
+      className={[
+        "rounded-md border px-4 py-3 text-sm",
+        toneClasses[tone],
+      ].join(" ")}
+    >
       {message}
     </div>
   );

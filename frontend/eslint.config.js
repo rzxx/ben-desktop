@@ -37,7 +37,8 @@ export default defineConfig(
           patterns: [
             {
               group: ["@/bindings/**", "**/bindings/**"],
-              message: "Import generated Wails bindings only from src/lib/api/*.",
+              message:
+                "Import generated Wails bindings only from src/lib/api/*.",
             },
           ],
         },
@@ -77,7 +78,8 @@ export default defineConfig(
           patterns: [
             {
               group: ["react", "@/hooks/**", "@/components/**", "@/app/**"],
-              message: "Keep src/lib framework-agnostic and outside React/UI layers.",
+              message:
+                "Keep src/lib framework-agnostic and outside React/UI layers.",
             },
           ],
         },
@@ -102,7 +104,8 @@ export default defineConfig(
         "error",
         {
           selector: "FunctionDeclaration[id.name=/^[A-Z]/][id.name!=/Page$/]",
-          message: "Move local components out of page.tsx into src/components/*.",
+          message:
+            "Move local components out of page.tsx into src/components/*.",
         },
       ],
     },

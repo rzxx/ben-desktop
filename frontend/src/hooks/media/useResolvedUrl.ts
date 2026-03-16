@@ -4,10 +4,7 @@ const resolvedUrlCache = new Map<string, string>();
 const pendingResolvedUrlCache = new Map<string, Promise<string>>();
 const retryDelaysMs = [1000, 2500, 5000, 10000, 15000];
 
-async function resolveCached(
-  key: string,
-  load: () => Promise<string>,
-) {
+async function resolveCached(key: string, load: () => Promise<string>) {
   if (resolvedUrlCache.has(key)) {
     return resolvedUrlCache.get(key) ?? "";
   }
