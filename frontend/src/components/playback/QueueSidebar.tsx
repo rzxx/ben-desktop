@@ -14,19 +14,15 @@ export function QueueSidebar() {
   const clearQueue = usePlaybackStore((state) => state.clearQueue);
 
   const activeEntryId =
-    snapshot?.loadingEntry?.entryId ?? snapshot?.currentEntry?.entryId ?? "";
+    snapshot?.currentEntry?.entryId ?? snapshot?.loadingEntry?.entryId ?? "";
   const rows = useMemo(() => {
     const queuedEntries = snapshot?.queuedEntries ?? [];
-    const contextEntries = snapshot?.context?.entries;
-    const listEntries = contextEntries?.length
-      ? contextEntries
-      : (snapshot?.upcomingEntries ?? []);
+    const contextEntries = snapshot?.context?.entries ?? [];
 
-    return buildQueueRows(queuedEntries, listEntries);
+    return buildQueueRows(queuedEntries, contextEntries);
   }, [
     snapshot?.context?.entries,
     snapshot?.queuedEntries,
-    snapshot?.upcomingEntries,
   ]);
   const parentRef = useRef<HTMLDivElement | null>(null);
   // eslint-disable-next-line react-hooks/incompatible-library

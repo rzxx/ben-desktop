@@ -47,10 +47,11 @@ type Session struct {
 	tickerWG sync.WaitGroup
 	tickStop chan struct{}
 
-	loadedEntryID string
-	loadedURI     string
-	preloadedID   string
-	preloadedURI  string
+	loadedEntryID       string
+	loadedURI           string
+	preloadedID         string
+	preloadedURI        string
+	backendPreloadArmed bool
 
 	nextPreparationRetryEntryID string
 	nextPreparationRetryAt      time.Time
@@ -110,6 +111,7 @@ func (s *Session) Start(ctx context.Context) error {
 		s.loadedURI = ""
 		s.preloadedID = ""
 		s.preloadedURI = ""
+		s.backendPreloadArmed = false
 		s.mu.Unlock()
 	}
 
@@ -171,6 +173,7 @@ func (s *Session) SetContext(input PlaybackContextInput) (SessionSnapshot, error
 		return state, err
 	}
 
+	needsClearPreload := s.shouldClearBackendPreloadLocked()
 	s.snapshot.Context = contextData
 	s.snapshot.QueuedEntries = nil
 	s.snapshot.History = nil
@@ -206,8 +209,12 @@ func (s *Session) SetContext(input PlaybackContextInput) (SessionSnapshot, error
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
 	shouldStopBackend := s.snapshot.CurrentEntry == nil
+	backend := s.backend
 	s.mu.Unlock()
 
+	if needsClearPreload {
+		s.clearBackendPreload(context.Background(), backend)
+	}
 	if shouldStopBackend {
 		_ = s.stopBackend()
 	}
@@ -225,7 +232,7 @@ func (s *Session) ReplaceContextAndPlay(ctx context.Context, input PlaybackConte
 	}
 
 	current := cloneEntryPtr(s.snapshot.CurrentEntry)
-	needsClearPreload := s.snapshot.NextPreparation != nil || s.preloadedID != ""
+	needsClearPreload := s.shouldClearBackendPreloadLocked()
 
 	s.snapshot.Context = contextData
 	s.snapshot.QueuedEntries = nil
@@ -264,14 +271,14 @@ func (s *Session) ReplaceContextAndPlay(ctx context.Context, input PlaybackConte
 	backend := s.backend
 	s.mu.Unlock()
 
-	if needsClearPreload && backend != nil {
-		_ = backend.ClearPreloaded(context.Background())
+	if needsClearPreload {
+		s.clearBackendPreload(context.Background(), backend)
 	}
 	if !hasTarget {
 		s.publishSnapshot(state)
 		return state, errors.New("queue is empty")
 	}
-	return s.playEntry(ctx, target, EntryOriginContext, -1, current, false)
+	return s.playEntry(ctx, target, EntryOriginContext, -1, current, false, true)
 }
 
 func (s *Session) QueueItems(items []SessionItem, mode QueueInsertMode) (SessionSnapshot, error) {
@@ -281,7 +288,7 @@ func (s *Session) QueueItems(items []SessionItem, mode QueueInsertMode) (Session
 	}
 
 	s.mu.Lock()
-	needsClearPreload := s.snapshot.NextPreparation != nil || s.preloadedID != ""
+	needsClearPreload := s.shouldClearBackendPreloadLocked()
 	s.clearLoadingStateLocked()
 	s.cancelPendingRetryLocked()
 	entries := make([]SessionEntry, 0, len(items))
@@ -310,8 +317,8 @@ func (s *Session) QueueItems(items []SessionItem, mode QueueInsertMode) (Session
 	backend := s.backend
 	s.mu.Unlock()
 
-	if needsClearPreload && backend != nil {
-		_ = backend.ClearPreloaded(context.Background())
+	if needsClearPreload {
+		s.clearBackendPreload(context.Background(), backend)
 	}
 	s.publishSnapshot(state)
 	return state, nil
@@ -325,7 +332,7 @@ func (s *Session) RemoveQueuedEntry(entryID string) (SessionSnapshot, error) {
 		s.mu.Unlock()
 		return state, fmt.Errorf("queued entry %s not found", strings.TrimSpace(entryID))
 	}
-	needsClearPreload := s.snapshot.NextPreparation != nil || s.preloadedID != ""
+	needsClearPreload := s.shouldClearBackendPreloadLocked()
 	s.snapshot.QueuedEntries = append(s.snapshot.QueuedEntries[:index], s.snapshot.QueuedEntries[index+1:]...)
 	s.clearLoadingStateLocked()
 	s.cancelPendingRetryLocked()
@@ -335,8 +342,8 @@ func (s *Session) RemoveQueuedEntry(entryID string) (SessionSnapshot, error) {
 	backend := s.backend
 	s.mu.Unlock()
 
-	if needsClearPreload && backend != nil {
-		_ = backend.ClearPreloaded(context.Background())
+	if needsClearPreload {
+		s.clearBackendPreload(context.Background(), backend)
 	}
 	s.publishSnapshot(state)
 	return state, nil
@@ -361,7 +368,7 @@ func (s *Session) MoveQueuedEntry(entryID string, toIndex int) (SessionSnapshot,
 		return state, nil
 	}
 
-	needsClearPreload := s.snapshot.NextPreparation != nil || s.preloadedID != ""
+	needsClearPreload := s.shouldClearBackendPreloadLocked()
 	entry := s.snapshot.QueuedEntries[fromIndex]
 	queue := append([]SessionEntry(nil), s.snapshot.QueuedEntries...)
 	queue = append(queue[:fromIndex], queue[fromIndex+1:]...)
@@ -375,8 +382,8 @@ func (s *Session) MoveQueuedEntry(entryID string, toIndex int) (SessionSnapshot,
 	backend := s.backend
 	s.mu.Unlock()
 
-	if needsClearPreload && backend != nil {
-		_ = backend.ClearPreloaded(context.Background())
+	if needsClearPreload {
+		s.clearBackendPreload(context.Background(), backend)
 	}
 	s.publishSnapshot(state)
 	return state, nil
@@ -408,12 +415,14 @@ func (s *Session) SelectEntry(ctx context.Context, entryID string) (SessionSnaps
 		return s.Play(ctx)
 	}
 	s.mu.Unlock()
-	return s.playEntry(ctx, target, origin, queueIndex, current, false)
+	return s.playEntry(ctx, target, origin, queueIndex, current, false, true)
 }
 
 func (s *Session) ClearQueue() (SessionSnapshot, error) {
 	s.mu.Lock()
 	hasCurrent := s.snapshot.CurrentEntry != nil
+	needsClearPreload := s.shouldClearBackendPreloadLocked()
+	backend := s.backend
 	s.snapshot.Context = nil
 	s.snapshot.QueuedEntries = nil
 	s.snapshot.History = nil
@@ -438,6 +447,9 @@ func (s *Session) ClearQueue() (SessionSnapshot, error) {
 	state := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
 
+	if needsClearPreload {
+		s.clearBackendPreload(context.Background(), backend)
+	}
 	if shouldStopBackend {
 		_ = s.stopBackend()
 	}
@@ -477,7 +489,7 @@ func (s *Session) Play(ctx context.Context) (SessionSnapshot, error) {
 		return state, nil
 	}
 	s.mu.Unlock()
-	return s.playEntry(ctx, target, origin, queueIndex, current, current != nil)
+	return s.playEntry(ctx, target, origin, queueIndex, current, current != nil, true)
 }
 
 func (s *Session) Pause(ctx context.Context) (SessionSnapshot, error) {
@@ -527,7 +539,7 @@ func (s *Session) Next(ctx context.Context) (SessionSnapshot, error) {
 	if !ok {
 		return s.Snapshot(), nil
 	}
-	return s.playEntry(ctx, nextEntry, origin, queueIndex, current, false)
+	return s.playEntry(ctx, nextEntry, origin, queueIndex, current, false, true)
 }
 
 func (s *Session) Previous(ctx context.Context) (SessionSnapshot, error) {
@@ -542,13 +554,13 @@ func (s *Session) Previous(ctx context.Context) (SessionSnapshot, error) {
 		if current == nil {
 			return s.Snapshot(), nil
 		}
-		return s.playEntry(ctx, *current, current.Origin, -1, nil, false)
+		return s.playEntry(ctx, *current, current.Origin, -1, nil, false, true)
 	}
 	last := s.snapshot.History[len(s.snapshot.History)-1]
 	s.snapshot.History = s.snapshot.History[:len(s.snapshot.History)-1]
 	s.mu.Unlock()
 
-	return s.playEntry(ctx, last.Entry, last.Entry.Origin, -1, nil, false)
+	return s.playEntry(ctx, last.Entry, last.Entry.Origin, -1, nil, false, true)
 }
 
 func (s *Session) SeekTo(ctx context.Context, positionMS int64) (SessionSnapshot, error) {
@@ -694,7 +706,7 @@ func (s *Session) playCurrent(ctx context.Context) (SessionSnapshot, error) {
 	}
 	s.mu.Unlock()
 
-	return s.playEntry(ctx, target, origin, queueIndex, nil, false)
+	return s.playEntry(ctx, target, origin, queueIndex, nil, false, true)
 }
 
 func (s *Session) playEntry(
@@ -704,6 +716,7 @@ func (s *Session) playEntry(
 	queueIndex int,
 	previous *SessionEntry,
 	keepPosition bool,
+	preserveCurrentOnPending bool,
 ) (SessionSnapshot, error) {
 	restorePosition := int64(0)
 	if keepPosition && previous != nil && previous.EntryID == entry.EntryID {
@@ -718,6 +731,13 @@ func (s *Session) playEntry(
 		return s.Snapshot(), errors.New("playback backend is not configured")
 	}
 
+	s.mu.Lock()
+	needsClearPreload := s.shouldClearBackendPreloadLocked()
+	s.mu.Unlock()
+	if needsClearPreload {
+		s.clearBackendPreload(ctx, backend)
+	}
+
 	preparation, err := core.PreparePlaybackRecording(ctx, entry.Item.RecordingID, s.preferredProfile, apitypes.PlaybackPreparationPlayNow)
 	if err != nil {
 		return s.Snapshot(), err
@@ -726,11 +746,21 @@ func (s *Session) playEntry(
 	if preparation.Phase == apitypes.PlaybackPreparationPreparingFetch || preparation.Phase == apitypes.PlaybackPreparationPreparingTranscode {
 		s.mu.Lock()
 		hasCurrent := s.snapshot.CurrentEntry != nil
+		shouldReplaceCurrent := !hasCurrent || !preserveCurrentOnPending
 		s.setLoadingLocked(entry, preparation)
-		if !hasCurrent {
+		if shouldReplaceCurrent {
+			if previous != nil && previous.EntryID != "" && previous.EntryID != entry.EntryID {
+				s.pushHistoryLocked(*previous)
+			}
+			s.clearCurrentLocked()
 			s.snapshot.Status = StatusPending
 			s.snapshot.PositionMS = 0
 			s.snapshot.DurationMS = nil
+			s.snapshot.CurrentSourceKind = ""
+			s.snapshot.CurrentPreparation = nil
+			s.loadedEntryID = ""
+			s.loadedURI = ""
+			s.stopTickerLocked()
 		}
 		s.snapshot.LastError = ""
 		s.clearNextPreparationStateLocked()
@@ -738,6 +768,9 @@ func (s *Session) playEntry(
 		s.startPendingRetryLocked(entry.EntryID)
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
+		if shouldReplaceCurrent {
+			_ = backend.Stop(context.Background())
+		}
 		s.publishSnapshot(state)
 		return state, nil
 	}
@@ -765,6 +798,7 @@ func (s *Session) playEntry(
 	s.snapshot.CurrentPreparation = &EntryPreparation{EntryID: entry.EntryID, Status: preparation}
 	s.loadedEntryID = entry.EntryID
 	s.loadedURI = preparation.PlayableURI
+	s.backendPreloadArmed = false
 	s.clearNextPreparationStateLocked()
 	s.cancelPendingRetryLocked()
 	s.ensureTickerLocked()
@@ -812,7 +846,7 @@ func (s *Session) preloadNext(ctx context.Context) {
 		backend := s.backend
 		s.clearNextPreparationStateLocked()
 		s.mu.Unlock()
-		_ = backend.ClearPreloaded(ctx)
+		s.clearBackendPreload(ctx, backend)
 		return
 	}
 	currentNext := cloneEntryPreparation(s.snapshot.NextPreparation)
@@ -865,6 +899,7 @@ func (s *Session) preloadNext(ctx context.Context) {
 		s.clearNextPreparationRetryLocked()
 		s.preloadedID = nextEntry.EntryID
 		s.preloadedURI = currentNext.Status.PlayableURI
+		s.backendPreloadArmed = true
 		s.snapshot.NextPreparation = &EntryPreparation{EntryID: nextEntry.EntryID, Status: currentNext.Status}
 		s.mu.Unlock()
 		return
@@ -896,9 +931,7 @@ func (s *Session) applyNextPreparationStatus(ctx context.Context, entry SessionE
 		s.preloadedURI = ""
 		s.touchLocked()
 		s.mu.Unlock()
-		if backend != nil {
-			_ = backend.ClearPreloaded(ctx)
-		}
+		s.clearBackendPreload(ctx, backend)
 		return
 	}
 	s.clearNextPreparationRetryLocked()
@@ -914,6 +947,7 @@ func (s *Session) applyNextPreparationStatus(ctx context.Context, entry SessionE
 	s.mu.Lock()
 	s.preloadedID = entry.EntryID
 	s.preloadedURI = status.PlayableURI
+	s.backendPreloadArmed = true
 	s.snapshot.NextPreparation = &EntryPreparation{EntryID: entry.EntryID, Status: status}
 	s.touchLocked()
 	s.mu.Unlock()
@@ -941,6 +975,23 @@ func (s *Session) clearNextPreparationStateLocked() {
 	s.preloadedID = ""
 	s.preloadedURI = ""
 	s.clearNextPreparationRetryLocked()
+}
+
+func (s *Session) shouldClearBackendPreloadLocked() bool {
+	return s.backendPreloadArmed || s.snapshot.NextPreparation != nil || s.preloadedID != ""
+}
+
+func (s *Session) clearBackendPreload(ctx context.Context, backend Backend) {
+	if backend == nil {
+		return
+	}
+	if err := backend.ClearPreloaded(ctx); err != nil {
+		s.logErrorf("playback: clear preload failed: %v", err)
+		return
+	}
+	s.mu.Lock()
+	s.backendPreloadArmed = false
+	s.mu.Unlock()
 }
 
 func (s *Session) shouldPollNextPreparationLocked(entryID string, now time.Time) bool {
@@ -1002,7 +1053,8 @@ func (s *Session) handleBackendEvent(event BackendEvent) {
 func (s *Session) handleTrackEOF() {
 	s.mu.Lock()
 	playing := s.snapshot.Status == StatusPlaying
-	supportsPreload := s.backend != nil && s.backend.SupportsPreload()
+	backend := s.backend
+	supportsPreload := backend != nil && backend.SupportsPreload()
 	hasLoading := s.snapshot.LoadingEntry != nil
 	nextEntry, origin, queueIndex, ok := s.peekNextLocked(false)
 	current := cloneEntryPtr(s.snapshot.CurrentEntry)
@@ -1023,10 +1075,14 @@ func (s *Session) handleTrackEOF() {
 		s.snapshot.CurrentSourceKind = ""
 		s.snapshot.CurrentPreparation = nil
 		s.clearNextPreparationStateLocked()
+		s.backendPreloadArmed = false
 		s.stopTickerLocked()
 		s.touchLocked()
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
+		if backend != nil {
+			_ = backend.Stop(context.Background())
+		}
 		s.publishSnapshot(state)
 		return
 	}
@@ -1039,10 +1095,14 @@ func (s *Session) handleTrackEOF() {
 		s.loadedEntryID = ""
 		s.loadedURI = ""
 		s.clearNextPreparationStateLocked()
+		s.backendPreloadArmed = false
 		s.stopTickerLocked()
 		s.touchLocked()
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
+		if backend != nil {
+			_ = backend.Stop(context.Background())
+		}
 		s.publishSnapshot(state)
 		return
 	}
@@ -1059,6 +1119,7 @@ func (s *Session) handleTrackEOF() {
 		}
 		s.loadedEntryID = nextEntry.EntryID
 		s.loadedURI = s.preloadedURI
+		s.backendPreloadArmed = false
 		s.clearNextPreparationStateLocked()
 		s.ensureTickerLocked()
 		s.touchLocked()
@@ -1070,7 +1131,7 @@ func (s *Session) handleTrackEOF() {
 		return
 	}
 
-	_, err := s.playEntry(context.Background(), nextEntry, origin, queueIndex, current, false)
+	_, err := s.playEntry(context.Background(), nextEntry, origin, queueIndex, current, false, false)
 	if err != nil {
 		s.logErrorf("playback: auto-next failed: %v", err)
 	}
@@ -1552,6 +1613,7 @@ func (s *Session) stopBackend() error {
 	s.mu.Lock()
 	backend := s.backend
 	s.stopTickerLocked()
+	s.backendPreloadArmed = false
 	s.mu.Unlock()
 	if backend == nil {
 		return nil
@@ -1588,6 +1650,7 @@ func (s *Session) completePendingPlayback(ctx context.Context, entry SessionEntr
 	s.snapshot.CurrentPreparation = &EntryPreparation{EntryID: entry.EntryID, Status: status}
 	s.loadedEntryID = entry.EntryID
 	s.loadedURI = status.PlayableURI
+	s.backendPreloadArmed = false
 	s.pendingCancel = nil
 	s.pendingEntry = ""
 	s.pendingToken++
