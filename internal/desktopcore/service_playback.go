@@ -1011,19 +1011,15 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 }
 
 func (s *PlaybackService) ListRecordingPlaybackAvailability(ctx context.Context, req apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	recordingIDs := compactNonEmptyStrings(req.RecordingIDs)
 	if len(recordingIDs) == 0 {
 		return []apitypes.RecordingPlaybackAvailability{}, nil
 	}
-	out := make([]apitypes.RecordingPlaybackAvailability, 0, len(recordingIDs))
-	for _, recordingID := range recordingIDs {
-		availability, err := s.GetRecordingAvailability(ctx, recordingID, req.PreferredProfile)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, availability)
-	}
-	return out, nil
+	return s.batchRecordingPlaybackAvailability(ctx, local, recordingIDs, req.PreferredProfile)
 }
 
 func (s *PlaybackService) ListAlbumAvailabilitySummaries(ctx context.Context, req apitypes.AlbumAvailabilitySummaryListRequest) ([]apitypes.AlbumAvailabilitySummaryItem, error) {
@@ -1047,6 +1043,92 @@ func (s *PlaybackService) ListAlbumAvailabilitySummaries(ctx context.Context, re
 			Availability:     summaries[albumID],
 		})
 	}
+	return out, nil
+}
+
+func (s *PlaybackService) batchRecordingPlaybackAvailability(ctx context.Context, local apitypes.LocalContext, recordingIDs []string, preferredProfile string) ([]apitypes.RecordingPlaybackAvailability, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
+		return []apitypes.RecordingPlaybackAvailability{}, nil
+	}
+
+	resolution, err := s.resolvePlaybackVariantsBatch(ctx, local, recordingIDs, preferredProfile)
+	if err != nil {
+		return nil, err
+	}
+	localPaths, err := s.batchBestLocalRecordingPaths(ctx, local.LibraryID, local.DeviceID, resolution.resolvedRecordingIDs)
+	if err != nil {
+		return nil, err
+	}
+	cachedRecordings, err := s.batchBestCachedRecordingIDs(ctx, local.LibraryID, local.DeviceID, resolution.resolvedRecordingIDs, resolution.profile)
+	if err != nil {
+		return nil, err
+	}
+
+	cutoff := time.Now().UTC().Add(-availabilityOnlineWindow)
+	networkRunning := s.app.NetworkStatus().Running
+	facts, err := s.batchRecordingPlaybackFacts(
+		ctx,
+		local.LibraryID,
+		local.DeviceID,
+		resolution.resolvedRecordingIDs,
+		resolution.profile,
+		normalizedPlaybackProfileAlias(resolution.profile),
+		cutoff,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]apitypes.RecordingPlaybackAvailability, 0, len(recordingIDs))
+	for _, recordingID := range recordingIDs {
+		resolvedRecordingID := resolution.resolvedByRecording[recordingID]
+		item := apitypes.RecordingPlaybackAvailability{
+			RecordingID:      recordingID,
+			PreferredProfile: resolution.profile,
+		}
+
+		if localPath := localPaths[resolvedRecordingID]; localPath != "" {
+			item.State = apitypes.AvailabilityPlayableLocalFile
+			item.SourceKind = apitypes.PlaybackSourceLocalFile
+			item.LocalPath = localPath
+			out = append(out, item)
+			continue
+		}
+		if cachedRecordings[resolvedRecordingID] {
+			item.State = apitypes.AvailabilityPlayableCachedOpt
+			item.SourceKind = apitypes.PlaybackSourceCachedOpt
+			out = append(out, item)
+			continue
+		}
+
+		fact := facts[resolvedRecordingID]
+		switch {
+		case fact.hasRemoteCached && fact.hasRemoteCachedOnline && networkRunning:
+			item.State = apitypes.AvailabilityPlayableRemoteOpt
+			item.SourceKind = apitypes.PlaybackSourceRemoteOpt
+		case fact.hasRemoteCached && !fact.hasRemoteCachedOnline:
+			item.State = apitypes.AvailabilityUnavailableProvider
+			item.Reason = apitypes.PlaybackUnavailableProviderOffline
+		case fact.hasRemoteCached:
+			item.State = apitypes.AvailabilityUnavailableProvider
+			item.Reason = apitypes.PlaybackUnavailableNetworkOff
+		case fact.hasRemoteSource && fact.hasRemoteSourceOnline && networkRunning:
+			item.State = apitypes.AvailabilityWaitingProviderTranscode
+			item.SourceKind = apitypes.PlaybackSourceRemoteOpt
+		case !fact.hasRemoteSource:
+			item.State = apitypes.AvailabilityUnavailableNoPath
+			item.Reason = apitypes.PlaybackUnavailableNoPath
+		case !fact.hasRemoteSourceOnline:
+			item.State = apitypes.AvailabilityUnavailableProvider
+			item.Reason = apitypes.PlaybackUnavailableProviderOffline
+		default:
+			item.State = apitypes.AvailabilityUnavailableProvider
+			item.Reason = apitypes.PlaybackUnavailableNetworkOff
+		}
+		out = append(out, item)
+	}
+
 	return out, nil
 }
 
@@ -1344,6 +1426,87 @@ func (s *PlaybackService) resolvePlaybackProfile(preferredProfile string) string
 	return strings.TrimSpace(s.app.cfg.TranscodeProfile)
 }
 
+type recordingBatchResolution struct {
+	profile              string
+	resolvedByRecording  map[string]string
+	resolvedRecordingIDs []string
+}
+
+func (s *PlaybackService) resolvePlaybackVariantsBatch(ctx context.Context, local apitypes.LocalContext, recordingIDs []string, preferredProfile string) (recordingBatchResolution, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	if len(recordingIDs) == 0 {
+		return recordingBatchResolution{
+			profile:              profile,
+			resolvedByRecording:  map[string]string{},
+			resolvedRecordingIDs: []string{},
+		}, nil
+	}
+
+	type row struct {
+		RecordingID string
+		ClusterID   string
+	}
+	var rows []row
+	if err := s.app.storage.WithContext(ctx).
+		Model(&TrackVariantModel{}).
+		Select("track_variant_id AS recording_id, track_cluster_id AS cluster_id").
+		Where("library_id = ? AND track_variant_id IN ?", local.LibraryID, recordingIDs).
+		Scan(&rows).Error; err != nil {
+		return recordingBatchResolution{}, err
+	}
+
+	clusterByRecording := make(map[string]string, len(rows))
+	clusterIDs := make([]string, 0, len(rows))
+	clusterSeen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		recordingID := strings.TrimSpace(row.RecordingID)
+		clusterID := strings.TrimSpace(row.ClusterID)
+		if recordingID == "" || clusterID == "" {
+			continue
+		}
+		clusterByRecording[recordingID] = clusterID
+		if _, ok := clusterSeen[clusterID]; ok {
+			continue
+		}
+		clusterSeen[clusterID] = struct{}{}
+		clusterIDs = append(clusterIDs, clusterID)
+	}
+
+	variantsByCluster, err := s.app.catalog.listRecordingVariantRowsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs, profile)
+	if err != nil {
+		return recordingBatchResolution{}, err
+	}
+	preferredByCluster, err := s.app.catalog.preferredRecordingVariantIDsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs)
+	if err != nil {
+		return recordingBatchResolution{}, err
+	}
+
+	resolvedByRecording := make(map[string]string, len(recordingIDs))
+	resolvedRecordingIDs := make([]string, 0, len(recordingIDs))
+	resolvedSeen := make(map[string]struct{}, len(recordingIDs))
+	for _, recordingID := range recordingIDs {
+		resolvedID := recordingID
+		if clusterID := clusterByRecording[recordingID]; clusterID != "" {
+			if preferredID := chooseRecordingVariantID(variantsByCluster[clusterID], preferredByCluster[clusterID]); preferredID != "" {
+				resolvedID = preferredID
+			}
+		}
+		resolvedByRecording[recordingID] = resolvedID
+		if _, ok := resolvedSeen[resolvedID]; ok {
+			continue
+		}
+		resolvedSeen[resolvedID] = struct{}{}
+		resolvedRecordingIDs = append(resolvedRecordingIDs, resolvedID)
+	}
+
+	return recordingBatchResolution{
+		profile:              profile,
+		resolvedByRecording:  resolvedByRecording,
+		resolvedRecordingIDs: resolvedRecordingIDs,
+	}, nil
+}
+
 func (s *PlaybackService) preparationKey(recordingID, profile string) string {
 	return strings.TrimSpace(recordingID) + "|" + strings.TrimSpace(profile)
 }
@@ -1450,6 +1613,103 @@ LIMIT 1`
 		return "", "", false, nil
 	}
 	return strings.TrimSpace(result.BlobID), strings.TrimSpace(result.OptimizedAssetID), true, nil
+}
+
+func (s *PlaybackService) batchBestLocalRecordingPaths(ctx context.Context, libraryID, deviceID string, recordingIDs []string) (map[string]string, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
+		return map[string]string{}, nil
+	}
+
+	type row struct {
+		RecordingID string
+		LocalPath   string
+	}
+	var rows []row
+	query := `
+SELECT
+	req.track_variant_id AS recording_id,
+	sf.local_path
+FROM track_variants req
+JOIN track_variants cand ON cand.library_id = req.library_id AND cand.track_cluster_id = req.track_cluster_id
+JOIN source_files sf ON sf.library_id = req.library_id AND sf.track_variant_id = cand.track_variant_id
+WHERE req.library_id = ? AND req.track_variant_id IN ? AND sf.device_id = ? AND sf.is_present = 1
+ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_variant_id THEN 0 ELSE 1 END ASC, sf.last_seen_at DESC, sf.quality_rank DESC, sf.size_bytes DESC, sf.local_path ASC`
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, recordingIDs, deviceID).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]string, len(recordingIDs))
+	for _, row := range rows {
+		recordingID := strings.TrimSpace(row.RecordingID)
+		if recordingID == "" {
+			continue
+		}
+		if _, ok := out[recordingID]; ok {
+			continue
+		}
+		localPath := strings.TrimSpace(row.LocalPath)
+		if localPath == "" {
+			continue
+		}
+		if _, err := os.Stat(localPath); err != nil {
+			continue
+		}
+		out[recordingID] = localPath
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) batchBestCachedRecordingIDs(ctx context.Context, libraryID, deviceID string, recordingIDs []string, profile string) (map[string]bool, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
+		return map[string]bool{}, nil
+	}
+
+	aliasProfile := normalizedPlaybackProfileAlias(profile)
+	type row struct {
+		RecordingID string
+		BlobID      string
+	}
+	var rows []row
+	query := `
+SELECT
+	req.track_variant_id AS recording_id,
+	e.blob_id
+FROM track_variants req
+JOIN track_variants cand ON cand.library_id = req.library_id AND cand.track_cluster_id = req.track_cluster_id
+JOIN source_files sf ON sf.library_id = req.library_id AND sf.track_variant_id = cand.track_variant_id
+JOIN optimized_assets e ON e.library_id = sf.library_id AND e.source_file_id = sf.source_file_id
+LEFT JOIN device_asset_caches de ON de.library_id = e.library_id AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
+WHERE req.library_id = ? AND req.track_variant_id IN ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
+ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_variant_id THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC`
+	if err := s.app.storage.WithContext(ctx).Raw(query, deviceID, libraryID, recordingIDs, profile, profile, aliasProfile).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]bool, len(recordingIDs))
+	for _, row := range rows {
+		recordingID := strings.TrimSpace(row.RecordingID)
+		if recordingID == "" {
+			continue
+		}
+		if out[recordingID] {
+			continue
+		}
+		blobID := strings.TrimSpace(row.BlobID)
+		if blobID == "" {
+			continue
+		}
+		path, err := s.pathForBlob(blobID)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		out[recordingID] = true
+	}
+	return out, nil
 }
 
 func (s *PlaybackService) pathForBlob(blobID string) (string, error) {
@@ -1797,10 +2057,35 @@ type recordingAvailabilityFacts struct {
 	hasRemotePath  bool
 }
 
-func (s *PlaybackService) batchRecordingAvailabilityFacts(ctx context.Context, libraryID, localDeviceID string, recordingIDs []string, profile, aliasProfile string, networkRunning bool, cutoff time.Time) (map[string]recordingAvailabilityFacts, error) {
+type recordingPlaybackFacts struct {
+	hasLocalSource        bool
+	hasRemoteSource       bool
+	hasRemoteSourceOnline bool
+	hasLocalCached        bool
+	hasRemoteCached       bool
+	hasRemoteCachedOnline bool
+}
+
+func (f recordingPlaybackFacts) summary(networkRunning bool) recordingAvailabilityFacts {
+	availableNow := f.hasLocalSource || f.hasLocalCached
+	if networkRunning && (f.hasRemoteCachedOnline || f.hasRemoteSourceOnline) {
+		availableNow = true
+	}
+	hasRemotePath := f.hasRemoteCached || f.hasRemoteSource
+	return recordingAvailabilityFacts{
+		availableNow:   availableNow,
+		offline:        !availableNow && hasRemotePath,
+		isLocal:        f.hasLocalSource || f.hasLocalCached,
+		hasLocalCached: f.hasLocalCached,
+		hasLocalSource: f.hasLocalSource,
+		hasRemotePath:  hasRemotePath,
+	}
+}
+
+func (s *PlaybackService) batchRecordingPlaybackFacts(ctx context.Context, libraryID, localDeviceID string, recordingIDs []string, profile, aliasProfile string, cutoff time.Time) (map[string]recordingPlaybackFacts, error) {
 	recordingIDs = compactNonEmptyStrings(recordingIDs)
 	if len(recordingIDs) == 0 {
-		return map[string]recordingAvailabilityFacts{}, nil
+		return map[string]recordingPlaybackFacts{}, nil
 	}
 
 	type sourceRow struct {
@@ -1847,15 +2132,7 @@ GROUP BY oa.track_variant_id`
 		return nil, err
 	}
 
-	type rawFacts struct {
-		hasLocalSource        bool
-		hasRemoteSource       bool
-		hasRemoteSourceOnline bool
-		hasLocalCached        bool
-		hasRemoteCached       bool
-		hasRemoteCachedOnline bool
-	}
-	combined := make(map[string]rawFacts, len(recordingIDs))
+	combined := make(map[string]recordingPlaybackFacts, len(recordingIDs))
 	for _, row := range sourceRows {
 		recordingID := strings.TrimSpace(row.RecordingID)
 		next := combined[recordingID]
@@ -1873,22 +2150,18 @@ GROUP BY oa.track_variant_id`
 		combined[recordingID] = next
 	}
 
+	return combined, nil
+}
+
+func (s *PlaybackService) batchRecordingAvailabilityFacts(ctx context.Context, libraryID, localDeviceID string, recordingIDs []string, profile, aliasProfile string, networkRunning bool, cutoff time.Time) (map[string]recordingAvailabilityFacts, error) {
+	combined, err := s.batchRecordingPlaybackFacts(ctx, libraryID, localDeviceID, recordingIDs, profile, aliasProfile, cutoff)
+	if err != nil {
+		return nil, err
+	}
+
 	out := make(map[string]recordingAvailabilityFacts, len(recordingIDs))
 	for _, recordingID := range recordingIDs {
-		raw := combined[recordingID]
-		availableNow := raw.hasLocalSource || raw.hasLocalCached
-		if networkRunning && (raw.hasRemoteCachedOnline || raw.hasRemoteSourceOnline) {
-			availableNow = true
-		}
-		hasRemotePath := raw.hasRemoteCached || raw.hasRemoteSource
-		out[recordingID] = recordingAvailabilityFacts{
-			availableNow:   availableNow,
-			offline:        !availableNow && hasRemotePath,
-			isLocal:        raw.hasLocalSource || raw.hasLocalCached,
-			hasLocalCached: raw.hasLocalCached,
-			hasLocalSource: raw.hasLocalSource,
-			hasRemotePath:  hasRemotePath,
-		}
+		out[recordingID] = combined[recordingID].summary(networkRunning)
 	}
 	return out, nil
 }

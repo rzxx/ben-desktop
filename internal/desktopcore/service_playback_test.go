@@ -650,6 +650,98 @@ func TestListRecordingPlaybackAvailabilityMatchesSingleItemResults(t *testing.T)
 	}
 }
 
+func TestListRecordingPlaybackAvailabilityRespectsPreferredVariantSelection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "batch-availability-preferred-variant")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if _, err := app.requireActiveContext(ctx); err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	now := time.Now().UTC()
+	remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-preferred-remote", now)
+
+	const (
+		albumID              = "album-preferred"
+		trackClusterID       = "cluster-preferred"
+		requestedRecordingID = "rec-preferred-base"
+		preferredRecordingID = "rec-preferred-remote"
+	)
+	blobID := testBlobID("a")
+
+	seedCacheRecording(t, app, library.LibraryID, remoteDeviceID, cacheSeedInput{
+		RecordingID:    preferredRecordingID,
+		AlbumID:        albumID,
+		SourceFileID:   "src-preferred-remote",
+		EncodingID:     "enc-preferred-remote",
+		BlobID:         blobID,
+		Profile:        "desktop",
+		LastVerifiedAt: now,
+	})
+	if err := app.db.WithContext(ctx).
+		Model(&TrackVariantModel{}).
+		Where("library_id = ? AND track_variant_id = ?", library.LibraryID, preferredRecordingID).
+		Update("track_cluster_id", trackClusterID).Error; err != nil {
+		t.Fatalf("update preferred variant cluster: %v", err)
+	}
+	if err := app.db.WithContext(ctx).Create(&TrackVariantModel{
+		LibraryID:      library.LibraryID,
+		TrackVariantID: requestedRecordingID,
+		TrackClusterID: trackClusterID,
+		KeyNorm:        requestedRecordingID,
+		Title:          requestedRecordingID,
+		DurationMS:     180000,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("seed requested variant: %v", err)
+	}
+	if err := app.db.WithContext(ctx).Create(&AlbumTrack{
+		LibraryID:      library.LibraryID,
+		AlbumVariantID: albumID,
+		TrackVariantID: requestedRecordingID,
+		DiscNo:         1,
+		TrackNo:        1,
+	}).Error; err != nil {
+		t.Fatalf("seed requested album track: %v", err)
+	}
+	writeCacheBlob(t, app, blobID, 96)
+
+	if err := app.catalog.SetPreferredRecordingVariant(ctx, requestedRecordingID, preferredRecordingID); err != nil {
+		t.Fatalf("set preferred recording variant: %v", err)
+	}
+
+	batchItems, err := app.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
+		RecordingIDs:     []string{requestedRecordingID},
+		PreferredProfile: "desktop",
+	})
+	if err != nil {
+		t.Fatalf("list recording playback availability: %v", err)
+	}
+	if len(batchItems) != 1 {
+		t.Fatalf("batch availability items = %d, want 1", len(batchItems))
+	}
+
+	single, err := app.GetRecordingAvailability(ctx, requestedRecordingID, "desktop")
+	if err != nil {
+		t.Fatalf("get recording availability: %v", err)
+	}
+	if !reflect.DeepEqual(batchItems[0], single) {
+		t.Fatalf("batch availability = %+v, want %+v", batchItems[0], single)
+	}
+	if batchItems[0].State != apitypes.AvailabilityPlayableRemoteOpt {
+		t.Fatalf("batch availability state = %q, want %q", batchItems[0].State, apitypes.AvailabilityPlayableRemoteOpt)
+	}
+	if batchItems[0].SourceKind != apitypes.PlaybackSourceRemoteOpt {
+		t.Fatalf("batch availability source kind = %q, want %q", batchItems[0].SourceKind, apitypes.PlaybackSourceRemoteOpt)
+	}
+}
+
 func TestListAlbumAvailabilitySummariesMatchesOverviewAvailability(t *testing.T) {
 	t.Parallel()
 

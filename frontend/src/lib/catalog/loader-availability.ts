@@ -8,33 +8,15 @@ import {
   useCatalogStore,
 } from "@/stores/catalog/store";
 import {
-  dedupeRequest,
+  compactIds,
   describeError,
   type EnsureOptions,
+  loadChunkedBulk,
 } from "./loader-shared";
 
 const CATALOG_PLAYBACK_PROFILE = "desktop";
+const TRACK_AVAILABILITY_CHUNK_SIZE = 40;
 const ALBUM_AVAILABILITY_CHUNK_SIZE = 12;
-
-function compactIds(values: string[]) {
-  return Array.from(
-    new Set(values.map((value) => value.trim()).filter(Boolean)),
-  );
-}
-
-function chunkIds(values: string[], size: number) {
-  const chunks: string[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size));
-  }
-  return chunks;
-}
-
-function waitForNextPaint() {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, 0);
-  });
-}
 
 export function ensureTrackAvailability(
   recordingIds: string[],
@@ -63,30 +45,29 @@ export function ensureTrackAvailability(
     return Promise.resolve([]);
   }
 
-  const requestKey = `trackAvailability:${pending.slice().sort().join(",")}`;
-  return dedupeRequest(requestKey, async () => {
-    const state = useCatalogStore.getState();
-    state.markTrackAvailabilityLoading(pending, {
-      refreshing: pending.some(
-        (recordingId) =>
-          getTrackAvailabilityRecord(useCatalogStore.getState(), recordingId)
-            .data !== null,
-      ),
-    });
+  const state = useCatalogStore.getState();
+  state.markTrackAvailabilityLoading(pending, {
+    refreshing: pending.some(
+      (recordingId) =>
+        getTrackAvailabilityRecord(useCatalogStore.getState(), recordingId)
+          .data !== null,
+    ),
+  });
 
-    try {
-      const items = await listRecordingPlaybackAvailability(
-        pending,
-        CATALOG_PLAYBACK_PROFILE,
-      );
+  return loadChunkedBulk({
+    ids: pending,
+    chunkSize: TRACK_AVAILABILITY_CHUNK_SIZE,
+    requestKeyPrefix: "trackAvailability",
+    loadChunk: (chunk) =>
+      listRecordingPlaybackAvailability(chunk, CATALOG_PLAYBACK_PROFILE),
+    onChunkLoaded: (items) => {
       useCatalogStore.getState().setTrackAvailability(items);
-      return items;
-    } catch (error) {
-      useCatalogStore
-        .getState()
-        .markTrackAvailabilityError(pending, describeError(error));
-      throw error;
-    }
+    },
+  }).catch((error) => {
+    useCatalogStore
+      .getState()
+      .markTrackAvailabilityError(pending, describeError(error));
+    throw error;
   });
 }
 
@@ -126,28 +107,19 @@ export function ensureAlbumAvailability(
     ),
   });
 
-  const chunks = chunkIds(pending, ALBUM_AVAILABILITY_CHUNK_SIZE);
-  const results: Awaited<ReturnType<typeof listAlbumAvailabilitySummaries>> = [];
-
-  return (async () => {
-    try {
-      for (const [index, chunk] of chunks.entries()) {
-        const requestKey = `albumAvailability:${chunk.slice().sort().join(",")}`;
-        const items = await dedupeRequest(requestKey, () =>
-          listAlbumAvailabilitySummaries(chunk, CATALOG_PLAYBACK_PROFILE),
-        );
-        useCatalogStore.getState().setAlbumAvailability(items);
-        results.push(...items);
-        if (index < chunks.length - 1) {
-          await waitForNextPaint();
-        }
-      }
-      return results;
-    } catch (error) {
-      useCatalogStore
-        .getState()
-        .markAlbumAvailabilityError(pending, describeError(error));
-      throw error;
-    }
-  })();
+  return loadChunkedBulk({
+    ids: pending,
+    chunkSize: ALBUM_AVAILABILITY_CHUNK_SIZE,
+    requestKeyPrefix: "albumAvailability",
+    loadChunk: (chunk) =>
+      listAlbumAvailabilitySummaries(chunk, CATALOG_PLAYBACK_PROFILE),
+    onChunkLoaded: (items) => {
+      useCatalogStore.getState().setAlbumAvailability(items);
+    },
+  }).catch((error) => {
+    useCatalogStore
+      .getState()
+      .markAlbumAvailabilityError(pending, describeError(error));
+    throw error;
+  });
 }
