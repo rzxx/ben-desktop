@@ -24,6 +24,18 @@ function hasLoadedValueQuery(key: string) {
   return record.items.length > 0 || record.loadedOffsets.length > 0;
 }
 
+function loadedTrackAvailabilityIDs() {
+  return Object.entries(useCatalogStore.getState().trackAvailabilityByRecordingId)
+    .filter(([, record]) => record.data !== null)
+    .map(([recordingID]) => recordingID);
+}
+
+function loadedAlbumAvailabilityIDs() {
+  return Object.entries(useCatalogStore.getState().albumAvailabilityByAlbumId)
+    .filter(([, record]) => record.data !== null)
+    .map(([albumID]) => albumID);
+}
+
 function refetchDynamicValueQueries(
   prefix: string,
   refetch: (id: string) => void,
@@ -164,13 +176,20 @@ function handleAvailabilityInvalidation(
   event: InstanceType<typeof Types.CatalogChangeEvent>,
 ) {
   const store = useCatalogStore.getState();
-  if (event.RecordingIDs?.length) {
-    store.invalidateTrackAvailability(event.RecordingIDs);
-    void ensureTrackAvailability(event.RecordingIDs, { force: true });
+  const recordingIDs = event.InvalidateAll
+    ? loadedTrackAvailabilityIDs()
+    : (event.RecordingIDs ?? []);
+  const albumIDs = event.InvalidateAll
+    ? loadedAlbumAvailabilityIDs()
+    : (event.AlbumIDs ?? []);
+
+  if (recordingIDs.length) {
+    store.invalidateTrackAvailability(recordingIDs);
+    void ensureTrackAvailability(recordingIDs, { force: true });
   }
-  if (event.AlbumIDs?.length) {
-    store.invalidateAlbumAvailability(event.AlbumIDs);
-    void ensureAlbumAvailability(event.AlbumIDs, { force: true });
+  if (albumIDs.length) {
+    store.invalidateAlbumAvailability(albumIDs);
+    void ensureAlbumAvailability(albumIDs, { force: true });
   }
 }
 

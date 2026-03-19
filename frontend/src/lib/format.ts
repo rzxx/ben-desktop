@@ -157,6 +157,7 @@ export function isCatalogTrackActionable(state?: string) {
     case "PLAYABLE:LOCAL_FILE":
     case "PLAYABLE:CACHED_OPT":
     case "PLAYABLE:REMOTE_OPT":
+    case "WAITING:PROVIDER_TRANSCODE":
       return true;
     default:
       return false;

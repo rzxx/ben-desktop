@@ -24,7 +24,10 @@ import {
   describeError,
   type EnsureOptions,
 } from "@/lib/catalog/loader-shared";
-import { ensureAlbumAvailability } from "@/lib/catalog/loader-availability";
+import {
+  ensureAlbumAvailability,
+  ensureTrackAvailability,
+} from "@/lib/catalog/loader-availability";
 
 async function ensureAlbumDetail(albumId: string, options: EnsureOptions = {}) {
   const { force = false } = options;
@@ -44,7 +47,10 @@ async function ensureAlbumDetail(albumId: string, options: EnsureOptions = {}) {
     try {
       const album = await getAlbum(albumId);
       state.setAlbumDetail(albumId, album);
-      void ensureAlbumAvailability([album.AlbumID], options);
+      void ensureAlbumAvailability([album.AlbumID], {
+        ...options,
+        force: true,
+      });
     } catch (error) {
       state.markDetailError("album", albumId, describeError(error));
       throw error;
@@ -136,7 +142,10 @@ async function ensureAlbumVariants(
       state.setAlbumVariants(albumId, variants.Items);
       void ensureAlbumAvailability(
         variants.Items.map((variant) => variant.AlbumID),
-        options,
+        {
+          ...options,
+          force: true,
+        },
       );
     } catch (error) {
       state.markDetailError("albumVariants", albumId, describeError(error));
@@ -164,7 +173,15 @@ export function ensureAlbumRoute(albumId: string) {
       ensureAlbumDetail(albumId, { force: true }),
       ensureAlbumVariants(albumId, { force: true }),
       ensureAlbumTracksPage(albumId, 0, { force: true }),
-    ]);
+    ]).then(() => {
+      void ensureTrackAvailability(
+        getValueQuery<AlbumTrackItem>(
+          useCatalogStore.getState(),
+          `albumTracks:${albumId}`,
+        ).items.map((track) => track.RecordingID),
+        { force: true },
+      );
+    });
     return Promise.resolve();
   }
 
@@ -172,7 +189,15 @@ export function ensureAlbumRoute(albumId: string) {
     ensureAlbumDetail(albumId),
     ensureAlbumVariants(albumId),
     ensureAlbumTracksPage(albumId, 0),
-  ]).then(() => undefined);
+  ]).then(() => {
+    void ensureTrackAvailability(
+      getValueQuery<AlbumTrackItem>(
+        useCatalogStore.getState(),
+        `albumTracks:${albumId}`,
+      ).items.map((track) => track.RecordingID),
+      { force: true },
+    );
+  });
 }
 
 export function ensureArtistRoute(artistId: string) {

@@ -96,7 +96,9 @@ export function AlbumDetailPage() {
     if (!selectedVariantId) {
       return;
     }
-    void catalogLoaderClient.ensureAlbumTracksPage(selectedVariantId, 0);
+    void catalogLoaderClient.ensureAlbumTracksPage(selectedVariantId, 0, {
+      force: true,
+    });
   }, [selectedVariantId]);
 
   const activeVariant =

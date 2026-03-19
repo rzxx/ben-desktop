@@ -147,6 +147,60 @@ func TestNetworkStatusReflectsRuntimeSyncState(t *testing.T) {
 	}
 }
 
+func TestUpsertDevicePresenceEmitsAvailabilityInvalidationWhenPeerComesOnline(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	library, err := app.CreateLibrary(ctx, "presence-availability-events")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	lastSeen := time.Now().UTC().Add(-3 * availabilityOnlineWindow)
+	remoteDeviceID := seedRemoteLibraryMember(
+		t,
+		app,
+		library.LibraryID,
+		"dev-presence-remote",
+		lastSeen,
+	)
+
+	var (
+		eventsMu sync.Mutex
+		events   []apitypes.CatalogChangeEvent
+	)
+	stopListening := app.SubscribeCatalogChanges(func(event apitypes.CatalogChangeEvent) {
+		eventsMu.Lock()
+		events = append(events, event)
+		eventsMu.Unlock()
+	})
+	defer stopListening()
+
+	if err := app.transportService.upsertDevicePresence(
+		ctx,
+		remoteDeviceID,
+		"peer-presence-remote",
+		"Remote device",
+	); err != nil {
+		t.Fatalf("upsert device presence: %v", err)
+	}
+
+	eventsMu.Lock()
+	defer eventsMu.Unlock()
+	for _, event := range events {
+		if event.Kind != apitypes.CatalogChangeInvalidateAvailability {
+			continue
+		}
+		if !event.InvalidateAll {
+			t.Fatalf("expected presence availability event to invalidate all, got %+v", event)
+		}
+		return
+	}
+	t.Fatalf("expected presence update to emit availability invalidation event, got %+v", events)
+}
+
 func TestLibp2pTransportConnectPeerAppliesIncrementalSync(t *testing.T) {
 	ctx := context.Background()
 	owner := openPlaylistTestApp(t)

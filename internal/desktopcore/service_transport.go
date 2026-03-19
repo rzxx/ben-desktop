@@ -531,6 +531,7 @@ func (s *TransportService) upsertDevicePresence(ctx context.Context, deviceID, p
 	err := s.app.storage.WithContext(ctx).Where("device_id = ?", deviceID).Take(&existing).Error
 	switch {
 	case err == nil:
+		wasOffline := existing.LastSeenAt == nil || existing.LastSeenAt.UTC().Before(now.Add(-availabilityOnlineWindow))
 		updates := map[string]any{
 			"peer_id":      peerID,
 			"last_seen_at": cloneTimePtr(&now),
@@ -538,15 +539,28 @@ func (s *TransportService) upsertDevicePresence(ctx context.Context, deviceID, p
 		if strings.TrimSpace(existing.Name) == "" || strings.TrimSpace(existing.Name) == deviceID {
 			updates["name"] = deviceName
 		}
-		return s.app.storage.WithContext(ctx).Model(&Device{}).Where("device_id = ?", deviceID).Updates(updates).Error
+		if err := s.app.storage.WithContext(ctx).
+			Model(&Device{}).
+			Where("device_id = ?", deviceID).
+			Updates(updates).Error; err != nil {
+			return err
+		}
+		if wasOffline {
+			s.app.emitAvailabilityInvalidateAllForActiveMembership(ctx, deviceID)
+		}
+		return nil
 	case err == gorm.ErrRecordNotFound:
-		return s.app.storage.WithContext(ctx).Create(&Device{
+		if err := s.app.storage.WithContext(ctx).Create(&Device{
 			DeviceID:   deviceID,
 			Name:       deviceName,
 			PeerID:     peerID,
 			JoinedAt:   now,
 			LastSeenAt: cloneTimePtr(&now),
-		}).Error
+		}).Error; err != nil {
+			return err
+		}
+		s.app.emitAvailabilityInvalidateAllForActiveMembership(ctx, deviceID)
+		return nil
 	default:
 		return err
 	}

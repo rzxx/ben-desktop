@@ -397,6 +397,11 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 	}
 	startedAt := time.Now().UTC()
 	totalApplied := 0
+	defer func() {
+		if totalApplied > 0 {
+			a.emitAvailabilityInvalidateAllForActiveLibrary(local.LibraryID)
+		}
+	}()
 	remoteDeviceID := strings.TrimSpace(peer.DeviceID())
 	remotePeerID := strings.TrimSpace(peer.PeerID())
 

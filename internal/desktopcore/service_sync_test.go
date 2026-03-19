@@ -88,6 +88,64 @@ func TestConnectPeerAppliesIncrementalPlaylistSync(t *testing.T) {
 	}
 }
 
+func TestConnectPeerEmitsAvailabilityInvalidationAfterApplyingOps(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openPlaylistTestApp(t)
+	joiner := openPlaylistTestApp(t)
+
+	library, err := owner.CreateLibrary(ctx, "sync-availability-events")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	_, _ = seedSharedLibraryForSync(t, owner, joiner, library)
+
+	seedPlaylistRecording(t, owner, library.LibraryID, "rec-sync-avail", "Sync")
+	playlist, err := owner.CreatePlaylist(ctx, "Queue", "")
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	if _, err := owner.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{
+		PlaylistID:  playlist.PlaylistID,
+		RecordingID: "rec-sync-avail",
+	}); err != nil {
+		t.Fatalf("add playlist item: %v", err)
+	}
+
+	var (
+		eventsMu sync.Mutex
+		events   []apitypes.CatalogChangeEvent
+	)
+	stopListening := joiner.SubscribeCatalogChanges(func(event apitypes.CatalogChangeEvent) {
+		eventsMu.Lock()
+		events = append(events, event)
+		eventsMu.Unlock()
+	})
+	defer stopListening()
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	if err := joiner.ConnectPeer(ctx, "memory://owner"); err != nil {
+		t.Fatalf("connect peer: %v", err)
+	}
+
+	eventsMu.Lock()
+	defer eventsMu.Unlock()
+	for _, event := range events {
+		if event.Kind != apitypes.CatalogChangeInvalidateAvailability {
+			continue
+		}
+		if !event.InvalidateAll {
+			t.Fatalf("expected sync availability event to invalidate all, got %+v", event)
+		}
+		return
+	}
+	t.Fatalf("expected sync to emit availability invalidation event, got %+v", events)
+}
+
 func TestVerifyTransportPeerAuthRejectsTamperedMembershipCert(t *testing.T) {
 	t.Parallel()
 
