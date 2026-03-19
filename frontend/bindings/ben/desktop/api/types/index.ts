@@ -3,6 +3,7 @@
 
 export {
     ActivityStatus,
+    AggregateAvailabilityState,
     AggregateAvailabilitySummary,
     AlbumAvailabilityOverview,
     AlbumAvailabilitySummaryItem,

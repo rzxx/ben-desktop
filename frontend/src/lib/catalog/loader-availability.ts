@@ -14,11 +14,26 @@ import {
 } from "./loader-shared";
 
 const CATALOG_PLAYBACK_PROFILE = "desktop";
+const ALBUM_AVAILABILITY_CHUNK_SIZE = 12;
 
 function compactIds(values: string[]) {
   return Array.from(
     new Set(values.map((value) => value.trim()).filter(Boolean)),
   );
+}
+
+function chunkIds(values: string[], size: number) {
+  const chunks: string[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function waitForNextPaint() {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 export function ensureTrackAvailability(
@@ -102,29 +117,37 @@ export function ensureAlbumAvailability(
     return Promise.resolve([]);
   }
 
-  const requestKey = `albumAvailability:${pending.slice().sort().join(",")}`;
-  return dedupeRequest(requestKey, async () => {
-    const state = useCatalogStore.getState();
-    state.markAlbumAvailabilityLoading(pending, {
-      refreshing: pending.some(
-        (albumId) =>
-          getAlbumAvailabilityRecord(useCatalogStore.getState(), albumId)
-            .data !== null,
-      ),
-    });
+  const state = useCatalogStore.getState();
+  state.markAlbumAvailabilityLoading(pending, {
+    refreshing: pending.some(
+      (albumId) =>
+        getAlbumAvailabilityRecord(useCatalogStore.getState(), albumId).data !==
+        null,
+    ),
+  });
 
+  const chunks = chunkIds(pending, ALBUM_AVAILABILITY_CHUNK_SIZE);
+  const results: Awaited<ReturnType<typeof listAlbumAvailabilitySummaries>> = [];
+
+  return (async () => {
     try {
-      const items = await listAlbumAvailabilitySummaries(
-        pending,
-        CATALOG_PLAYBACK_PROFILE,
-      );
-      useCatalogStore.getState().setAlbumAvailability(items);
-      return items;
+      for (const [index, chunk] of chunks.entries()) {
+        const requestKey = `albumAvailability:${chunk.slice().sort().join(",")}`;
+        const items = await dedupeRequest(requestKey, () =>
+          listAlbumAvailabilitySummaries(chunk, CATALOG_PLAYBACK_PROFILE),
+        );
+        useCatalogStore.getState().setAlbumAvailability(items);
+        results.push(...items);
+        if (index < chunks.length - 1) {
+          await waitForNextPaint();
+        }
+      }
+      return results;
     } catch (error) {
       useCatalogStore
         .getState()
         .markAlbumAvailabilityError(pending, describeError(error));
       throw error;
     }
-  });
+  })();
 }

@@ -54,17 +54,44 @@ export class ActivityStatus {
     }
 }
 
+export enum AggregateAvailabilityState {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    AggregateAvailabilityStateLocal = "LOCAL",
+    AggregateAvailabilityStatePinned = "PINNED",
+    AggregateAvailabilityStateCached = "CACHED",
+    AggregateAvailabilityStateAvailable = "AVAILABLE",
+    AggregateAvailabilityStatePartial = "PARTIAL",
+    AggregateAvailabilityStateOffline = "OFFLINE",
+    AggregateAvailabilityStateUnavailable = "UNAVAILABLE",
+};
+
 export class AggregateAvailabilitySummary {
+    "State": AggregateAvailabilityState;
+    "TrackCount": number;
     "IsLocal": boolean;
     "HasRemote": boolean;
     "LocalTrackCount": number;
+    "LocalSourceTrackCount": number;
+    "PinnedTrackCount": number;
     "CachedTrackCount": number;
     "RemoteTrackCount": number;
     "AvailableTrackCount": number;
+    "AvailableNowTrackCount": number;
+    "OfflineTrackCount": number;
     "UnavailableTrackCount": number;
 
     /** Creates a new AggregateAvailabilitySummary instance. */
     constructor($$source: Partial<AggregateAvailabilitySummary> = {}) {
+        if (!("State" in $$source)) {
+            this["State"] = AggregateAvailabilityState.$zero;
+        }
+        if (!("TrackCount" in $$source)) {
+            this["TrackCount"] = 0;
+        }
         if (!("IsLocal" in $$source)) {
             this["IsLocal"] = false;
         }
@@ -74,6 +101,12 @@ export class AggregateAvailabilitySummary {
         if (!("LocalTrackCount" in $$source)) {
             this["LocalTrackCount"] = 0;
         }
+        if (!("LocalSourceTrackCount" in $$source)) {
+            this["LocalSourceTrackCount"] = 0;
+        }
+        if (!("PinnedTrackCount" in $$source)) {
+            this["PinnedTrackCount"] = 0;
+        }
         if (!("CachedTrackCount" in $$source)) {
             this["CachedTrackCount"] = 0;
         }
@@ -82,6 +115,12 @@ export class AggregateAvailabilitySummary {
         }
         if (!("AvailableTrackCount" in $$source)) {
             this["AvailableTrackCount"] = 0;
+        }
+        if (!("AvailableNowTrackCount" in $$source)) {
+            this["AvailableNowTrackCount"] = 0;
+        }
+        if (!("OfflineTrackCount" in $$source)) {
+            this["OfflineTrackCount"] = 0;
         }
         if (!("UnavailableTrackCount" in $$source)) {
             this["UnavailableTrackCount"] = 0;

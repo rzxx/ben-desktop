@@ -629,7 +629,7 @@ func TestListRecordingPlaybackAvailabilityMatchesSingleItemResults(t *testing.T)
 	app, recordingIDs, _ := seedAvailabilityFixture(t)
 
 	items, err := app.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
-		RecordingIDs:      recordingIDs,
+		RecordingIDs:     recordingIDs,
 		PreferredProfile: "desktop",
 	})
 	if err != nil {
@@ -657,7 +657,7 @@ func TestListAlbumAvailabilitySummariesMatchesOverviewAvailability(t *testing.T)
 	app, _, albumID := seedAvailabilityFixture(t)
 
 	items, err := app.ListAlbumAvailabilitySummaries(ctx, apitypes.AlbumAvailabilitySummaryListRequest{
-		AlbumIDs:          []string{albumID},
+		AlbumIDs:         []string{albumID},
 		PreferredProfile: "desktop",
 	})
 	if err != nil {
@@ -680,6 +680,284 @@ func TestListAlbumAvailabilitySummariesMatchesOverviewAvailability(t *testing.T)
 	if !reflect.DeepEqual(items[0].Availability, overview.Availability) {
 		t.Fatalf("album summary availability = %+v, want %+v", items[0].Availability, overview.Availability)
 	}
+}
+
+func TestAlbumAvailabilitySummaryStates(t *testing.T) {
+	t.Parallel()
+
+	t.Run("local when every track has a local source file", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		app := openCacheTestApp(t, 1024)
+		library, err := app.CreateLibrary(ctx, "album-state-local")
+		if err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+		local, err := app.requireActiveContext(ctx)
+		if err != nil {
+			t.Fatalf("active context: %v", err)
+		}
+
+		seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+			RecordingID:    "rec-local-a",
+			TrackClusterID: "rec-local-a",
+			AlbumID:        "album-local",
+			AlbumClusterID: "album-local",
+			SourceFileID:   "src-local-a",
+			QualityRank:    100,
+		})
+		seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+			RecordingID:    "rec-local-b",
+			TrackClusterID: "rec-local-b",
+			AlbumID:        "album-local",
+			AlbumClusterID: "album-local",
+			SourceFileID:   "src-local-b",
+			QualityRank:    100,
+		})
+
+		summary := mustAlbumAvailabilitySummary(t, app, ctx, "album-local")
+		if summary.State != apitypes.AggregateAvailabilityStateLocal {
+			t.Fatalf("summary state = %q, want %q", summary.State, apitypes.AggregateAvailabilityStateLocal)
+		}
+		if summary.LocalSourceTrackCount != 2 {
+			t.Fatalf("local source track count = %d, want 2", summary.LocalSourceTrackCount)
+		}
+	})
+
+	t.Run("pinned when every track is pinned even without an album pin", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		app := openCacheTestApp(t, 1024)
+		library, err := app.CreateLibrary(ctx, "album-state-pinned")
+		if err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+		local, err := app.requireActiveContext(ctx)
+		if err != nil {
+			t.Fatalf("active context: %v", err)
+		}
+
+		remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-pinned-remote", time.Now().UTC())
+		seedSourceOnlyRecording(t, app, library.LibraryID, remoteDeviceID, playbackSeedInput{
+			RecordingID:    "rec-pinned-a",
+			TrackClusterID: "rec-pinned-a",
+			AlbumID:        "album-pinned",
+			AlbumClusterID: "album-pinned",
+			SourceFileID:   "src-pinned-a",
+			QualityRank:    90,
+		})
+		seedSourceOnlyRecording(t, app, library.LibraryID, remoteDeviceID, playbackSeedInput{
+			RecordingID:    "rec-pinned-b",
+			TrackClusterID: "rec-pinned-b",
+			AlbumID:        "album-pinned",
+			AlbumClusterID: "album-pinned",
+			SourceFileID:   "src-pinned-b",
+			QualityRank:    90,
+		})
+		seedOfflinePin(t, app, library.LibraryID, local.DeviceID, "recording", "rec-pinned-a", "desktop")
+		seedOfflinePin(t, app, library.LibraryID, local.DeviceID, "recording", "rec-pinned-b", "desktop")
+
+		summary := mustAlbumAvailabilitySummary(t, app, ctx, "album-pinned")
+		if summary.State != apitypes.AggregateAvailabilityStatePinned {
+			t.Fatalf("summary state = %q, want %q", summary.State, apitypes.AggregateAvailabilityStatePinned)
+		}
+		if summary.PinnedTrackCount != 2 {
+			t.Fatalf("pinned track count = %d, want 2", summary.PinnedTrackCount)
+		}
+	})
+
+	t.Run("cached when every track is cached locally from remote sources", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		app := openCacheTestApp(t, 1024)
+		library, err := app.CreateLibrary(ctx, "album-state-cached")
+		if err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+		local, err := app.requireActiveContext(ctx)
+		if err != nil {
+			t.Fatalf("active context: %v", err)
+		}
+
+		remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-cached-remote", time.Now().UTC())
+		seedRemoteCachedRecording(t, app, library.LibraryID, remoteDeviceID, local.DeviceID, cacheSeedInput{
+			RecordingID:    "rec-cached-a",
+			AlbumID:        "album-cached",
+			SourceFileID:   "src-cached-a",
+			EncodingID:     "enc-cached-a",
+			BlobID:         testBlobID("a"),
+			Profile:        "desktop",
+			LastVerifiedAt: time.Now().UTC(),
+		})
+		seedRemoteCachedRecording(t, app, library.LibraryID, remoteDeviceID, local.DeviceID, cacheSeedInput{
+			RecordingID:    "rec-cached-b",
+			AlbumID:        "album-cached",
+			SourceFileID:   "src-cached-b",
+			EncodingID:     "enc-cached-b",
+			BlobID:         testBlobID("b"),
+			Profile:        "desktop",
+			LastVerifiedAt: time.Now().UTC(),
+		})
+
+		summary := mustAlbumAvailabilitySummary(t, app, ctx, "album-cached")
+		if summary.State != apitypes.AggregateAvailabilityStateCached {
+			t.Fatalf("summary state = %q, want %q", summary.State, apitypes.AggregateAvailabilityStateCached)
+		}
+		if summary.CachedTrackCount != 2 {
+			t.Fatalf("cached track count = %d, want 2", summary.CachedTrackCount)
+		}
+		if summary.LocalSourceTrackCount != 0 {
+			t.Fatalf("local source track count = %d, want 0", summary.LocalSourceTrackCount)
+		}
+	})
+
+	t.Run("available when every track is fetchable from online peers", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		app := openCacheTestApp(t, 1024)
+		library, err := app.CreateLibrary(ctx, "album-state-available")
+		if err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+
+		remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-available-remote", time.Now().UTC())
+		seedSourceOnlyRecording(t, app, library.LibraryID, remoteDeviceID, playbackSeedInput{
+			RecordingID:    "rec-available-a",
+			TrackClusterID: "rec-available-a",
+			AlbumID:        "album-available",
+			AlbumClusterID: "album-available",
+			SourceFileID:   "src-available-a",
+			QualityRank:    88,
+		})
+		seedSourceOnlyRecording(t, app, library.LibraryID, remoteDeviceID, playbackSeedInput{
+			RecordingID:    "rec-available-b",
+			TrackClusterID: "rec-available-b",
+			AlbumID:        "album-available",
+			AlbumClusterID: "album-available",
+			SourceFileID:   "src-available-b",
+			QualityRank:    88,
+		})
+
+		summary := mustAlbumAvailabilitySummary(t, app, ctx, "album-available")
+		if summary.State != apitypes.AggregateAvailabilityStateAvailable {
+			t.Fatalf("summary state = %q, want %q", summary.State, apitypes.AggregateAvailabilityStateAvailable)
+		}
+		if summary.AvailableNowTrackCount != 2 {
+			t.Fatalf("available-now track count = %d, want 2", summary.AvailableNowTrackCount)
+		}
+	})
+
+	t.Run("partial when only some tracks are currently reachable", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		app := openCacheTestApp(t, 1024)
+		library, err := app.CreateLibrary(ctx, "album-state-partial")
+		if err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+
+		remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-partial-remote", time.Now().UTC())
+		seedSourceOnlyRecording(t, app, library.LibraryID, remoteDeviceID, playbackSeedInput{
+			RecordingID:    "rec-partial-a",
+			TrackClusterID: "rec-partial-a",
+			AlbumID:        "album-partial",
+			AlbumClusterID: "album-partial",
+			SourceFileID:   "src-partial-a",
+			QualityRank:    88,
+		})
+		seedAlbumTrackWithoutSources(t, app, library.LibraryID, "album-partial", "rec-partial-b")
+
+		summary := mustAlbumAvailabilitySummary(t, app, ctx, "album-partial")
+		if summary.State != apitypes.AggregateAvailabilityStatePartial {
+			t.Fatalf("summary state = %q, want %q", summary.State, apitypes.AggregateAvailabilityStatePartial)
+		}
+		if summary.AvailableNowTrackCount != 1 {
+			t.Fatalf("available-now track count = %d, want 1", summary.AvailableNowTrackCount)
+		}
+	})
+
+	t.Run("offline when remote paths exist but nothing is currently reachable", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		app := openCacheTestApp(t, 1024)
+		library, err := app.CreateLibrary(ctx, "album-state-offline")
+		if err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+
+		lastSeen := time.Now().UTC().Add(-3 * availabilityOnlineWindow)
+		remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-offline-remote", lastSeen)
+		seedSourceOnlyRecording(t, app, library.LibraryID, remoteDeviceID, playbackSeedInput{
+			RecordingID:    "rec-offline-a",
+			TrackClusterID: "rec-offline-a",
+			AlbumID:        "album-offline",
+			AlbumClusterID: "album-offline",
+			SourceFileID:   "src-offline-a",
+			QualityRank:    88,
+		})
+
+		summary := mustAlbumAvailabilitySummary(t, app, ctx, "album-offline")
+		if summary.State != apitypes.AggregateAvailabilityStateOffline {
+			t.Fatalf("summary state = %q, want %q", summary.State, apitypes.AggregateAvailabilityStateOffline)
+		}
+		if summary.OfflineTrackCount != 1 {
+			t.Fatalf("offline track count = %d, want 1", summary.OfflineTrackCount)
+		}
+	})
+
+	t.Run("unavailable when no track has any source", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		app := openCacheTestApp(t, 1024)
+		library, err := app.CreateLibrary(ctx, "album-state-unavailable")
+		if err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+
+		seedAlbumTrackWithoutSources(t, app, library.LibraryID, "album-unavailable", "rec-unavailable-a")
+
+		summary := mustAlbumAvailabilitySummary(t, app, ctx, "album-unavailable")
+		if summary.State != apitypes.AggregateAvailabilityStateUnavailable {
+			t.Fatalf("summary state = %q, want %q", summary.State, apitypes.AggregateAvailabilityStateUnavailable)
+		}
+		if summary.UnavailableTrackCount != 1 {
+			t.Fatalf("unavailable track count = %d, want 1", summary.UnavailableTrackCount)
+		}
+	})
+
+	t.Run("offline when network is disabled even if providers are online", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		app := openCacheTestApp(t, 1024)
+		library, err := app.CreateLibrary(ctx, "album-state-network-off")
+		if err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+		app.transportService = nil
+
+		remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-network-off-remote", time.Now().UTC())
+		seedSourceOnlyRecording(t, app, library.LibraryID, remoteDeviceID, playbackSeedInput{
+			RecordingID:    "rec-network-off-a",
+			TrackClusterID: "rec-network-off-a",
+			AlbumID:        "album-network-off",
+			AlbumClusterID: "album-network-off",
+			SourceFileID:   "src-network-off-a",
+			QualityRank:    88,
+		})
+
+		summary := mustAlbumAvailabilitySummary(t, app, ctx, "album-network-off")
+		if summary.State != apitypes.AggregateAvailabilityStateOffline {
+			t.Fatalf("summary state = %q, want %q", summary.State, apitypes.AggregateAvailabilityStateOffline)
+		}
+	})
 }
 
 func seedAvailabilityFixture(t *testing.T) (*App, []string, string) {
@@ -748,6 +1026,131 @@ func seedAvailabilityFixture(t *testing.T) (*App, []string, string) {
 	})
 
 	return app, recordingIDs, albumID
+}
+
+func mustAlbumAvailabilitySummary(t *testing.T, app *App, ctx context.Context, albumID string) apitypes.AggregateAvailabilitySummary {
+	t.Helper()
+
+	items, err := app.ListAlbumAvailabilitySummaries(ctx, apitypes.AlbumAvailabilitySummaryListRequest{
+		AlbumIDs:         []string{albumID},
+		PreferredProfile: "desktop",
+	})
+	if err != nil {
+		t.Fatalf("list album availability summaries: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("album availability summary items = %d, want 1", len(items))
+	}
+	return items[0].Availability
+}
+
+func seedRemoteLibraryMember(t *testing.T, app *App, libraryID, deviceID string, lastSeen time.Time) string {
+	t.Helper()
+
+	if err := app.db.WithContext(context.Background()).Create(&Device{
+		DeviceID:   deviceID,
+		Name:       deviceID,
+		JoinedAt:   lastSeen,
+		LastSeenAt: &lastSeen,
+	}).Error; err != nil {
+		t.Fatalf("create remote device %s: %v", deviceID, err)
+	}
+	if err := app.db.WithContext(context.Background()).Create(&Membership{
+		LibraryID:        libraryID,
+		DeviceID:         deviceID,
+		Role:             roleMember,
+		CapabilitiesJSON: "{}",
+		JoinedAt:         lastSeen,
+	}).Error; err != nil {
+		t.Fatalf("create remote membership %s: %v", deviceID, err)
+	}
+	return deviceID
+}
+
+func seedAlbumTrackWithoutSources(t *testing.T, app *App, libraryID, albumID, recordingID string) {
+	t.Helper()
+
+	now := time.Now().UTC()
+	var count int64
+	if err := app.db.WithContext(context.Background()).
+		Model(&AlbumVariantModel{}).
+		Where("library_id = ? AND album_variant_id = ?", libraryID, albumID).
+		Count(&count).Error; err != nil {
+		t.Fatalf("count missing album %s: %v", albumID, err)
+	}
+	if count == 0 {
+		if err := app.db.WithContext(context.Background()).Create(&AlbumVariantModel{
+			LibraryID:      libraryID,
+			AlbumVariantID: albumID,
+			AlbumClusterID: albumID,
+			KeyNorm:        albumID,
+			Title:          albumID,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}).Error; err != nil {
+			t.Fatalf("seed missing album %s: %v", albumID, err)
+		}
+	}
+	count = 0
+	if err := app.db.WithContext(context.Background()).
+		Model(&TrackVariantModel{}).
+		Where("library_id = ? AND track_variant_id = ?", libraryID, recordingID).
+		Count(&count).Error; err != nil {
+		t.Fatalf("count missing track %s: %v", recordingID, err)
+	}
+	if count == 0 {
+		if err := app.db.WithContext(context.Background()).Create(&TrackVariantModel{
+			LibraryID:      libraryID,
+			TrackVariantID: recordingID,
+			TrackClusterID: recordingID,
+			KeyNorm:        recordingID,
+			Title:          recordingID,
+			DurationMS:     180000,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}).Error; err != nil {
+			t.Fatalf("seed missing track %s: %v", recordingID, err)
+		}
+	}
+	if err := app.db.WithContext(context.Background()).Create(&AlbumTrack{
+		LibraryID:      libraryID,
+		AlbumVariantID: albumID,
+		TrackVariantID: recordingID,
+		DiscNo:         1,
+		TrackNo:        1,
+	}).Error; err != nil {
+		t.Fatalf("seed missing album track %s: %v", recordingID, err)
+	}
+}
+
+func seedRemoteCachedRecording(t *testing.T, app *App, libraryID, remoteDeviceID, localDeviceID string, in cacheSeedInput) {
+	t.Helper()
+
+	var count int64
+	if err := app.db.WithContext(context.Background()).
+		Model(&AlbumVariantModel{}).
+		Where("library_id = ? AND album_variant_id = ?", libraryID, in.AlbumID).
+		Count(&count).Error; err != nil {
+		t.Fatalf("count cached album %s: %v", in.AlbumID, err)
+	}
+	if count == 0 {
+		seedCacheRecording(t, app, libraryID, remoteDeviceID, in)
+	} else {
+		seedCachedRecordingForExistingAlbum(t, app, libraryID, remoteDeviceID, in)
+	}
+
+	lastVerified := in.LastVerifiedAt
+	if err := app.db.WithContext(context.Background()).Create(&DeviceAssetCacheModel{
+		LibraryID:        libraryID,
+		DeviceID:         localDeviceID,
+		OptimizedAssetID: in.EncodingID,
+		IsCached:         true,
+		LastVerifiedAt:   &lastVerified,
+		UpdatedAt:        time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatalf("seed local cache mirror %s: %v", in.EncodingID, err)
+	}
+	writeCacheBlob(t, app, in.BlobID, 64)
 }
 
 type playbackSeedInput struct {

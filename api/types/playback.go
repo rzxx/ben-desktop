@@ -136,20 +136,32 @@ type RecordingPlaybackAvailability struct {
 }
 
 type RecordingPlaybackAvailabilityListRequest struct {
-	RecordingIDs      []string
+	RecordingIDs     []string
 	PreferredProfile string
 }
 
 type AlbumAvailabilitySummaryListRequest struct {
-	AlbumIDs          []string
+	AlbumIDs         []string
 	PreferredProfile string
 }
 
 type AlbumAvailabilitySummaryItem struct {
-	AlbumID           string
+	AlbumID          string
 	PreferredProfile string
-	Availability      AggregateAvailabilitySummary
+	Availability     AggregateAvailabilitySummary
 }
+
+type AggregateAvailabilityState string
+
+const (
+	AggregateAvailabilityStateLocal       AggregateAvailabilityState = "LOCAL"
+	AggregateAvailabilityStatePinned      AggregateAvailabilityState = "PINNED"
+	AggregateAvailabilityStateCached      AggregateAvailabilityState = "CACHED"
+	AggregateAvailabilityStateAvailable   AggregateAvailabilityState = "AVAILABLE"
+	AggregateAvailabilityStatePartial     AggregateAvailabilityState = "PARTIAL"
+	AggregateAvailabilityStateOffline     AggregateAvailabilityState = "OFFLINE"
+	AggregateAvailabilityStateUnavailable AggregateAvailabilityState = "UNAVAILABLE"
+)
 
 type TrackAvailabilitySummary struct {
 	State                    RecordingAvailabilityState
@@ -166,13 +178,19 @@ type TrackAvailabilitySummary struct {
 }
 
 type AggregateAvailabilitySummary struct {
-	IsLocal               bool
-	HasRemote             bool
-	LocalTrackCount       int64
-	CachedTrackCount      int64
-	RemoteTrackCount      int64
-	AvailableTrackCount   int64
-	UnavailableTrackCount int64
+	State                  AggregateAvailabilityState
+	TrackCount             int64
+	IsLocal                bool
+	HasRemote              bool
+	LocalTrackCount        int64
+	LocalSourceTrackCount  int64
+	PinnedTrackCount       int64
+	CachedTrackCount       int64
+	RemoteTrackCount       int64
+	AvailableTrackCount    int64
+	AvailableNowTrackCount int64
+	OfflineTrackCount      int64
+	UnavailableTrackCount  int64
 }
 
 type RecordingVariantAvailabilityOverview struct {

@@ -1027,20 +1027,24 @@ func (s *PlaybackService) ListRecordingPlaybackAvailability(ctx context.Context,
 }
 
 func (s *PlaybackService) ListAlbumAvailabilitySummaries(ctx context.Context, req apitypes.AlbumAvailabilitySummaryListRequest) ([]apitypes.AlbumAvailabilitySummaryItem, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	albumIDs := compactNonEmptyStrings(req.AlbumIDs)
 	if len(albumIDs) == 0 {
 		return []apitypes.AlbumAvailabilitySummaryItem{}, nil
 	}
+	summaries, err := s.albumAvailabilitySummaries(ctx, local, albumIDs, req.PreferredProfile)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]apitypes.AlbumAvailabilitySummaryItem, 0, len(albumIDs))
 	for _, albumID := range albumIDs {
-		overview, err := s.GetAlbumAvailabilityOverview(ctx, albumID, req.PreferredProfile)
-		if err != nil {
-			return nil, err
-		}
 		out = append(out, apitypes.AlbumAvailabilitySummaryItem{
-			AlbumID:           albumID,
+			AlbumID:          albumID,
 			PreferredProfile: req.PreferredProfile,
-			Availability:      overview.Availability,
+			Availability:     summaries[albumID],
 		})
 	}
 	return out, nil
@@ -1298,16 +1302,14 @@ func (s *PlaybackService) GetAlbumAvailabilityOverview(ctx context.Context, albu
 		AlbumID:          strings.TrimSpace(albumID),
 		PreferredProfile: s.resolvePlaybackProfile(preferredProfile),
 	}
-	summaries := make([]apitypes.TrackAvailabilitySummary, 0, len(tracks.Items))
+	summaries, err := s.albumAvailabilitySummaries(ctx, local, []string{albumID}, preferredProfile)
+	if err != nil {
+		return apitypes.AlbumAvailabilityOverview{}, err
+	}
+	out.Availability = summaries[strings.TrimSpace(albumID)]
 	for _, track := range tracks.Items {
-		summary, _, _, err := s.recordingAvailabilitySummary(ctx, local, track.RecordingID, preferredProfile)
-		if err != nil {
-			return apitypes.AlbumAvailabilityOverview{}, err
-		}
-		summaries = append(summaries, summary)
 		out.Tracks = append(out.Tracks, apitypes.AlbumTrackAvailabilityOverview{Track: track})
 	}
-	out.Availability = aggregateAvailabilitySummaries(summaries)
 	for _, variant := range variants.Items {
 		out.Variants = append(out.Variants, apitypes.AlbumVariantAvailabilityOverview{Variant: variant})
 	}
@@ -1682,6 +1684,281 @@ ORDER BY pi.position_key ASC, pi.item_id ASC`
 		out = append(out, recordingID)
 	}
 	return out, nil
+}
+
+func (s *PlaybackService) albumAvailabilitySummaries(ctx context.Context, local apitypes.LocalContext, albumIDs []string, preferredProfile string) (map[string]apitypes.AggregateAvailabilitySummary, error) {
+	albumIDs = compactNonEmptyStrings(albumIDs)
+	if len(albumIDs) == 0 {
+		return map[string]apitypes.AggregateAvailabilitySummary{}, nil
+	}
+
+	type albumTrackRow struct {
+		AlbumID     string
+		RecordingID string
+	}
+
+	var rows []albumTrackRow
+	query := `
+SELECT
+	at.album_variant_id AS album_id,
+	at.track_variant_id AS recording_id
+FROM album_tracks at
+WHERE at.library_id = ? AND at.album_variant_id IN ?
+GROUP BY at.album_variant_id, at.track_variant_id
+ORDER BY at.album_variant_id ASC, at.disc_no ASC, at.track_no ASC, at.track_variant_id ASC`
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, albumIDs).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	grouped := make(map[string][]string, len(albumIDs))
+	recordingIDs := make([]string, 0, len(rows))
+	recordingSeen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		albumID := strings.TrimSpace(row.AlbumID)
+		recordingID := strings.TrimSpace(row.RecordingID)
+		if albumID == "" || recordingID == "" {
+			continue
+		}
+		grouped[albumID] = append(grouped[albumID], recordingID)
+		if _, ok := recordingSeen[recordingID]; ok {
+			continue
+		}
+		recordingSeen[recordingID] = struct{}{}
+		recordingIDs = append(recordingIDs, recordingID)
+	}
+
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	aliasProfile := normalizedPlaybackProfileAlias(profile)
+	cutoff := time.Now().UTC().Add(-availabilityOnlineWindow)
+	facts, err := s.batchRecordingAvailabilityFacts(ctx, local.LibraryID, local.DeviceID, recordingIDs, profile, aliasProfile, s.app.NetworkStatus().Running, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	albumPins, err := s.batchAlbumPins(ctx, local.LibraryID, local.DeviceID, albumIDs, profile, aliasProfile)
+	if err != nil {
+		return nil, err
+	}
+	trackPins, err := s.batchTrackPins(ctx, local.LibraryID, local.DeviceID, recordingIDs, profile, aliasProfile)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]apitypes.AggregateAvailabilitySummary, len(albumIDs))
+	for _, albumID := range albumIDs {
+		trimmedAlbumID := strings.TrimSpace(albumID)
+		recordings := grouped[trimmedAlbumID]
+		summary := apitypes.AggregateAvailabilitySummary{
+			TrackCount: int64(len(recordings)),
+		}
+		albumPinned := albumPins[trimmedAlbumID]
+		for _, recordingID := range recordings {
+			fact := facts[recordingID]
+			if fact.isLocal {
+				summary.IsLocal = true
+				summary.LocalTrackCount++
+			}
+			if fact.hasLocalSource {
+				summary.LocalSourceTrackCount++
+			}
+			if fact.hasRemotePath {
+				summary.HasRemote = true
+				summary.RemoteTrackCount++
+			}
+			if fact.hasLocalCached {
+				summary.CachedTrackCount++
+			}
+			if fact.availableNow {
+				summary.AvailableTrackCount++
+				summary.AvailableNowTrackCount++
+			} else if fact.offline {
+				summary.OfflineTrackCount++
+			} else {
+				summary.UnavailableTrackCount++
+			}
+			if trackPins[recordingID] {
+				summary.PinnedTrackCount++
+			}
+		}
+		if albumPinned {
+			summary.PinnedTrackCount = summary.TrackCount
+		}
+		summary.State = deriveAggregateAvailabilityState(summary, albumPinned)
+		out[trimmedAlbumID] = summary
+	}
+	return out, nil
+}
+
+type recordingAvailabilityFacts struct {
+	availableNow   bool
+	offline        bool
+	isLocal        bool
+	hasLocalCached bool
+	hasLocalSource bool
+	hasRemotePath  bool
+}
+
+func (s *PlaybackService) batchRecordingAvailabilityFacts(ctx context.Context, libraryID, localDeviceID string, recordingIDs []string, profile, aliasProfile string, networkRunning bool, cutoff time.Time) (map[string]recordingAvailabilityFacts, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
+		return map[string]recordingAvailabilityFacts{}, nil
+	}
+
+	type sourceRow struct {
+		RecordingID           string
+		HasLocalSource        int
+		HasRemoteSource       int
+		HasRemoteSourceOnline int
+	}
+	sourceQuery := `
+SELECT
+	sf.track_variant_id AS recording_id,
+	MAX(CASE WHEN sf.device_id = ? AND sf.is_present = 1 THEN 1 ELSE 0 END) AS has_local_source,
+	MAX(CASE WHEN sf.device_id <> ? AND sf.is_present = 1 AND COALESCE(m.role, '') IN ('owner', 'admin', 'member') THEN 1 ELSE 0 END) AS has_remote_source,
+	MAX(CASE WHEN sf.device_id <> ? AND sf.is_present = 1 AND COALESCE(m.role, '') IN ('owner', 'admin', 'member') AND d.last_seen_at >= ? THEN 1 ELSE 0 END) AS has_remote_source_online
+FROM source_files sf
+LEFT JOIN memberships m ON m.library_id = sf.library_id AND m.device_id = sf.device_id
+LEFT JOIN devices d ON d.device_id = sf.device_id
+WHERE sf.library_id = ? AND sf.track_variant_id IN ?
+GROUP BY sf.track_variant_id`
+	var sourceRows []sourceRow
+	if err := s.app.storage.WithContext(ctx).Raw(sourceQuery, localDeviceID, localDeviceID, localDeviceID, cutoff, libraryID, recordingIDs).Scan(&sourceRows).Error; err != nil {
+		return nil, err
+	}
+
+	type cacheRow struct {
+		RecordingID           string
+		HasLocalCached        int
+		HasRemoteCached       int
+		HasRemoteCachedOnline int
+	}
+	cacheQuery := `
+SELECT
+	oa.track_variant_id AS recording_id,
+	MAX(CASE WHEN dac.device_id = ? AND dac.is_cached = 1 THEN 1 ELSE 0 END) AS has_local_cached,
+	MAX(CASE WHEN dac.device_id <> ? AND dac.is_cached = 1 THEN 1 ELSE 0 END) AS has_remote_cached,
+	MAX(CASE WHEN dac.device_id <> ? AND dac.is_cached = 1 AND d.last_seen_at >= ? THEN 1 ELSE 0 END) AS has_remote_cached_online
+FROM optimized_assets oa
+JOIN device_asset_caches dac ON dac.library_id = oa.library_id AND dac.optimized_asset_id = oa.optimized_asset_id
+LEFT JOIN devices d ON d.device_id = dac.device_id
+WHERE oa.library_id = ? AND oa.track_variant_id IN ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
+GROUP BY oa.track_variant_id`
+	var cacheRows []cacheRow
+	if err := s.app.storage.WithContext(ctx).Raw(cacheQuery, localDeviceID, localDeviceID, localDeviceID, cutoff, libraryID, recordingIDs, profile, profile, aliasProfile).Scan(&cacheRows).Error; err != nil {
+		return nil, err
+	}
+
+	type rawFacts struct {
+		hasLocalSource        bool
+		hasRemoteSource       bool
+		hasRemoteSourceOnline bool
+		hasLocalCached        bool
+		hasRemoteCached       bool
+		hasRemoteCachedOnline bool
+	}
+	combined := make(map[string]rawFacts, len(recordingIDs))
+	for _, row := range sourceRows {
+		recordingID := strings.TrimSpace(row.RecordingID)
+		next := combined[recordingID]
+		next.hasLocalSource = row.HasLocalSource > 0
+		next.hasRemoteSource = row.HasRemoteSource > 0
+		next.hasRemoteSourceOnline = row.HasRemoteSourceOnline > 0
+		combined[recordingID] = next
+	}
+	for _, row := range cacheRows {
+		recordingID := strings.TrimSpace(row.RecordingID)
+		next := combined[recordingID]
+		next.hasLocalCached = row.HasLocalCached > 0
+		next.hasRemoteCached = row.HasRemoteCached > 0
+		next.hasRemoteCachedOnline = row.HasRemoteCachedOnline > 0
+		combined[recordingID] = next
+	}
+
+	out := make(map[string]recordingAvailabilityFacts, len(recordingIDs))
+	for _, recordingID := range recordingIDs {
+		raw := combined[recordingID]
+		availableNow := raw.hasLocalSource || raw.hasLocalCached
+		if networkRunning && (raw.hasRemoteCachedOnline || raw.hasRemoteSourceOnline) {
+			availableNow = true
+		}
+		hasRemotePath := raw.hasRemoteCached || raw.hasRemoteSource
+		out[recordingID] = recordingAvailabilityFacts{
+			availableNow:   availableNow,
+			offline:        !availableNow && hasRemotePath,
+			isLocal:        raw.hasLocalSource || raw.hasLocalCached,
+			hasLocalCached: raw.hasLocalCached,
+			hasLocalSource: raw.hasLocalSource,
+			hasRemotePath:  hasRemotePath,
+		}
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) batchAlbumPins(ctx context.Context, libraryID, localDeviceID string, albumIDs []string, profile, aliasProfile string) (map[string]bool, error) {
+	albumIDs = compactNonEmptyStrings(albumIDs)
+	if len(albumIDs) == 0 {
+		return map[string]bool{}, nil
+	}
+
+	type row struct{ ScopeID string }
+	var rows []row
+	query := `
+SELECT scope_id
+FROM offline_pins
+WHERE library_id = ? AND device_id = ? AND scope = 'album' AND scope_id IN ? AND (profile = ? OR profile = ?)`
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, localDeviceID, albumIDs, profile, aliasProfile).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		out[strings.TrimSpace(row.ScopeID)] = true
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) batchTrackPins(ctx context.Context, libraryID, localDeviceID string, recordingIDs []string, profile, aliasProfile string) (map[string]bool, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
+		return map[string]bool{}, nil
+	}
+
+	type row struct{ ScopeID string }
+	var rows []row
+	query := `
+SELECT scope_id
+FROM offline_pins
+WHERE library_id = ? AND device_id = ? AND scope = 'recording' AND scope_id IN ? AND (profile = ? OR profile = ?)`
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, localDeviceID, recordingIDs, profile, aliasProfile).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		out[strings.TrimSpace(row.ScopeID)] = true
+	}
+	return out, nil
+}
+
+func deriveAggregateAvailabilityState(summary apitypes.AggregateAvailabilitySummary, albumPinned bool) apitypes.AggregateAvailabilityState {
+	if summary.TrackCount == 0 {
+		return apitypes.AggregateAvailabilityStateUnavailable
+	}
+	switch {
+	case summary.LocalSourceTrackCount == summary.TrackCount:
+		return apitypes.AggregateAvailabilityStateLocal
+	case albumPinned || summary.PinnedTrackCount == summary.TrackCount:
+		return apitypes.AggregateAvailabilityStatePinned
+	case summary.CachedTrackCount == summary.TrackCount:
+		return apitypes.AggregateAvailabilityStateCached
+	case summary.AvailableNowTrackCount == summary.TrackCount:
+		return apitypes.AggregateAvailabilityStateAvailable
+	case summary.AvailableNowTrackCount > 0:
+		return apitypes.AggregateAvailabilityStatePartial
+	case summary.OfflineTrackCount > 0:
+		return apitypes.AggregateAvailabilityStateOffline
+	default:
+		return apitypes.AggregateAvailabilityStateUnavailable
+	}
 }
 
 func (s *PlaybackService) recordingAvailabilitySummary(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (apitypes.TrackAvailabilitySummary, apitypes.RecordingPlaybackAvailability, []apitypes.RecordingAvailabilityItem, error) {

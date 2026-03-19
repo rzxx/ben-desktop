@@ -99,16 +99,40 @@ export function availabilityLabel(state?: string) {
 
 export function aggregateAvailabilityLabel(
   availability?: {
+    State?: string | null;
+    AvailableNowTrackCount?: number | null;
     LocalTrackCount?: number | null;
+    LocalSourceTrackCount?: number | null;
+    PinnedTrackCount?: number | null;
     CachedTrackCount?: number | null;
     HasRemote?: boolean | null;
     RemoteTrackCount?: number | null;
     AvailableTrackCount?: number | null;
+    OfflineTrackCount?: number | null;
     UnavailableTrackCount?: number | null;
+    TrackCount?: number | null;
   } | null,
 ) {
   if (!availability) {
     return availabilityLabel();
+  }
+  switch (availability.State) {
+    case "LOCAL":
+      return "Local";
+    case "PINNED":
+      return "Pinned";
+    case "CACHED":
+      return "Cached";
+    case "AVAILABLE":
+      return "Available";
+    case "PARTIAL":
+      return `${Math.max(0, Math.trunc(availability.AvailableNowTrackCount ?? availability.AvailableTrackCount ?? 0))} available`;
+    case "OFFLINE":
+      return "Offline";
+    case "UNAVAILABLE":
+      return "Unavailable";
+    default:
+      break;
   }
   if ((availability?.LocalTrackCount ?? 0) > 0) {
     return availabilityLabel("PLAYABLE:LOCAL_FILE");
@@ -143,10 +167,13 @@ export function availabilityTone(
   state?:
     | string
     | {
+        State?: string | null;
+        AvailableNowTrackCount?: number | null;
         AvailableTrackCount?: number | null;
         CachedTrackCount?: number | null;
         HasRemote?: boolean | null;
         LocalTrackCount?: number | null;
+        OfflineTrackCount?: number | null;
         RemoteTrackCount?: number | null;
         UnavailableTrackCount?: number | null;
       }
@@ -155,12 +182,15 @@ export function availabilityTone(
   const resolvedState =
     typeof state === "string"
       ? state
-      : aggregateAvailabilityLabel(state).toUpperCase();
+      : (state?.State ?? aggregateAvailabilityLabel(state).toUpperCase());
 
   switch (resolvedState) {
     case "LOCAL":
+    case "PINNED":
     case "CACHED":
       return "success";
+    case "AVAILABLE":
+    case "PARTIAL":
     case "ONLINE":
     case "WAITING:PROVIDER_TRANSCODE":
     case "PLAYABLE:REMOTE_OPT":
