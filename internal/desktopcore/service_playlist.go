@@ -64,6 +64,13 @@ func (s *PlaylistService) CreatePlaylist(ctx context.Context, name, kind string)
 	}); err != nil {
 		return apitypes.PlaylistRecord{}, err
 	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateBase,
+		Entity:       apitypes.CatalogChangeEntityPlaylists,
+		QueryKey:     "playlists",
+		EntityID:     row.PlaylistID,
+		InvalidateAll: true,
+	})
 	return s.toPlaylistRecord(ctx, row)
 }
 
@@ -110,6 +117,13 @@ func (s *PlaylistService) RenamePlaylist(ctx context.Context, playlistID, name s
 	}); err != nil {
 		return apitypes.PlaylistRecord{}, err
 	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateBase,
+		Entity:       apitypes.CatalogChangeEntityPlaylists,
+		QueryKey:     "playlists",
+		EntityID:     playlistID,
+		InvalidateAll: true,
+	})
 	return s.toPlaylistRecord(ctx, row)
 }
 
@@ -133,7 +147,7 @@ func (s *PlaylistService) DeletePlaylist(ctx context.Context, playlistID string)
 		return fmt.Errorf("reserved playlists are not deletable")
 	}
 	now := time.Now().UTC()
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&Playlist{}).
 			Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
@@ -147,7 +161,23 @@ func (s *PlaylistService) DeletePlaylist(ctx context.Context, playlistID string)
 			"deletedAt":  now,
 		})
 		return err
+	}); err != nil {
+		return err
+	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateBase,
+		Entity:       apitypes.CatalogChangeEntityPlaylists,
+		QueryKey:     "playlists",
+		EntityID:     playlistID,
+		InvalidateAll: true,
 	})
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:     apitypes.CatalogChangeInvalidateBase,
+		Entity:   apitypes.CatalogChangeEntityPlaylistTracks,
+		QueryKey: "playlistTracks:" + playlistID,
+		EntityID: playlistID,
+	})
+	return nil
 }
 
 func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error) {
@@ -222,6 +252,7 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 	if err != nil {
 		return apitypes.PlaylistItemRecord{}, err
 	}
+	s.emitPlaylistMutationEvents(playlistID, recordingID, isReservedPlaylist(playlist))
 	return toPlaylistItemRecord(item), nil
 }
 
@@ -280,6 +311,7 @@ func (s *PlaylistService) MovePlaylistItem(ctx context.Context, req apitypes.Pla
 	if err != nil {
 		return apitypes.PlaylistItemRecord{}, err
 	}
+	s.emitPlaylistMutationEvents(playlistID, item.TrackVariantID, false)
 	return toPlaylistItemRecord(item), nil
 }
 
@@ -314,7 +346,7 @@ func (s *PlaylistService) RemovePlaylistItem(ctx context.Context, playlistID, it
 		return s.UnlikeRecording(ctx, item.TrackVariantID)
 	}
 	now := time.Now().UTC()
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&PlaylistItem{}).
 			Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, playlistID, itemID).
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
@@ -327,7 +359,11 @@ func (s *PlaylistService) RemovePlaylistItem(ctx context.Context, playlistID, it
 			"deletedAt":   now,
 		})
 		return err
-	})
+	}); err != nil {
+		return err
+	}
+	s.emitPlaylistMutationEvents(playlistID, item.TrackVariantID, false)
+	return nil
 }
 
 func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string) error {
@@ -364,7 +400,7 @@ func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string)
 		UpdatedAt:      now,
 		PositionKey:    defaultPositionKey(),
 	}
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := ensureLikedPlaylistTx(tx, local.LibraryID, local.DeviceID, now); err != nil {
 			return err
 		}
@@ -393,7 +429,11 @@ func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string)
 			"deleted":     false,
 		})
 		return err
-	})
+	}); err != nil {
+		return err
+	}
+	s.emitPlaylistMutationEvents(likedPlaylistID, recordingID, true)
+	return nil
 }
 
 func (s *PlaylistService) UnlikeRecording(ctx context.Context, recordingID string) error {
@@ -416,7 +456,7 @@ func (s *PlaylistService) UnlikeRecording(ctx context.Context, recordingID strin
 		return nil
 	}
 	now := time.Now().UTC()
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&PlaylistItem{}).
 			Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, item.PlaylistID, item.ItemID).
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
@@ -430,7 +470,11 @@ func (s *PlaylistService) UnlikeRecording(ctx context.Context, recordingID strin
 			"deletedAt":   now,
 		})
 		return err
-	})
+	}); err != nil {
+		return err
+	}
+	s.emitPlaylistMutationEvents(item.PlaylistID, item.TrackVariantID, true)
+	return nil
 }
 
 func (s *PlaylistService) IsRecordingLiked(ctx context.Context, recordingID string) (bool, error) {
@@ -439,6 +483,31 @@ func (s *PlaylistService) IsRecordingLiked(ctx context.Context, recordingID stri
 		return false, err
 	}
 	return s.isRecordingLikedInLibrary(ctx, local.LibraryID, strings.TrimSpace(recordingID))
+}
+
+func (s *PlaylistService) emitPlaylistMutationEvents(playlistID, recordingID string, liked bool) {
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:     apitypes.CatalogChangeInvalidateBase,
+		Entity:   apitypes.CatalogChangeEntityPlaylists,
+		QueryKey: "playlists",
+		EntityID: strings.TrimSpace(playlistID),
+	})
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateBase,
+		Entity:       apitypes.CatalogChangeEntityPlaylistTracks,
+		QueryKey:     "playlistTracks:" + strings.TrimSpace(playlistID),
+		EntityID:     strings.TrimSpace(playlistID),
+		RecordingIDs: []string{strings.TrimSpace(recordingID)},
+	})
+	if liked {
+		s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+			Kind:         apitypes.CatalogChangeInvalidateBase,
+			Entity:       apitypes.CatalogChangeEntityLiked,
+			QueryKey:     "liked",
+			EntityID:     strings.TrimSpace(playlistID),
+			RecordingIDs: []string{strings.TrimSpace(recordingID)},
+		})
+	}
 }
 
 func (s *PlaylistService) toPlaylistRecord(ctx context.Context, row Playlist) (apitypes.PlaylistRecord, error) {

@@ -40,3 +40,17 @@ export function getDetailRecord<T>(
 ) {
   return record[id] ?? (EMPTY_DETAIL_RECORD as DetailRecord<T>);
 }
+
+export function getTrackAvailabilityRecord(
+  state: CatalogStoreState,
+  recordingID: string,
+) {
+  return getDetailRecord(state.trackAvailabilityByRecordingId, recordingID);
+}
+
+export function getAlbumAvailabilityRecord(
+  state: CatalogStoreState,
+  albumID: string,
+) {
+  return getDetailRecord(state.albumAvailabilityByAlbumId, albumID);
+}

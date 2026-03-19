@@ -33,6 +33,9 @@ export function PlaylistDetailPage() {
     (state) => state.playPlaylistTrack,
   );
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
+  const trackAvailabilityByRecordingId = useCatalogStore(
+    (state) => state.trackAvailabilityByRecordingId,
+  );
   const detail = useStoreQuery(
     (state) =>
       selectDetail(getDetailRecord(state.playlistSummaries, playlistId)),
@@ -134,7 +137,9 @@ export function PlaylistDetailPage() {
           }}
           renderRow={(track, index) => (
             <TrackListRow
-              availabilityState={track.Availability.State}
+              availabilityState={
+                trackAvailabilityByRecordingId[track.RecordingID]?.data?.State
+              }
               durationMs={track.DurationMS}
               indexLabel={String(index + 1).padStart(2, "0")}
               mode="list"

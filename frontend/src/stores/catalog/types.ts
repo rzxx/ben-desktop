@@ -1,4 +1,6 @@
 import type {
+  AggregateAvailabilitySummary,
+  AlbumAvailabilitySummaryItem,
   AlbumListItem,
   AlbumTrackItem,
   AlbumVariantItem,
@@ -8,9 +10,19 @@ import type {
   PlaylistListItem,
   PlaylistTrackItem,
   RecordingListItem,
+  RecordingPlaybackAvailability,
 } from "@/lib/api/models";
 
 export type QueryStatus = "idle" | "loading" | "success" | "error";
+
+export type QueryPageRecord<T> = {
+  error: string;
+  fetchedAt: number | null;
+  inFlight: boolean;
+  items: T[];
+  pageInfo: PageInfo | null;
+  stale: boolean;
+};
 
 export type BaseQueryRecord = {
   error: string;
@@ -24,10 +36,13 @@ export type BaseQueryRecord = {
 
 export type IdQueryRecord = BaseQueryRecord & {
   ids: string[];
+  pages: Record<string, QueryPageRecord<string>>;
 };
 
 export type ValueQueryRecord<T> = BaseQueryRecord & {
+  getItemKey?: ((item: T) => string) | null;
   items: T[];
+  pages: Record<string, QueryPageRecord<T>>;
 };
 
 export type DetailRecord<T> = {
@@ -36,6 +51,7 @@ export type DetailRecord<T> = {
   inFlight: boolean;
   isRefreshing: boolean;
   lastFetchedAt: number | null;
+  stale: boolean;
   status: QueryStatus;
 };
 
@@ -54,6 +70,10 @@ export type CatalogValueQueryItem =
 
 export type CatalogStoreState = {
   albumsById: Record<string, AlbumListItem>;
+  albumAvailabilityByAlbumId: Record<
+    string,
+    DetailRecord<AggregateAvailabilitySummary>
+  >;
   albumDetails: Record<string, DetailRecord<AlbumListItem>>;
   albumVariants: Record<string, DetailRecord<AlbumVariantItem[]>>;
   artistDetails: Record<string, DetailRecord<ArtistListItem>>;
@@ -61,10 +81,30 @@ export type CatalogStoreState = {
   idQueries: Record<string, IdQueryRecord>;
   playlistSummaries: Record<string, DetailRecord<PlaylistListItem>>;
   playlistsById: Record<string, PlaylistListItem>;
+  trackAvailabilityByRecordingId: Record<
+    string,
+    DetailRecord<RecordingPlaybackAvailability>
+  >;
   valueQueries: Record<string, ValueQueryRecord<CatalogValueQueryItem>>;
 };
 
 export type CatalogStoreActions = {
+  invalidateAlbumAvailability: (albumIds: string[]) => void;
+  invalidateDetail: (kind: DetailKind, id: string) => void;
+  invalidateIdQuery: (
+    key: string,
+    options?: { clear?: boolean; dropAfterOffset?: number | null },
+  ) => void;
+  invalidateTrackAvailability: (recordingIds: string[]) => void;
+  invalidateValueQuery: (
+    key: string,
+    options?: { clear?: boolean; dropAfterOffset?: number | null },
+  ) => void;
+  markAlbumAvailabilityError: (albumIds: string[], message: string) => void;
+  markAlbumAvailabilityLoading: (
+    albumIds: string[],
+    options?: { refreshing?: boolean },
+  ) => void;
   markDetailError: (kind: DetailKind, id: string, message: string) => void;
   markDetailLoading: (
     kind: DetailKind,
@@ -77,6 +117,11 @@ export type CatalogStoreActions = {
     offset: number,
     options?: { refreshing?: boolean },
   ) => void;
+  markTrackAvailabilityError: (recordingIds: string[], message: string) => void;
+  markTrackAvailabilityLoading: (
+    recordingIds: string[],
+    options?: { refreshing?: boolean },
+  ) => void;
   markValueQueryError: (key: string, message: string, offset: number) => void;
   markValueQueryLoading: (
     key: string,
@@ -85,6 +130,10 @@ export type CatalogStoreActions = {
   ) => void;
   removeIdQueryInFlight: (key: string, offset: number) => void;
   removeValueQueryInFlight: (key: string, offset: number) => void;
+  setAlbumAvailability: (
+    items: AlbumAvailabilitySummaryItem[],
+    fetchedAt?: number,
+  ) => void;
   setAlbumDetail: (
     albumId: string,
     album: AlbumListItem,
@@ -113,7 +162,11 @@ export type CatalogStoreActions = {
     playlist: PlaylistListItem,
     fetchedAt?: number,
   ) => void;
-  setValueQueryPage: <TItem>(
+  setTrackAvailability: (
+    items: RecordingPlaybackAvailability[],
+    fetchedAt?: number,
+  ) => void;
+  setValueQueryPage: <TItem extends CatalogValueQueryItem>(
     key: string,
     items: TItem[],
     pageInfo: PageInfo,

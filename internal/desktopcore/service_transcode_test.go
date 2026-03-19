@@ -358,6 +358,23 @@ func TestGuestCachedRemoteReserveReportsPlayableRemote(t *testing.T) {
 		t.Fatalf("availability source kind = %q, want %q", availability.SourceKind, apitypes.PlaybackSourceRemoteOpt)
 	}
 
+	batchItems, err := app.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
+		RecordingIDs:      []string{"rec-remote-cached"},
+		PreferredProfile: "desktop",
+	})
+	if err != nil {
+		t.Fatalf("list recording playback availability: %v", err)
+	}
+	if len(batchItems) != 1 {
+		t.Fatalf("batch availability items = %d, want 1", len(batchItems))
+	}
+	if batchItems[0].State != apitypes.AvailabilityPlayableRemoteOpt {
+		t.Fatalf("batch availability state = %q, want %q", batchItems[0].State, apitypes.AvailabilityPlayableRemoteOpt)
+	}
+	if batchItems[0].SourceKind != apitypes.PlaybackSourceRemoteOpt {
+		t.Fatalf("batch availability source kind = %q, want %q", batchItems[0].SourceKind, apitypes.PlaybackSourceRemoteOpt)
+	}
+
 	items, err := app.ListRecordingAvailability(ctx, "rec-remote-cached", "desktop")
 	if err != nil {
 		t.Fatalf("list recording availability: %v", err)

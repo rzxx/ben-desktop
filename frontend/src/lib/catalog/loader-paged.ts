@@ -18,11 +18,16 @@ import {
   getValueQuery,
   useCatalogStore,
 } from "@/stores/catalog/store";
+import type { CatalogValueQueryItem } from "@/stores/catalog/store";
 import {
   dedupeRequest,
   describeError,
   type EnsureOptions,
 } from "@/lib/catalog/loader-shared";
+import {
+  ensureAlbumAvailability,
+  ensureTrackAvailability,
+} from "@/lib/catalog/loader-availability";
 import { QUERY_KEYS } from "@/lib/catalog/query-keys";
 
 type EntityId = string;
@@ -82,6 +87,7 @@ export async function ensureIdQueryPage<TItem>(
           offset,
           offset === 0 ? "replace-front" : "append",
         );
+      return page;
     } catch (error) {
       useCatalogStore
         .getState()
@@ -91,7 +97,7 @@ export async function ensureIdQueryPage<TItem>(
   });
 }
 
-export async function ensureValueQueryPage<TItem>(
+export async function ensureValueQueryPage<TItem extends CatalogValueQueryItem>(
   key: string,
   offset: number,
   options: EnsureOptions,
@@ -123,6 +129,7 @@ export async function ensureValueQueryPage<TItem>(
           getItemKey,
           offset === 0 ? "replace-front" : "append",
         );
+      return page;
     } catch (error) {
       useCatalogStore
         .getState()
@@ -139,7 +146,14 @@ export function ensureTracksPage(offset = 0, options: EnsureOptions = {}) {
     options,
     listTracksPage,
     (track: RecordingListItem) => track.RecordingID,
-  );
+  ).then((page) => {
+    if (page) {
+      void ensureTrackAvailability(
+        page.Items.map((track) => track.RecordingID),
+        options,
+      );
+    }
+  });
 }
 
 export function ensureLikedPage(offset = 0, options: EnsureOptions = {}) {
@@ -149,7 +163,14 @@ export function ensureLikedPage(offset = 0, options: EnsureOptions = {}) {
     options,
     listLikedRecordingsPage,
     (track: LikedRecordingItem) => track.RecordingID,
-  );
+  ).then((page) => {
+    if (page) {
+      void ensureTrackAvailability(
+        page.Items.map((track) => track.RecordingID),
+        options,
+      );
+    }
+  });
 }
 
 export function ensureAlbumTracksPage(
@@ -163,7 +184,14 @@ export function ensureAlbumTracksPage(
     options,
     (nextOffset) => listAlbumTracksPage(albumId, nextOffset),
     (track: AlbumTrackItem) => track.RecordingID,
-  );
+  ).then((page) => {
+    if (page) {
+      void ensureTrackAvailability(
+        page.Items.map((track) => track.RecordingID),
+        options,
+      );
+    }
+  });
 }
 
 export function ensureArtistAlbumsPage(
@@ -183,6 +211,10 @@ export function ensureArtistAlbumsPage(
       `artistAlbums:${artistId}`,
     );
     useCatalogStore.getState().upsertAlbums(record.items.filter(Boolean));
+    void ensureAlbumAvailability(
+      record.items.map((album) => album.AlbumID),
+      options,
+    );
   });
 }
 
@@ -197,5 +229,12 @@ export function ensurePlaylistTracksPage(
     options,
     (nextOffset) => listPlaylistTracksPage(playlistId, nextOffset),
     (track: PlaylistTrackItem) => track.ItemID,
-  );
+  ).then((page) => {
+    if (page) {
+      void ensureTrackAvailability(
+        page.Items.map((track) => track.RecordingID),
+        options,
+      );
+    }
+  });
 }

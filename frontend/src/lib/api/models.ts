@@ -7,6 +7,8 @@ export { DesktopCoreModels, PlaybackModels, Types };
 
 export type ActivityStatus = Types.ActivityStatus;
 export type AlbumListItem = Types.AlbumListItem;
+export type AlbumAvailabilitySummaryItem = Types.AlbumAvailabilitySummaryItem;
+export type AggregateAvailabilitySummary = Types.AggregateAvailabilitySummary;
 export type AlbumTrackItem = Types.AlbumTrackItem;
 export type AlbumVariantItem = Types.AlbumVariantItem;
 export type ArtworkRef = Types.ArtworkRef;
@@ -31,6 +33,7 @@ export type PlaybackPreparationStatus = Types.PlaybackPreparationStatus;
 export type PlaylistListItem = Types.PlaylistListItem;
 export type PlaylistTrackItem = Types.PlaylistTrackItem;
 export type RecordingListItem = Types.RecordingListItem;
+export type RecordingPlaybackAvailability = Types.RecordingPlaybackAvailability;
 export type SessionEntry = PlaybackModels.SessionEntry;
 export type SessionItem = PlaybackModels.SessionItem;
 export type SessionSnapshot = PlaybackModels.SessionSnapshot;

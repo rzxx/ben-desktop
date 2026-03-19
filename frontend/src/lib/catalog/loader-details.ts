@@ -24,6 +24,7 @@ import {
   describeError,
   type EnsureOptions,
 } from "@/lib/catalog/loader-shared";
+import { ensureAlbumAvailability } from "@/lib/catalog/loader-availability";
 
 async function ensureAlbumDetail(albumId: string, options: EnsureOptions = {}) {
   const { force = false } = options;
@@ -31,7 +32,7 @@ async function ensureAlbumDetail(albumId: string, options: EnsureOptions = {}) {
     useCatalogStore.getState().albumDetails,
     albumId,
   );
-  if (record.inFlight || (!force && record.data)) {
+  if (record.inFlight || (!force && record.data && !record.stale)) {
     return;
   }
 
@@ -41,7 +42,9 @@ async function ensureAlbumDetail(albumId: string, options: EnsureOptions = {}) {
       refreshing: record.data !== null,
     });
     try {
-      state.setAlbumDetail(albumId, await getAlbum(albumId));
+      const album = await getAlbum(albumId);
+      state.setAlbumDetail(albumId, album);
+      void ensureAlbumAvailability([album.AlbumID], options);
     } catch (error) {
       state.markDetailError("album", albumId, describeError(error));
       throw error;
@@ -58,7 +61,7 @@ async function ensureArtistDetail(
     useCatalogStore.getState().artistDetails,
     artistId,
   );
-  if (record.inFlight || (!force && record.data)) {
+  if (record.inFlight || (!force && record.data && !record.stale)) {
     return;
   }
 
@@ -85,7 +88,7 @@ async function ensurePlaylistSummary(
     useCatalogStore.getState().playlistSummaries,
     playlistId,
   );
-  if (record.inFlight || (!force && record.data)) {
+  if (record.inFlight || (!force && record.data && !record.stale)) {
     return;
   }
 
@@ -119,7 +122,7 @@ async function ensureAlbumVariants(
     useCatalogStore.getState().albumVariants,
     albumId,
   );
-  if (record.inFlight || (!force && record.data)) {
+  if (record.inFlight || (!force && record.data && !record.stale)) {
     return;
   }
 
@@ -131,6 +134,10 @@ async function ensureAlbumVariants(
     try {
       const variants = await listAlbumVariants(albumId);
       state.setAlbumVariants(albumId, variants.Items);
+      void ensureAlbumAvailability(
+        variants.Items.map((variant) => variant.AlbumID),
+        options,
+      );
     } catch (error) {
       state.markDetailError("albumVariants", albumId, describeError(error));
       throw error;

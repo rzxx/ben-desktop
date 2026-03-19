@@ -70,6 +70,7 @@ type CatalogRuntime interface {
 	LikeRecording(ctx context.Context, recordingID string) error
 	UnlikeRecording(ctx context.Context, recordingID string) error
 	IsRecordingLiked(ctx context.Context, recordingID string) (bool, error)
+	SubscribeCatalogChanges(listener func(apitypes.CatalogChangeEvent)) func()
 }
 
 type InviteRuntime interface {
@@ -115,6 +116,8 @@ type PlaybackRuntime interface {
 	UnpinLikedOffline(ctx context.Context) error
 	ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error)
 	GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error)
+	ListRecordingPlaybackAvailability(ctx context.Context, req apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error)
+	ListAlbumAvailabilitySummaries(ctx context.Context, req apitypes.AlbumAvailabilitySummaryListRequest) ([]apitypes.AlbumAvailabilitySummaryItem, error)
 	GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error)
 	GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (apitypes.AlbumAvailabilityOverview, error)
 }

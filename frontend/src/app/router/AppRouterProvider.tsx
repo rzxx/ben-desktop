@@ -1,6 +1,12 @@
 import { RouterProvider } from "@tanstack/react-router";
+import { CatalogEventsRuntime } from "./CatalogEventsRuntime";
 import { router } from "./router-instance";
 
 export function AppRouterProvider() {
-  return <RouterProvider router={router} />;
+  return (
+    <>
+      <CatalogEventsRuntime />
+      <RouterProvider router={router} />
+    </>
+  );
 }

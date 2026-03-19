@@ -79,45 +79,60 @@ export function joinArtists(values: string[]) {
 
 export function availabilityLabel(state?: string) {
   switch (state) {
-    case "LOCAL":
+    case "PENDING":
+      return "Pending";
+    case "PLAYABLE:LOCAL_FILE":
       return "Local";
-    case "CACHED":
+    case "PLAYABLE:CACHED_OPT":
       return "Cached";
-    case "PROVIDER_ONLINE":
+    case "PLAYABLE:REMOTE_OPT":
+    case "WAITING:PROVIDER_TRANSCODE":
       return "Online";
-    case "PROVIDER_OFFLINE":
+    case "UNAVAILABLE:PROVIDER_OFFLINE":
       return "Offline";
-    default:
+    case "UNAVAILABLE:NO_PATH":
       return "Unavailable";
+    default:
+      return "Pending";
   }
 }
 
-export function aggregateAvailabilityLabel(availability?: {
-  LocalTrackCount?: number | null;
-  CachedTrackCount?: number | null;
-  ProviderOnlineTrackCount?: number | null;
-  ProviderOfflineTrackCount?: number | null;
-}) {
+export function aggregateAvailabilityLabel(
+  availability?: {
+    LocalTrackCount?: number | null;
+    CachedTrackCount?: number | null;
+    HasRemote?: boolean | null;
+    RemoteTrackCount?: number | null;
+    AvailableTrackCount?: number | null;
+    UnavailableTrackCount?: number | null;
+  } | null,
+) {
+  if (!availability) {
+    return availabilityLabel();
+  }
   if ((availability?.LocalTrackCount ?? 0) > 0) {
-    return availabilityLabel("LOCAL");
+    return availabilityLabel("PLAYABLE:LOCAL_FILE");
   }
   if ((availability?.CachedTrackCount ?? 0) > 0) {
-    return availabilityLabel("CACHED");
+    return availabilityLabel("PLAYABLE:CACHED_OPT");
   }
-  if ((availability?.ProviderOnlineTrackCount ?? 0) > 0) {
-    return availabilityLabel("PROVIDER_ONLINE");
+  if ((availability?.AvailableTrackCount ?? 0) > 0) {
+    return availabilityLabel("PLAYABLE:REMOTE_OPT");
   }
-  if ((availability?.ProviderOfflineTrackCount ?? 0) > 0) {
-    return availabilityLabel("PROVIDER_OFFLINE");
+  if ((availability?.RemoteTrackCount ?? 0) > 0 || availability?.HasRemote) {
+    return availabilityLabel("UNAVAILABLE:PROVIDER_OFFLINE");
   }
-  return availabilityLabel();
+  if ((availability?.UnavailableTrackCount ?? 0) > 0) {
+    return availabilityLabel("UNAVAILABLE:NO_PATH");
+  }
+  return availabilityLabel("PENDING");
 }
 
 export function isCatalogTrackActionable(state?: string) {
   switch (state) {
-    case "LOCAL":
-    case "CACHED":
-    case "PROVIDER_ONLINE":
+    case "PLAYABLE:LOCAL_FILE":
+    case "PLAYABLE:CACHED_OPT":
+    case "PLAYABLE:REMOTE_OPT":
       return true;
     default:
       return false;
@@ -125,20 +140,33 @@ export function isCatalogTrackActionable(state?: string) {
 }
 
 export function availabilityTone(
-  state?: string | { LocalTrackCount?: number | null; CachedTrackCount?: number | null; ProviderOnlineTrackCount?: number | null; ProviderOfflineTrackCount?: number | null },
+  state?:
+    | string
+    | {
+        AvailableTrackCount?: number | null;
+        CachedTrackCount?: number | null;
+        HasRemote?: boolean | null;
+        LocalTrackCount?: number | null;
+        RemoteTrackCount?: number | null;
+        UnavailableTrackCount?: number | null;
+      }
+    | null,
 ): "default" | "success" | "warning" | "danger" {
   const resolvedState =
-    typeof state === "string" ? state : aggregateAvailabilityLabel(state).toUpperCase();
+    typeof state === "string"
+      ? state
+      : aggregateAvailabilityLabel(state).toUpperCase();
 
   switch (resolvedState) {
     case "LOCAL":
     case "CACHED":
       return "success";
     case "ONLINE":
-    case "PROVIDER_ONLINE":
+    case "WAITING:PROVIDER_TRANSCODE":
+    case "PLAYABLE:REMOTE_OPT":
       return "default";
     case "OFFLINE":
-    case "PROVIDER_OFFLINE":
+    case "UNAVAILABLE:PROVIDER_OFFLINE":
       return "warning";
     default:
       return "danger";

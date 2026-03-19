@@ -256,3 +256,7 @@ func (r *catalogRuntimeAdapter) UnlikeRecording(ctx context.Context, recordingID
 func (r *catalogRuntimeAdapter) IsRecordingLiked(ctx context.Context, recordingID string) (bool, error) {
 	return r.playlist.IsRecordingLiked(ctx, recordingID)
 }
+
+func (r *catalogRuntimeAdapter) SubscribeCatalogChanges(listener func(apitypes.CatalogChangeEvent)) func() {
+	return r.catalog.SubscribeCatalogChanges(listener)
+}

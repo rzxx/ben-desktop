@@ -5,10 +5,14 @@ import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
+import { aggregateAvailabilityLabel } from "@/lib/format";
 import { getIdQuery, useCatalogStore } from "@/stores/catalog/store";
 import { selectEntityQuery } from "@/stores/catalog/query-state";
 
 export function AlbumsPage() {
+  const albumAvailabilityByAlbumId = useCatalogStore(
+    (state) => state.albumAvailabilityByAlbumId,
+  );
   const query = useStoreInfiniteQuery<AlbumListItem>(
     (state) =>
       selectEntityQuery<AlbumListItem>(
@@ -47,7 +51,14 @@ export function AlbumsPage() {
           onEndReached={() => {
             void query.fetchNextPage();
           }}
-          renderCard={(album) => <AlbumGridTile album={album} />}
+          renderCard={(album) => (
+            <AlbumGridTile
+              album={album}
+              availabilityLabel={aggregateAvailabilityLabel(
+                albumAvailabilityByAlbumId[album.AlbumID]?.data,
+              )}
+            />
+          )}
           rowHeight={298}
           viewportClassName="px-1 py-3"
         />

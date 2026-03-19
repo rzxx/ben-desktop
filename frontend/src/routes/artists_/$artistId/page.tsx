@@ -10,7 +10,7 @@ import {
   useStoreQuery,
 } from "@/hooks/catalog/useCatalogQuery";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
-import { formatCount } from "@/lib/format";
+import { aggregateAvailabilityLabel, formatCount } from "@/lib/format";
 import {
   getDetailRecord,
   getValueQuery,
@@ -22,6 +22,9 @@ const artistDetailRouteApi = getRouteApi("/artists_/$artistId");
 
 export function ArtistDetailPage() {
   const { artistId } = artistDetailRouteApi.useParams();
+  const albumAvailabilityByAlbumId = useCatalogStore(
+    (state) => state.albumAvailabilityByAlbumId,
+  );
   const detail = useStoreQuery(
     (state) => selectDetail(getDetailRecord(state.artistDetails, artistId)),
     () => catalogLoaderClient.refetchArtist(artistId),
@@ -90,7 +93,14 @@ export function ArtistDetailPage() {
           onEndReached={() => {
             void albumQuery.fetchNextPage();
           }}
-          renderCard={(album) => <AlbumGridTile album={album} />}
+          renderCard={(album) => (
+            <AlbumGridTile
+              album={album}
+              availabilityLabel={aggregateAvailabilityLabel(
+                albumAvailabilityByAlbumId[album.AlbumID]?.data,
+              )}
+            />
+          )}
           rowHeight={298}
           viewportClassName="px-1 py-3"
         />

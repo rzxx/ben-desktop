@@ -32,6 +32,7 @@ type App struct {
 	transport     SyncTransport
 
 	jobs              *JobsService
+	catalogEvents     *CatalogEventsService
 	library           *LibraryService
 	ingest            *IngestService
 	catalog           *CatalogService
@@ -73,6 +74,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 		blobs:    NewBlobStoreService(resolved.BlobRoot),
 		activity: newActivityStatus(),
 		jobs:     NewJobsService(),
+		catalogEvents: NewCatalogEventsService(),
 		tagReader: func() TagReader {
 			if resolved.TagReader != nil {
 				return resolved.TagReader
@@ -137,6 +139,20 @@ func (a *App) SubscribeJobSnapshots(listener func(JobSnapshot)) func() {
 		return func() {}
 	}
 	return a.jobs.Subscribe(listener)
+}
+
+func (a *App) SubscribeCatalogChanges(listener func(apitypes.CatalogChangeEvent)) func() {
+	if a == nil || a.catalogEvents == nil {
+		return func() {}
+	}
+	return a.catalogEvents.Subscribe(listener)
+}
+
+func (a *App) emitCatalogChange(event apitypes.CatalogChangeEvent) {
+	if a == nil || a.catalogEvents == nil {
+		return
+	}
+	a.catalogEvents.Emit(event)
 }
 
 func (a *App) ListJobs(_ context.Context, libraryID string) ([]JobSnapshot, error) {
@@ -739,6 +755,14 @@ func (a *App) ListRecordingAvailability(ctx context.Context, recordingID, prefer
 
 func (a *App) GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
 	return a.playback.GetRecordingAvailability(ctx, recordingID, preferredProfile)
+}
+
+func (a *App) ListRecordingPlaybackAvailability(ctx context.Context, req apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error) {
+	return a.playback.ListRecordingPlaybackAvailability(ctx, req)
+}
+
+func (a *App) ListAlbumAvailabilitySummaries(ctx context.Context, req apitypes.AlbumAvailabilitySummaryListRequest) ([]apitypes.AlbumAvailabilitySummaryItem, error) {
+	return a.playback.ListAlbumAvailabilitySummaries(ctx, req)
 }
 
 func (a *App) GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {

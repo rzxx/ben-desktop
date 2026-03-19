@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -619,6 +620,134 @@ func TestAvailabilityOverviewsReflectLocalAndRemoteDevices(t *testing.T) {
 	if albumOverview.Availability.RemoteTrackCount != 2 {
 		t.Fatalf("remote track count = %d, want 2", albumOverview.Availability.RemoteTrackCount)
 	}
+}
+
+func TestListRecordingPlaybackAvailabilityMatchesSingleItemResults(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app, recordingIDs, _ := seedAvailabilityFixture(t)
+
+	items, err := app.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
+		RecordingIDs:      recordingIDs,
+		PreferredProfile: "desktop",
+	})
+	if err != nil {
+		t.Fatalf("list recording playback availability: %v", err)
+	}
+	if len(items) != len(recordingIDs) {
+		t.Fatalf("batch availability items = %d, want %d", len(items), len(recordingIDs))
+	}
+
+	for index, recordingID := range recordingIDs {
+		single, err := app.GetRecordingAvailability(ctx, recordingID, "desktop")
+		if err != nil {
+			t.Fatalf("get recording availability %s: %v", recordingID, err)
+		}
+		if !reflect.DeepEqual(items[index], single) {
+			t.Fatalf("batch availability for %s = %+v, want %+v", recordingID, items[index], single)
+		}
+	}
+}
+
+func TestListAlbumAvailabilitySummariesMatchesOverviewAvailability(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app, _, albumID := seedAvailabilityFixture(t)
+
+	items, err := app.ListAlbumAvailabilitySummaries(ctx, apitypes.AlbumAvailabilitySummaryListRequest{
+		AlbumIDs:          []string{albumID},
+		PreferredProfile: "desktop",
+	})
+	if err != nil {
+		t.Fatalf("list album availability summaries: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("album availability summary items = %d, want 1", len(items))
+	}
+
+	overview, err := app.GetAlbumAvailabilityOverview(ctx, albumID, "desktop")
+	if err != nil {
+		t.Fatalf("get album availability overview: %v", err)
+	}
+	if items[0].AlbumID != albumID {
+		t.Fatalf("album summary id = %q, want %q", items[0].AlbumID, albumID)
+	}
+	if items[0].PreferredProfile != "desktop" {
+		t.Fatalf("album summary preferred profile = %q, want desktop", items[0].PreferredProfile)
+	}
+	if !reflect.DeepEqual(items[0].Availability, overview.Availability) {
+		t.Fatalf("album summary availability = %+v, want %+v", items[0].Availability, overview.Availability)
+	}
+}
+
+func seedAvailabilityFixture(t *testing.T) (*App, []string, string) {
+	t.Helper()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "overview")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	now := time.Now().UTC()
+	albumID := "album-overview"
+	recordingIDs := []string{"rec-local", "rec-remote"}
+
+	seedCacheRecording(t, app, library.LibraryID, local.DeviceID, cacheSeedInput{
+		RecordingID:    recordingIDs[0],
+		AlbumID:        albumID,
+		SourceFileID:   "src-local",
+		EncodingID:     "enc-local",
+		BlobID:         testBlobID("4"),
+		Profile:        "desktop",
+		LastVerifiedAt: now,
+	})
+	writeCacheBlob(t, app, testBlobID("4"), 72)
+
+	remoteDeviceID := "dev-remote"
+	if err := app.db.WithContext(ctx).Create(&Device{
+		DeviceID:   remoteDeviceID,
+		Name:       "remote-device",
+		JoinedAt:   now,
+		LastSeenAt: &now,
+	}).Error; err != nil {
+		t.Fatalf("create remote device: %v", err)
+	}
+	if err := app.db.WithContext(ctx).Create(&Membership{
+		LibraryID:        library.LibraryID,
+		DeviceID:         remoteDeviceID,
+		Role:             roleMember,
+		CapabilitiesJSON: "{}",
+		JoinedAt:         now,
+	}).Error; err != nil {
+		t.Fatalf("create remote membership: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, remoteDeviceID, playbackSeedInput{
+		RecordingID:    recordingIDs[0],
+		TrackClusterID: recordingIDs[0],
+		AlbumID:        albumID,
+		AlbumClusterID: albumID,
+		SourceFileID:   "src-remote-local",
+		QualityRank:    80,
+	})
+	seedSourceOnlyRecording(t, app, library.LibraryID, remoteDeviceID, playbackSeedInput{
+		RecordingID:    recordingIDs[1],
+		TrackClusterID: recordingIDs[1],
+		AlbumID:        albumID,
+		AlbumClusterID: albumID,
+		SourceFileID:   "src-remote-only",
+		QualityRank:    70,
+	})
+
+	return app, recordingIDs, albumID
 }
 
 type playbackSeedInput struct {

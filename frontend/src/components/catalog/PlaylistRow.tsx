@@ -32,7 +32,10 @@ export function PlaylistRow({ playlist }: { playlist: PlaylistListItem }) {
   return (
     <div className="group flex items-center gap-4 rounded-xl border border-white/6 bg-white/[0.035] px-4 py-3 transition hover:border-white/12 hover:bg-white/[0.05]">
       {isLiked ? (
-        <Link className="flex min-w-0 flex-1 items-center gap-4" to="/playlists/liked">
+        <Link
+          className="flex min-w-0 flex-1 items-center gap-4"
+          to="/playlists/liked"
+        >
           <ArtworkTile
             alt={playlist.Name}
             className="h-18 w-18 shrink-0"

@@ -8,15 +8,15 @@ export function describeError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function dedupeRequest(key: string, work: () => Promise<void>) {
-  const existing = inFlightRequests.get(key);
+export function dedupeRequest<T>(key: string, work: () => Promise<T>) {
+  const existing = inFlightRequests.get(key) as Promise<T> | undefined;
   if (existing) {
     return existing;
   }
 
   const request = work().finally(() => {
     inFlightRequests.delete(key);
-  });
-  inFlightRequests.set(key, request);
+  }) as Promise<T>;
+  inFlightRequests.set(key, request as Promise<void>);
   return request;
 }

@@ -22,6 +22,7 @@ import {
   ensurePlaylistTracksPage,
   ensureTracksPage,
 } from "@/lib/catalog/loader-paged";
+import { ensureAlbumAvailability } from "@/lib/catalog/loader-availability";
 import type { EnsureOptions } from "@/lib/catalog/loader-shared";
 
 export const catalogLoaderClient = {
@@ -33,7 +34,14 @@ export const catalogLoaderClient = {
       listAlbumsPage,
       (album) => album.AlbumID,
       (albums) => useCatalogStore.getState().upsertAlbums(albums),
-    );
+    ).then((page) => {
+      if (page) {
+        void ensureAlbumAvailability(
+          page.Items.map((album) => album.AlbumID),
+          options,
+        );
+      }
+    });
   },
 
   ensureAlbumsRoute() {

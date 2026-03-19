@@ -7,6 +7,9 @@ import type { Events } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import type * as apitypes$0 from "../../../../../ben/desktop/api/types/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import type * as desktopcore$0 from "../../../../../ben/desktop/internal/desktopcore/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -15,6 +18,7 @@ import type * as playback$0 from "../../../../../ben/desktop/internal/playback/m
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "catalog:changed": apitypes$0.CatalogChangeEvent;
             "jobs:snapshot": desktopcore$0.JobSnapshot;
             "playback:snapshot": playback$0.SessionSnapshot;
         }

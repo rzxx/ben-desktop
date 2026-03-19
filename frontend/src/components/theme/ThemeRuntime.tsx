@@ -5,7 +5,8 @@ import { usePlaybackStore } from "@/stores/playback/store";
 
 export function ThemeRuntime() {
   const themeRecordingId = usePlaybackStore((state) => {
-    const item = state.snapshot?.currentItem ?? state.snapshot?.loadingItem ?? null;
+    const item =
+      state.snapshot?.currentItem ?? state.snapshot?.loadingItem ?? null;
     return item?.artworkRef?.trim() ?? "";
   });
 

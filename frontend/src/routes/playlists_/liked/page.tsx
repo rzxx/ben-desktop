@@ -18,6 +18,9 @@ export function LikedPlaylistPage() {
   const playLiked = usePlaybackStore((state) => state.playLiked);
   const playLikedTrack = usePlaybackStore((state) => state.playLikedTrack);
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
+  const trackAvailabilityByRecordingId = useCatalogStore(
+    (state) => state.trackAvailabilityByRecordingId,
+  );
   const query = useStoreInfiniteQuery<LikedRecordingItem>(
     (state) => selectValueQuery<LikedRecordingItem>(state, "liked"),
     {
@@ -84,7 +87,9 @@ export function LikedPlaylistPage() {
           }}
           renderRow={(track, index) => (
             <TrackListRow
-              availabilityState={track.Availability.State}
+              availabilityState={
+                trackAvailabilityByRecordingId[track.RecordingID]?.data?.State
+              }
               durationMs={track.DurationMS}
               indexLabel={String(index + 1).padStart(2, "0")}
               mode="list"

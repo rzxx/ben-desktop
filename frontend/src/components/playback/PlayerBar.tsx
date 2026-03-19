@@ -271,7 +271,7 @@ function PlayerSlider({
         <Slider.Track className="relative h-1.5 w-full rounded-full bg-black/50">
           <Slider.Indicator className="bg-theme-300 absolute h-full rounded-full bg-linear-to-b from-white/7 to-black/7" />
           <Slider.Thumb
-            className="bg-theme-100 block h-4 w-4 rounded-full border border-black/28 bg-linear-to-b from-white/15 to-black/15 shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-theme-100"
+            className="bg-theme-100 focus-visible:outline-theme-100 block h-4 w-4 rounded-full border border-black/28 bg-linear-to-b from-white/15 to-black/15 shadow-md focus-visible:outline-2 focus-visible:outline-offset-2"
             getAriaLabel={() => ariaLabel}
           />
         </Slider.Track>

@@ -109,3 +109,7 @@ export function listLikedRecordingsPage(offset = 0, limit = TRACK_PAGE_SIZE) {
     }),
   );
 }
+
+export function subscribeCatalogEvents() {
+  return CatalogFacade.SubscribeCatalogEvents();
+}

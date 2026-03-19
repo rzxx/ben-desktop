@@ -135,6 +135,22 @@ type RecordingPlaybackAvailability struct {
 	Reason           PlaybackUnavailableReason
 }
 
+type RecordingPlaybackAvailabilityListRequest struct {
+	RecordingIDs      []string
+	PreferredProfile string
+}
+
+type AlbumAvailabilitySummaryListRequest struct {
+	AlbumIDs          []string
+	PreferredProfile string
+}
+
+type AlbumAvailabilitySummaryItem struct {
+	AlbumID           string
+	PreferredProfile string
+	Availability      AggregateAvailabilitySummary
+}
+
 type TrackAvailabilitySummary struct {
 	State                    RecordingAvailabilityState
 	SourceKind               PlaybackSourceKind
@@ -213,6 +229,8 @@ type PlaybackSurface interface {
 	UnpinLikedOffline(ctx context.Context) error
 	ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]RecordingAvailabilityItem, error)
 	GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (RecordingPlaybackAvailability, error)
+	ListRecordingPlaybackAvailability(ctx context.Context, req RecordingPlaybackAvailabilityListRequest) ([]RecordingPlaybackAvailability, error)
+	ListAlbumAvailabilitySummaries(ctx context.Context, req AlbumAvailabilitySummaryListRequest) ([]AlbumAvailabilitySummaryItem, error)
 	GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (RecordingAvailabilityOverview, error)
 	GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferredProfile string) (AlbumAvailabilityOverview, error)
 }

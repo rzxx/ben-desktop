@@ -1,26 +1,31 @@
 import { create as createDraftState, type Draft } from "mutative";
 import { create } from "zustand";
 import {
-  appendUniqueNumber,
   createDetailRecord,
   createIdQueryRecord,
+  createQueryPageRecord,
   createValueQueryRecord,
-  mergeAppendUnique,
-  mergeFrontUnique,
-  mergeItemsByKey,
-  removeNumber,
+  dropPagesAfterOffset,
+  pageHeadChanged,
+  pageHeadChangedIds,
+  rebuildIdQueryRecord,
+  rebuildValueQueryRecord,
 } from "./records";
 import {
+  getAlbumAvailabilityRecord,
   getDetailContainer,
   getDetailRecord,
   getIdQuery,
+  getTrackAvailabilityRecord,
   getValueQuery,
 } from "./selectors";
 import type { CatalogStore, CatalogStoreState } from "./types";
+import type { CatalogValueQueryItem, QueryPageRecord } from "./types";
 
 function createCatalogState(): CatalogStoreState {
   return {
     albumsById: {},
+    albumAvailabilityByAlbumId: {},
     albumDetails: {},
     albumVariants: {},
     artistDetails: {},
@@ -28,6 +33,7 @@ function createCatalogState(): CatalogStoreState {
     idQueries: {},
     playlistSummaries: {},
     playlistsById: {},
+    trackAvailabilityByRecordingId: {},
     valueQueries: {},
   };
 }
@@ -40,8 +46,15 @@ function createCatalogDraftSetter(
   };
 }
 
-export { getDetailRecord, getIdQuery, getValueQuery };
+export {
+  getAlbumAvailabilityRecord,
+  getDetailRecord,
+  getIdQuery,
+  getTrackAvailabilityRecord,
+  getValueQuery,
+};
 export type {
+  CatalogValueQueryItem,
   CatalogStore,
   CatalogStoreActions,
   CatalogStoreState,
@@ -83,12 +96,62 @@ export const useCatalogStore = create<CatalogStore>((set) => {
       });
     },
 
+    invalidateIdQuery: (key, options) => {
+      setDraft((draft) => {
+        const record = draft.idQueries[key];
+        if (!record) {
+          return;
+        }
+        if (options?.clear) {
+          draft.idQueries[key] = createIdQueryRecord();
+          return;
+        }
+        if (
+          options?.dropAfterOffset !== undefined &&
+          options.dropAfterOffset !== null
+        ) {
+          dropPagesAfterOffset(record.pages, options.dropAfterOffset);
+        }
+        for (const page of Object.values(record.pages)) {
+          page.stale = true;
+        }
+        rebuildIdQueryRecord(record);
+      });
+    },
+
+    invalidateValueQuery: (key, options) => {
+      setDraft((draft) => {
+        const record = draft.valueQueries[key];
+        if (!record) {
+          return;
+        }
+        if (options?.clear) {
+          draft.valueQueries[key] = createValueQueryRecord();
+          return;
+        }
+        if (
+          options?.dropAfterOffset !== undefined &&
+          options.dropAfterOffset !== null
+        ) {
+          dropPagesAfterOffset(record.pages, options.dropAfterOffset);
+        }
+        for (const page of Object.values(record.pages)) {
+          page.stale = true;
+        }
+        rebuildValueQueryRecord(record);
+      });
+    },
+
     markIdQueryLoading: (key, offset, options) => {
       setDraft((draft) => {
         const record = draft.idQueries[key] ?? createIdQueryRecord();
         draft.idQueries[key] = record;
-        appendUniqueNumber(record.inFlightOffsets, offset);
-        record.error = "";
+        const page =
+          record.pages[String(offset)] ?? createQueryPageRecord<string>();
+        record.pages[String(offset)] = page;
+        page.error = "";
+        page.inFlight = true;
+        page.stale = false;
         record.isRefreshing =
           options?.refreshing ??
           (record.ids.length > 0 || record.loadedOffsets.length > 0);
@@ -104,23 +167,29 @@ export const useCatalogStore = create<CatalogStore>((set) => {
       ids,
       pageInfo,
       offset,
-      mode = "append",
+      _mode = "append",
       fetchedAt,
     ) => {
       setDraft((draft) => {
+        void _mode;
         const record = draft.idQueries[key] ?? createIdQueryRecord();
         draft.idQueries[key] = record;
-        record.ids =
-          mode === "replace-front"
-            ? mergeFrontUnique(record.ids, ids)
-            : mergeAppendUnique(record.ids, ids);
-        record.pageInfo = pageInfo;
-        record.status = "success";
-        record.error = "";
-        record.isRefreshing = false;
-        record.lastFetchedAt = fetchedAt ?? Date.now();
-        appendUniqueNumber(record.loadedOffsets, offset);
-        removeNumber(record.inFlightOffsets, offset);
+        if (
+          offset === 0 &&
+          pageHeadChangedIds(record.pages["0"], ids, pageInfo.Total)
+        ) {
+          dropPagesAfterOffset(record.pages, 0);
+        }
+        const page =
+          record.pages[String(offset)] ?? createQueryPageRecord<string>();
+        record.pages[String(offset)] = page;
+        page.error = "";
+        page.fetchedAt = fetchedAt ?? Date.now();
+        page.inFlight = false;
+        page.items = [...ids];
+        page.pageInfo = pageInfo;
+        page.stale = false;
+        rebuildIdQueryRecord(record);
       });
     },
 
@@ -128,10 +197,12 @@ export const useCatalogStore = create<CatalogStore>((set) => {
       setDraft((draft) => {
         const record = draft.idQueries[key] ?? createIdQueryRecord();
         draft.idQueries[key] = record;
-        record.error = message;
-        record.isRefreshing = false;
-        record.status = record.ids.length > 0 ? "success" : "error";
-        removeNumber(record.inFlightOffsets, offset);
+        const page =
+          record.pages[String(offset)] ?? createQueryPageRecord<string>();
+        record.pages[String(offset)] = page;
+        page.error = message;
+        page.inFlight = false;
+        rebuildIdQueryRecord(record);
       });
     },
 
@@ -141,10 +212,12 @@ export const useCatalogStore = create<CatalogStore>((set) => {
         if (!record) {
           return;
         }
-        removeNumber(record.inFlightOffsets, offset);
-        if (record.inFlightOffsets.length === 0) {
-          record.isRefreshing = false;
+        const page = record.pages[String(offset)];
+        if (!page) {
+          return;
         }
+        page.inFlight = false;
+        rebuildIdQueryRecord(record);
       });
     },
 
@@ -152,8 +225,11 @@ export const useCatalogStore = create<CatalogStore>((set) => {
       setDraft((draft) => {
         const record = draft.valueQueries[key] ?? createValueQueryRecord();
         draft.valueQueries[key] = record;
-        appendUniqueNumber(record.inFlightOffsets, offset);
-        record.error = "";
+        const page = record.pages[String(offset)] ?? createQueryPageRecord();
+        record.pages[String(offset)] = page;
+        page.error = "";
+        page.inFlight = true;
+        page.stale = false;
         record.isRefreshing =
           options?.refreshing ??
           (record.items.length > 0 || record.loadedOffsets.length > 0);
@@ -170,25 +246,43 @@ export const useCatalogStore = create<CatalogStore>((set) => {
       pageInfo,
       offset,
       getItemKey,
-      mode = "append",
+      _mode = "append",
       fetchedAt,
     ) => {
       setDraft((draft) => {
-        const record = draft.valueQueries[key] ?? createValueQueryRecord();
+        void _mode;
+        const record =
+          (draft.valueQueries[key] as
+            | (typeof draft.valueQueries)[string]
+            | undefined) ?? createValueQueryRecord<CatalogValueQueryItem>();
         draft.valueQueries[key] = record;
-        record.items = mergeItemsByKey(
-          record.items as typeof items,
-          items,
-          getItemKey,
-          mode,
-        ) as typeof record.items;
-        record.pageInfo = pageInfo;
-        record.status = "success";
-        record.error = "";
-        record.isRefreshing = false;
-        record.lastFetchedAt = fetchedAt ?? Date.now();
-        appendUniqueNumber(record.loadedOffsets, offset);
-        removeNumber(record.inFlightOffsets, offset);
+        record.getItemKey = getItemKey as typeof record.getItemKey;
+        const existingPage = record.pages["0"] as
+          | QueryPageRecord<CatalogValueQueryItem>
+          | undefined;
+        if (
+          offset === 0 &&
+          pageHeadChanged(
+            existingPage,
+            items as CatalogValueQueryItem[],
+            getItemKey as (item: CatalogValueQueryItem) => string,
+            pageInfo.Total,
+          )
+        ) {
+          dropPagesAfterOffset(record.pages, 0);
+        }
+        const page =
+          (record.pages[String(offset)] as
+            | QueryPageRecord<CatalogValueQueryItem>
+            | undefined) ?? createQueryPageRecord<CatalogValueQueryItem>();
+        record.pages[String(offset)] = page;
+        page.error = "";
+        page.fetchedAt = fetchedAt ?? Date.now();
+        page.inFlight = false;
+        page.items = [...(items as CatalogValueQueryItem[])];
+        page.pageInfo = pageInfo;
+        page.stale = false;
+        rebuildValueQueryRecord(record);
       });
     },
 
@@ -196,10 +290,11 @@ export const useCatalogStore = create<CatalogStore>((set) => {
       setDraft((draft) => {
         const record = draft.valueQueries[key] ?? createValueQueryRecord();
         draft.valueQueries[key] = record;
-        record.error = message;
-        record.isRefreshing = false;
-        record.status = record.items.length > 0 ? "success" : "error";
-        removeNumber(record.inFlightOffsets, offset);
+        const page = record.pages[String(offset)] ?? createQueryPageRecord();
+        record.pages[String(offset)] = page;
+        page.error = message;
+        page.inFlight = false;
+        rebuildValueQueryRecord(record);
       });
     },
 
@@ -209,10 +304,12 @@ export const useCatalogStore = create<CatalogStore>((set) => {
         if (!record) {
           return;
         }
-        removeNumber(record.inFlightOffsets, offset);
-        if (record.inFlightOffsets.length === 0) {
-          record.isRefreshing = false;
+        const page = record.pages[String(offset)];
+        if (!page) {
+          return;
         }
+        page.inFlight = false;
+        rebuildValueQueryRecord(record);
       });
     },
 
@@ -224,6 +321,7 @@ export const useCatalogStore = create<CatalogStore>((set) => {
         record.error = "";
         record.inFlight = true;
         record.isRefreshing = options?.refreshing ?? record.data !== null;
+        record.stale = false;
         record.status = record.data !== null ? "success" : "loading";
       });
     },
@@ -240,6 +338,17 @@ export const useCatalogStore = create<CatalogStore>((set) => {
       });
     },
 
+    invalidateDetail: (kind, id) => {
+      setDraft((draft) => {
+        const container = getDetailContainer(draft, kind);
+        const record = container[id];
+        if (!record) {
+          return;
+        }
+        record.stale = true;
+      });
+    },
+
     setAlbumDetail: (albumId, album, fetchedAt) => {
       setDraft((draft) => {
         draft.albumsById[album.AlbumID] = album;
@@ -249,6 +358,7 @@ export const useCatalogStore = create<CatalogStore>((set) => {
           inFlight: false,
           isRefreshing: false,
           lastFetchedAt: fetchedAt ?? Date.now(),
+          stale: false,
           status: "success",
         };
       });
@@ -263,6 +373,7 @@ export const useCatalogStore = create<CatalogStore>((set) => {
           inFlight: false,
           isRefreshing: false,
           lastFetchedAt: fetchedAt ?? Date.now(),
+          stale: false,
           status: "success",
         };
       });
@@ -278,6 +389,7 @@ export const useCatalogStore = create<CatalogStore>((set) => {
           inFlight: false,
           isRefreshing: false,
           lastFetchedAt: fetchedAt ?? Date.now(),
+          stale: false,
           status: "success",
         };
       });
@@ -291,8 +403,127 @@ export const useCatalogStore = create<CatalogStore>((set) => {
           inFlight: false,
           isRefreshing: false,
           lastFetchedAt: fetchedAt ?? Date.now(),
+          stale: false,
           status: "success",
         };
+      });
+    },
+
+    markTrackAvailabilityLoading: (recordingIds, options) => {
+      setDraft((draft) => {
+        for (const recordingId of recordingIds) {
+          const record =
+            draft.trackAvailabilityByRecordingId[recordingId] ??
+            createDetailRecord();
+          draft.trackAvailabilityByRecordingId[recordingId] = record;
+          record.error = "";
+          record.inFlight = true;
+          record.isRefreshing = options?.refreshing ?? record.data !== null;
+          record.stale = false;
+          record.status = record.data !== null ? "success" : "loading";
+        }
+      });
+    },
+
+    markTrackAvailabilityError: (recordingIds, message) => {
+      setDraft((draft) => {
+        for (const recordingId of recordingIds) {
+          const record =
+            draft.trackAvailabilityByRecordingId[recordingId] ??
+            createDetailRecord();
+          draft.trackAvailabilityByRecordingId[recordingId] = record;
+          record.error = message;
+          record.inFlight = false;
+          record.isRefreshing = false;
+          record.status = record.data !== null ? "success" : "error";
+        }
+      });
+    },
+
+    setTrackAvailability: (items, fetchedAt) => {
+      setDraft((draft) => {
+        const nextFetchedAt = fetchedAt ?? Date.now();
+        for (const item of items) {
+          draft.trackAvailabilityByRecordingId[item.RecordingID] = {
+            data: item,
+            error: "",
+            inFlight: false,
+            isRefreshing: false,
+            lastFetchedAt: nextFetchedAt,
+            stale: false,
+            status: "success",
+          };
+        }
+      });
+    },
+
+    invalidateTrackAvailability: (recordingIds) => {
+      setDraft((draft) => {
+        for (const recordingId of recordingIds) {
+          const record = draft.trackAvailabilityByRecordingId[recordingId];
+          if (!record) {
+            continue;
+          }
+          record.stale = true;
+        }
+      });
+    },
+
+    markAlbumAvailabilityLoading: (albumIds, options) => {
+      setDraft((draft) => {
+        for (const albumId of albumIds) {
+          const record =
+            draft.albumAvailabilityByAlbumId[albumId] ?? createDetailRecord();
+          draft.albumAvailabilityByAlbumId[albumId] = record;
+          record.error = "";
+          record.inFlight = true;
+          record.isRefreshing = options?.refreshing ?? record.data !== null;
+          record.stale = false;
+          record.status = record.data !== null ? "success" : "loading";
+        }
+      });
+    },
+
+    markAlbumAvailabilityError: (albumIds, message) => {
+      setDraft((draft) => {
+        for (const albumId of albumIds) {
+          const record =
+            draft.albumAvailabilityByAlbumId[albumId] ?? createDetailRecord();
+          draft.albumAvailabilityByAlbumId[albumId] = record;
+          record.error = message;
+          record.inFlight = false;
+          record.isRefreshing = false;
+          record.status = record.data !== null ? "success" : "error";
+        }
+      });
+    },
+
+    setAlbumAvailability: (items, fetchedAt) => {
+      setDraft((draft) => {
+        const nextFetchedAt = fetchedAt ?? Date.now();
+        for (const item of items) {
+          draft.albumAvailabilityByAlbumId[item.AlbumID] = {
+            data: item.Availability,
+            error: "",
+            inFlight: false,
+            isRefreshing: false,
+            lastFetchedAt: nextFetchedAt,
+            stale: false,
+            status: "success",
+          };
+        }
+      });
+    },
+
+    invalidateAlbumAvailability: (albumIds) => {
+      setDraft((draft) => {
+        for (const albumId of albumIds) {
+          const record = draft.albumAvailabilityByAlbumId[albumId];
+          if (!record) {
+            continue;
+          }
+          record.stale = true;
+        }
       });
     },
   };

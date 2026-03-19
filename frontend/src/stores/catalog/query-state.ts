@@ -1,6 +1,8 @@
 import {
+  getAlbumAvailabilityRecord,
   getDetailRecord,
   getIdQuery,
+  getTrackAvailabilityRecord,
   getValueQuery,
   type CatalogStore,
 } from "@/stores/catalog/store";
@@ -105,6 +107,18 @@ export function selectDetail<TEntity>(
     error: record.error,
     isLoading: isInitialLoading(record.status, record.data !== null),
     isRefreshing: isRefreshingState(record.isRefreshing, record.data !== null),
+    stale: record.stale,
     status: record.status,
   };
+}
+
+export function selectTrackAvailability(
+  state: CatalogStore,
+  recordingID: string,
+) {
+  return selectDetail(getTrackAvailabilityRecord(state, recordingID));
+}
+
+export function selectAlbumAvailability(state: CatalogStore, albumID: string) {
+  return selectDetail(getAlbumAvailabilityRecord(state, albumID));
 }

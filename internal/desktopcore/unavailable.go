@@ -136,6 +136,10 @@ func (c *UnavailableCore) ListLikedRecordings(context.Context, apitypes.LikedRec
 	return apitypes.Page[apitypes.LikedRecordingItem]{}, c.err
 }
 
+func (c *UnavailableCore) SubscribeCatalogChanges(func(apitypes.CatalogChangeEvent)) func() {
+	return func() {}
+}
+
 func (c *UnavailableCore) CreatePlaylist(context.Context, string, string) (apitypes.PlaylistRecord, error) {
 	return apitypes.PlaylistRecord{}, c.err
 }
@@ -314,6 +318,14 @@ func (c *UnavailableCore) ListRecordingAvailability(context.Context, string, str
 
 func (c *UnavailableCore) GetRecordingAvailability(context.Context, string, string) (apitypes.RecordingPlaybackAvailability, error) {
 	return apitypes.RecordingPlaybackAvailability{}, c.err
+}
+
+func (c *UnavailableCore) ListRecordingPlaybackAvailability(context.Context, apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error) {
+	return nil, c.err
+}
+
+func (c *UnavailableCore) ListAlbumAvailabilitySummaries(context.Context, apitypes.AlbumAvailabilitySummaryListRequest) ([]apitypes.AlbumAvailabilitySummaryItem, error) {
+	return nil, c.err
 }
 
 func (c *UnavailableCore) GetRecordingAvailabilityOverview(context.Context, string, string) (apitypes.RecordingAvailabilityOverview, error) {

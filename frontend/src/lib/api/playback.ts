@@ -2,8 +2,10 @@ import * as PlaybackFacade from "../../../bindings/ben/desktop/playbackfacade";
 import * as PlaybackService from "../../../bindings/ben/desktop/playbackservice";
 import {
   Types,
+  type AlbumAvailabilitySummaryItem,
   type ArtworkRef,
   type PlaybackPreparationStatus,
+  type RecordingPlaybackAvailability,
   type SessionSnapshot,
 } from "./models";
 
@@ -58,6 +60,30 @@ export function startEnsurePlaylistEncodings(
   return PlaybackFacade.StartEnsurePlaylistEncodings(
     playlistId,
     preferredProfile,
+  );
+}
+
+export function listRecordingPlaybackAvailability(
+  recordingIds: string[],
+  preferredProfile = "",
+): Promise<RecordingPlaybackAvailability[]> {
+  return PlaybackFacade.ListRecordingPlaybackAvailability(
+    new Types.RecordingPlaybackAvailabilityListRequest({
+      PreferredProfile: preferredProfile,
+      RecordingIDs: recordingIds,
+    }),
+  );
+}
+
+export function listAlbumAvailabilitySummaries(
+  albumIds: string[],
+  preferredProfile = "",
+): Promise<AlbumAvailabilitySummaryItem[]> {
+  return PlaybackFacade.ListAlbumAvailabilitySummaries(
+    new Types.AlbumAvailabilitySummaryListRequest({
+      AlbumIDs: albumIds,
+      PreferredProfile: preferredProfile,
+    }),
   );
 }
 

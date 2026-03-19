@@ -81,7 +81,11 @@ export function VirtualCardGrid<T>({
   }
 
   return (
-    <div className={["relative h-full min-h-0 overflow-hidden", className].join(" ")}>
+    <div
+      className={["relative h-full min-h-0 overflow-hidden", className].join(
+        " ",
+      )}
+    >
       <div
         className="ben-scrollbar h-full overflow-y-auto"
         ref={parentRef}
@@ -128,7 +132,7 @@ export function VirtualCardGrid<T>({
           style={{ height: "var(--shell-player-clearance, 0px)" }}
         />
         {(loading || loadingMore) && (
-          <div className="px-2 py-4 text-sm text-theme-500">Loading...</div>
+          <div className="text-theme-500 px-2 py-4 text-sm">Loading...</div>
         )}
       </div>
     </div>

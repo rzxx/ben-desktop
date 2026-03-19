@@ -1010,6 +1010,42 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 	return out, nil
 }
 
+func (s *PlaybackService) ListRecordingPlaybackAvailability(ctx context.Context, req apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error) {
+	recordingIDs := compactNonEmptyStrings(req.RecordingIDs)
+	if len(recordingIDs) == 0 {
+		return []apitypes.RecordingPlaybackAvailability{}, nil
+	}
+	out := make([]apitypes.RecordingPlaybackAvailability, 0, len(recordingIDs))
+	for _, recordingID := range recordingIDs {
+		availability, err := s.GetRecordingAvailability(ctx, recordingID, req.PreferredProfile)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, availability)
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) ListAlbumAvailabilitySummaries(ctx context.Context, req apitypes.AlbumAvailabilitySummaryListRequest) ([]apitypes.AlbumAvailabilitySummaryItem, error) {
+	albumIDs := compactNonEmptyStrings(req.AlbumIDs)
+	if len(albumIDs) == 0 {
+		return []apitypes.AlbumAvailabilitySummaryItem{}, nil
+	}
+	out := make([]apitypes.AlbumAvailabilitySummaryItem, 0, len(albumIDs))
+	for _, albumID := range albumIDs {
+		overview, err := s.GetAlbumAvailabilityOverview(ctx, albumID, req.PreferredProfile)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, apitypes.AlbumAvailabilitySummaryItem{
+			AlbumID:           albumID,
+			PreferredProfile: req.PreferredProfile,
+			Availability:      overview.Availability,
+		})
+	}
+	return out, nil
+}
+
 func (s *PlaybackService) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
 	local, err := s.app.requireActiveContext(ctx)
 	if err != nil {
@@ -1026,6 +1062,11 @@ func (s *PlaybackService) PinRecordingOffline(ctx context.Context, recordingID, 
 	if err := s.upsertOfflinePin(ctx, local, "recording", resolvedRecordingID, profile); err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateAvailability,
+		Entity:       apitypes.CatalogChangeEntityTracks,
+		RecordingIDs: []string{resolvedRecordingID},
+	})
 	return result, nil
 }
 
@@ -1038,7 +1079,15 @@ func (s *PlaybackService) UnpinRecordingOffline(ctx context.Context, recordingID
 	if resolveErr == nil && strings.TrimSpace(resolvedRecordingID) != "" {
 		recordingID = resolvedRecordingID
 	}
-	return s.deleteOfflinePin(ctx, local, "recording", recordingID)
+	if err := s.deleteOfflinePin(ctx, local, "recording", recordingID); err != nil {
+		return err
+	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateAvailability,
+		Entity:       apitypes.CatalogChangeEntityTracks,
+		RecordingIDs: []string{recordingID},
+	})
+	return nil
 }
 
 func (s *PlaybackService) PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
@@ -1057,7 +1106,18 @@ func (s *PlaybackService) PinAlbumOffline(ctx context.Context, albumID, preferre
 	if len(recordingIDs) == 0 {
 		return apitypes.PlaybackBatchResult{}, fmt.Errorf("no recordings found for album %s", albumID)
 	}
-	return s.pinOfflineScope(ctx, local, "album", albumID, recordingIDs, preferredProfile)
+	result, err := s.pinOfflineScope(ctx, local, "album", albumID, recordingIDs, preferredProfile)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateAvailability,
+		Entity:       apitypes.CatalogChangeEntityAlbum,
+		EntityID:     albumID,
+		AlbumIDs:     []string{albumID},
+		RecordingIDs: recordingIDs,
+	})
+	return result, nil
 }
 
 func (s *PlaybackService) UnpinAlbumOffline(ctx context.Context, albumID string) error {
@@ -1065,7 +1125,16 @@ func (s *PlaybackService) UnpinAlbumOffline(ctx context.Context, albumID string)
 	if err != nil {
 		return err
 	}
-	return s.deleteOfflinePin(ctx, local, "album", albumID)
+	if err := s.deleteOfflinePin(ctx, local, "album", albumID); err != nil {
+		return err
+	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:     apitypes.CatalogChangeInvalidateAvailability,
+		Entity:   apitypes.CatalogChangeEntityAlbum,
+		EntityID: albumID,
+		AlbumIDs: []string{albumID},
+	})
+	return nil
 }
 
 func (s *PlaybackService) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
@@ -1084,7 +1153,18 @@ func (s *PlaybackService) PinPlaylistOffline(ctx context.Context, playlistID, pr
 	if len(recordingIDs) == 0 {
 		return apitypes.PlaybackBatchResult{}, fmt.Errorf("no recordings found for playlist %s", playlistID)
 	}
-	return s.pinOfflineScope(ctx, local, "playlist", playlistID, recordingIDs, preferredProfile)
+	result, err := s.pinOfflineScope(ctx, local, "playlist", playlistID, recordingIDs, preferredProfile)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateAvailability,
+		Entity:       apitypes.CatalogChangeEntityPlaylistTracks,
+		EntityID:     playlistID,
+		QueryKey:     "playlistTracks:" + playlistID,
+		RecordingIDs: recordingIDs,
+	})
+	return result, nil
 }
 
 func (s *PlaybackService) UnpinPlaylistOffline(ctx context.Context, playlistID string) error {
@@ -1092,7 +1172,16 @@ func (s *PlaybackService) UnpinPlaylistOffline(ctx context.Context, playlistID s
 	if err != nil {
 		return err
 	}
-	return s.deleteOfflinePin(ctx, local, "playlist", playlistID)
+	if err := s.deleteOfflinePin(ctx, local, "playlist", playlistID); err != nil {
+		return err
+	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:     apitypes.CatalogChangeInvalidateAvailability,
+		Entity:   apitypes.CatalogChangeEntityPlaylistTracks,
+		EntityID: playlistID,
+		QueryKey: "playlistTracks:" + playlistID,
+	})
+	return nil
 }
 
 func (s *PlaybackService) PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
@@ -1110,9 +1199,26 @@ func (s *PlaybackService) PinLikedOffline(ctx context.Context, preferredProfile 
 		if err := s.upsertOfflinePin(ctx, local, "playlist", playlistID, profile); err != nil {
 			return apitypes.PlaybackBatchResult{}, err
 		}
+		s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+			Kind:     apitypes.CatalogChangeInvalidateAvailability,
+			Entity:   apitypes.CatalogChangeEntityLiked,
+			EntityID: playlistID,
+			QueryKey: "liked",
+		})
 		return apitypes.PlaybackBatchResult{}, nil
 	}
-	return s.pinOfflineScope(ctx, local, "playlist", playlistID, recordingIDs, preferredProfile)
+	result, err := s.pinOfflineScope(ctx, local, "playlist", playlistID, recordingIDs, preferredProfile)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateAvailability,
+		Entity:       apitypes.CatalogChangeEntityLiked,
+		EntityID:     playlistID,
+		QueryKey:     "liked",
+		RecordingIDs: recordingIDs,
+	})
+	return result, nil
 }
 
 func (s *PlaybackService) UnpinLikedOffline(ctx context.Context) error {
@@ -1120,7 +1226,17 @@ func (s *PlaybackService) UnpinLikedOffline(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.deleteOfflinePin(ctx, local, "playlist", likedPlaylistIDForLibrary(local.LibraryID))
+	playlistID := likedPlaylistIDForLibrary(local.LibraryID)
+	if err := s.deleteOfflinePin(ctx, local, "playlist", playlistID); err != nil {
+		return err
+	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:     apitypes.CatalogChangeInvalidateAvailability,
+		Entity:   apitypes.CatalogChangeEntityLiked,
+		EntityID: playlistID,
+		QueryKey: "liked",
+	})
+	return nil
 }
 
 func (s *PlaybackService) GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {

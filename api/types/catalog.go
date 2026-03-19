@@ -46,7 +46,6 @@ type ArtistListItem struct {
 	Name         string
 	AlbumCount   int64
 	TrackCount   int64
-	Availability CatalogAggregateAvailabilityHint
 }
 
 type AlbumListItem struct {
@@ -59,7 +58,6 @@ type AlbumListItem struct {
 	Thumb          ArtworkRef
 	VariantCount   int64
 	HasVariants    bool
-	Availability   CatalogAggregateAvailabilityHint
 }
 
 type RecordingListRequest struct{ PageRequest }
@@ -72,7 +70,6 @@ type RecordingListItem struct {
 	Artists        []string
 	VariantCount   int64
 	HasVariants    bool
-	Availability   CatalogTrackAvailabilityHint
 }
 
 type AlbumTrackListRequest struct {
@@ -87,7 +84,6 @@ type AlbumTrackItem struct {
 	DiscNo       int
 	TrackNo      int
 	Artists      []string
-	Availability CatalogTrackAvailabilityHint
 }
 
 type RecordingVariantListRequest struct {
@@ -118,7 +114,6 @@ type RecordingVariantItem struct {
 	IsPresentLocal      bool
 	IsCachedLocal       bool
 	LocalPath           string
-	Availability        CatalogTrackAvailabilityHint
 }
 
 type AlbumVariantListRequest struct {
@@ -139,7 +134,6 @@ type AlbumVariantItem struct {
 	LocalTrackCount     int64
 	IsPreferred         bool
 	IsExplicitPreferred bool
-	Availability        CatalogAggregateAvailabilityHint
 }
 
 type RecordingMatchCandidateListRequest struct {
@@ -186,7 +180,6 @@ type PlaylistTrackItem struct {
 	DurationMS   int64
 	Artists      []string
 	AddedAt      time.Time
-	Availability CatalogTrackAvailabilityHint
 }
 
 type LikedRecordingListRequest struct{ PageRequest }
@@ -197,7 +190,38 @@ type LikedRecordingItem struct {
 	DurationMS   int64
 	Artists      []string
 	AddedAt      time.Time
-	Availability CatalogTrackAvailabilityHint
+}
+
+type CatalogChangeKind string
+
+const (
+	CatalogChangeInvalidateBase         CatalogChangeKind = "invalidate_base"
+	CatalogChangeInvalidateAvailability CatalogChangeKind = "invalidate_availability"
+)
+
+type CatalogChangeEntity string
+
+const (
+	CatalogChangeEntityAlbums         CatalogChangeEntity = "albums"
+	CatalogChangeEntityAlbum          CatalogChangeEntity = "album"
+	CatalogChangeEntityArtists        CatalogChangeEntity = "artists"
+	CatalogChangeEntityArtistAlbums   CatalogChangeEntity = "artist_albums"
+	CatalogChangeEntityTracks         CatalogChangeEntity = "tracks"
+	CatalogChangeEntityAlbumTracks    CatalogChangeEntity = "album_tracks"
+	CatalogChangeEntityPlaylists      CatalogChangeEntity = "playlists"
+	CatalogChangeEntityPlaylistTracks CatalogChangeEntity = "playlist_tracks"
+	CatalogChangeEntityLiked          CatalogChangeEntity = "liked"
+)
+
+type CatalogChangeEvent struct {
+	Kind         CatalogChangeKind
+	Entity       CatalogChangeEntity
+	EntityID     string
+	QueryKey     string
+	RecordingIDs []string
+	AlbumIDs     []string
+	InvalidateAll bool
+	OccurredAt   time.Time
 }
 
 type CatalogSurface interface {
@@ -220,4 +244,5 @@ type CatalogSurface interface {
 	GetPlaylistSummary(ctx context.Context, playlistID string) (PlaylistListItem, error)
 	ListPlaylistTracks(ctx context.Context, req PlaylistTrackListRequest) (Page[PlaylistTrackItem], error)
 	ListLikedRecordings(ctx context.Context, req LikedRecordingListRequest) (Page[LikedRecordingItem], error)
+	SubscribeCatalogChanges(listener func(CatalogChangeEvent)) func()
 }

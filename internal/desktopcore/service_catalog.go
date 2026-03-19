@@ -17,6 +17,13 @@ type CatalogService struct {
 	app *App
 }
 
+func (s *CatalogService) SubscribeCatalogChanges(listener func(apitypes.CatalogChangeEvent)) func() {
+	if s == nil || s.app == nil {
+		return func() {}
+	}
+	return s.app.SubscribeCatalogChanges(listener)
+}
+
 type recordingVariantRow struct {
 	TrackVariantID string
 	TrackClusterID string
@@ -52,6 +59,19 @@ type albumVariantRow struct {
 	LocalTrackCount int64
 }
 
+type recordingSeedRow struct {
+	RecordingID    string
+	TrackClusterID string
+	Title          string
+	DurationMS     int64
+	ArtistsCSV     string
+}
+
+type albumSeedRow struct {
+	AlbumID        string
+	AlbumClusterID string
+}
+
 func (s *CatalogService) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
 	local, err := s.app.requireActiveContext(ctx)
 	if err != nil {
@@ -81,22 +101,13 @@ ORDER BY LOWER(a.name) ASC, a.artist_id ASC`
 		return apitypes.Page[apitypes.ArtistListItem]{}, err
 	}
 	pagedRows, pageInfo := pageItems(rows, req.PageRequest)
-	artistIDs := make([]string, 0, len(pagedRows))
-	for _, row := range pagedRows {
-		artistIDs = append(artistIDs, row.ArtistID)
-	}
-	aggregates, err := s.catalogAggregateHintsForArtists(ctx, local.LibraryID, local.DeviceID, artistIDs)
-	if err != nil {
-		return apitypes.Page[apitypes.ArtistListItem]{}, err
-	}
 	out := make([]apitypes.ArtistListItem, 0, len(pagedRows))
 	for _, row := range pagedRows {
 		out = append(out, apitypes.ArtistListItem{
-			ArtistID:     row.ArtistID,
-			Name:         row.Name,
-			AlbumCount:   row.AlbumCount,
-			TrackCount:   row.TrackCount,
-			Availability: aggregates[strings.TrimSpace(row.ArtistID)],
+			ArtistID:   row.ArtistID,
+			Name:       row.Name,
+			AlbumCount: row.AlbumCount,
+			TrackCount: row.TrackCount,
 		})
 	}
 	return apitypes.Page[apitypes.ArtistListItem]{Items: out, Page: pageInfo}, nil
@@ -166,13 +177,6 @@ func (s *CatalogService) ListRecordings(ctx context.Context, req apitypes.Record
 	if err != nil {
 		return apitypes.Page[apitypes.RecordingListItem]{}, err
 	}
-	type row struct {
-		RecordingID    string
-		TrackClusterID string
-		Title          string
-		DurationMS     int64
-		ArtistsCSV     string
-	}
 	query := `
 SELECT
 	r.track_variant_id AS recording_id,
@@ -186,11 +190,11 @@ LEFT JOIN artists ar ON ar.library_id = c.library_id AND ar.artist_id = c.artist
 WHERE r.library_id = ?
 GROUP BY r.track_variant_id, r.track_cluster_id, r.title, r.duration_ms
 ORDER BY LOWER(r.title) ASC, r.track_variant_id ASC`
-	var rows []row
+	var rows []recordingSeedRow
 	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.RecordingListItem]{}, err
 	}
-	seeds := make([]row, 0, len(rows))
+	seeds := make([]recordingSeedRow, 0, len(rows))
 	seen := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		groupID := strings.TrimSpace(row.TrackClusterID)
@@ -204,44 +208,7 @@ ORDER BY LOWER(r.title) ASC, r.track_variant_id ASC`
 		row.TrackClusterID = groupID
 		seeds = append(seeds, row)
 	}
-	paged, pageInfo := pageItems(seeds, req.PageRequest)
-	out := make([]apitypes.RecordingListItem, 0, len(paged))
-	for _, seed := range paged {
-		variants, err := s.ListRecordingVariants(ctx, apitypes.RecordingVariantListRequest{
-			RecordingID: seed.RecordingID,
-			PageRequest: apitypes.PageRequest{Limit: maxPageLimit},
-		})
-		if err != nil {
-			return apitypes.Page[apitypes.RecordingListItem]{}, err
-		}
-		chosen := seed
-		var chosenAvailability apitypes.CatalogTrackAvailabilityHint
-		for _, variant := range variants.Items {
-			if variant.IsPreferred {
-				chosen.RecordingID = variant.RecordingID
-				chosen.Title = variant.Title
-				chosen.DurationMS = variant.DurationMS
-				chosen.ArtistsCSV = strings.Join(variant.Artists, artistSeparator)
-				chosenAvailability = variant.Availability
-				break
-			}
-		}
-		if chosenAvailability.State == "" && len(variants.Items) > 0 {
-			chosenAvailability = variants.Items[0].Availability
-		}
-		out = append(out, apitypes.RecordingListItem{
-			TrackClusterID: seed.TrackClusterID,
-			RecordingID:    chosen.RecordingID,
-			Title:          chosen.Title,
-			DurationMS:     chosen.DurationMS,
-			Artists:        splitArtists(chosen.ArtistsCSV),
-			VariantCount:   int64(len(variants.Items)),
-			HasVariants:    len(variants.Items) > 1,
-			Availability:   chosenAvailability,
-		})
-	}
-	pageInfo.Returned = len(out)
-	return apitypes.Page[apitypes.RecordingListItem]{Items: out, Page: pageInfo}, nil
+	return s.listCollapsedRecordings(ctx, local.LibraryID, local.DeviceID, seeds, req.PageRequest)
 }
 
 func (s *CatalogService) GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error) {
@@ -270,7 +237,6 @@ func (s *CatalogService) GetRecording(ctx context.Context, recordingID string) (
 		Artists:        append([]string(nil), chosen.Artists...),
 		VariantCount:   int64(len(variants.Items)),
 		HasVariants:    len(variants.Items) > 1,
-		Availability:   chosen.Availability,
 	}, nil
 }
 
@@ -293,14 +259,6 @@ func (s *CatalogService) ListRecordingVariants(ctx context.Context, req apitypes
 		preferredID = chooseRecordingVariantID(variants, explicitPreferredID)
 	}
 	paged, pageInfo := pageItems(variants, req.PageRequest)
-	clusterIDs := make([]string, 0, len(paged))
-	for _, row := range paged {
-		clusterIDs = append(clusterIDs, row.TrackClusterID)
-	}
-	hints, err := s.catalogAvailabilityHintsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs)
-	if err != nil {
-		return apitypes.Page[apitypes.RecordingVariantItem]{}, err
-	}
 	out := make([]apitypes.RecordingVariantItem, 0, len(paged))
 	for _, row := range paged {
 		out = append(out, apitypes.RecordingVariantItem{
@@ -326,7 +284,6 @@ func (s *CatalogService) ListRecordingVariants(ctx context.Context, req apitypes
 			IsPresentLocal:      row.IsPresentLocal,
 			IsCachedLocal:       row.IsCachedLocal,
 			LocalPath:           row.LocalPath,
-			Availability:        hints[strings.TrimSpace(row.TrackClusterID)],
 		})
 	}
 	return apitypes.Page[apitypes.RecordingVariantItem]{Items: out, Page: pageInfo}, nil
@@ -362,14 +319,6 @@ func (s *CatalogService) ListAlbumVariants(ctx context.Context, req apitypes.Alb
 		preferredID = chooseAlbumVariantID(candidates, "")
 	}
 	paged, pageInfo := pageItems(variants, req.PageRequest)
-	albumIDs := make([]string, 0, len(paged))
-	for _, row := range paged {
-		albumIDs = append(albumIDs, row.AlbumVariantID)
-	}
-	aggregates, err := s.catalogAggregateHintsForAlbumVariants(ctx, local.LibraryID, local.DeviceID, albumIDs)
-	if err != nil {
-		return apitypes.Page[apitypes.AlbumVariantItem]{}, err
-	}
 	out := make([]apitypes.AlbumVariantItem, 0, len(paged))
 	for _, row := range paged {
 		thumb, _ := s.loadAlbumArtworkRef(ctx, local.LibraryID, row.AlbumVariantID)
@@ -386,7 +335,6 @@ func (s *CatalogService) ListAlbumVariants(ctx context.Context, req apitypes.Alb
 			LocalTrackCount:     row.LocalTrackCount,
 			IsPreferred:         row.AlbumVariantID == preferredID,
 			IsExplicitPreferred: row.AlbumVariantID == explicitPreferredID,
-			Availability:        aggregates[strings.TrimSpace(row.AlbumVariantID)],
 		})
 	}
 	return apitypes.Page[apitypes.AlbumVariantItem]{Items: out, Page: pageInfo}, nil
@@ -412,7 +360,7 @@ func (s *CatalogService) SetPreferredRecordingVariant(ctx context.Context, recor
 		return fmt.Errorf("chosen recording is not in the same cluster")
 	}
 	now := time.Now().UTC()
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing DeviceVariantPreference
 		err := tx.Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", local.LibraryID, local.DeviceID, "track", clusterID).
 			Take(&existing).Error
@@ -443,7 +391,16 @@ func (s *CatalogService) SetPreferredRecordingVariant(ctx context.Context, recor
 			UpdatedAtNS:     now.UnixNano(),
 		})
 		return err
+	}); err != nil {
+		return err
+	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateBase,
+		Entity:       apitypes.CatalogChangeEntityTracks,
+		QueryKey:     "tracks",
+		RecordingIDs: []string{strings.TrimSpace(recordingID), strings.TrimSpace(variantRecordingID)},
 	})
+	return nil
 }
 
 func (s *CatalogService) SetPreferredAlbumVariant(ctx context.Context, albumID, variantAlbumID string) error {
@@ -466,7 +423,7 @@ func (s *CatalogService) SetPreferredAlbumVariant(ctx context.Context, albumID, 
 		return fmt.Errorf("chosen album is not in the same cluster")
 	}
 	now := time.Now().UTC()
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing DeviceVariantPreference
 		err := tx.Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", local.LibraryID, local.DeviceID, "album", clusterID).
 			Take(&existing).Error
@@ -497,7 +454,23 @@ func (s *CatalogService) SetPreferredAlbumVariant(ctx context.Context, albumID, 
 			UpdatedAtNS:     now.UnixNano(),
 		})
 		return err
+	}); err != nil {
+		return err
+	}
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateBase,
+		Entity:       apitypes.CatalogChangeEntityAlbums,
+		QueryKey:     "albums",
+		AlbumIDs:     []string{strings.TrimSpace(albumID), strings.TrimSpace(variantAlbumID)},
+		InvalidateAll: true,
 	})
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateBase,
+		Entity:       apitypes.CatalogChangeEntityArtistAlbums,
+		InvalidateAll: true,
+		AlbumIDs:     []string{strings.TrimSpace(albumID), strings.TrimSpace(variantAlbumID)},
+	})
+	return nil
 }
 
 func (s *CatalogService) ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
@@ -535,24 +508,15 @@ ORDER BY at.disc_no ASC, at.track_no ASC, at.track_variant_id ASC`
 		return apitypes.Page[apitypes.AlbumTrackItem]{}, err
 	}
 	paged, pageInfo := pageItems(rows, req.PageRequest)
-	clusterIDs := make([]string, 0, len(paged))
-	for _, row := range paged {
-		clusterIDs = append(clusterIDs, row.TrackClusterID)
-	}
-	hints, err := s.catalogAvailabilityHintsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs)
-	if err != nil {
-		return apitypes.Page[apitypes.AlbumTrackItem]{}, err
-	}
 	out := make([]apitypes.AlbumTrackItem, 0, len(paged))
 	for _, row := range paged {
 		out = append(out, apitypes.AlbumTrackItem{
-			RecordingID:  row.RecordingID,
-			Title:        row.Title,
-			DurationMS:   row.DurationMS,
-			DiscNo:       row.DiscNo,
-			TrackNo:      row.TrackNo,
-			Artists:      splitArtists(row.ArtistsCSV),
-			Availability: hints[strings.TrimSpace(row.TrackClusterID)],
+			RecordingID: row.RecordingID,
+			Title:       row.Title,
+			DurationMS:  row.DurationMS,
+			DiscNo:      row.DiscNo,
+			TrackNo:     row.TrackNo,
+			Artists:     splitArtists(row.ArtistsCSV),
 		})
 	}
 	return apitypes.Page[apitypes.AlbumTrackItem]{Items: out, Page: pageInfo}, nil
@@ -666,24 +630,15 @@ ORDER BY CASE WHEN p.kind = 'liked' THEN 0 ELSE 1 END ASC,
 		return apitypes.Page[apitypes.PlaylistTrackItem]{}, err
 	}
 	paged, pageInfo := pageItems(rows, req.PageRequest)
-	clusterIDs := make([]string, 0, len(paged))
-	for _, row := range paged {
-		clusterIDs = append(clusterIDs, row.TrackClusterID)
-	}
-	hints, err := s.catalogAvailabilityHintsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs)
-	if err != nil {
-		return apitypes.Page[apitypes.PlaylistTrackItem]{}, err
-	}
 	out := make([]apitypes.PlaylistTrackItem, 0, len(paged))
 	for _, row := range paged {
 		out = append(out, apitypes.PlaylistTrackItem{
-			ItemID:       row.ItemID,
-			RecordingID:  row.RecordingID,
-			Title:        row.Title,
-			DurationMS:   row.DurationMS,
-			Artists:      splitArtists(row.ArtistsCSV),
-			AddedAt:      row.AddedAt,
-			Availability: hints[strings.TrimSpace(row.TrackClusterID)],
+			ItemID:      row.ItemID,
+			RecordingID: row.RecordingID,
+			Title:       row.Title,
+			DurationMS:  row.DurationMS,
+			Artists:     splitArtists(row.ArtistsCSV),
+			AddedAt:     row.AddedAt,
 		})
 	}
 	return apitypes.Page[apitypes.PlaylistTrackItem]{Items: out, Page: pageInfo}, nil
@@ -723,38 +678,25 @@ ORDER BY pi.added_at DESC, pi.item_id DESC`
 		return apitypes.Page[apitypes.LikedRecordingItem]{}, err
 	}
 	paged, pageInfo := pageItems(rows, req.PageRequest)
-	clusterIDs := make([]string, 0, len(paged))
-	for _, row := range paged {
-		clusterIDs = append(clusterIDs, row.TrackClusterID)
-	}
-	hints, err := s.catalogAvailabilityHintsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs)
-	if err != nil {
-		return apitypes.Page[apitypes.LikedRecordingItem]{}, err
-	}
 	out := make([]apitypes.LikedRecordingItem, 0, len(paged))
 	for _, row := range paged {
 		out = append(out, apitypes.LikedRecordingItem{
-			RecordingID:  row.RecordingID,
-			Title:        row.Title,
-			DurationMS:   row.DurationMS,
-			Artists:      splitArtists(row.ArtistsCSV),
-			AddedAt:      row.AddedAt,
-			Availability: hints[strings.TrimSpace(row.TrackClusterID)],
+			RecordingID: row.RecordingID,
+			Title:       row.Title,
+			DurationMS:  row.DurationMS,
+			Artists:     splitArtists(row.ArtistsCSV),
+			AddedAt:     row.AddedAt,
 		})
 	}
 	return apitypes.Page[apitypes.LikedRecordingItem]{Items: out, Page: pageInfo}, nil
 }
 
 func (s *CatalogService) listCollapsedAlbums(ctx context.Context, libraryID, deviceID string, req apitypes.PageRequest, query string, args ...any) (apitypes.Page[apitypes.AlbumListItem], error) {
-	type row struct {
-		AlbumID        string
-		AlbumClusterID string
-	}
-	var rows []row
+	var rows []albumSeedRow
 	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.AlbumListItem]{}, err
 	}
-	seeds := make([]row, 0, len(rows))
+	seeds := make([]albumSeedRow, 0, len(rows))
 	seen := make(map[string]struct{}, len(rows))
 	for _, item := range rows {
 		groupID := strings.TrimSpace(item.AlbumClusterID)
@@ -765,26 +707,94 @@ func (s *CatalogService) listCollapsedAlbums(ctx context.Context, libraryID, dev
 			continue
 		}
 		seen[groupID] = struct{}{}
-		seeds = append(seeds, row{AlbumID: item.AlbumID, AlbumClusterID: groupID})
+		seeds = append(seeds, albumSeedRow{AlbumID: item.AlbumID, AlbumClusterID: groupID})
 	}
+	return s.listCollapsedAlbumsForSeeds(ctx, libraryID, deviceID, seeds, req)
+}
+
+func (s *CatalogService) listCollapsedRecordings(ctx context.Context, libraryID, deviceID string, seeds []recordingSeedRow, req apitypes.PageRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
 	pagedSeeds, pageInfo := pageItems(seeds, req)
-	out := make([]apitypes.AlbumListItem, 0, len(pagedSeeds))
+	clusterIDs := make([]string, 0, len(pagedSeeds))
 	for _, seed := range pagedSeeds {
-		variants, err := s.ListAlbumVariants(ctx, apitypes.AlbumVariantListRequest{
-			AlbumID:     seed.AlbumID,
-			PageRequest: apitypes.PageRequest{Limit: maxPageLimit},
-		})
-		if err != nil {
-			return apitypes.Page[apitypes.AlbumListItem]{}, err
-		}
-		if len(variants.Items) == 0 {
+		clusterIDs = append(clusterIDs, seed.TrackClusterID)
+	}
+	rowsByCluster, err := s.listRecordingVariantRowsForClusters(ctx, libraryID, deviceID, clusterIDs, s.app.cfg.TranscodeProfile)
+	if err != nil {
+		return apitypes.Page[apitypes.RecordingListItem]{}, err
+	}
+	preferredByCluster, err := s.preferredRecordingVariantIDsForClusters(ctx, libraryID, deviceID, clusterIDs)
+	if err != nil {
+		return apitypes.Page[apitypes.RecordingListItem]{}, err
+	}
+
+	out := make([]apitypes.RecordingListItem, 0, len(pagedSeeds))
+	for _, seed := range pagedSeeds {
+		variants := rowsByCluster[strings.TrimSpace(seed.TrackClusterID)]
+		if len(variants) == 0 {
 			continue
 		}
-		item, err := collapsedAlbumFromVariants(variants.Items)
-		if err != nil {
-			return apitypes.Page[apitypes.AlbumListItem]{}, err
+		preferredID := chooseRecordingVariantID(variants, preferredByCluster[strings.TrimSpace(seed.TrackClusterID)])
+		chosen := variants[0]
+		for _, variant := range variants {
+			if variant.TrackVariantID == preferredID {
+				chosen = variant
+				break
+			}
 		}
-		out = append(out, item)
+		out = append(out, apitypes.RecordingListItem{
+			TrackClusterID: strings.TrimSpace(seed.TrackClusterID),
+			RecordingID:    chosen.TrackVariantID,
+			Title:          chosen.Title,
+			DurationMS:     chosen.DurationMS,
+			Artists:        append([]string(nil), chosen.Artists...),
+			VariantCount:   int64(len(variants)),
+			HasVariants:    len(variants) > 1,
+		})
+	}
+	pageInfo.Returned = len(out)
+	return apitypes.Page[apitypes.RecordingListItem]{Items: out, Page: pageInfo}, nil
+}
+
+func (s *CatalogService) listCollapsedAlbumsForSeeds(ctx context.Context, libraryID, deviceID string, seeds []albumSeedRow, req apitypes.PageRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
+	pagedSeeds, pageInfo := pageItems(seeds, req)
+	clusterIDs := make([]string, 0, len(pagedSeeds))
+	for _, seed := range pagedSeeds {
+		clusterIDs = append(clusterIDs, seed.AlbumClusterID)
+	}
+	rowsByCluster, err := s.listAlbumVariantRowsForClusters(ctx, libraryID, deviceID, clusterIDs)
+	if err != nil {
+		return apitypes.Page[apitypes.AlbumListItem]{}, err
+	}
+	preferredByCluster, err := s.preferredAlbumVariantIDsForClusters(ctx, libraryID, deviceID, clusterIDs)
+	if err != nil {
+		return apitypes.Page[apitypes.AlbumListItem]{}, err
+	}
+
+	out := make([]apitypes.AlbumListItem, 0, len(pagedSeeds))
+	for _, seed := range pagedSeeds {
+		variants := rowsByCluster[strings.TrimSpace(seed.AlbumClusterID)]
+		if len(variants) == 0 {
+			continue
+		}
+		explicitPreferred := preferredByCluster[strings.TrimSpace(seed.AlbumClusterID)]
+		chosen := variants[0]
+		for _, variant := range variants[1:] {
+			if compareAlbumVariants(variant, chosen, explicitPreferred) < 0 {
+				chosen = variant
+			}
+		}
+		thumb, _ := s.loadAlbumArtworkRef(ctx, libraryID, chosen.AlbumVariantID)
+		out = append(out, apitypes.AlbumListItem{
+			AlbumID:        chosen.AlbumVariantID,
+			AlbumClusterID: chosen.AlbumClusterID,
+			Title:          chosen.Title,
+			Artists:        append([]string(nil), chosen.Artists...),
+			Year:           chosen.Year,
+			TrackCount:     chosen.TrackCount,
+			Thumb:          thumb,
+			VariantCount:   int64(len(variants)),
+			HasVariants:    len(variants) > 1,
+		})
 	}
 	pageInfo.Returned = len(out)
 	return apitypes.Page[apitypes.AlbumListItem]{Items: out, Page: pageInfo}, nil
@@ -812,7 +822,6 @@ func collapsedAlbumFromVariants(variants []apitypes.AlbumVariantItem) (apitypes.
 		Thumb:          chosen.Thumb,
 		VariantCount:   int64(len(variants)),
 		HasVariants:    len(variants) > 1,
-		Availability:   chosen.Availability,
 	}, nil
 }
 
@@ -870,6 +879,202 @@ func (s *CatalogService) preferredAlbumVariantID(ctx context.Context, libraryID,
 		return "", false, err
 	}
 	return strings.TrimSpace(pref.ChosenVariantID), true, nil
+}
+
+func (s *CatalogService) preferredRecordingVariantIDsForClusters(ctx context.Context, libraryID, deviceID string, clusterIDs []string) (map[string]string, error) {
+	clusterIDs = compactNonEmptyStrings(clusterIDs)
+	if len(clusterIDs) == 0 {
+		return map[string]string{}, nil
+	}
+	type row struct {
+		ClusterID       string
+		ChosenVariantID string
+	}
+	var rows []row
+	if err := s.app.storage.WithContext(ctx).
+		Model(&DeviceVariantPreference{}).
+		Select("cluster_id, chosen_variant_id").
+		Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id IN ?", libraryID, deviceID, "track", clusterIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(rows))
+	for _, row := range rows {
+		out[strings.TrimSpace(row.ClusterID)] = strings.TrimSpace(row.ChosenVariantID)
+	}
+	return out, nil
+}
+
+func (s *CatalogService) preferredAlbumVariantIDsForClusters(ctx context.Context, libraryID, deviceID string, clusterIDs []string) (map[string]string, error) {
+	clusterIDs = compactNonEmptyStrings(clusterIDs)
+	if len(clusterIDs) == 0 {
+		return map[string]string{}, nil
+	}
+	type row struct {
+		ClusterID       string
+		ChosenVariantID string
+	}
+	var rows []row
+	if err := s.app.storage.WithContext(ctx).
+		Model(&DeviceVariantPreference{}).
+		Select("cluster_id, chosen_variant_id").
+		Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id IN ?", libraryID, deviceID, "album", clusterIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(rows))
+	for _, row := range rows {
+		out[strings.TrimSpace(row.ClusterID)] = strings.TrimSpace(row.ChosenVariantID)
+	}
+	return out, nil
+}
+
+func (s *CatalogService) listRecordingVariantRowsForClusters(ctx context.Context, libraryID, deviceID string, clusterIDs []string, preferredProfile string) (map[string][]recordingVariantRow, error) {
+	clusterIDs = compactNonEmptyStrings(clusterIDs)
+	if len(clusterIDs) == 0 {
+		return map[string][]recordingVariantRow{}, nil
+	}
+	query := `
+SELECT
+	r.track_variant_id AS track_variant_id,
+	r.track_cluster_id AS track_cluster_id,
+	COALESCE(MAX(sf.source_file_id), '') AS source_file_id,
+	r.title,
+	r.duration_ms,
+	COALESCE(GROUP_CONCAT(DISTINCT ar.name), '') AS artists_csv,
+	COALESCE(MIN(at.album_variant_id), '') AS album_variant_id,
+	COALESCE(MIN(al.title), '') AS album_title,
+	COALESCE(MIN(at.track_no), 0) AS track_no,
+	COALESCE(MIN(at.disc_no), 0) AS disc_no,
+	COALESCE(MAX(sf.container), '') AS container,
+	COALESCE(MAX(sf.codec), '') AS codec,
+	COALESCE(MAX(sf.bitrate), 0) AS bitrate,
+	COALESCE(MAX(sf.sample_rate), 0) AS sample_rate,
+	COALESCE(MAX(sf.channels), 0) AS channels,
+	COALESCE(MAX(sf.is_lossless), 0) AS is_lossless,
+	COALESCE(MAX(sf.quality_rank), 0) AS quality_rank,
+	COALESCE(MAX(CASE WHEN sf.device_id = ? AND sf.is_present = 1 THEN 1 ELSE 0 END), 0) AS is_present_local,
+	COALESCE(MAX(CASE WHEN dac.device_id = ? AND dac.is_cached = 1 THEN 1 ELSE 0 END), 0) AS is_cached_local,
+	COALESCE(MAX(CASE WHEN sf.device_id = ? AND sf.is_present = 1 THEN sf.local_path ELSE '' END), '') AS local_path
+FROM track_variants r
+LEFT JOIN credits c ON c.library_id = r.library_id AND c.entity_type = 'track' AND c.entity_id = r.track_variant_id
+LEFT JOIN artists ar ON ar.library_id = c.library_id AND ar.artist_id = c.artist_id
+LEFT JOIN album_tracks at ON at.library_id = r.library_id AND at.track_variant_id = r.track_variant_id
+LEFT JOIN album_variants al ON al.library_id = at.library_id AND al.album_variant_id = at.album_variant_id
+LEFT JOIN source_files sf ON sf.library_id = r.library_id AND sf.track_variant_id = r.track_variant_id
+LEFT JOIN optimized_assets oa ON oa.library_id = sf.library_id AND oa.source_file_id = sf.source_file_id AND (? = '' OR oa.profile = ?)
+LEFT JOIN device_asset_caches dac ON dac.library_id = oa.library_id AND dac.optimized_asset_id = oa.optimized_asset_id
+WHERE r.library_id = ? AND r.track_cluster_id IN ?
+GROUP BY r.track_variant_id, r.track_cluster_id, r.title, r.duration_ms`
+	type row struct {
+		TrackVariantID string
+		TrackClusterID string
+		SourceFileID   string
+		Title          string
+		DurationMS     int64
+		ArtistsCSV     string
+		AlbumVariantID string
+		AlbumTitle     string
+		TrackNo        int
+		DiscNo         int
+		Container      string
+		Codec          string
+		Bitrate        int
+		SampleRate     int
+		Channels       int
+		IsLossless     bool
+		QualityRank    int
+		IsPresentLocal bool
+		IsCachedLocal  bool
+		LocalPath      string
+	}
+	var rows []row
+	if err := s.app.storage.WithContext(ctx).Raw(query, deviceID, deviceID, deviceID, preferredProfile, preferredProfile, libraryID, clusterIDs).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string][]recordingVariantRow, len(clusterIDs))
+	for _, row := range rows {
+		clusterID := strings.TrimSpace(row.TrackClusterID)
+		out[clusterID] = append(out[clusterID], recordingVariantRow{
+			TrackVariantID: row.TrackVariantID,
+			TrackClusterID: clusterID,
+			SourceFileID:   row.SourceFileID,
+			Title:          row.Title,
+			DurationMS:     row.DurationMS,
+			Artists:        splitArtists(row.ArtistsCSV),
+			AlbumVariantID: row.AlbumVariantID,
+			AlbumTitle:     row.AlbumTitle,
+			TrackNo:        row.TrackNo,
+			DiscNo:         row.DiscNo,
+			Container:      row.Container,
+			Codec:          row.Codec,
+			Bitrate:        row.Bitrate,
+			SampleRate:     row.SampleRate,
+			Channels:       row.Channels,
+			IsLossless:     row.IsLossless,
+			QualityRank:    row.QualityRank,
+			IsPresentLocal: row.IsPresentLocal,
+			IsCachedLocal:  row.IsCachedLocal,
+			LocalPath:      row.LocalPath,
+		})
+	}
+	return out, nil
+}
+
+func (s *CatalogService) listAlbumVariantRowsForClusters(ctx context.Context, libraryID, deviceID string, clusterIDs []string) (map[string][]albumVariantRow, error) {
+	clusterIDs = compactNonEmptyStrings(clusterIDs)
+	if len(clusterIDs) == 0 {
+		return map[string][]albumVariantRow{}, nil
+	}
+	query := `
+SELECT
+	a.album_variant_id AS album_variant_id,
+	a.album_cluster_id AS album_cluster_id,
+	a.title,
+	COALESCE(GROUP_CONCAT(DISTINCT ar.name), '') AS artists_csv,
+	a.year,
+	a.edition,
+	COUNT(DISTINCT at.track_variant_id) AS track_count,
+	COALESCE(MAX(sf.quality_rank), 0) AS best_quality_rank,
+	COUNT(DISTINCT CASE WHEN sf.device_id = ? AND sf.is_present = 1 THEN at.track_variant_id END) AS local_track_count
+FROM album_variants a
+LEFT JOIN album_tracks at ON at.library_id = a.library_id AND at.album_variant_id = a.album_variant_id
+LEFT JOIN credits c ON c.library_id = a.library_id AND c.entity_type = 'album' AND c.entity_id = a.album_variant_id
+LEFT JOIN artists ar ON ar.library_id = c.library_id AND ar.artist_id = c.artist_id
+LEFT JOIN source_files sf ON sf.library_id = at.library_id AND sf.track_variant_id = at.track_variant_id
+WHERE a.library_id = ? AND a.album_cluster_id IN ?
+GROUP BY a.album_variant_id, a.album_cluster_id, a.title, a.year, a.edition`
+	type row struct {
+		AlbumVariantID  string
+		AlbumClusterID  string
+		Title           string
+		ArtistsCSV      string
+		Year            *int
+		Edition         string
+		TrackCount      int64
+		BestQualityRank int
+		LocalTrackCount int64
+	}
+	var rows []row
+	if err := s.app.storage.WithContext(ctx).Raw(query, deviceID, libraryID, clusterIDs).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string][]albumVariantRow, len(clusterIDs))
+	for _, row := range rows {
+		clusterID := strings.TrimSpace(row.AlbumClusterID)
+		out[clusterID] = append(out[clusterID], albumVariantRow{
+			AlbumVariantID:  row.AlbumVariantID,
+			AlbumClusterID:  clusterID,
+			Title:           row.Title,
+			Artists:         splitArtists(row.ArtistsCSV),
+			Year:            row.Year,
+			Edition:         row.Edition,
+			TrackCount:      row.TrackCount,
+			BestQualityRank: row.BestQualityRank,
+			LocalTrackCount: row.LocalTrackCount,
+		})
+	}
+	return out, nil
 }
 
 func (s *CatalogService) listRecordingVariantsRows(ctx context.Context, libraryID, deviceID, recordingID, preferredProfile string) ([]recordingVariantRow, error) {

@@ -14,6 +14,9 @@ import { selectValueQuery } from "@/stores/catalog/query-state";
 export function TracksPage() {
   const playRecording = usePlaybackStore((state) => state.playRecording);
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
+  const trackAvailabilityByRecordingId = useCatalogStore(
+    (state) => state.trackAvailabilityByRecordingId,
+  );
   const query = useStoreInfiniteQuery<RecordingListItem>(
     (state) => selectValueQuery<RecordingListItem>(state, "tracks"),
     {
@@ -61,7 +64,9 @@ export function TracksPage() {
           }}
           renderRow={(track, index) => (
             <TrackListRow
-              availabilityState={track.Availability.State}
+              availabilityState={
+                trackAvailabilityByRecordingId[track.RecordingID]?.data?.State
+              }
               durationMs={track.DurationMS}
               indexLabel={String(index + 1).padStart(2, "0")}
               mode="list"

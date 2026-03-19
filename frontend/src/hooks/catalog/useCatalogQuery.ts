@@ -39,8 +39,8 @@ export function useStoreQuery<TData>(
 export function useStoreInfiniteQuery<TItem>(
   select: (state: CatalogStore) => InfiniteSnapshot<TItem>,
   options: {
-    fetchNextPage: () => Promise<void> | void;
-    refetch: () => Promise<void> | void;
+    fetchNextPage: () => Promise<unknown> | void;
+    refetch: () => Promise<unknown> | void;
   },
 ) {
   const snapshot = useCatalogStore(useShallow(select));

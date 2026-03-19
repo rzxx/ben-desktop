@@ -141,6 +141,10 @@ export function SetPreferredRecordingVariant(recordingID: string, variantRecordi
     return $Call.ByID(218982714, recordingID, variantRecordingID);
 }
 
+export function SubscribeCatalogEvents(): $CancellablePromise<string> {
+    return $Call.ByID(2725641809);
+}
+
 export function UnlikeRecording(recordingID: string): $CancellablePromise<void> {
     return $Call.ByID(4179180402, recordingID);
 }

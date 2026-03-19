@@ -57,7 +57,7 @@ export function IconButton({
     <button
       aria-label={label}
       className={[
-        "inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-theme-200 transition hover:border-white/18 hover:bg-white/[0.1] disabled:cursor-default disabled:opacity-50",
+        "text-theme-200 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] transition hover:border-white/18 hover:bg-white/[0.1] disabled:cursor-default disabled:opacity-50",
         className,
       ].join(" ")}
       disabled={disabled}

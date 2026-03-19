@@ -20,10 +20,7 @@ export function QueueSidebar() {
     const contextEntries = snapshot?.context?.entries ?? [];
 
     return buildQueueRows(queuedEntries, contextEntries);
-  }, [
-    snapshot?.context?.entries,
-    snapshot?.queuedEntries,
-  ]);
+  }, [snapshot?.context?.entries, snapshot?.queuedEntries]);
   const parentRef = useRef<HTMLDivElement | null>(null);
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({

@@ -249,6 +249,9 @@ func (s *JobsFacade) SubscribeJobEvents() string {
 
 type CatalogFacade struct {
 	facadeBase
+
+	mu            sync.Mutex
+	stopListening func()
 }
 
 func NewCatalogFacade(host *coreHost) *CatalogFacade {
@@ -256,6 +259,40 @@ func NewCatalogFacade(host *coreHost) *CatalogFacade {
 }
 
 func (s *CatalogFacade) ServiceName() string { return "CatalogFacade" }
+
+func (s *CatalogFacade) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	if s.host == nil {
+		return nil
+	}
+	if err := s.host.Start(ctx); err != nil {
+		return err
+	}
+
+	app := application.Get()
+	if app == nil || app.Event == nil {
+		return nil
+	}
+
+	stopListening := s.catalog().SubscribeCatalogChanges(func(event apitypes.CatalogChangeEvent) {
+		app.Event.Emit(desktopcore.EventCatalogChanged, event)
+	})
+
+	s.mu.Lock()
+	s.stopListening = stopListening
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *CatalogFacade) ServiceShutdown() error {
+	s.mu.Lock()
+	stopListening := s.stopListening
+	s.stopListening = nil
+	s.mu.Unlock()
+	if stopListening != nil {
+		stopListening()
+	}
+	return nil
+}
 
 func (s *CatalogFacade) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {
 	return s.catalog().ListArtists(ctx, req)
@@ -319,6 +356,10 @@ func (s *CatalogFacade) ListPlaylistTracks(ctx context.Context, req apitypes.Pla
 
 func (s *CatalogFacade) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
 	return s.catalog().ListLikedRecordings(ctx, req)
+}
+
+func (s *CatalogFacade) SubscribeCatalogEvents() string {
+	return desktopcore.EventCatalogChanged
 }
 
 func (s *CatalogFacade) CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
@@ -555,6 +596,14 @@ func (s *PlaybackFacade) ListRecordingAvailability(ctx context.Context, recordin
 
 func (s *PlaybackFacade) GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
 	return s.playback().GetRecordingAvailability(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackFacade) ListRecordingPlaybackAvailability(ctx context.Context, req apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error) {
+	return s.playback().ListRecordingPlaybackAvailability(ctx, req)
+}
+
+func (s *PlaybackFacade) ListAlbumAvailabilitySummaries(ctx context.Context, req apitypes.AlbumAvailabilitySummaryListRequest) ([]apitypes.AlbumAvailabilitySummaryItem, error) {
+	return s.playback().ListAlbumAvailabilitySummaries(ctx, req)
 }
 
 func (s *PlaybackFacade) GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {

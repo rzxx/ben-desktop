@@ -1,11 +1,7 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ArrowLeft, Play } from "lucide-react";
 import { useEffect, useState } from "react";
-import type {
-  AlbumListItem,
-  AlbumTrackItem,
-  AlbumVariantItem,
-} from "@/lib/api/models";
+import type { AlbumTrackItem, AlbumVariantItem } from "@/lib/api/models";
 import { Button } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { AlbumTracksEmptyState } from "@/components/catalog/EmptyState";
@@ -16,7 +12,6 @@ import {
   useStoreQuery,
 } from "@/hooks/catalog/useCatalogQuery";
 import { useResolvedUrl } from "@/hooks/media/useResolvedUrl";
-import { EMPTY_THUMB } from "@/lib/catalog/album";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import {
   aggregateAvailabilityLabel,
@@ -41,6 +36,12 @@ export function AlbumDetailPage() {
   const playAlbum = usePlaybackStore((state) => state.playAlbum);
   const playAlbumTrack = usePlaybackStore((state) => state.playAlbumTrack);
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
+  const albumAvailabilityByAlbumId = useCatalogStore(
+    (state) => state.albumAvailabilityByAlbumId,
+  );
+  const trackAvailabilityByRecordingId = useCatalogStore(
+    (state) => state.trackAvailabilityByRecordingId,
+  );
 
   const detail = useStoreQuery(
     (state) => selectDetail(getDetailRecord(state.albumDetails, albumId)),
@@ -115,28 +116,11 @@ export function AlbumDetailPage() {
   );
   const heroTitle = activeVariant?.Title ?? detail.data?.Title ?? "Album";
   const heroArtists = activeVariant?.Artists ?? detail.data?.Artists ?? [];
-  const heroThumb = activeVariant?.Thumb ?? detail.data?.Thumb ?? EMPTY_THUMB;
-  const heroAlbum =
-    detail.data ??
-    ({
-      AlbumID: selectedVariantId,
-      AlbumClusterID: selectedVariantId,
-      Artists: heroArtists,
-      Availability: activeVariant?.Availability ?? {
-        AvailableTrackCount: 0,
-        CachedTrackCount: 0,
-        LocalTrackCount: 0,
-        ProviderOfflineTrackCount: 0,
-        ProviderOnlineTrackCount: 0,
-        UnavailableTrackCount: 0,
-      },
-      HasVariants: Boolean(variants.data?.length && variants.data.length > 1),
-      Thumb: heroThumb,
-      Title: heroTitle,
-      TrackCount: activeVariant?.TrackCount ?? 0,
-      VariantCount: variants.data?.length ?? 0,
-      Year: activeVariant?.Year ?? null,
-    } as AlbumListItem);
+  const heroAvailability =
+    albumAvailabilityByAlbumId[selectedVariantId]?.data ??
+    (detail.data
+      ? albumAvailabilityByAlbumId[detail.data.AlbumID]?.data
+      : undefined);
   const trackCount = activeVariant?.TrackCount ?? detail.data?.TrackCount ?? 0;
   const totalDurationMs = trackQuery.items.reduce(
     (total, track) => total + track.DurationMS,
@@ -232,9 +216,7 @@ export function AlbumDetailPage() {
                   Availability
                 </dt>
                 <dd className="text-theme-100 text-sm font-medium">
-                  {aggregateAvailabilityLabel(
-                    activeVariant?.Availability ?? heroAlbum.Availability,
-                  )}
+                  {aggregateAvailabilityLabel(heroAvailability)}
                 </dd>
               </div>
             </dl>
@@ -267,7 +249,9 @@ export function AlbumDetailPage() {
                       {[
                         variant.Year ? String(variant.Year) : null,
                         formatCount(variant.TrackCount, "track"),
-                        aggregateAvailabilityLabel(variant.Availability),
+                        aggregateAvailabilityLabel(
+                          albumAvailabilityByAlbumId[variant.AlbumID]?.data,
+                        ),
                       ]
                         .filter(Boolean)
                         .join(" • ")}
@@ -296,7 +280,9 @@ export function AlbumDetailPage() {
             }}
             renderRow={(track) => (
               <TrackListRow
-                availabilityState={track.Availability.State}
+                availabilityState={
+                  trackAvailabilityByRecordingId[track.RecordingID]?.data?.State
+                }
                 durationMs={track.DurationMS}
                 indexLabel={
                   track.DiscNo > 1
