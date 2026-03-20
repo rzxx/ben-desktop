@@ -277,9 +277,10 @@ func (s *ArtworkService) reconcileAlbumArtwork(ctx context.Context, local apityp
 	if err != nil {
 		return err
 	}
+	chosenSource := ""
 	chosenSourceRef := ""
 	if len(existing) > 0 {
-		_, chosenSourceRef, _, err = localArtworkSourceRefForScopeTx(s.app.storage.WithContext(ctx), local.LibraryID, "album", albumID, existing[0].Variant)
+		chosenSource, chosenSourceRef, _, err = localArtworkSourceRefForScopeTx(s.app.storage.WithContext(ctx), local.LibraryID, "album", albumID, existing[0].Variant)
 		if err != nil {
 			return err
 		}
@@ -303,10 +304,8 @@ func (s *ArtworkService) reconcileAlbumArtwork(ctx context.Context, local apityp
 		return nil
 	}
 
-	if len(existing) > 0 && artworkVariantsComplete(existing) {
-		if _, err := os.Stat(chosenSourceRef); err == nil {
-			return nil
-		}
+	if shouldReuseExistingAlbumArtwork(existing, chosenSource, chosenSourceRef, candidates) {
+		return nil
 	}
 
 	built, err := s.buildAlbumArtwork(ctx, candidates)
@@ -327,6 +326,106 @@ func (s *ArtworkService) reconcileAlbumArtwork(ctx context.Context, local apityp
 		return err
 	}
 	return s.storeArtworkScope(ctx, local, "album", albumID, built)
+}
+
+func shouldReuseExistingAlbumArtwork(existing []ArtworkVariant, chosenSource, chosenSourceRef string, candidates []SourceFileModel) bool {
+	if len(existing) == 0 || !artworkVariantsComplete(existing) {
+		return false
+	}
+	chosenSource = strings.TrimSpace(chosenSource)
+	chosenSourceRef = filepath.Clean(strings.TrimSpace(chosenSourceRef))
+	if chosenSource == "" || chosenSourceRef == "" {
+		return false
+	}
+	artworkUpdatedAt := latestArtworkVariantUpdate(existing)
+	if artworkUpdatedAt.IsZero() {
+		return false
+	}
+	if sourcePathUpdatedAfter(chosenSourceRef, artworkUpdatedAt) {
+		return false
+	}
+	if anyArtworkCandidateUpdatedAfter(candidates, artworkUpdatedAt) {
+		return false
+	}
+
+	switch chosenSource {
+	case "embedded":
+		return albumHasCandidatePath(candidates, chosenSourceRef)
+	case "sidecar":
+		return albumHasCandidateSidecar(candidates, chosenSourceRef)
+	default:
+		return false
+	}
+}
+
+func anyArtworkCandidateUpdatedAfter(candidates []SourceFileModel, updatedAt time.Time) bool {
+	for _, candidate := range candidates {
+		candidateUpdatedAt := latestNonZeroTime(candidate.UpdatedAt, candidate.LastSeenAt, candidate.CreatedAt)
+		if candidateUpdatedAt.After(updatedAt) {
+			return true
+		}
+	}
+	return false
+}
+
+func albumHasCandidatePath(candidates []SourceFileModel, wantPath string) bool {
+	wantPath = filepath.Clean(strings.TrimSpace(wantPath))
+	if wantPath == "" {
+		return false
+	}
+	for _, candidate := range candidates {
+		path := filepath.Clean(strings.TrimSpace(candidate.LocalPath))
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		if path == wantPath {
+			return true
+		}
+	}
+	return false
+}
+
+func albumHasCandidateSidecar(candidates []SourceFileModel, wantPath string) bool {
+	wantPath = filepath.Clean(strings.TrimSpace(wantPath))
+	if wantPath == "" {
+		return false
+	}
+	for _, candidate := range candidates {
+		path := filepath.Clean(strings.TrimSpace(candidate.LocalPath))
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		if findSidecarImage(path) == wantPath {
+			return true
+		}
+	}
+	return false
+}
+
+func sourcePathUpdatedAfter(path string, updatedAt time.Time) bool {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "" || updatedAt.IsZero() {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.ModTime().UTC().After(updatedAt)
+}
+
+func latestArtworkVariantUpdate(rows []ArtworkVariant) time.Time {
+	var updatedAt time.Time
+	for _, row := range rows {
+		updatedAt = latestNonZeroTime(updatedAt, row.UpdatedAt)
+	}
+	return updatedAt
 }
 
 func (s *ArtworkService) buildAlbumArtwork(ctx context.Context, candidates []SourceFileModel) (ArtworkBuildResult, error) {
@@ -411,7 +510,7 @@ SELECT DISTINCT sf.*
 FROM source_files sf
 JOIN album_tracks at ON at.library_id = sf.library_id AND at.track_variant_id = sf.track_variant_id
 WHERE sf.library_id = ? AND sf.device_id = ? AND at.album_variant_id = ? AND sf.is_present = 1
-ORDER BY sf.quality_rank DESC, sf.last_seen_at DESC, sf.size_bytes DESC, sf.local_path ASC`
+ORDER BY sf.quality_rank DESC, sf.updated_at DESC, sf.last_seen_at DESC, sf.local_path ASC, sf.source_file_id ASC`
 	if err := s.app.storage.WithContext(ctx).Raw(query, strings.TrimSpace(libraryID), strings.TrimSpace(deviceID), strings.TrimSpace(albumID)).Scan(&rows).Error; err != nil {
 		return nil, err
 	}

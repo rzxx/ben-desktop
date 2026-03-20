@@ -233,8 +233,63 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 		CreatedAt:         mutatedAt,
 		UpdatedAt:         mutatedAt,
 	}
-	return tx.Clauses(clause.OnConflict{
+	values := sourceFileUpsertValues(content)
+	return tx.Model(&SourceFileModel{}).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "library_id"}, {Name: "device_id"}, {Name: "source_fingerprint"}},
-		DoUpdates: clause.AssignmentColumns([]string{"source_file_id", "track_variant_id", "local_path", "path_key", "hash_algo", "hash_hex", "m_time_ns", "size_bytes", "container", "codec", "bitrate", "sample_rate", "channels", "is_lossless", "quality_rank", "duration_ms", "tags_json", "last_seen_at", "is_present", "updated_at"}),
-	}).Create(&content).Error
+		DoUpdates: clause.Assignments(sourceFileConflictAssignments(content)),
+	}).Create(values).Error
+}
+
+func sourceFileUpsertValues(content SourceFileModel) map[string]any {
+	return map[string]any{
+		"library_id":          content.LibraryID,
+		"device_id":           content.DeviceID,
+		"source_file_id":      content.SourceFileID,
+		"track_variant_id":    content.TrackVariantID,
+		"local_path":          content.LocalPath,
+		"path_key":            content.PathKey,
+		"source_fingerprint":  content.SourceFingerprint,
+		"hash_algo":           content.HashAlgo,
+		"hash_hex":            content.HashHex,
+		"m_time_ns":           content.MTimeNS,
+		"size_bytes":          content.SizeBytes,
+		"container":           content.Container,
+		"codec":               content.Codec,
+		"bitrate":             content.Bitrate,
+		"sample_rate":         content.SampleRate,
+		"channels":            content.Channels,
+		"is_lossless":         content.IsLossless,
+		"quality_rank":        content.QualityRank,
+		"duration_ms":         content.DurationMS,
+		"tags_json":           content.TagsJSON,
+		"last_seen_at":        content.LastSeenAt,
+		"is_present":          content.IsPresent,
+		"created_at":          content.CreatedAt,
+		"updated_at":          content.UpdatedAt,
+	}
+}
+
+func sourceFileConflictAssignments(content SourceFileModel) map[string]any {
+	return map[string]any{
+		"source_file_id":     content.SourceFileID,
+		"track_variant_id":   content.TrackVariantID,
+		"local_path":         content.LocalPath,
+		"path_key":           content.PathKey,
+		"hash_algo":          content.HashAlgo,
+		"hash_hex":           content.HashHex,
+		"m_time_ns":          content.MTimeNS,
+		"size_bytes":         content.SizeBytes,
+		"container":          content.Container,
+		"codec":              content.Codec,
+		"bitrate":            content.Bitrate,
+		"sample_rate":        content.SampleRate,
+		"channels":           content.Channels,
+		"is_lossless":        content.IsLossless,
+		"quality_rank":       content.QualityRank,
+		"duration_ms":        content.DurationMS,
+		"tags_json":          content.TagsJSON,
+		"last_seen_at":       content.LastSeenAt,
+		"is_present":         content.IsPresent,
+		"updated_at":         content.UpdatedAt,
+	}
 }

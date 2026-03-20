@@ -458,17 +458,17 @@ func (s *CatalogService) SetPreferredAlbumVariant(ctx context.Context, albumID, 
 		return err
 	}
 	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
-		Kind:         apitypes.CatalogChangeInvalidateBase,
-		Entity:       apitypes.CatalogChangeEntityAlbums,
-		QueryKey:     "albums",
-		AlbumIDs:     []string{strings.TrimSpace(albumID), strings.TrimSpace(variantAlbumID)},
+		Kind:          apitypes.CatalogChangeInvalidateBase,
+		Entity:        apitypes.CatalogChangeEntityAlbums,
+		QueryKey:      "albums",
+		AlbumIDs:      []string{strings.TrimSpace(albumID), strings.TrimSpace(variantAlbumID)},
 		InvalidateAll: true,
 	})
 	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
-		Kind:         apitypes.CatalogChangeInvalidateBase,
-		Entity:       apitypes.CatalogChangeEntityArtistAlbums,
+		Kind:          apitypes.CatalogChangeInvalidateBase,
+		Entity:        apitypes.CatalogChangeEntityArtistAlbums,
 		InvalidateAll: true,
-		AlbumIDs:     []string{strings.TrimSpace(albumID), strings.TrimSpace(variantAlbumID)},
+		AlbumIDs:      []string{strings.TrimSpace(albumID), strings.TrimSpace(variantAlbumID)},
 	})
 	return nil
 }
@@ -1491,6 +1491,9 @@ func chooseAlbumVariantID(variants []apitypes.AlbumVariantItem, preferredID stri
 		}
 	}
 	sort.SliceStable(variants, func(i, j int) bool {
+		if variants[i].LocalTrackCount != variants[j].LocalTrackCount {
+			return variants[i].LocalTrackCount > variants[j].LocalTrackCount
+		}
 		if variants[i].TrackCount != variants[j].TrackCount {
 			return variants[i].TrackCount > variants[j].TrackCount
 		}

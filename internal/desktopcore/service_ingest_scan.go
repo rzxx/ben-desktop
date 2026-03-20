@@ -339,6 +339,20 @@ func (s *IngestService) runScanCycle(ctx context.Context, libraryID, deviceID st
 		})
 	}
 
+	local := apitypes.LocalContext{LibraryID: libraryID, DeviceID: deviceID}
+	if err := s.app.rebuildCatalogMaterialization(ctx, libraryID, &local); err != nil {
+		s.app.setScanActivity(apitypes.ScanActivityStatus{
+			Phase:       "failed",
+			RootsTotal:  len(roots),
+			RootsDone:   rootsDone,
+			TracksTotal: totalTracks,
+			TracksDone:  tracksDone,
+			Workers:     workers,
+			Errors:      combined.Errors + 1,
+		})
+		return combined, err
+	}
+
 	s.app.setScanActivity(apitypes.ScanActivityStatus{
 		Phase:       "completed",
 		RootsTotal:  len(roots),
@@ -472,8 +486,6 @@ type ingestRecord struct {
 func (s *IngestService) upsertIngest(ctx context.Context, in ingestRecord) error {
 	now := time.Now().UTC()
 	local := apitypes.LocalContext{LibraryID: in.LibraryID, DeviceID: in.DeviceID}
-	_, albumKey, _ := normalizedRecordKeys(in.Tags)
-	albumVariantID := stableNameID("album", albumKey)
 	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		pathKey := localPathKey(in.Path)
 		sourceFingerprint := in.HashAlgo + ":" + in.HashHex
@@ -510,11 +522,6 @@ func (s *IngestService) upsertIngest(ctx context.Context, in ingestRecord) error
 		return nil
 	}); err != nil {
 		return err
-	}
-	if s.app.artwork != nil {
-		if err := s.app.artwork.ReconcileAlbumArtwork(ctx, local, albumVariantID); err != nil && !errors.Is(err, context.Canceled) {
-			s.app.cfg.Logger.Errorf("artwork reconcile after ingest failed for album %s: %v", albumVariantID, err)
-		}
 	}
 	return nil
 }
@@ -620,8 +627,6 @@ func (s *IngestService) reconcileRootPresence(ctx context.Context, libraryID, de
 	local := apitypes.LocalContext{LibraryID: libraryID, DeviceID: deviceID}
 	now := time.Now().UTC()
 	var rowsAffected int64
-	missingTrackVariantIDs := make([]string, 0, len(missingIDs))
-	missingRowCount := 0
 	err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.
 			Model(&SourceFileModel{}).
@@ -642,8 +647,6 @@ func (s *IngestService) reconcileRootPresence(ctx context.Context, libraryID, de
 			if _, ok := seen[localPathKey(row.LocalPath)]; ok {
 				continue
 			}
-			missingTrackVariantIDs = append(missingTrackVariantIDs, row.TrackVariantID)
-			missingRowCount++
 			payload, err := sourceFileOplogPayloadFromRow(row)
 			if err != nil {
 				return err
@@ -657,18 +660,6 @@ func (s *IngestService) reconcileRootPresence(ctx context.Context, libraryID, de
 	})
 	if err != nil {
 		return rowsAffected, err
-	}
-	if rowsAffected == 0 || missingRowCount == 0 || s.app.artwork == nil {
-		return rowsAffected, nil
-	}
-	albumIDs, err := s.app.artwork.albumIDsForTrackVariants(ctx, libraryID, missingTrackVariantIDs)
-	if err != nil {
-		return rowsAffected, err
-	}
-	for _, albumID := range albumIDs {
-		if reconcileErr := s.app.artwork.ReconcileAlbumArtwork(ctx, local, albumID); reconcileErr != nil && !errors.Is(reconcileErr, context.Canceled) {
-			s.app.cfg.Logger.Errorf("artwork reconcile after root presence update failed for album %s: %v", albumID, reconcileErr)
-		}
 	}
 	return rowsAffected, nil
 }

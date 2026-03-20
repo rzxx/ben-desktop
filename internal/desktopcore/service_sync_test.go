@@ -808,6 +808,418 @@ func TestInstallCheckpointRecordReplaysLibraryAndCatalogState(t *testing.T) {
 	}
 }
 
+func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	oldA := filepath.Join(root, "01-old.flac")
+	oldB := filepath.Join(root, "02-old.flac")
+	for _, path := range []string{oldA, oldB} {
+		if err := os.WriteFile(path, []byte(filepath.Base(path)), 0o644); err != nil {
+			t.Fatalf("write initial audio %s: %v", path, err)
+		}
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(oldA): {
+				Title:       "Track One",
+				Album:       "Mutable Album",
+				AlbumArtist: "Mutable Artist",
+				Artists:     []string{"Mutable Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(oldB): {
+				Title:       "Track Two",
+				Album:       "Mutable Album",
+				AlbumArtist: "Mutable Artist",
+				Artists:     []string{"Mutable Artist"},
+				TrackNo:     2,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  181000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	owner := openCacheTestAppWithTagReader(t, 1024, reader)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "sync-mutable-album")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, _ := seedSharedLibraryForSync(t, owner, joiner, library)
+	if err := owner.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set owner scan roots: %v", err)
+	}
+	if _, err := owner.RescanNow(ctx); err != nil {
+		t.Fatalf("initial owner rescan: %v", err)
+	}
+
+	initialAlbums, err := owner.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list initial owner albums: %v", err)
+	}
+	if len(initialAlbums.Items) != 1 {
+		t.Fatalf("initial owner album count = %d, want 1", len(initialAlbums.Items))
+	}
+	oldAlbumID := initialAlbums.Items[0].AlbumID
+	if _, err := owner.PinAlbumOffline(ctx, oldAlbumID, "desktop"); err != nil {
+		t.Fatalf("pin owner album offline: %v", err)
+	}
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+	if err := joiner.ConnectPeer(ctx, "memory://owner"); err != nil {
+		t.Fatalf("initial connect peer: %v", err)
+	}
+
+	for _, path := range []string{oldA, oldB} {
+		if err := os.Remove(path); err != nil {
+			t.Fatalf("remove old audio file %s: %v", path, err)
+		}
+		delete(reader.tagsByPath, filepath.Clean(path))
+	}
+
+	newA := filepath.Join(root, "01-new.flac")
+	newB := filepath.Join(root, "02-new.flac")
+	newC := filepath.Join(root, "03-new.flac")
+	for _, path := range []string{newA, newB, newC} {
+		if err := os.WriteFile(path, []byte(filepath.Base(path)), 0o644); err != nil {
+			t.Fatalf("write new audio %s: %v", path, err)
+		}
+	}
+	reader.tagsByPath[filepath.Clean(newA)] = Tags{
+		Title:       "Track One",
+		Album:       "Mutable Album",
+		AlbumArtist: "Mutable Artist",
+		Artists:     []string{"Mutable Artist"},
+		TrackNo:     1,
+		DiscNo:      1,
+		Year:        2025,
+		DurationMS:  180000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+	reader.tagsByPath[filepath.Clean(newB)] = Tags{
+		Title:       "Track Two",
+		Album:       "Mutable Album",
+		AlbumArtist: "Mutable Artist",
+		Artists:     []string{"Mutable Artist"},
+		TrackNo:     2,
+		DiscNo:      1,
+		Year:        2025,
+		DurationMS:  181000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+	reader.tagsByPath[filepath.Clean(newC)] = Tags{
+		Title:       "Track Three",
+		Album:       "Mutable Album",
+		AlbumArtist: "Mutable Artist",
+		Artists:     []string{"Mutable Artist"},
+		TrackNo:     3,
+		DiscNo:      1,
+		Year:        2025,
+		DurationMS:  182000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+
+	if _, err := owner.RescanNow(ctx); err != nil {
+		t.Fatalf("updated owner rescan: %v", err)
+	}
+	updatedOwnerAlbums, err := owner.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list updated owner albums: %v", err)
+	}
+	if len(updatedOwnerAlbums.Items) != 1 {
+		t.Fatalf("updated owner album count = %d, want 1", len(updatedOwnerAlbums.Items))
+	}
+	newAlbumID := updatedOwnerAlbums.Items[0].AlbumID
+	if newAlbumID == oldAlbumID {
+		t.Fatalf("expected owner album id to change after update")
+	}
+
+	if err := joiner.SyncNow(ctx); err != nil {
+		t.Fatalf("sync joiner after owner update: %v", err)
+	}
+
+	joinerAlbums, err := joiner.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list joiner albums: %v", err)
+	}
+	if len(joinerAlbums.Items) != 1 {
+		t.Fatalf("joiner album count = %d, want 1", len(joinerAlbums.Items))
+	}
+	if joinerAlbums.Items[0].AlbumID != newAlbumID {
+		t.Fatalf("joiner album id = %q, want %q", joinerAlbums.Items[0].AlbumID, newAlbumID)
+	}
+	if joinerAlbums.Items[0].VariantCount != 1 || joinerAlbums.Items[0].HasVariants {
+		t.Fatalf("unexpected joiner album variants: %+v", joinerAlbums.Items[0])
+	}
+
+	joinerVariants, err := joiner.ListAlbumVariants(ctx, apitypes.AlbumVariantListRequest{
+		AlbumID:     joinerAlbums.Items[0].AlbumID,
+		PageRequest: apitypes.PageRequest{Limit: maxPageLimit},
+	})
+	if err != nil {
+		t.Fatalf("list joiner album variants: %v", err)
+	}
+	if len(joinerVariants.Items) != 1 {
+		t.Fatalf("joiner variant count = %d, want 1", len(joinerVariants.Items))
+	}
+
+	var staleAlbumCount int64
+	if err := joiner.db.WithContext(ctx).
+		Model(&AlbumVariantModel{}).
+		Where("library_id = ? AND album_variant_id = ?", library.LibraryID, oldAlbumID).
+		Count(&staleAlbumCount).Error; err != nil {
+		t.Fatalf("count stale joiner album rows: %v", err)
+	}
+	if staleAlbumCount != 0 {
+		t.Fatalf("stale joiner album row count = %d, want 0", staleAlbumCount)
+	}
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, oldAlbumID, 0)
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 1)
+}
+
+func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	oldA := filepath.Join(root, "01-old.flac")
+	oldB := filepath.Join(root, "02-old.flac")
+	for _, path := range []string{oldA, oldB} {
+		if err := os.WriteFile(path, []byte(filepath.Base(path)), 0o644); err != nil {
+			t.Fatalf("write initial audio %s: %v", path, err)
+		}
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(oldA): {
+				Title:       "Track One",
+				Album:       "Mutable Album",
+				AlbumArtist: "Mutable Artist",
+				Artists:     []string{"Mutable Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(oldB): {
+				Title:       "Track Two",
+				Album:       "Mutable Album",
+				AlbumArtist: "Mutable Artist",
+				Artists:     []string{"Mutable Artist"},
+				TrackNo:     2,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  181000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	owner := openCacheTestAppWithTagReader(t, 1024, reader)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "checkpoint-mutable-album")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+	if err := owner.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set owner scan roots: %v", err)
+	}
+	if _, err := owner.RescanNow(ctx); err != nil {
+		t.Fatalf("initial owner rescan: %v", err)
+	}
+
+	initialAlbums, err := owner.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list initial owner albums: %v", err)
+	}
+	if len(initialAlbums.Items) != 1 {
+		t.Fatalf("initial owner album count = %d, want 1", len(initialAlbums.Items))
+	}
+	oldAlbumID := initialAlbums.Items[0].AlbumID
+	if _, err := owner.PinAlbumOffline(ctx, oldAlbumID, "desktop"); err != nil {
+		t.Fatalf("pin owner album offline: %v", err)
+	}
+
+	for _, path := range []string{oldA, oldB} {
+		if err := os.Remove(path); err != nil {
+			t.Fatalf("remove old audio file %s: %v", path, err)
+		}
+		delete(reader.tagsByPath, filepath.Clean(path))
+	}
+	newA := filepath.Join(root, "01-new.flac")
+	newB := filepath.Join(root, "02-new.flac")
+	newC := filepath.Join(root, "03-new.flac")
+	for _, path := range []string{newA, newB, newC} {
+		if err := os.WriteFile(path, []byte(filepath.Base(path)), 0o644); err != nil {
+			t.Fatalf("write new audio %s: %v", path, err)
+		}
+	}
+	reader.tagsByPath[filepath.Clean(newA)] = Tags{
+		Title:       "Track One",
+		Album:       "Mutable Album",
+		AlbumArtist: "Mutable Artist",
+		Artists:     []string{"Mutable Artist"},
+		TrackNo:     1,
+		DiscNo:      1,
+		Year:        2025,
+		DurationMS:  180000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+	reader.tagsByPath[filepath.Clean(newB)] = Tags{
+		Title:       "Track Two",
+		Album:       "Mutable Album",
+		AlbumArtist: "Mutable Artist",
+		Artists:     []string{"Mutable Artist"},
+		TrackNo:     2,
+		DiscNo:      1,
+		Year:        2025,
+		DurationMS:  181000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+	reader.tagsByPath[filepath.Clean(newC)] = Tags{
+		Title:       "Track Three",
+		Album:       "Mutable Album",
+		AlbumArtist: "Mutable Artist",
+		Artists:     []string{"Mutable Artist"},
+		TrackNo:     3,
+		DiscNo:      1,
+		Year:        2025,
+		DurationMS:  182000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+
+	if _, err := owner.RescanNow(ctx); err != nil {
+		t.Fatalf("updated owner rescan: %v", err)
+	}
+	updatedOwnerAlbums, err := owner.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list updated owner albums: %v", err)
+	}
+	if len(updatedOwnerAlbums.Items) != 1 {
+		t.Fatalf("updated owner album count = %d, want 1", len(updatedOwnerAlbums.Items))
+	}
+	newAlbumID := updatedOwnerAlbums.Items[0].AlbumID
+	if newAlbumID == oldAlbumID {
+		t.Fatalf("expected owner album id to change after update")
+	}
+
+	manifest, err := owner.PublishCheckpoint(ctx)
+	if err != nil {
+		t.Fatalf("publish checkpoint: %v", err)
+	}
+	record, ok, err := owner.loadCheckpointTransferRecord(ctx, library.LibraryID, manifest.CheckpointID, false)
+	if err != nil {
+		t.Fatalf("load checkpoint transfer: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected checkpoint transfer record")
+	}
+	if _, err := joiner.installCheckpointRecord(ctx, joinerLocal.DeviceID, record); err != nil {
+		t.Fatalf("install checkpoint record: %v", err)
+	}
+
+	joinerAlbums, err := joiner.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list joiner albums: %v", err)
+	}
+	if len(joinerAlbums.Items) != 1 {
+		t.Fatalf("joiner album count = %d, want 1", len(joinerAlbums.Items))
+	}
+	if joinerAlbums.Items[0].AlbumID != newAlbumID {
+		t.Fatalf("joiner album id = %q, want %q", joinerAlbums.Items[0].AlbumID, newAlbumID)
+	}
+	if joinerAlbums.Items[0].VariantCount != 1 || joinerAlbums.Items[0].HasVariants {
+		t.Fatalf("unexpected joiner album variants after checkpoint: %+v", joinerAlbums.Items[0])
+	}
+
+	var staleAlbumCount int64
+	if err := joiner.db.WithContext(ctx).
+		Model(&AlbumVariantModel{}).
+		Where("library_id = ? AND album_variant_id = ?", library.LibraryID, oldAlbumID).
+		Count(&staleAlbumCount).Error; err != nil {
+		t.Fatalf("count stale checkpoint joiner album rows: %v", err)
+	}
+	if staleAlbumCount != 0 {
+		t.Fatalf("stale checkpoint joiner album row count = %d, want 0", staleAlbumCount)
+	}
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, oldAlbumID, 0)
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 1)
+}
+
 func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *testing.T) {
 	t.Parallel()
 

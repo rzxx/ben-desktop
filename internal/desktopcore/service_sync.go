@@ -397,6 +397,7 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 	}
 	startedAt := time.Now().UTC()
 	totalApplied := 0
+	needsCatalogRebuild := false
 	defer func() {
 		if totalApplied > 0 {
 			a.emitAvailabilityInvalidateAllForActiveLibrary(local.LibraryID)
@@ -512,18 +513,27 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 		}
 
 		a.noteNetworkSyncProgress(local.LibraryID, remotePeerID, apitypes.NetworkSyncActivityOps, resp.RemainingOps+int64(len(resp.Ops)), totalApplied)
-		applied, err := a.applyRemoteOps(ctx, local.LibraryID, resp.Ops)
+		applied, batchNeedsCatalogRebuild, err := a.applyRemoteOpsSummary(ctx, local.LibraryID, resp.Ops)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 			}
 			return totalApplied, err
 		}
+		needsCatalogRebuild = needsCatalogRebuild || batchNeedsCatalogRebuild
 		totalApplied += applied
 		a.noteNetworkSyncProgress(local.LibraryID, remotePeerID, apitypes.NetworkSyncActivityOps, resp.RemainingOps, applied)
 		a.recordPeerSyncSuccess(ctx, local.LibraryID, remoteDeviceID, remotePeerID, int64(applied))
 
 		if !resp.HasMore || (len(resp.Ops) == 0 && applied == 0) {
+			if needsCatalogRebuild {
+				if err := a.rebuildCatalogMaterialization(ctx, local.LibraryID, nil); err != nil {
+					if !errors.Is(err, context.Canceled) {
+						a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
+					}
+					return totalApplied, err
+				}
+			}
 			if _, err := a.syncMissingArtworkBlobsFromPeer(ctx, local, peer); err != nil {
 				if !errors.Is(err, context.Canceled) {
 					a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
@@ -1001,6 +1011,9 @@ func (a *SyncService) installCheckpointRecordWithJob(ctx context.Context, localD
 				return fmt.Errorf("replay checkpoint tail device %s: %w", deviceID, err)
 			}
 		}
+		if _, err := a.prepareCatalogRebuildTx(tx, record.Manifest.LibraryID, nil); err != nil {
+			return fmt.Errorf("prepare catalog rebuild: %w", err)
+		}
 
 		if strings.TrimSpace(localDeviceID) != "" {
 			if job != nil {
@@ -1018,6 +1031,10 @@ func (a *SyncService) installCheckpointRecordWithJob(ctx context.Context, localD
 	if err != nil {
 		return 0, err
 	}
+	a.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:          apitypes.CatalogChangeInvalidateBase,
+		InvalidateAll: true,
+	})
 	return totalEntries, nil
 }
 
@@ -1103,15 +1120,32 @@ func insertCheckpointOpsTx(tx *gorm.DB, libraryID string, chunks []checkpointChu
 }
 
 func (a *SyncService) applyRemoteOps(ctx context.Context, libraryID string, ops []checkpointOplogEntry) (int, error) {
-	applied := 0
-	for _, op := range ops {
-		inserted, err := a.applyRemoteOp(ctx, libraryID, op)
-		applied += inserted
-		if err != nil {
+	applied, needsCatalogRebuild, err := a.applyRemoteOpsSummary(ctx, libraryID, ops)
+	if err != nil {
+		return applied, err
+	}
+	if needsCatalogRebuild {
+		if err := a.rebuildCatalogMaterialization(ctx, libraryID, nil); err != nil {
 			return applied, err
 		}
 	}
 	return applied, nil
+}
+
+func (a *SyncService) applyRemoteOpsSummary(ctx context.Context, libraryID string, ops []checkpointOplogEntry) (int, bool, error) {
+	applied := 0
+	needsCatalogRebuild := false
+	for _, op := range ops {
+		inserted, err := a.applyRemoteOp(ctx, libraryID, op)
+		applied += inserted
+		if strings.TrimSpace(op.EntityType) == entityTypeSourceFile {
+			needsCatalogRebuild = true
+		}
+		if err != nil {
+			return applied, needsCatalogRebuild, err
+		}
+	}
+	return applied, needsCatalogRebuild, nil
 }
 
 func (a *SyncService) applyRemoteOp(ctx context.Context, libraryID string, op checkpointOplogEntry) (int, error) {

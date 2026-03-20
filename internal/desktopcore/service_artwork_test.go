@@ -6,16 +6,21 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 
 	apitypes "ben/desktop/api/types"
 )
 
 type artworkBuilderByPathStub struct {
 	results map[string]ArtworkBuildResult
+	errs    map[string]error
 }
 
 func (s artworkBuilderByPathStub) BuildForAudio(_ context.Context, audioPath string) (ArtworkBuildResult, error) {
 	audioPath = filepath.Clean(audioPath)
+	if err, ok := s.errs[audioPath]; ok {
+		return ArtworkBuildResult{}, err
+	}
 	result, ok := s.results[audioPath]
 	if !ok {
 		return ArtworkBuildResult{}, ErrNoArtworkFound
@@ -176,7 +181,7 @@ func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
 				SampleRate:  44100,
 				Channels:    2,
 				IsLossless:  true,
-				QualityRank: 1443200,
+				QualityRank: 320000,
 			},
 		},
 	}
@@ -243,6 +248,360 @@ func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
 	}
 	if equalStringSlices(beforeBlobIDs, artworkBlobIDs(after)) {
 		t.Fatalf("expected rebuilt artwork blobs to change, before=%v after=%v", beforeBlobIDs, artworkBlobIDs(after))
+	}
+}
+
+func TestRescanNowReusesUnchangedSidecarArtwork(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "track.flac")
+	sidecarPath := filepath.Join(root, "cover.jpg")
+	if err := os.WriteFile(audioPath, []byte("audio"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+	if err := os.WriteFile(sidecarPath, []byte("cover-v1"), 0o644); err != nil {
+		t.Fatalf("write sidecar file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Track One",
+				Album:       "Sidecar Album",
+				AlbumArtist: "Sidecar Artist",
+				Artists:     []string{"Sidecar Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	builder := artworkBuilderByPathStub{
+		results: map[string]ArtworkBuildResult{
+			filepath.Clean(audioPath): {
+				SourceKind: "sidecar",
+				SourceRef:  filepath.Clean(sidecarPath),
+				Variants: []GeneratedArtworkVariant{
+					{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-sidecar"), W: 96, H: 96},
+					{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-sidecar"), W: 320, H: 320},
+					{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-sidecar"), W: 1024, H: 1024},
+				},
+			},
+		},
+	}
+	app := openArtworkIngestTestApp(t, reader, builder)
+	if _, err := app.CreateLibrary(ctx, "sidecar-reuse"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("initial rescan: %v", err)
+	}
+
+	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list albums: %v", err)
+	}
+	if len(albums.Items) != 1 {
+		t.Fatalf("album count = %d, want 1", len(albums.Items))
+	}
+	albumID := albums.Items[0].AlbumID
+	before := loadAlbumArtworkRows(t, app, albumID)
+	if len(before) != 3 {
+		t.Fatalf("initial artwork variant count = %d, want 3", len(before))
+	}
+	beforeBlobIDs := artworkBlobIDs(before)
+
+	time.Sleep(10 * time.Millisecond)
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("second rescan: %v", err)
+	}
+
+	after := loadAlbumArtworkRows(t, app, albumID)
+	if len(after) != 3 {
+		t.Fatalf("updated artwork variant count = %d, want 3", len(after))
+	}
+	if !equalStringSlices(beforeBlobIDs, artworkBlobIDs(after)) {
+		t.Fatalf("expected unchanged sidecar artwork blobs to stay stable, before=%v after=%v", beforeBlobIDs, artworkBlobIDs(after))
+	}
+	if got := loadLocalArtworkSourceRef(t, app, albumID, after[0].Variant); got != filepath.Clean(sidecarPath) {
+		t.Fatalf("local chosen source ref = %q, want %q", got, filepath.Clean(sidecarPath))
+	}
+}
+
+func TestRescanNowRefreshesArtworkWhenAlbumVariantSurvives(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	pathA := filepath.Join(root, "track-a.flac")
+	if err := os.WriteFile(pathA, []byte("audio-a-v1"), 0o644); err != nil {
+		t.Fatalf("write initial audio file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(pathA): {
+				Title:       "Track A",
+				Album:       "Stable Album",
+				AlbumArtist: "Stable Artist",
+				Artists:     []string{"Stable Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	builder := artworkBuilderByPathStub{
+		results: map[string]ArtworkBuildResult{
+			filepath.Clean(pathA): {
+				SourceKind: "embedded",
+				SourceRef:  filepath.Clean(pathA),
+				Variants: []GeneratedArtworkVariant{
+					{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-a-v1"), W: 96, H: 96},
+					{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-a-v1"), W: 320, H: 320},
+					{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-a-v1"), W: 1024, H: 1024},
+				},
+			},
+		},
+	}
+	app := openArtworkIngestTestApp(t, reader, builder)
+	if _, err := app.CreateLibrary(ctx, "artwork-refresh"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("initial rescan: %v", err)
+	}
+
+	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list initial albums: %v", err)
+	}
+	if len(albums.Items) != 1 {
+		t.Fatalf("initial album count = %d, want 1", len(albums.Items))
+	}
+	albumID := albums.Items[0].AlbumID
+	before := loadAlbumArtworkRows(t, app, albumID)
+	if len(before) != 3 {
+		t.Fatalf("initial artwork variant count = %d, want 3", len(before))
+	}
+	beforeBlobIDs := artworkBlobIDs(before)
+
+	if err := os.WriteFile(pathA, []byte("audio-a-v2"), 0o644); err != nil {
+		t.Fatalf("rewrite primary audio file: %v", err)
+	}
+	pathB := filepath.Join(root, "track-b.flac")
+	if err := os.WriteFile(pathB, []byte("audio-b-v1"), 0o644); err != nil {
+		t.Fatalf("write new audio file: %v", err)
+	}
+	reader.tagsByPath[filepath.Clean(pathB)] = Tags{
+		Title:       "Track B",
+		Album:       "Stable Album",
+		AlbumArtist: "Stable Artist",
+		Artists:     []string{"Stable Artist"},
+		TrackNo:     2,
+		DiscNo:      1,
+		Year:        2026,
+		DurationMS:  181000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+	builder.results[filepath.Clean(pathA)] = ArtworkBuildResult{
+		SourceKind: "embedded",
+		SourceRef:  filepath.Clean(pathA),
+		Variants: []GeneratedArtworkVariant{
+			{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-a-v2"), W: 96, H: 96},
+			{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-a-v2"), W: 320, H: 320},
+			{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-a-v2"), W: 1024, H: 1024},
+		},
+	}
+
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("updated rescan: %v", err)
+	}
+
+	updatedAlbums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list updated albums: %v", err)
+	}
+	if len(updatedAlbums.Items) != 1 {
+		t.Fatalf("updated album count = %d, want 1", len(updatedAlbums.Items))
+	}
+	if updatedAlbums.Items[0].AlbumID != albumID {
+		t.Fatalf("album id = %q, want %q", updatedAlbums.Items[0].AlbumID, albumID)
+	}
+	if updatedAlbums.Items[0].TrackCount != 2 {
+		t.Fatalf("track count = %d, want 2", updatedAlbums.Items[0].TrackCount)
+	}
+
+	after := loadAlbumArtworkRows(t, app, albumID)
+	if len(after) != 3 {
+		t.Fatalf("updated artwork variant count = %d, want 3", len(after))
+	}
+	if got := loadLocalArtworkSourceRef(t, app, albumID, after[0].Variant); got != filepath.Clean(pathA) {
+		t.Fatalf("updated local chosen source ref = %q, want %q", got, filepath.Clean(pathA))
+	}
+	if equalStringSlices(beforeBlobIDs, artworkBlobIDs(after)) {
+		t.Fatalf("expected refreshed artwork blobs to change, before=%v after=%v", beforeBlobIDs, artworkBlobIDs(after))
+	}
+}
+
+func TestRescanNowPrefersNewerTrackArtworkWhenAlbumVariantSurvives(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	oldPath := filepath.Join(root, "01-old.flac")
+	if err := os.WriteFile(oldPath, []byte("audio-old"), 0o644); err != nil {
+		t.Fatalf("write initial audio file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(oldPath): {
+				Title:       "Track One",
+				Album:       "Mutable Artwork Album",
+				AlbumArtist: "Mutable Artwork Artist",
+				Artists:     []string{"Mutable Artwork Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	builder := artworkBuilderByPathStub{
+		results: map[string]ArtworkBuildResult{
+			filepath.Clean(oldPath): {
+				SourceKind: "embedded",
+				SourceRef:  filepath.Clean(oldPath),
+				Variants: []GeneratedArtworkVariant{
+					{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-old"), W: 96, H: 96},
+					{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-old"), W: 320, H: 320},
+					{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-old"), W: 1024, H: 1024},
+				},
+			},
+		},
+	}
+	app := openArtworkIngestTestApp(t, reader, builder)
+	if _, err := app.CreateLibrary(ctx, "artwork-newer-track"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("initial rescan: %v", err)
+	}
+
+	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list initial albums: %v", err)
+	}
+	if len(albums.Items) != 1 {
+		t.Fatalf("initial album count = %d, want 1", len(albums.Items))
+	}
+	albumID := albums.Items[0].AlbumID
+	before := loadAlbumArtworkRows(t, app, albumID)
+	if len(before) != 3 {
+		t.Fatalf("initial artwork variant count = %d, want 3", len(before))
+	}
+	beforeBlobIDs := artworkBlobIDs(before)
+
+	time.Sleep(10 * time.Millisecond)
+	newPath := filepath.Join(root, "02-new.flac")
+	if err := os.WriteFile(newPath, []byte("audio-new"), 0o644); err != nil {
+		t.Fatalf("write new audio file: %v", err)
+	}
+	reader.tagsByPath[filepath.Clean(newPath)] = Tags{
+		Title:       "Track Two",
+		Album:       "Mutable Artwork Album",
+		AlbumArtist: "Mutable Artwork Artist",
+		Artists:     []string{"Mutable Artwork Artist"},
+		TrackNo:     2,
+		DiscNo:      1,
+		Year:        2026,
+		DurationMS:  181000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+	builder.results[filepath.Clean(newPath)] = ArtworkBuildResult{
+		SourceKind: "embedded",
+		SourceRef:  filepath.Clean(newPath),
+		Variants: []GeneratedArtworkVariant{
+			{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-new"), W: 96, H: 96},
+			{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-new"), W: 320, H: 320},
+			{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-new"), W: 1024, H: 1024},
+		},
+	}
+
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("updated rescan: %v", err)
+	}
+
+	updatedAlbums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list updated albums: %v", err)
+	}
+	if len(updatedAlbums.Items) != 1 {
+		t.Fatalf("updated album count = %d, want 1", len(updatedAlbums.Items))
+	}
+	if updatedAlbums.Items[0].AlbumID != albumID {
+		t.Fatalf("album id = %q, want %q", updatedAlbums.Items[0].AlbumID, albumID)
+	}
+	if updatedAlbums.Items[0].TrackCount != 2 {
+		t.Fatalf("track count = %d, want 2", updatedAlbums.Items[0].TrackCount)
+	}
+
+	after := loadAlbumArtworkRows(t, app, albumID)
+	if len(after) != 3 {
+		t.Fatalf("updated artwork variant count = %d, want 3", len(after))
+	}
+	if equalStringSlices(beforeBlobIDs, artworkBlobIDs(after)) {
+		t.Fatalf("expected newer track artwork blobs to replace old blobs, before=%v after=%v", beforeBlobIDs, artworkBlobIDs(after))
+	}
+	if got := loadLocalArtworkSourceRef(t, app, albumID, after[0].Variant); got != filepath.Clean(newPath) {
+		t.Fatalf("local chosen source ref = %q, want %q", got, filepath.Clean(newPath))
 	}
 }
 
