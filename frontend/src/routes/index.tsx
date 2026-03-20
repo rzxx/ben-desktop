@@ -1,7 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { redirectToStartupRoute } from "@/app/router/library-routing";
 
 export const Route = createFileRoute("/")({
-  beforeLoad: () => {
-    throw redirect({ replace: true, to: "/albums" });
-  },
+  beforeLoad: () => redirectToStartupRoute(),
 });
