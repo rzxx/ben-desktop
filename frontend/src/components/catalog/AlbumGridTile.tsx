@@ -7,9 +7,11 @@ import { ArtworkTile } from "@/components/ui/ArtworkTile";
 export function AlbumGridTile({
   album,
   availabilityLabel,
+  state,
 }: {
   album: AlbumListItem;
   availabilityLabel: string;
+  state?: Record<string, unknown>;
 }) {
   const artworkUrl = useThumbnailUrl(album.Thumb);
 
@@ -17,6 +19,7 @@ export function AlbumGridTile({
     <Link
       className="group block text-left"
       params={{ albumId: album.AlbumID }}
+      state={state}
       to="/albums/$albumId"
     >
       <ArtworkTile

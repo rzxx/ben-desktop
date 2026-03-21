@@ -103,6 +103,7 @@ export function LikedPlaylistPage() {
               title={track.Title}
             />
           )}
+          scrollRestorationId="liked-tracks-list"
           viewportClassName="pr-2"
         />
       </div>

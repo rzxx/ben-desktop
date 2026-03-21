@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useElementScrollRestoration } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNearEndScroll } from "@/hooks/app/useNearEndScroll";
 
@@ -15,6 +16,7 @@ type VirtualCardGridProps<T> = {
   emptyState?: ReactNode;
   className?: string;
   viewportClassName?: string;
+  scrollRestorationId?: string;
 };
 
 export function VirtualCardGrid<T>({
@@ -30,10 +32,16 @@ export function VirtualCardGrid<T>({
   emptyState,
   className = "",
   viewportClassName = "",
+  scrollRestorationId,
 }: VirtualCardGridProps<T>) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const [viewportWidth, setViewportWidth] = useState(0);
   const gap = 32;
+  const scrollEntry = useElementScrollRestoration(
+    scrollRestorationId
+      ? { id: scrollRestorationId }
+      : { getElement: () => parentRef.current },
+  );
 
   useEffect(() => {
     const syncViewportWidth = () => {
@@ -63,6 +71,7 @@ export function VirtualCardGrid<T>({
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
+    initialOffset: scrollEntry?.scrollY,
     estimateSize: () => rowHeight,
     overscan: 4,
   });
@@ -88,6 +97,7 @@ export function VirtualCardGrid<T>({
     >
       <div
         className="ben-scrollbar h-full overflow-y-auto"
+        data-scroll-restoration-id={scrollRestorationId}
         ref={parentRef}
         style={{
           scrollPaddingBottom: "var(--shell-player-clearance, 0px)",

@@ -1,4 +1,5 @@
 import { type ReactNode, useRef } from "react";
+import { useElementScrollRestoration } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNearEndScroll } from "@/hooks/app/useNearEndScroll";
 
@@ -15,6 +16,7 @@ type VirtualRowsProps<T> = {
   renderRow: (item: T, index: number) => ReactNode;
   className?: string;
   viewportClassName?: string;
+  scrollRestorationId?: string;
 };
 
 export function VirtualRows<T>({
@@ -29,13 +31,20 @@ export function VirtualRows<T>({
   renderRow,
   className = "",
   viewportClassName = "",
+  scrollRestorationId,
   gap = 0,
 }: VirtualRowsProps<T>) {
   const parentRef = useRef<HTMLDivElement | null>(null);
+  const scrollEntry = useElementScrollRestoration(
+    scrollRestorationId
+      ? { id: scrollRestorationId }
+      : { getElement: () => parentRef.current },
+  );
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
+    initialOffset: scrollEntry?.scrollY,
     estimateSize: () => estimateSize,
     gap: gap,
     overscan,
@@ -64,6 +73,7 @@ export function VirtualRows<T>({
           "ben-scrollbar h-full overflow-y-auto",
           viewportClassName,
         ].join(" ")}
+        data-scroll-restoration-id={scrollRestorationId}
         ref={parentRef}
         style={{
           scrollPaddingBottom: "var(--shell-player-clearance, 0px)",

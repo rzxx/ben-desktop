@@ -102,6 +102,7 @@ export function ArtistDetailPage() {
             />
           )}
           rowHeight={298}
+          scrollRestorationId="artist-albums-grid"
           viewportClassName="px-1 py-3"
         />
       </div>

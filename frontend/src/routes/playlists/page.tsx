@@ -59,6 +59,7 @@ export function PlaylistsPage() {
             void query.fetchNextPage();
           }}
           renderRow={(playlist) => <PlaylistRow playlist={playlist} />}
+          scrollRestorationId="playlists-list"
           viewportClassName="pr-2"
         />
       </div>

@@ -61,6 +61,7 @@ export function ArtistsPage() {
           }}
           renderCard={(artist) => <ArtistGridTile artist={artist} />}
           rowHeight={240}
+          scrollRestorationId="artists-grid"
           viewportClassName="px-1 py-3"
         />
       </div>

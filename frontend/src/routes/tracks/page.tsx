@@ -80,6 +80,7 @@ export function TracksPage() {
               title={track.Title}
             />
           )}
+          scrollRestorationId="tracks-list"
           viewportClassName="pr-2"
         />
       </div>

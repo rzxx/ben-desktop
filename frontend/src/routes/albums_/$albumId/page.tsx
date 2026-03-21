@@ -1,4 +1,4 @@
-import { getRouteApi, Link } from "@tanstack/react-router";
+import { getRouteApi, useLocation, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { AlbumTrackItem, AlbumVariantItem } from "@/lib/api/models";
@@ -20,6 +20,7 @@ import {
   joinArtists,
 } from "@/lib/format";
 import { resolveAlbumArtworkURL } from "@/lib/api/playback";
+import { router } from "@/app/router/router-instance";
 import {
   getDetailRecord,
   getValueQuery,
@@ -33,6 +34,8 @@ const albumDetailRouteApi = getRouteApi("/albums_/$albumId");
 export function AlbumDetailPage() {
   const { albumId } = albumDetailRouteApi.useParams();
   const [selectedVariantId, setSelectedVariantId] = useState(albumId);
+  const location = useLocation();
+  const navigate = useNavigate();
   const playAlbum = usePlaybackStore((state) => state.playAlbum);
   const playAlbumTrack = usePlaybackStore((state) => state.playAlbumTrack);
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
@@ -145,18 +148,31 @@ export function AlbumDetailPage() {
     variants.error ||
     trackQuery.error ||
     "Album tracks will render here when the selected variant contains recordings.";
+  const navigationState = location.state as { __benSource?: string };
+  const canReturnToAlbumsWithHistory =
+    navigationState.__benSource === "albums" && router.history.canGoBack();
+
+  function handleBackToAlbums() {
+    if (canReturnToAlbumsWithHistory) {
+      router.history.back();
+      return;
+    }
+
+    void navigate({ to: "/albums" });
+  }
 
   return (
     <div className="flex h-full min-h-0 gap-8 max-xl:flex-col">
       <aside className="max-xl:w-full xl:sticky xl:top-4 xl:h-fit xl:w-2/5 xl:shrink-0">
         <div className="space-y-4">
-          <Link
+          <button
             className="text-theme-500 hover:text-theme-100 inline-flex w-fit items-center gap-2 rounded-md py-1 text-sm transition-colors"
-            to="/albums"
+            onClick={handleBackToAlbums}
+            type="button"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to albums
-          </Link>
+          </button>
 
           <ArtworkTile
             alt={heroTitle}
@@ -302,6 +318,7 @@ export function AlbumDetailPage() {
                 title={track.Title}
               />
             )}
+            scrollRestorationId="album-tracks-list"
             viewportClassName="pr-2"
           />
         </div>

@@ -57,9 +57,11 @@ export function AlbumsPage() {
               availabilityLabel={aggregateAvailabilityLabel(
                 albumAvailabilityByAlbumId[album.AlbumID]?.data,
               )}
+              state={{ __benSource: "albums" }}
             />
           )}
           rowHeight={298}
+          scrollRestorationId="albums-grid"
           viewportClassName="px-1 py-3"
         />
       </div>

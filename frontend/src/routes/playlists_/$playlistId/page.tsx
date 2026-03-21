@@ -153,6 +153,7 @@ export function PlaylistDetailPage() {
               title={track.Title}
             />
           )}
+          scrollRestorationId="playlist-tracks-list"
           viewportClassName="pr-2"
         />
       </div>
