@@ -1049,6 +1049,104 @@ func TestSessionPreloadNextDoesNotRepeatReadyBackendPreload(t *testing.T) {
 	}
 }
 
+func TestSessionPreloadNextSkipsCurrentEntryWhenSingleTrackRepeatsAll(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	bridge := &mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+		},
+	}
+	session := NewSession(bridge, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", DurationMS: duration},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if _, err := session.SetRepeatMode(string(RepeatAll)); err != nil {
+		t.Fatalf("set repeat all: %v", err)
+	}
+
+	backend.duration = &duration
+	backend.position = 60000
+	session.refreshPosition()
+	session.preloadNext(context.Background())
+
+	if backend.preloadCalls != 0 {
+		t.Fatalf("expected no backend preload for current-entry repeat-all loop, got %d", backend.preloadCalls)
+	}
+	if bridge.prepareCalls["rec-1"] != 1 {
+		t.Fatalf("expected no extra prepare call for current-entry repeat-all loop, got %d", bridge.prepareCalls["rec-1"])
+	}
+	if session.Snapshot().NextPreparation != nil {
+		t.Fatalf("expected no next preparation for current-entry repeat-all loop, got %+v", session.Snapshot().NextPreparation)
+	}
+}
+
+func TestSessionPreloadNextSkipsCurrentEntryWhenSingleTrackRepeatsOne(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	bridge := &mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+		},
+	}
+	session := NewSession(bridge, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", DurationMS: duration},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if _, err := session.SetRepeatMode(string(RepeatOne)); err != nil {
+		t.Fatalf("set repeat one: %v", err)
+	}
+
+	backend.duration = &duration
+	backend.position = 60000
+	session.refreshPosition()
+	session.preloadNext(context.Background())
+
+	if backend.preloadCalls != 0 {
+		t.Fatalf("expected no backend preload for current-entry repeat-one loop, got %d", backend.preloadCalls)
+	}
+	if bridge.prepareCalls["rec-1"] != 1 {
+		t.Fatalf("expected no extra prepare call for current-entry repeat-one loop, got %d", bridge.prepareCalls["rec-1"])
+	}
+	if session.Snapshot().NextPreparation != nil {
+		t.Fatalf("expected no next preparation for current-entry repeat-one loop, got %+v", session.Snapshot().NextPreparation)
+	}
+}
+
 func TestSessionPlayPendingUsesLoadingStateWhenPlayerEmpty(t *testing.T) {
 	t.Parallel()
 

@@ -841,8 +841,13 @@ func (s *Session) preloadNext(ctx context.Context) {
 		s.mu.Unlock()
 		return
 	}
+	currentEntryID := ""
+	if s.snapshot.CurrentEntry != nil {
+		currentEntryID = s.snapshot.CurrentEntry.EntryID
+	}
 	nextEntry, _, _, ok := s.peekNextLocked(false)
-	if !ok || nextEntry.EntryID == "" || !s.shouldArmNextPreparationLocked() {
+	nextIsCurrent := currentEntryID != "" && nextEntry.EntryID == currentEntryID
+	if !ok || nextEntry.EntryID == "" || nextIsCurrent || !s.shouldArmNextPreparationLocked() {
 		backend := s.backend
 		s.clearNextPreparationStateLocked()
 		s.mu.Unlock()
