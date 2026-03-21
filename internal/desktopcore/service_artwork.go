@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"mime"
 	"os"
 	"path/filepath"
@@ -11,6 +15,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+	_ "golang.org/x/image/webp"
 	"gorm.io/gorm"
 )
 
@@ -38,8 +43,30 @@ type ArtworkBuildResult struct {
 	Variants   []GeneratedArtworkVariant
 }
 
+type ArtworkSourceCandidate struct {
+	AudioPath   string
+	SourceKind  string
+	SourceRef   string
+	ImagePath   string
+	Width       int
+	Height      int
+	Bytes       int64
+	cleanupFunc func()
+}
+
+func (c ArtworkSourceCandidate) Close() {
+	if c.cleanupFunc != nil {
+		c.cleanupFunc()
+	}
+}
+
 type ArtworkBuilder interface {
 	BuildForAudio(ctx context.Context, audioPath string) (ArtworkBuildResult, error)
+}
+
+type artworkEvaluatingBuilder interface {
+	EvaluateForAudio(ctx context.Context, audioPath string) ([]ArtworkSourceCandidate, error)
+	BuildFromSource(ctx context.Context, source ArtworkSourceCandidate) (ArtworkBuildResult, error)
 }
 
 type ffmpegArtworkBuilder struct {
@@ -78,15 +105,110 @@ func NewArtworkBuilder(ffmpegPath string) ArtworkBuilder {
 }
 
 func (b *ffmpegArtworkBuilder) BuildForAudio(ctx context.Context, audioPath string) (ArtworkBuildResult, error) {
-	sourceKind, sourceRef, sourceImage, cleanup, err := b.selectSource(ctx, audioPath)
+	sources, err := b.EvaluateForAudio(ctx, audioPath)
 	if err != nil {
 		return ArtworkBuildResult{}, err
 	}
-	defer cleanup()
+	defer closeArtworkSourceCandidates(sources)
 
+	best, ok := bestArtworkSourceCandidate(sources)
+	if !ok {
+		return ArtworkBuildResult{}, ErrNoArtworkFound
+	}
+	return b.BuildFromSource(ctx, best)
+}
+
+func (b *ffmpegArtworkBuilder) EvaluateForAudio(ctx context.Context, audioPath string) ([]ArtworkSourceCandidate, error) {
+	candidates := make([]ArtworkSourceCandidate, 0, 2)
+	addCandidate := func(kind, ref, imagePath string, cleanup func()) error {
+		candidate, err := newArtworkSourceCandidate(audioPath, kind, ref, imagePath, cleanup)
+		if err != nil {
+			if cleanup != nil {
+				cleanup()
+			}
+			return err
+		}
+		candidates = append(candidates, candidate)
+		return nil
+	}
+
+	sidecar := findSidecarImage(audioPath)
+	if sidecar != "" {
+		if err := addCandidate("sidecar", sidecar, sidecar, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	tempDir, err := os.MkdirTemp("", "ben-cover-*")
+	if err != nil {
+		closeArtworkSourceCandidates(candidates)
+		return nil, fmt.Errorf("create artwork temp dir: %w", err)
+	}
+	embeddedOut := filepath.Join(tempDir, "embedded.jpg")
+	embeddedArgs := []string{"-hide_banner", "-loglevel", "error", "-y", "-i", audioPath, "-an", "-map", "0:v:0", "-frames:v", "1", embeddedOut}
+	if err := runFFmpeg(ctx, b.ffmpegPath, embeddedArgs); err == nil {
+		if st, statErr := os.Stat(embeddedOut); statErr == nil && st.Size() > 0 {
+			if err := addCandidate("embedded", audioPath, embeddedOut, func() { _ = os.RemoveAll(tempDir) }); err != nil {
+				closeArtworkSourceCandidates(candidates)
+				return nil, err
+			}
+		} else {
+			_ = os.RemoveAll(tempDir)
+		}
+	} else {
+		_ = os.RemoveAll(tempDir)
+	}
+
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("%w for %s", ErrNoArtworkFound, audioPath)
+	}
+	return candidates, nil
+}
+
+func newArtworkSourceCandidate(audioPath, kind, ref, imagePath string, cleanup func()) (ArtworkSourceCandidate, error) {
+	imagePath = filepath.Clean(strings.TrimSpace(imagePath))
+	if imagePath == "" {
+		return ArtworkSourceCandidate{}, fmt.Errorf("artwork image path is required")
+	}
+	info, err := os.Stat(imagePath)
+	if err != nil {
+		return ArtworkSourceCandidate{}, err
+	}
+	candidate := ArtworkSourceCandidate{
+		AudioPath:   filepath.Clean(strings.TrimSpace(audioPath)),
+		SourceKind:  strings.TrimSpace(kind),
+		SourceRef:   filepath.Clean(strings.TrimSpace(ref)),
+		ImagePath:   imagePath,
+		Bytes:       info.Size(),
+		cleanupFunc: cleanup,
+	}
+	if cfg, err := decodeArtworkConfig(imagePath); err == nil {
+		candidate.Width = cfg.Width
+		candidate.Height = cfg.Height
+	}
+	return candidate, nil
+}
+
+func decodeArtworkConfig(path string) (image.Config, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return image.Config{}, err
+	}
+	defer file.Close()
+	cfg, _, err := image.DecodeConfig(file)
+	if err != nil {
+		return image.Config{}, err
+	}
+	return cfg, nil
+}
+
+func (b *ffmpegArtworkBuilder) BuildFromSource(ctx context.Context, source ArtworkSourceCandidate) (ArtworkBuildResult, error) {
+	if strings.TrimSpace(source.ImagePath) == "" {
+		return ArtworkBuildResult{}, ErrNoArtworkFound
+	}
 	variants := make([]GeneratedArtworkVariant, 0, len(b.variants))
 	for _, spec := range b.variants {
-		data, err := b.renderVariant(ctx, sourceImage, spec)
+		data, err := b.renderVariant(ctx, source.ImagePath, spec)
 		if err != nil {
 			return ArtworkBuildResult{}, err
 		}
@@ -101,33 +223,10 @@ func (b *ffmpegArtworkBuilder) BuildForAudio(ctx context.Context, audioPath stri
 	}
 
 	return ArtworkBuildResult{
-		SourceKind: sourceKind,
-		SourceRef:  sourceRef,
+		SourceKind: source.SourceKind,
+		SourceRef:  source.SourceRef,
 		Variants:   variants,
 	}, nil
-}
-
-func (b *ffmpegArtworkBuilder) selectSource(ctx context.Context, audioPath string) (kind string, ref string, generatedPath string, cleanup func(), err error) {
-	tempDir, err := os.MkdirTemp("", "ben-cover-*")
-	if err != nil {
-		return "", "", "", func() {}, fmt.Errorf("create artwork temp dir: %w", err)
-	}
-
-	embeddedOut := filepath.Join(tempDir, "embedded.jpg")
-	embeddedArgs := []string{"-hide_banner", "-loglevel", "error", "-y", "-i", audioPath, "-an", "-map", "0:v:0", "-frames:v", "1", embeddedOut}
-	if err := runFFmpeg(ctx, b.ffmpegPath, embeddedArgs); err == nil {
-		if st, statErr := os.Stat(embeddedOut); statErr == nil && st.Size() > 0 {
-			return "embedded", audioPath, embeddedOut, func() { _ = os.RemoveAll(tempDir) }, nil
-		}
-	}
-	_ = os.RemoveAll(tempDir)
-
-	sidecar := findSidecarImage(audioPath)
-	if sidecar != "" {
-		return "sidecar", sidecar, sidecar, func() {}, nil
-	}
-
-	return "", "", "", func() {}, fmt.Errorf("%w for %s", ErrNoArtworkFound, audioPath)
 }
 
 func (b *ffmpegArtworkBuilder) renderVariant(ctx context.Context, input string, spec ArtworkVariantSpec) ([]byte, error) {
@@ -337,6 +436,11 @@ func shouldReuseExistingAlbumArtwork(existing []ArtworkVariant, chosenSource, ch
 	if chosenSource == "" || chosenSourceRef == "" {
 		return false
 	}
+	if chosenSource == "embedded" {
+		if preferredSidecar := findSidecarImage(chosenSourceRef); preferredSidecar != "" {
+			return false
+		}
+	}
 	artworkUpdatedAt := latestArtworkVariantUpdate(existing)
 	if artworkUpdatedAt.IsZero() {
 		return false
@@ -429,6 +533,9 @@ func latestArtworkVariantUpdate(rows []ArtworkVariant) time.Time {
 }
 
 func (s *ArtworkService) buildAlbumArtwork(ctx context.Context, candidates []SourceFileModel) (ArtworkBuildResult, error) {
+	if builder, ok := s.builder.(artworkEvaluatingBuilder); ok {
+		return s.buildAlbumArtworkFromBestSource(ctx, candidates, builder)
+	}
 	for _, candidate := range candidates {
 		path := filepath.Clean(strings.TrimSpace(candidate.LocalPath))
 		if path == "" {
@@ -451,6 +558,105 @@ func (s *ArtworkService) buildAlbumArtwork(ctx context.Context, candidates []Sou
 		return ArtworkBuildResult{}, err
 	}
 	return ArtworkBuildResult{}, ErrNoArtworkFound
+}
+
+func (s *ArtworkService) buildAlbumArtworkFromBestSource(ctx context.Context, candidates []SourceFileModel, builder artworkEvaluatingBuilder) (ArtworkBuildResult, error) {
+	allSources := make([]ArtworkSourceCandidate, 0, len(candidates))
+	defer closeArtworkSourceCandidates(allSources)
+
+	for _, candidate := range candidates {
+		path := filepath.Clean(strings.TrimSpace(candidate.LocalPath))
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		sources, err := builder.EvaluateForAudio(ctx, path)
+		if err == nil {
+			allSources = append(allSources, sources...)
+			continue
+		}
+		if errors.Is(err, ErrNoArtworkFound) {
+			continue
+		}
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			continue
+		}
+		return ArtworkBuildResult{}, err
+	}
+
+	best, ok := bestArtworkSourceCandidate(allSources)
+	if !ok {
+		return ArtworkBuildResult{}, ErrNoArtworkFound
+	}
+	return builder.BuildFromSource(ctx, best)
+}
+
+func closeArtworkSourceCandidates(candidates []ArtworkSourceCandidate) {
+	for _, candidate := range candidates {
+		candidate.Close()
+	}
+}
+
+func bestArtworkSourceCandidate(candidates []ArtworkSourceCandidate) (ArtworkSourceCandidate, bool) {
+	var best ArtworkSourceCandidate
+	hasBest := false
+	for _, candidate := range candidates {
+		if !hasBest || artworkSourceCandidateBetter(candidate, best) {
+			best = candidate
+			hasBest = true
+		}
+	}
+	return best, hasBest
+}
+
+func artworkSourceCandidateBetter(candidate, current ArtworkSourceCandidate) bool {
+	candidateHasDims := candidate.Width > 0 && candidate.Height > 0
+	currentHasDims := current.Width > 0 && current.Height > 0
+	if candidateHasDims != currentHasDims {
+		return candidateHasDims
+	}
+
+	candidateArea := int64(candidate.Width) * int64(candidate.Height)
+	currentArea := int64(current.Width) * int64(current.Height)
+	if candidateArea != currentArea {
+		return candidateArea > currentArea
+	}
+
+	candidateMinDim := min(candidate.Width, candidate.Height)
+	currentMinDim := min(current.Width, current.Height)
+	if candidateMinDim != currentMinDim {
+		return candidateMinDim > currentMinDim
+	}
+
+	candidateMaxDim := max(candidate.Width, candidate.Height)
+	currentMaxDim := max(current.Width, current.Height)
+	if candidateMaxDim != currentMaxDim {
+		return candidateMaxDim > currentMaxDim
+	}
+
+	if candidate.Bytes != current.Bytes {
+		return candidate.Bytes > current.Bytes
+	}
+
+	if artworkSourcePriority(candidate.SourceKind) != artworkSourcePriority(current.SourceKind) {
+		return artworkSourcePriority(candidate.SourceKind) > artworkSourcePriority(current.SourceKind)
+	}
+
+	return false
+}
+
+func artworkSourcePriority(kind string) int {
+	switch strings.TrimSpace(kind) {
+	case "sidecar":
+		return 1
+	case "embedded":
+		return 0
+	default:
+		return 0
+	}
 }
 
 func (s *ArtworkService) storeArtworkScope(ctx context.Context, local apitypes.LocalContext, scopeType, scopeID string, built ArtworkBuildResult) error {

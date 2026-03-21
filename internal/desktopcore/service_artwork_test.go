@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,8 +13,10 @@ import (
 )
 
 type artworkBuilderByPathStub struct {
-	results map[string]ArtworkBuildResult
-	errs    map[string]error
+	results          map[string]ArtworkBuildResult
+	errs             map[string]error
+	sourcesByPath    map[string][]ArtworkSourceCandidate
+	buildBySourceRef map[string]ArtworkBuildResult
 }
 
 func (s artworkBuilderByPathStub) BuildForAudio(_ context.Context, audioPath string) (ArtworkBuildResult, error) {
@@ -26,6 +29,54 @@ func (s artworkBuilderByPathStub) BuildForAudio(_ context.Context, audioPath str
 		return ArtworkBuildResult{}, ErrNoArtworkFound
 	}
 	return result, nil
+}
+
+func (s artworkBuilderByPathStub) EvaluateForAudio(_ context.Context, audioPath string) ([]ArtworkSourceCandidate, error) {
+	audioPath = filepath.Clean(audioPath)
+	if err, ok := s.errs[audioPath]; ok {
+		return nil, err
+	}
+	if sources, ok := s.sourcesByPath[audioPath]; ok {
+		out := make([]ArtworkSourceCandidate, 0, len(sources))
+		for _, source := range sources {
+			source.AudioPath = filepath.Clean(firstNonEmpty(source.AudioPath, audioPath))
+			source.SourceRef = filepath.Clean(strings.TrimSpace(source.SourceRef))
+			out = append(out, source)
+		}
+		return out, nil
+	}
+	result, ok := s.results[audioPath]
+	if !ok {
+		return nil, ErrNoArtworkFound
+	}
+	maxW := 0
+	maxH := 0
+	var totalBytes int64
+	for _, variant := range result.Variants {
+		if variant.W > maxW {
+			maxW = variant.W
+		}
+		if variant.H > maxH {
+			maxH = variant.H
+		}
+		totalBytes += int64(len(variant.Bytes))
+	}
+	return []ArtworkSourceCandidate{{
+		AudioPath:  audioPath,
+		SourceKind: result.SourceKind,
+		SourceRef:  filepath.Clean(strings.TrimSpace(result.SourceRef)),
+		ImagePath:  filepath.Clean(strings.TrimSpace(result.SourceRef)),
+		Width:      maxW,
+		Height:     maxH,
+		Bytes:      totalBytes,
+	}}, nil
+}
+
+func (s artworkBuilderByPathStub) BuildFromSource(_ context.Context, source ArtworkSourceCandidate) (ArtworkBuildResult, error) {
+	if result, ok := s.buildBySourceRef[filepath.Clean(strings.TrimSpace(source.SourceRef))]; ok {
+		return result, nil
+	}
+	return s.BuildForAudio(context.Background(), source.AudioPath)
 }
 
 func TestRescanNowBuildsAlbumArtworkVariants(t *testing.T) {
@@ -338,6 +389,413 @@ func TestRescanNowReusesUnchangedSidecarArtwork(t *testing.T) {
 	}
 	if got := loadLocalArtworkSourceRef(t, app, albumID, after[0].Variant); got != filepath.Clean(sidecarPath) {
 		t.Fatalf("local chosen source ref = %q, want %q", got, filepath.Clean(sidecarPath))
+	}
+}
+
+func TestRescanNowRebuildsArtworkWhenSidecarBecomesPreferred(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "track.flac")
+	sidecarPath := filepath.Join(root, "cover.jpg")
+	if err := os.WriteFile(audioPath, []byte("audio"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Track One",
+				Album:       "Preferred Sidecar Album",
+				AlbumArtist: "Preferred Sidecar Artist",
+				Artists:     []string{"Preferred Sidecar Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	builder := artworkBuilderByPathStub{
+		results: map[string]ArtworkBuildResult{
+			filepath.Clean(audioPath): {
+				SourceKind: "embedded",
+				SourceRef:  filepath.Clean(audioPath),
+				Variants: []GeneratedArtworkVariant{
+					{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-embedded"), W: 96, H: 96},
+					{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-embedded"), W: 320, H: 320},
+					{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-embedded"), W: 1024, H: 1024},
+				},
+			},
+		},
+	}
+	app := openArtworkIngestTestApp(t, reader, builder)
+	if _, err := app.CreateLibrary(ctx, "sidecar-preferred"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("initial rescan: %v", err)
+	}
+
+	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list albums: %v", err)
+	}
+	if len(albums.Items) != 1 {
+		t.Fatalf("album count = %d, want 1", len(albums.Items))
+	}
+	albumID := albums.Items[0].AlbumID
+	before := loadAlbumArtworkRows(t, app, albumID)
+	if len(before) != 3 {
+		t.Fatalf("initial artwork variant count = %d, want 3", len(before))
+	}
+	beforeBlobIDs := artworkBlobIDs(before)
+	if got := loadLocalArtworkSourceRef(t, app, albumID, before[0].Variant); got != filepath.Clean(audioPath) {
+		t.Fatalf("initial local chosen source ref = %q, want %q", got, filepath.Clean(audioPath))
+	}
+
+	if err := os.WriteFile(sidecarPath, []byte("cover"), 0o644); err != nil {
+		t.Fatalf("write sidecar file: %v", err)
+	}
+	builder.results[filepath.Clean(audioPath)] = ArtworkBuildResult{
+		SourceKind: "sidecar",
+		SourceRef:  filepath.Clean(sidecarPath),
+		Variants: []GeneratedArtworkVariant{
+			{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-sidecar"), W: 96, H: 96},
+			{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-sidecar"), W: 320, H: 320},
+			{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-sidecar"), W: 1024, H: 1024},
+		},
+	}
+
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("updated rescan: %v", err)
+	}
+
+	after := loadAlbumArtworkRows(t, app, albumID)
+	if len(after) != 3 {
+		t.Fatalf("updated artwork variant count = %d, want 3", len(after))
+	}
+	if equalStringSlices(beforeBlobIDs, artworkBlobIDs(after)) {
+		t.Fatalf("expected sidecar-preferred artwork blobs to replace embedded blobs, before=%v after=%v", beforeBlobIDs, artworkBlobIDs(after))
+	}
+	if got := loadLocalArtworkSourceRef(t, app, albumID, after[0].Variant); got != filepath.Clean(sidecarPath) {
+		t.Fatalf("updated local chosen source ref = %q, want %q", got, filepath.Clean(sidecarPath))
+	}
+}
+
+func TestRescanNowPrefersHigherResolutionEmbeddedArtworkOverSidecar(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "track.flac")
+	sidecarPath := filepath.Join(root, "cover.jpg")
+	if err := os.WriteFile(audioPath, []byte("audio"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+	if err := os.WriteFile(sidecarPath, []byte("cover"), 0o644); err != nil {
+		t.Fatalf("write sidecar file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Track One",
+				Album:       "Artwork Quality Album",
+				AlbumArtist: "Artwork Quality Artist",
+				Artists:     []string{"Artwork Quality Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	builder := artworkBuilderByPathStub{
+		sourcesByPath: map[string][]ArtworkSourceCandidate{
+			filepath.Clean(audioPath): {
+				{SourceKind: "sidecar", SourceRef: filepath.Clean(sidecarPath), Width: 600, Height: 600, Bytes: 20_000},
+				{SourceKind: "embedded", SourceRef: filepath.Clean(audioPath), Width: 1600, Height: 1600, Bytes: 40_000},
+			},
+		},
+		buildBySourceRef: map[string]ArtworkBuildResult{
+			filepath.Clean(sidecarPath): {
+				SourceKind: "sidecar",
+				SourceRef:  filepath.Clean(sidecarPath),
+				Variants: []GeneratedArtworkVariant{
+					{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-sidecar"), W: 96, H: 96},
+					{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-sidecar"), W: 320, H: 320},
+					{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-sidecar"), W: 1024, H: 1024},
+				},
+			},
+			filepath.Clean(audioPath): {
+				SourceKind: "embedded",
+				SourceRef:  filepath.Clean(audioPath),
+				Variants: []GeneratedArtworkVariant{
+					{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-embedded"), W: 96, H: 96},
+					{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-embedded"), W: 320, H: 320},
+					{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-embedded"), W: 1024, H: 1024},
+				},
+			},
+		},
+	}
+	app := openArtworkIngestTestApp(t, reader, builder)
+	if _, err := app.CreateLibrary(ctx, "artwork-quality"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("rescan now: %v", err)
+	}
+
+	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list albums: %v", err)
+	}
+	if len(albums.Items) != 1 {
+		t.Fatalf("album count = %d, want 1", len(albums.Items))
+	}
+	albumID := albums.Items[0].AlbumID
+	rows := loadAlbumArtworkRows(t, app, albumID)
+	if len(rows) != 3 {
+		t.Fatalf("artwork variant count = %d, want 3", len(rows))
+	}
+	if got := loadLocalArtworkSourceRef(t, app, albumID, rows[0].Variant); got != filepath.Clean(audioPath) {
+		t.Fatalf("local chosen source ref = %q, want %q", got, filepath.Clean(audioPath))
+	}
+	if rows[0].ChosenSource != "embedded" {
+		t.Fatalf("chosen source = %q, want embedded", rows[0].ChosenSource)
+	}
+}
+
+func TestRescanNowPrefersBestArtworkAcrossAlbumTracks(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	highQualityTrack := filepath.Join(root, "01-high-quality.flac")
+	betterArtworkTrack := filepath.Join(root, "02-better-artwork.mp3")
+	if err := os.WriteFile(highQualityTrack, []byte("audio-a"), 0o644); err != nil {
+		t.Fatalf("write first audio file: %v", err)
+	}
+	if err := os.WriteFile(betterArtworkTrack, []byte("audio-b"), 0o644); err != nil {
+		t.Fatalf("write second audio file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(highQualityTrack): {
+				Title:       "Track One",
+				Album:       "Best Artwork Album",
+				AlbumArtist: "Best Artwork Artist",
+				Artists:     []string{"Best Artwork Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(betterArtworkTrack): {
+				Title:       "Track Two",
+				Album:       "Best Artwork Album",
+				AlbumArtist: "Best Artwork Artist",
+				Artists:     []string{"Best Artwork Artist"},
+				TrackNo:     2,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  181000,
+				Container:   "mp3",
+				Codec:       "mp3",
+				Bitrate:     320000,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  false,
+				QualityRank: 443000,
+			},
+		},
+	}
+	builder := artworkBuilderByPathStub{
+		sourcesByPath: map[string][]ArtworkSourceCandidate{
+			filepath.Clean(highQualityTrack): {
+				{SourceKind: "embedded", SourceRef: filepath.Clean(highQualityTrack), Width: 700, Height: 700, Bytes: 18_000},
+			},
+			filepath.Clean(betterArtworkTrack): {
+				{SourceKind: "embedded", SourceRef: filepath.Clean(betterArtworkTrack), Width: 1800, Height: 1800, Bytes: 48_000},
+			},
+		},
+		buildBySourceRef: map[string]ArtworkBuildResult{
+			filepath.Clean(highQualityTrack): {
+				SourceKind: "embedded",
+				SourceRef:  filepath.Clean(highQualityTrack),
+				Variants: []GeneratedArtworkVariant{
+					{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-a"), W: 96, H: 96},
+					{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-a"), W: 320, H: 320},
+					{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-a"), W: 1024, H: 1024},
+				},
+			},
+			filepath.Clean(betterArtworkTrack): {
+				SourceKind: "embedded",
+				SourceRef:  filepath.Clean(betterArtworkTrack),
+				Variants: []GeneratedArtworkVariant{
+					{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-b"), W: 96, H: 96},
+					{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-b"), W: 320, H: 320},
+					{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-b"), W: 1024, H: 1024},
+				},
+			},
+		},
+	}
+	app := openArtworkIngestTestApp(t, reader, builder)
+	if _, err := app.CreateLibrary(ctx, "best-artwork-album"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("rescan now: %v", err)
+	}
+
+	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list albums: %v", err)
+	}
+	if len(albums.Items) != 1 {
+		t.Fatalf("album count = %d, want 1", len(albums.Items))
+	}
+	albumID := albums.Items[0].AlbumID
+	rows := loadAlbumArtworkRows(t, app, albumID)
+	if len(rows) != 3 {
+		t.Fatalf("artwork variant count = %d, want 3", len(rows))
+	}
+	if got := loadLocalArtworkSourceRef(t, app, albumID, rows[0].Variant); got != filepath.Clean(betterArtworkTrack) {
+		t.Fatalf("local chosen source ref = %q, want %q", got, filepath.Clean(betterArtworkTrack))
+	}
+}
+
+func TestRescanNowRefreshesArtworkWhenSidecarChangesWithoutAudioChange(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "track.flac")
+	sidecarPath := filepath.Join(root, "cover.jpg")
+	if err := os.WriteFile(audioPath, []byte("audio"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+	if err := os.WriteFile(sidecarPath, []byte("cover-v1"), 0o644); err != nil {
+		t.Fatalf("write sidecar file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Track One",
+				Album:       "Changing Sidecar Album",
+				AlbumArtist: "Changing Sidecar Artist",
+				Artists:     []string{"Changing Sidecar Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2026,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	builder := artworkBuilderByPathStub{
+		sourcesByPath: map[string][]ArtworkSourceCandidate{
+			filepath.Clean(audioPath): {
+				{SourceKind: "sidecar", SourceRef: filepath.Clean(sidecarPath), Width: 1200, Height: 1200, Bytes: 24_000},
+			},
+		},
+		buildBySourceRef: map[string]ArtworkBuildResult{
+			filepath.Clean(sidecarPath): {
+				SourceKind: "sidecar",
+				SourceRef:  filepath.Clean(sidecarPath),
+				Variants: []GeneratedArtworkVariant{
+					{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-v1"), W: 96, H: 96},
+					{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-v1"), W: 320, H: 320},
+					{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-v1"), W: 1024, H: 1024},
+				},
+			},
+		},
+	}
+	app := openArtworkIngestTestApp(t, reader, builder)
+	if _, err := app.CreateLibrary(ctx, "changing-sidecar"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("initial rescan: %v", err)
+	}
+
+	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list albums: %v", err)
+	}
+	albumID := albums.Items[0].AlbumID
+	before := loadAlbumArtworkRows(t, app, albumID)
+	beforeBlobIDs := artworkBlobIDs(before)
+
+	time.Sleep(10 * time.Millisecond)
+	if err := os.WriteFile(sidecarPath, []byte("cover-v2"), 0o644); err != nil {
+		t.Fatalf("rewrite sidecar file: %v", err)
+	}
+	builder.buildBySourceRef[filepath.Clean(sidecarPath)] = ArtworkBuildResult{
+		SourceKind: "sidecar",
+		SourceRef:  filepath.Clean(sidecarPath),
+		Variants: []GeneratedArtworkVariant{
+			{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("jpeg-v2"), W: 96, H: 96},
+			{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("webp-v2"), W: 320, H: 320},
+			{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("avif-v2"), W: 1024, H: 1024},
+		},
+	}
+
+	if _, err := app.RescanNow(ctx); err != nil {
+		t.Fatalf("updated rescan: %v", err)
+	}
+
+	after := loadAlbumArtworkRows(t, app, albumID)
+	if equalStringSlices(beforeBlobIDs, artworkBlobIDs(after)) {
+		t.Fatalf("expected sidecar artwork blobs to refresh after sidecar change, before=%v after=%v", beforeBlobIDs, artworkBlobIDs(after))
+	}
+	if got := loadLocalArtworkSourceRef(t, app, albumID, after[0].Variant); got != filepath.Clean(sidecarPath) {
+		t.Fatalf("updated local chosen source ref = %q, want %q", got, filepath.Clean(sidecarPath))
 	}
 }
 
