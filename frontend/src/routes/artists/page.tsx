@@ -1,6 +1,7 @@
 import type { ArtistListItem } from "@/lib/api/models";
 import { ArtistGridTile } from "@/components/catalog/ArtistGridTile";
 import { ArtistsEmptyState } from "@/components/catalog/EmptyState";
+import { estimateArtistGridTileHeight } from "@/components/catalog/gridTileEstimates";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
@@ -55,12 +56,12 @@ export function ArtistsPage() {
           items={query.items}
           loading={query.isLoading}
           loadingMore={query.isRefreshing}
-          minColumnWidth={220}
+          minColumnWidth={192}
           onEndReached={() => {
             void query.fetchNextPage();
           }}
+          estimateCardHeight={estimateArtistGridTileHeight}
           renderCard={(artist) => <ArtistGridTile artist={artist} />}
-          rowHeight={240}
           scrollRestorationId="artists-grid"
           viewportClassName="px-1 py-3"
         />

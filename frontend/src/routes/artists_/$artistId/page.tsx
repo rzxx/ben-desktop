@@ -2,6 +2,7 @@ import { getRouteApi } from "@tanstack/react-router";
 import type { AlbumListItem } from "@/lib/api/models";
 import { AlbumGridTile } from "@/components/catalog/AlbumGridTile";
 import { AlbumsEmptyState } from "@/components/catalog/EmptyState";
+import { estimateAlbumGridTileHeight } from "@/components/catalog/gridTileEstimates";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
@@ -89,10 +90,11 @@ export function ArtistDetailPage() {
           items={albumQuery.items}
           loading={albumQuery.isLoading}
           loadingMore={albumQuery.isRefreshing}
-          minColumnWidth={210}
+          minColumnWidth={192}
           onEndReached={() => {
             void albumQuery.fetchNextPage();
           }}
+          estimateCardHeight={estimateAlbumGridTileHeight}
           renderCard={(album) => (
             <AlbumGridTile
               album={album}
@@ -101,7 +103,6 @@ export function ArtistDetailPage() {
               )}
             />
           )}
-          rowHeight={298}
           scrollRestorationId="artist-albums-grid"
           viewportClassName="px-1 py-3"
         />

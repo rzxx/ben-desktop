@@ -1,6 +1,7 @@
 import type { AlbumListItem } from "@/lib/api/models";
 import { AlbumGridTile } from "@/components/catalog/AlbumGridTile";
 import { AlbumsEmptyState } from "@/components/catalog/EmptyState";
+import { estimateAlbumGridTileHeight } from "@/components/catalog/gridTileEstimates";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { VirtualCardGrid } from "@/components/ui/VirtualCardGrid";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
@@ -47,10 +48,11 @@ export function AlbumsPage() {
           items={query.items}
           loading={query.isLoading}
           loadingMore={query.isRefreshing}
-          minColumnWidth={210}
+          minColumnWidth={192}
           onEndReached={() => {
             void query.fetchNextPage();
           }}
+          estimateCardHeight={estimateAlbumGridTileHeight}
           renderCard={(album) => (
             <AlbumGridTile
               album={album}
@@ -60,7 +62,6 @@ export function AlbumsPage() {
               state={{ __benSource: "albums" }}
             />
           )}
-          rowHeight={298}
           scrollRestorationId="albums-grid"
           viewportClassName="px-1 py-3"
         />

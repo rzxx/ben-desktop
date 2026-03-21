@@ -2,6 +2,12 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useElementScrollRestoration } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNearEndScroll } from "@/hooks/app/useNearEndScroll";
+import {
+  DEFAULT_VIRTUAL_CARD_GRID_BREAKPOINTS,
+  type VirtualCardGridBreakpoint,
+  resolveVirtualCardGridColumnWidth,
+  resolveVirtualCardGridColumns,
+} from "./virtualCardGridLayout";
 
 type VirtualCardGridProps<T> = {
   items: T[];
@@ -10,7 +16,9 @@ type VirtualCardGridProps<T> = {
   hasMore?: boolean;
   onEndReached?: () => void;
   minColumnWidth: number;
-  rowHeight: number;
+  estimateCardHeight: (columnWidth: number) => number;
+  gap?: number;
+  breakpoints?: readonly VirtualCardGridBreakpoint[];
   getItemKey: (item: T, index: number) => string;
   renderCard: (item: T, index: number) => ReactNode;
   emptyState?: ReactNode;
@@ -26,7 +34,9 @@ export function VirtualCardGrid<T>({
   hasMore = false,
   onEndReached,
   minColumnWidth,
-  rowHeight,
+  estimateCardHeight,
+  gap = 32,
+  breakpoints = DEFAULT_VIRTUAL_CARD_GRID_BREAKPOINTS,
   getItemKey,
   renderCard,
   emptyState,
@@ -35,8 +45,8 @@ export function VirtualCardGrid<T>({
   scrollRestorationId,
 }: VirtualCardGridProps<T>) {
   const parentRef = useRef<HTMLDivElement | null>(null);
-  const [viewportWidth, setViewportWidth] = useState(0);
-  const gap = 32;
+  const layoutRef = useRef<HTMLDivElement | null>(null);
+  const [layoutWidth, setLayoutWidth] = useState(0);
   const scrollEntry = useElementScrollRestoration(
     scrollRestorationId
       ? { id: scrollRestorationId }
@@ -44,28 +54,44 @@ export function VirtualCardGrid<T>({
   );
 
   useEffect(() => {
-    const syncViewportWidth = () => {
-      setViewportWidth(window.innerWidth);
+    const layout = layoutRef.current;
+    if (!layout) {
+      return;
+    }
+
+    const syncLayoutWidth = (width: number) => {
+      setLayoutWidth(Math.round(width));
     };
 
-    syncViewportWidth();
-    window.addEventListener("resize", syncViewportWidth);
+    syncLayoutWidth(layout.getBoundingClientRect().width);
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      syncLayoutWidth(
+        entry?.contentRect.width ?? layout.getBoundingClientRect().width,
+      );
+    });
+
+    observer.observe(layout);
 
     return () => {
-      window.removeEventListener("resize", syncViewportWidth);
+      observer.disconnect();
     };
   }, []);
 
-  let columnCount = 2;
-  if (viewportWidth >= 1536) {
-    columnCount = 6;
-  } else if (viewportWidth >= 1280) {
-    columnCount = 4;
-  } else if (viewportWidth >= 768) {
-    columnCount = 3;
-  }
-
-  void minColumnWidth;
+  const columnCount = resolveVirtualCardGridColumns({
+    breakpoints,
+    containerWidth: layoutWidth,
+    gap,
+    minColumnWidth,
+  });
+  const columnWidth = resolveVirtualCardGridColumnWidth({
+    containerWidth: layoutWidth,
+    columnCount,
+    gap,
+    fallbackWidth: minColumnWidth,
+  });
+  const rowHeight = Math.max(0, estimateCardHeight(columnWidth));
   const rowCount = Math.ceil(items.length / columnCount);
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
@@ -73,8 +99,17 @@ export function VirtualCardGrid<T>({
     getScrollElement: () => parentRef.current,
     initialOffset: scrollEntry?.scrollY,
     estimateSize: () => rowHeight,
+    gap,
     overscan: 4,
   });
+
+  useEffect(() => {
+    if (layoutWidth <= 0) {
+      return;
+    }
+
+    rowVirtualizer.measure();
+  }, [columnCount, gap, layoutWidth, rowHeight, rowVirtualizer]);
 
   useNearEndScroll(parentRef, {
     enabled: Boolean(hasMore && !loading && !loadingMore),
@@ -106,6 +141,7 @@ export function VirtualCardGrid<T>({
         <div className={["px-1 py-3", viewportClassName].join(" ")}>
           <div
             className="relative w-full"
+            ref={layoutRef}
             style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
           >
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -117,10 +153,12 @@ export function VirtualCardGrid<T>({
               return (
                 <div
                   className="absolute top-0 left-0 grid w-full"
+                  data-index={virtualRow.index}
                   key={virtualRow.key}
                   style={{
-                    gap: `${gap}px`,
+                    columnGap: `${gap}px`,
                     gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+                    height: `${rowHeight}px`,
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
