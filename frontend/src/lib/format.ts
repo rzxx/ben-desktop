@@ -152,6 +152,18 @@ export function aggregateAvailabilityLabel(
   return availabilityLabel("PENDING");
 }
 
+export function isAlbumUnavailableInCatalog(availability?: {
+  State?: string | null;
+} | null) {
+  switch (availability?.State) {
+    case "OFFLINE":
+    case "UNAVAILABLE":
+      return true;
+    default:
+      return false;
+  }
+}
+
 export function isCatalogTrackActionable(state?: string) {
   switch (state) {
     case "PLAYABLE:LOCAL_FILE":

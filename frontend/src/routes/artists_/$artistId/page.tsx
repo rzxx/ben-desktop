@@ -98,6 +98,9 @@ export function ArtistDetailPage() {
           renderCard={(album) => (
             <AlbumGridTile
               album={album}
+              availabilityState={
+                albumAvailabilityByAlbumId[album.AlbumID]?.data?.State
+              }
               availabilityLabel={aggregateAvailabilityLabel(
                 albumAvailabilityByAlbumId[album.AlbumID]?.data,
               )}
