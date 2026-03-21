@@ -41,7 +41,7 @@ func newTransportService(app *App) *TransportService {
 	return &TransportService{
 		app:                app,
 		factory:            app.newLibp2pSyncTransport,
-		backgroundInterval: 30 * time.Second,
+		backgroundInterval: 15 * time.Second,
 	}
 }
 
@@ -564,6 +564,50 @@ func (s *TransportService) upsertDevicePresence(ctx context.Context, deviceID, p
 	default:
 		return err
 	}
+}
+
+func (s *TransportService) markDevicePresenceOffline(ctx context.Context, libraryID, peerID string) error {
+	if s == nil || s.app == nil {
+		return nil
+	}
+	libraryID = strings.TrimSpace(libraryID)
+	peerID = strings.TrimSpace(peerID)
+	if libraryID == "" || peerID == "" {
+		return nil
+	}
+
+	deviceID, ok, err := s.memberDeviceIDForPeer(ctx, libraryID, peerID)
+	if err != nil || !ok {
+		return err
+	}
+
+	var existing Device
+	err = s.app.storage.WithContext(ctx).
+		Where("device_id = ? AND peer_id = ?", deviceID, peerID).
+		Take(&existing).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+		return err
+	}
+
+	now := time.Now().UTC()
+	onlineCutoff := now.Add(-availabilityOnlineWindow)
+	wasOnline := existing.LastSeenAt != nil && !existing.LastSeenAt.UTC().Before(onlineCutoff)
+	if !wasOnline {
+		return nil
+	}
+
+	offlineAt := onlineCutoff.Add(-time.Second)
+	if err := s.app.storage.WithContext(ctx).
+		Model(&Device{}).
+		Where("device_id = ? AND peer_id = ?", deviceID, peerID).
+		Update("last_seen_at", cloneTimePtr(&offlineAt)).Error; err != nil {
+		return err
+	}
+	s.app.emitAvailabilityInvalidateAllForActiveMembership(ctx, deviceID)
+	return nil
 }
 
 func (s *TransportService) memberDeviceIDForPeer(ctx context.Context, libraryID, peerID string) (string, bool, error) {

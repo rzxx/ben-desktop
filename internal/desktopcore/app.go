@@ -71,13 +71,13 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	db := storage.DB()
 
 	app := &App{
-		cfg:      resolved,
-		db:       db,
-		storage:  storage,
-		blobs:    NewBlobStoreService(resolved.BlobRoot),
-		activity: newActivityStatus(),
-		jobs:     NewJobsService(),
-		catalogEvents: NewCatalogEventsService(),
+		cfg:                 resolved,
+		db:                  db,
+		storage:             storage,
+		blobs:               NewBlobStoreService(resolved.BlobRoot),
+		activity:            newActivityStatus(),
+		jobs:                NewJobsService(),
+		catalogEvents:       NewCatalogEventsService(),
 		activitySubscribers: make(map[uint64]func(apitypes.ActivityStatus)),
 		tagReader: func() TagReader {
 			if resolved.TagReader != nil {
@@ -271,6 +271,10 @@ func (a *App) catchupAllPeers(ctx context.Context, local apitypes.LocalContext, 
 	return a.sync.catchupAllPeers(ctx, local, reason, job, failIfNoPeers)
 }
 
+func (a *App) syncPeerCatchup(ctx context.Context, local apitypes.LocalContext, peer SyncPeer, reason apitypes.NetworkSyncReason, job *JobTracker) (int, error) {
+	return a.sync.syncPeerCatchup(ctx, local, peer, reason, job)
+}
+
 func (a *App) buildSyncRequest(ctx context.Context, libraryID, deviceID, peerID string, maxOps int) (SyncRequest, error) {
 	return a.sync.buildSyncRequest(ctx, libraryID, deviceID, peerID, maxOps)
 }
@@ -460,6 +464,13 @@ func (a *App) upsertDevicePresence(ctx context.Context, deviceID, peerID, device
 		return nil
 	}
 	return a.transportService.upsertDevicePresence(ctx, deviceID, peerID, deviceName)
+}
+
+func (a *App) markDevicePresenceOffline(ctx context.Context, libraryID, peerID string) error {
+	if a == nil || a.transportService == nil {
+		return nil
+	}
+	return a.transportService.markDevicePresenceOffline(ctx, libraryID, peerID)
 }
 
 func (a *App) memberDeviceIDForPeer(ctx context.Context, libraryID, peerID string) (string, bool, error) {

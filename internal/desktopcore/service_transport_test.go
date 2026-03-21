@@ -201,6 +201,70 @@ func TestUpsertDevicePresenceEmitsAvailabilityInvalidationWhenPeerComesOnline(t 
 	t.Fatalf("expected presence update to emit availability invalidation event, got %+v", events)
 }
 
+func TestMarkDevicePresenceOfflineEmitsAvailabilityInvalidation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	library, err := app.CreateLibrary(ctx, "presence-offline-events")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	remoteDeviceID := seedRemoteLibraryMember(
+		t,
+		app,
+		library.LibraryID,
+		"dev-presence-offline-remote",
+		time.Now().UTC(),
+	)
+	if err := app.transportService.upsertDevicePresence(
+		ctx,
+		remoteDeviceID,
+		"peer-presence-offline-remote",
+		"Remote device",
+	); err != nil {
+		t.Fatalf("upsert remote presence: %v", err)
+	}
+
+	var (
+		eventsMu sync.Mutex
+		events   []apitypes.CatalogChangeEvent
+	)
+	stopListening := app.SubscribeCatalogChanges(func(event apitypes.CatalogChangeEvent) {
+		eventsMu.Lock()
+		events = append(events, event)
+		eventsMu.Unlock()
+	})
+	defer stopListening()
+
+	if err := app.transportService.markDevicePresenceOffline(ctx, library.LibraryID, "peer-presence-offline-remote"); err != nil {
+		t.Fatalf("mark device presence offline: %v", err)
+	}
+
+	var device Device
+	if err := app.db.WithContext(ctx).Where("device_id = ?", remoteDeviceID).Take(&device).Error; err != nil {
+		t.Fatalf("load remote device: %v", err)
+	}
+	if device.LastSeenAt == nil || device.LastSeenAt.UTC().After(time.Now().UTC().Add(-availabilityOnlineWindow)) {
+		t.Fatalf("expected remote device to be marked offline, got %+v", device.LastSeenAt)
+	}
+
+	eventsMu.Lock()
+	defer eventsMu.Unlock()
+	for _, event := range events {
+		if event.Kind != apitypes.CatalogChangeInvalidateAvailability {
+			continue
+		}
+		if !event.InvalidateAll {
+			t.Fatalf("expected offline presence event to invalidate all, got %+v", event)
+		}
+		return
+	}
+	t.Fatalf("expected offline presence update to emit availability invalidation event, got %+v", events)
+}
+
 func TestLibp2pTransportConnectPeerAppliesIncrementalSync(t *testing.T) {
 	ctx := context.Background()
 	owner := openPlaylistTestApp(t)

@@ -25,7 +25,7 @@ const (
 	roleMember                   = "member"
 	roleGuest                    = "guest"
 	maxPageLimit                 = 1000
-	availabilityOnlineWindow     = 2 * time.Minute
+	availabilityOnlineWindow     = 45 * time.Second
 	defaultLibraryName           = "ben library"
 	defaultArtworkVariant320     = "320_webp"
 	defaultArtworkVariant96      = "96_jpeg"

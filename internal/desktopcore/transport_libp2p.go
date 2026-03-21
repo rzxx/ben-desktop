@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -104,6 +105,7 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 	hostNode.SetStreamHandler(desktopInviteJoinStartProtocolID, transport.handleInviteJoinStartStream)
 	hostNode.SetStreamHandler(desktopInviteJoinStatusProtocolID, transport.handleInviteJoinStatusStream)
 	hostNode.SetStreamHandler(desktopInviteJoinCancelProtocolID, transport.handleInviteJoinCancelStream)
+	hostNode.Network().Notify(&desktopNetworkNotifee{transport: transport})
 
 	service := mdns.NewMdnsService(hostNode, serviceTagForLibrary(local.LibraryID), &desktopMDNSNotifee{
 		host:   hostNode,
@@ -625,6 +627,89 @@ func shouldInitiateTransportDial(local, remote peer.ID) bool {
 		return true
 	}
 	return local.String() < remote.String()
+}
+
+type desktopNetworkNotifee struct {
+	transport *libp2pSyncTransport
+}
+
+func (n *desktopNetworkNotifee) Listen(network.Network, multiaddr.Multiaddr)      {}
+func (n *desktopNetworkNotifee) ListenClose(network.Network, multiaddr.Multiaddr) {}
+func (n *desktopNetworkNotifee) OpenedStream(network.Network, network.Stream)     {}
+func (n *desktopNetworkNotifee) ClosedStream(network.Network, network.Stream)     {}
+
+func (n *desktopNetworkNotifee) Connected(_ network.Network, conn network.Conn) {
+	if n == nil || n.transport == nil || conn == nil {
+		return
+	}
+	peerID := conn.RemotePeer()
+	if peerID == "" {
+		return
+	}
+	go n.transport.handlePeerConnected(peerID)
+}
+
+func (n *desktopNetworkNotifee) Disconnected(net network.Network, conn network.Conn) {
+	if n == nil || n.transport == nil || conn == nil {
+		return
+	}
+	peerID := conn.RemotePeer()
+	if peerID == "" || net == nil {
+		return
+	}
+	if net.Connectedness(peerID) == network.Connected {
+		return
+	}
+	go n.transport.handlePeerDisconnected(peerID)
+}
+
+func (t *libp2pSyncTransport) handlePeerConnected(peerID peer.ID) {
+	if t == nil || t.app == nil || t.host == nil || peerID == "" || peerID == t.host.ID() {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
+	defer cancel()
+
+	if deviceID, ok, err := t.app.memberDeviceIDForPeer(ctx, t.libraryID, peerID.String()); err != nil {
+		t.app.logf("desktopcore: resolve connected peer %s failed: %v", peerID.String(), err)
+	} else if ok {
+		if err := t.app.updateDevicePeerID(ctx, t.libraryID, deviceID, peerID.String(), deviceID); err != nil {
+			t.app.logf("desktopcore: touch connected peer %s failed: %v", peerID.String(), err)
+		}
+	}
+
+	local, err := t.app.EnsureLocalContext(ctx)
+	if err != nil {
+		return
+	}
+	if strings.TrimSpace(local.LibraryID) != strings.TrimSpace(t.libraryID) || strings.TrimSpace(local.DeviceID) != strings.TrimSpace(t.deviceID) {
+		return
+	}
+	local.PeerID = strings.TrimSpace(t.LocalPeerID())
+	if local.PeerID == "" {
+		return
+	}
+
+	if _, err := t.app.syncPeerCatchup(ctx, local, &libp2pSyncPeer{
+		transport: t,
+		peerID:    peerID,
+	}, apitypes.NetworkSyncReasonConnect, nil); err != nil && !errors.Is(err, context.Canceled) {
+		t.app.logf("desktopcore: connected peer catch-up failed for %s: %v", peerID.String(), err)
+	}
+}
+
+func (t *libp2pSyncTransport) handlePeerDisconnected(peerID peer.ID) {
+	if t == nil || t.app == nil || t.host == nil || peerID == "" || peerID == t.host.ID() {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportConnectTimeout)
+	defer cancel()
+
+	if err := t.app.markDevicePresenceOffline(ctx, t.libraryID, peerID.String()); err != nil {
+		t.app.logf("desktopcore: mark disconnected peer offline failed for %s: %v", peerID.String(), err)
+	}
 }
 
 func loadOrCreateTransportIdentityKey(path string) (crypto.PrivKey, error) {
