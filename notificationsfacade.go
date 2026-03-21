@@ -29,6 +29,9 @@ type NotificationsFacade struct {
 
 	scanNotificationID    string
 	scanNotificationPhase string
+	scanNotificationKind  string
+	scanAudience          apitypes.NotificationAudience
+	scanImportance        apitypes.NotificationImportance
 
 	artworkNotificationID    string
 	artworkNotificationPhase string
@@ -69,7 +72,7 @@ func (s *NotificationsFacade) ServiceStartup(ctx context.Context, _ application.
 		s.host.App.SubscribeActivitySnapshots(s.handleActivitySnapshot),
 	}
 	if s.playback != nil {
-		stops = append(stops, s.playback.SubscribeSnapshots(s.handlePlaybackSnapshot))
+		stops = append(stops, s.playback.subscribeSnapshots(s.handlePlaybackSnapshot))
 	}
 
 	s.mu.Lock()
@@ -158,6 +161,10 @@ func (s *NotificationsFacade) handleJobSnapshot(job desktopcore.JobSnapshot) {
 	if strings.TrimSpace(job.Kind) == "prepare-playback" {
 		return
 	}
+	if isScanJobKind(job.Kind) {
+		s.handleScanJobSnapshot(job)
+		return
+	}
 	snapshot := notificationFromJob(job)
 	if snapshot.ID == "" {
 		return
@@ -180,11 +187,12 @@ func (s *NotificationsFacade) handleScanActivity(status apitypes.ScanActivitySta
 	if id == "" {
 		return
 	}
+	kind, audience, importance := s.scanNotificationMetadata()
 	s.upsertNotification(apitypes.NotificationSnapshot{
 		ID:         id,
-		Kind:       "scan-activity",
-		Audience:   apitypes.NotificationAudienceSystem,
-		Importance: apitypes.NotificationImportanceDebug,
+		Kind:       kind,
+		Audience:   audience,
+		Importance: importance,
 		Phase:      phase,
 		Message:    scanActivityMessage(status),
 		Error:      activityError(status.Phase, status.Errors),
@@ -212,6 +220,35 @@ func (s *NotificationsFacade) handleArtworkActivity(status apitypes.ArtworkActiv
 		Error:      activityError(status.Phase, status.Errors),
 		Progress:   artworkActivityProgress(status),
 		Sticky:     phase == apitypes.NotificationPhaseError,
+	})
+}
+
+func (s *NotificationsFacade) handleScanJobSnapshot(job desktopcore.JobSnapshot) {
+	phase := notificationPhaseFromJob(job.Phase)
+	if phase == "" {
+		return
+	}
+	id := s.activityNotificationID("scan", phase)
+	if id == "" {
+		return
+	}
+	kind := strings.TrimSpace(job.Kind)
+	audience, importance := classifyJob(kind)
+	s.setScanNotificationMetadata(kind, audience, importance)
+	s.upsertNotification(apitypes.NotificationSnapshot{
+		ID:         id,
+		Kind:       kind,
+		LibraryID:  strings.TrimSpace(job.LibraryID),
+		Audience:   audience,
+		Importance: importance,
+		Phase:      phase,
+		Message:    strings.TrimSpace(job.Message),
+		Error:      strings.TrimSpace(job.Error),
+		Progress:   job.Progress,
+		Sticky:     job.Phase == desktopcore.JobPhaseFailed,
+		CreatedAt:  job.CreatedAt,
+		UpdatedAt:  job.UpdatedAt,
+		FinishedAt: job.FinishedAt,
 	})
 }
 
@@ -344,7 +381,7 @@ func (s *NotificationsFacade) activityNotificationID(kind string, phase apitypes
 	switch kind {
 	case "scan":
 		switch phase {
-		case apitypes.NotificationPhaseRunning:
+		case apitypes.NotificationPhaseQueued, apitypes.NotificationPhaseRunning:
 			if s.scanNotificationID == "" || !isNotificationActivePhase(s.scanNotificationPhase) {
 				s.scanNotificationID = nowID
 			}
@@ -362,14 +399,14 @@ func (s *NotificationsFacade) activityNotificationID(kind string, phase apitypes
 	case "artwork":
 		switch phase {
 		case apitypes.NotificationPhaseRunning:
-			if s.artworkNotificationID == "" || !isNotificationActivePhase(s.artworkNotificationPhase) {
-				s.artworkNotificationID = nowID
+			if s.artworkNotificationID == "" {
+				s.artworkNotificationID = "artwork:activity"
 			}
 			s.artworkNotificationPhase = string(phase)
 			return s.artworkNotificationID
 		case apitypes.NotificationPhaseSuccess, apitypes.NotificationPhaseError:
 			if s.artworkNotificationID == "" {
-				s.artworkNotificationID = nowID
+				s.artworkNotificationID = "artwork:activity"
 			}
 			s.artworkNotificationPhase = string(phase)
 			return s.artworkNotificationID
@@ -390,6 +427,38 @@ func (s *NotificationsFacade) ensurePlaybackNotificationID(recordingID string) s
 	}
 	s.playbackRecordingID = recordingID
 	return s.playbackNotificationID
+}
+
+func (s *NotificationsFacade) setScanNotificationMetadata(
+	kind string,
+	audience apitypes.NotificationAudience,
+	importance apitypes.NotificationImportance,
+) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.scanNotificationKind = strings.TrimSpace(kind)
+	s.scanAudience = audience
+	s.scanImportance = importance
+}
+
+func (s *NotificationsFacade) scanNotificationMetadata() (string, apitypes.NotificationAudience, apitypes.NotificationImportance) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	kind := strings.TrimSpace(s.scanNotificationKind)
+	if kind == "" {
+		kind = "scan-activity"
+	}
+	audience := s.scanAudience
+	if audience == "" {
+		audience = apitypes.NotificationAudienceSystem
+	}
+	importance := s.scanImportance
+	if importance == "" {
+		importance = apitypes.NotificationImportanceDebug
+	}
+	return kind, audience, importance
 }
 
 func (s *NotificationsFacade) clearPlaybackNotificationID() {
@@ -665,6 +734,15 @@ func transcodeCompletionMessage(notification apitypes.NotificationSnapshot) stri
 		return "Transcode ready."
 	}
 	return "Background transcode completed."
+}
+
+func isScanJobKind(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "scan-library", "scan-root", "watch-scan":
+		return true
+	default:
+		return false
+	}
 }
 
 func isNotificationActivePhase(phase string) bool {

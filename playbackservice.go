@@ -153,7 +153,7 @@ func (s *PlaybackService) SubscribePlaybackEvents() string {
 	return playback.EventSnapshotChanged
 }
 
-func (s *PlaybackService) SubscribeSnapshots(listener func(playback.SessionSnapshot)) func() {
+func (s *PlaybackService) subscribeSnapshots(listener func(playback.SessionSnapshot)) func() {
 	if s == nil || listener == nil {
 		return func() {}
 	}

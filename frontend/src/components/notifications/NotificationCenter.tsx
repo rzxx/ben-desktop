@@ -13,7 +13,9 @@ export function NotificationCenter() {
   const preferences = useNotificationsStore((state) => state.preferences);
   const filter = useNotificationsStore((state) => state.centerFilter);
   const setCenterOpen = useNotificationsStore((state) => state.setCenterOpen);
-  const setCenterFilter = useNotificationsStore((state) => state.setCenterFilter);
+  const setCenterFilter = useNotificationsStore(
+    (state) => state.setCenterFilter,
+  );
   const setVerbosity = useNotificationsStore((state) => state.setVerbosity);
 
   const filtered = notifications.filter((notification) =>
@@ -29,8 +31,10 @@ export function NotificationCenter() {
   return (
     <>
       <div
-        className={`fixed inset-0 z-40 bg-black/35 backdrop-blur-[2px] transition ${
-          centerOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+        className={`bg-theme/35 fixed inset-0 z-40 backdrop-blur-[2px] transition ${
+          centerOpen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
         }`}
         onClick={() => {
           setCenterOpen(false);
@@ -38,7 +42,7 @@ export function NotificationCenter() {
       />
 
       <aside
-        className={`fixed top-8 right-0 bottom-0 z-50 w-full max-w-[26rem] border-l border-white/8 bg-[linear-gradient(180deg,rgba(19,19,19,0.98),rgba(10,10,10,0.96))] shadow-2xl shadow-black/45 transition-transform duration-300 ${
+        className={`bg-theme-950 fixed top-8 right-0 bottom-0 z-50 w-full max-w-[26rem] border-l border-white/8 shadow-2xl shadow-black/45 transition-transform duration-300 ${
           centerOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
@@ -52,7 +56,8 @@ export function NotificationCenter() {
                 Core activity center
               </h2>
               <p className="mt-2 text-sm text-white/48">
-                Everything the desktop core is doing, with toast suppression applied only at the shell level.
+                Everything the desktop core is doing, with toast suppression
+                applied only at the shell level.
               </p>
             </div>
             <button
