@@ -21,6 +21,9 @@ type PlaybackService struct {
 	session  *playback.Session
 	platform playback.PlatformController
 	store    interface{ Close() error }
+
+	subscribers    map[uint64]func(playback.SessionSnapshot)
+	nextSubscriber uint64
 }
 
 func NewPlaybackService() *PlaybackService {
@@ -28,7 +31,10 @@ func NewPlaybackService() *PlaybackService {
 }
 
 func NewPlaybackServiceWithHost(host *coreHost) *PlaybackService {
-	return &PlaybackService{host: host}
+	return &PlaybackService{
+		host:        host,
+		subscribers: make(map[uint64]func(playback.SessionSnapshot)),
+	}
 }
 
 func (s *PlaybackService) ServiceName() string {
@@ -145,6 +151,24 @@ func (s *PlaybackService) GetPlaybackSnapshot() (playback.SessionSnapshot, error
 
 func (s *PlaybackService) SubscribePlaybackEvents() string {
 	return playback.EventSnapshotChanged
+}
+
+func (s *PlaybackService) SubscribeSnapshots(listener func(playback.SessionSnapshot)) func() {
+	if s == nil || listener == nil {
+		return func() {}
+	}
+
+	s.mu.Lock()
+	id := s.nextSubscriber
+	s.nextSubscriber++
+	s.subscribers[id] = listener
+	s.mu.Unlock()
+
+	return func() {
+		s.mu.Lock()
+		delete(s.subscribers, id)
+		s.mu.Unlock()
+	}
 }
 
 func (s *PlaybackService) SetPlaybackContext(input playback.PlaybackContextInput) (playback.SessionSnapshot, error) {
@@ -427,10 +451,17 @@ func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapsh
 	s.mu.RLock()
 	app := s.app
 	controller := s.platform
+	subscribers := make([]func(playback.SessionSnapshot), 0, len(s.subscribers))
+	for _, subscriber := range s.subscribers {
+		subscribers = append(subscribers, subscriber)
+	}
 	s.mu.RUnlock()
 
 	if controller != nil {
 		controller.HandlePlaybackSnapshot(snapshot)
+	}
+	for _, subscriber := range subscribers {
+		subscriber(snapshot)
 	}
 	if app != nil && app.Event != nil {
 		app.Event.Emit(playback.EventSnapshotChanged, snapshot)

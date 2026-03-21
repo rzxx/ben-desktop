@@ -20,6 +20,7 @@ declare module "@wailsio/runtime" {
         interface CustomEvents {
             "catalog:changed": apitypes$0.CatalogChangeEvent;
             "jobs:snapshot": desktopcore$0.JobSnapshot;
+            "notifications:snapshot": apitypes$0.NotificationSnapshot;
             "playback:snapshot": playback$0.SessionSnapshot;
         }
     }

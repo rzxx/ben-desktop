@@ -44,19 +44,40 @@ func (a *App) ActivityStatusSnapshot() apitypes.ActivityStatus {
 	return out
 }
 
+func (a *App) SubscribeActivitySnapshots(listener func(apitypes.ActivityStatus)) func() {
+	if a == nil || listener == nil {
+		return func() {}
+	}
+
+	a.activityMu.Lock()
+	id := a.nextActivitySubscriber
+	a.nextActivitySubscriber++
+	a.activitySubscribers[id] = listener
+	a.activityMu.Unlock()
+
+	return func() {
+		a.activityMu.Lock()
+		delete(a.activitySubscribers, id)
+		a.activityMu.Unlock()
+	}
+}
+
 func (a *App) setScanActivity(status apitypes.ScanActivityStatus) {
 	if a == nil {
 		return
 	}
 	a.activityMu.Lock()
-	defer a.activityMu.Unlock()
-
 	if strings.TrimSpace(status.Phase) == "" {
 		status.Phase = "idle"
 	}
 	status.UpdatedAt = time.Now().UTC()
 	a.activity.Scan = status
 	a.activity.UpdatedAt = status.UpdatedAt
+	snapshot := a.activity
+	subscribers := a.snapshotActivitySubscribersLocked()
+	a.activityMu.Unlock()
+
+	notifyActivitySubscribers(subscribers, snapshot)
 }
 
 func (a *App) updateScanActivity(apply func(*apitypes.ScanActivityStatus)) {
@@ -64,14 +85,17 @@ func (a *App) updateScanActivity(apply func(*apitypes.ScanActivityStatus)) {
 		return
 	}
 	a.activityMu.Lock()
-	defer a.activityMu.Unlock()
-
 	apply(&a.activity.Scan)
 	if strings.TrimSpace(a.activity.Scan.Phase) == "" {
 		a.activity.Scan.Phase = "idle"
 	}
 	a.activity.Scan.UpdatedAt = time.Now().UTC()
 	a.activity.UpdatedAt = a.activity.Scan.UpdatedAt
+	snapshot := a.activity
+	subscribers := a.snapshotActivitySubscribersLocked()
+	a.activityMu.Unlock()
+
+	notifyActivitySubscribers(subscribers, snapshot)
 }
 
 func (a *App) setArtworkActivity(status apitypes.ArtworkActivityStatus) {
@@ -79,14 +103,17 @@ func (a *App) setArtworkActivity(status apitypes.ArtworkActivityStatus) {
 		return
 	}
 	a.activityMu.Lock()
-	defer a.activityMu.Unlock()
-
 	if strings.TrimSpace(status.Phase) == "" {
 		status.Phase = "idle"
 	}
 	status.UpdatedAt = time.Now().UTC()
 	a.activity.Artwork = status
 	a.activity.UpdatedAt = status.UpdatedAt
+	snapshot := a.activity
+	subscribers := a.snapshotActivitySubscribersLocked()
+	a.activityMu.Unlock()
+
+	notifyActivitySubscribers(subscribers, snapshot)
 }
 
 func (a *App) updateArtworkActivity(apply func(*apitypes.ArtworkActivityStatus)) {
@@ -94,14 +121,17 @@ func (a *App) updateArtworkActivity(apply func(*apitypes.ArtworkActivityStatus))
 		return
 	}
 	a.activityMu.Lock()
-	defer a.activityMu.Unlock()
-
 	apply(&a.activity.Artwork)
 	if strings.TrimSpace(a.activity.Artwork.Phase) == "" {
 		a.activity.Artwork.Phase = "idle"
 	}
 	a.activity.Artwork.UpdatedAt = time.Now().UTC()
 	a.activity.UpdatedAt = a.activity.Artwork.UpdatedAt
+	snapshot := a.activity
+	subscribers := a.snapshotActivitySubscribersLocked()
+	a.activityMu.Unlock()
+
+	notifyActivitySubscribers(subscribers, snapshot)
 }
 
 func (a *App) setTranscodeActivity(key string, status apitypes.TranscodeActivityStatus) {
@@ -116,12 +146,16 @@ func (a *App) setTranscodeActivity(key string, status apitypes.TranscodeActivity
 		status.Phase = "running"
 	}
 	a.activityMu.Lock()
-	defer a.activityMu.Unlock()
 	if a.transcodeActivity == nil {
 		a.transcodeActivity = make(map[string]apitypes.TranscodeActivityStatus)
 	}
 	a.transcodeActivity[key] = status
 	a.rebuildTranscodeActivityLocked()
+	snapshot := a.activity
+	subscribers := a.snapshotActivitySubscribersLocked()
+	a.activityMu.Unlock()
+
+	notifyActivitySubscribers(subscribers, snapshot)
 }
 
 func (a *App) clearTranscodeActivity(key string) {
@@ -133,12 +167,17 @@ func (a *App) clearTranscodeActivity(key string) {
 		return
 	}
 	a.activityMu.Lock()
-	defer a.activityMu.Unlock()
 	if len(a.transcodeActivity) == 0 {
+		a.activityMu.Unlock()
 		return
 	}
 	delete(a.transcodeActivity, key)
 	a.rebuildTranscodeActivityLocked()
+	snapshot := a.activity
+	subscribers := a.snapshotActivitySubscribersLocked()
+	a.activityMu.Unlock()
+
+	notifyActivitySubscribers(subscribers, snapshot)
 }
 
 func (a *App) rebuildTranscodeActivityLocked() {
@@ -153,4 +192,25 @@ func (a *App) rebuildTranscodeActivityLocked() {
 	}
 	a.activity.Transcodes = items
 	a.activity.UpdatedAt = time.Now().UTC()
+}
+
+func (a *App) snapshotActivitySubscribersLocked() []func(apitypes.ActivityStatus) {
+	if len(a.activitySubscribers) == 0 {
+		return nil
+	}
+
+	out := make([]func(apitypes.ActivityStatus), 0, len(a.activitySubscribers))
+	for _, subscriber := range a.activitySubscribers {
+		out = append(out, subscriber)
+	}
+	return out
+}
+
+func notifyActivitySubscribers(subscribers []func(apitypes.ActivityStatus), snapshot apitypes.ActivityStatus) {
+	if snapshot.Transcodes != nil {
+		snapshot.Transcodes = append([]apitypes.TranscodeActivityStatus(nil), snapshot.Transcodes...)
+	}
+	for _, subscriber := range subscribers {
+		subscriber(snapshot)
+	}
 }

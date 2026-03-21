@@ -1,11 +1,13 @@
 import type { PropsWithChildren } from "react";
 import { useEffect, useRef } from "react";
-import { PlaybackLoadingPanel } from "@/components/playback/PlaybackLoadingPanel";
+import { NotificationCenter } from "@/components/notifications/NotificationCenter";
+import { NotificationRuntime } from "@/components/notifications/NotificationRuntime";
 import { PlayerBar } from "@/components/playback/PlayerBar";
 import { QueueSidebar } from "@/components/playback/QueueSidebar";
 import { ThemeRuntime } from "@/components/theme/ThemeRuntime";
 import { NavigationSidebar } from "@/components/shell/NavigationSidebar";
 import { TitleBar } from "@/components/shell/TitleBar";
+import { useNotificationsStore } from "@/stores/notifications/store";
 import { usePlaybackStore } from "@/stores/playback/store";
 
 const PLAYER_SCROLL_BUFFER_REM = 1;
@@ -13,16 +15,20 @@ const PLAYER_SCROLL_BUFFER_REM = 1;
 export function AppShell({ children }: PropsWithChildren) {
   const bootstrap = usePlaybackStore((state) => state.bootstrap);
   const teardown = usePlaybackStore((state) => state.teardown);
+  const bootstrapNotifications = useNotificationsStore((state) => state.bootstrap);
+  const teardownNotifications = useNotificationsStore((state) => state.teardown);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playerBarRef = useRef<HTMLDivElement | null>(null);
   const queueSidebarRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     void bootstrap();
+    void bootstrapNotifications();
     return () => {
+      teardownNotifications();
       teardown();
     };
-  }, [bootstrap, teardown]);
+  }, [bootstrap, bootstrapNotifications, teardown, teardownNotifications]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -96,9 +102,8 @@ export function AppShell({ children }: PropsWithChildren) {
       <div className="bg-theme-950 fixed -z-100 h-screen w-screen"></div>
       <ThemeRuntime />
       <TitleBar />
-      <div className="pointer-events-none fixed inset-x-0 top-12 right-4 z-40 flex justify-end">
-        <PlaybackLoadingPanel className="pointer-events-auto w-full max-w-md" />
-      </div>
+      <NotificationRuntime />
+      <NotificationCenter />
 
       <NavigationSidebar />
 

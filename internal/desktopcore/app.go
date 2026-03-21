@@ -26,6 +26,9 @@ type App struct {
 	scanFlight *scanFlight
 	tagReader  TagReader
 
+	activitySubscribers    map[uint64]func(apitypes.ActivityStatus)
+	nextActivitySubscriber uint64
+
 	runtimeMu     sync.Mutex
 	activeRuntime *activeLibraryRuntime
 	transportMu   sync.RWMutex
@@ -75,6 +78,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 		activity: newActivityStatus(),
 		jobs:     NewJobsService(),
 		catalogEvents: NewCatalogEventsService(),
+		activitySubscribers: make(map[uint64]func(apitypes.ActivityStatus)),
 		tagReader: func() TagReader {
 			if resolved.TagReader != nil {
 				return resolved.TagReader

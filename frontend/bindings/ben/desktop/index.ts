@@ -7,6 +7,7 @@ import * as InviteFacade from "./invitefacade.js";
 import * as JobsFacade from "./jobsfacade.js";
 import * as LibraryFacade from "./libraryfacade.js";
 import * as NetworkFacade from "./networkfacade.js";
+import * as NotificationsFacade from "./notificationsfacade.js";
 import * as PlaybackFacade from "./playbackfacade.js";
 import * as PlaybackService from "./playbackservice.js";
 import * as ThemeFacade from "./themefacade.js";
@@ -17,6 +18,7 @@ export {
     JobsFacade,
     LibraryFacade,
     NetworkFacade,
+    NotificationsFacade,
     PlaybackFacade,
     PlaybackService,
     ThemeFacade

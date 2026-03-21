@@ -21,6 +21,7 @@ var assets embed.FS
 func init() {
 	application.RegisterEvent[desktopcore.JobSnapshot](desktopcore.EventJobSnapshotChanged)
 	application.RegisterEvent[apitypes.CatalogChangeEvent](desktopcore.EventCatalogChanged)
+	application.RegisterEvent[apitypes.NotificationSnapshot](EventNotificationChanged)
 	application.RegisterEvent[playback.SessionSnapshot](playback.EventSnapshotChanged)
 }
 
@@ -30,6 +31,7 @@ func init() {
 func main() {
 	host := newCoreHost()
 	playbackService := NewPlaybackServiceWithHost(host)
+	notificationsFacade := NewNotificationsFacade(host, playbackService)
 	app := application.New(application.Options{
 		Name:        "ben-desktop",
 		Description: "Desktop host for ben playback and core services",
@@ -46,6 +48,7 @@ func main() {
 			application.NewService(NewThemeFacade(host)),
 			application.NewService(NewCacheFacade(host)),
 			application.NewService(playbackService),
+			application.NewService(notificationsFacade),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

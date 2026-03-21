@@ -42,6 +42,9 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 			FFmpegPath:       "  C:\\tools\\ffmpeg.exe  ",
 			TranscodeProfile: "  desktop  ",
 		},
+		Notifications: NotificationUISettings{
+			Verbosity: "  everything  ",
+		},
 	}
 
 	if err := store.Save(input); err != nil {
@@ -61,6 +64,9 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 			FFmpegPath:       "C:\\tools\\ffmpeg.exe",
 			TranscodeProfile: DefaultTranscodeProfile,
 		},
+		Notifications: NotificationUISettings{
+			Verbosity: "everything",
+		},
 	}
 	if state != want {
 		t.Fatalf("expected %#v, got %#v", want, state)
@@ -72,5 +78,20 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 	}
 	if len(payload) == 0 || payload[0] != '{' {
 		t.Fatalf("expected JSON payload, got %q", string(payload))
+	}
+}
+
+func TestNormalizeNotificationVerbosity(t *testing.T) {
+	tests := map[string]string{
+		"":                "user_activity",
+		"important":       "important",
+		"everything":      "everything",
+		"  USER_ACTIVITY": "user_activity",
+		"loud":            "user_activity",
+	}
+	for input, want := range tests {
+		if got := NormalizeNotificationVerbosity(input); got != want {
+			t.Fatalf("normalize notification verbosity(%q) = %q, want %q", input, got, want)
+		}
 	}
 }

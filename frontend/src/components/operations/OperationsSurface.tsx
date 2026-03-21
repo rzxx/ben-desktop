@@ -9,10 +9,8 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
-import {
-  type JobSnapshot,
-  type LibraryCheckpointStatus,
-} from "@/lib/api/models";
+import type { LibraryCheckpointStatus } from "@/lib/api/models";
+import { NotificationCard } from "@/components/notifications/NotificationCard";
 import {
   startCompactCheckpoint,
   startPublishCheckpoint,
@@ -20,7 +18,9 @@ import {
 } from "@/lib/api/network";
 import { startLibraryRescan, startRootRescan } from "@/lib/api/library";
 import { formatCount, formatDateTime } from "@/lib/format";
+import { isNotificationActive } from "@/lib/notifications";
 import { useOperationsPage } from "@/hooks/operations/useOperationsPage";
+import { useNotificationsStore } from "@/stores/notifications/store";
 
 function normalizeRole(role: string) {
   return role.trim().toLowerCase();
@@ -31,86 +31,6 @@ function checkpointSummary(status: LibraryCheckpointStatus | null) {
     return "No published checkpoint";
   }
   return `${status.AckedDevices}/${status.TotalDevices} devices covered`;
-}
-
-function jobKindLabel(kind: string) {
-  switch (kind) {
-    case "scan-library":
-      return "Library scan";
-    case "scan-root":
-      return "Root scan";
-    case "publish-checkpoint":
-      return "Publish checkpoint";
-    case "compact-checkpoint":
-      return "Compact checkpoint";
-    case "install-checkpoint":
-      return "Checkpoint install";
-    case "sync-now":
-      return "Manual sync";
-    case "connect-peer":
-      return "Connect peer";
-    case "join-session":
-      return "Join session";
-    default:
-      return kind || "Job";
-  }
-}
-
-function jobPhaseClasses(phase: string) {
-  switch (phase) {
-    case "completed":
-      return "border-emerald-400/20 bg-emerald-400/12 text-emerald-100";
-    case "failed":
-      return "border-rose-400/20 bg-rose-400/12 text-rose-100";
-    case "running":
-      return "border-sky-400/20 bg-sky-400/12 text-sky-100";
-    default:
-      return "border-white/10 bg-white/6 text-white/75";
-  }
-}
-
-function JobRow({ job }: { job: JobSnapshot }) {
-  const progress = Math.max(
-    0,
-    Math.min(100, Math.round((job.progress ?? 0) * 100)),
-  );
-
-  return (
-    <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-white">
-              {jobKindLabel(job.kind)}
-            </p>
-            <span
-              className={`rounded-full border px-2 py-1 text-[0.65rem] tracking-[0.24em] uppercase ${jobPhaseClasses(job.phase)}`}
-            >
-              {job.phase || "queued"}
-            </span>
-          </div>
-          <p className="mt-2 text-sm text-white/55">
-            {job.message || "No status message yet"}
-          </p>
-          {job.error && (
-            <p className="mt-2 text-sm text-rose-200">{job.error}</p>
-          )}
-        </div>
-        <div className="text-right text-xs text-white/42">
-          <div>{formatDateTime(job.updatedAt)}</div>
-          <div className="mt-1 font-mono text-[0.68rem] tracking-[0.18em] text-white/28 uppercase">
-            {job.jobId}
-          </div>
-        </div>
-      </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/8">
-        <div
-          className="h-full rounded-full bg-[linear-gradient(90deg,rgba(249,115,22,0.9),rgba(14,165,233,0.72))] transition-[width] duration-300"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-    </div>
-  );
 }
 
 export function OperationsSurface() {
@@ -129,8 +49,20 @@ export function OperationsSurface() {
     runAction,
     scanPhase,
     state,
-    visibleJobs,
   } = useOperationsPage();
+  const notifications = useNotificationsStore((store) => store.notifications);
+  const activeNotifications = notifications.filter((notification) =>
+    isNotificationActive(notification.phase),
+  );
+  const recentNotifications = notifications.filter(
+    (notification) => !isNotificationActive(notification.phase),
+  );
+  const userNotificationCount = notifications.filter(
+    (notification) => notification.audience === "user",
+  ).length;
+  const systemNotificationCount = notifications.filter(
+    (notification) => notification.audience === "system",
+  ).length;
 
   if (state.loading) {
     return (
@@ -154,10 +86,11 @@ export function OperationsSurface() {
               Desktop core controls
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">
-              Manual scan and checkpoint actions now use the async desktop-core
-              job API with Wails job events feeding this page. Manual sync now
-              uses the same async job path, so long-running network catch-up no
-              longer blocks the operations screen.
+              Manual actions, background work, playback preparation, scan
+              activity, and transcodes now converge into one normalized work
+              feed. This page keeps the deeper operator diagnostics while
+              exposing the same notification IDs and state transitions used by
+              shell toasts and the activity center.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
@@ -708,38 +641,88 @@ export function OperationsSurface() {
             </div>
           </section>
 
-          <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
-                  <Clock3 className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-white">
-                    Recent jobs
-                  </h2>
-                  <p className="text-sm text-white/48">
-                    Jobs stream from desktop-core events for the active library.
-                  </p>
-                </div>
-              </div>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
-                {formatCount(state.jobs.length, "job")}
-              </span>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {visibleJobs.length === 0 ? (
-                <div className="rounded-[1.2rem] border border-dashed border-white/10 bg-black/10 px-4 py-5 text-sm text-white/48">
-                  No async jobs recorded for this library yet.
-                </div>
-              ) : (
-                visibleJobs.map((job) => <JobRow job={job} key={job.jobId} />)
-              )}
-            </div>
-          </section>
         </>
       )}
+
+      <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+              <Clock3 className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white">Work feed</h2>
+              <p className="text-sm text-white/48">
+                Shared notification stream used by the shell activity center,
+                Base UI toasts, and this debug surface.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+              {formatCount(activeNotifications.length, "active")}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+              {formatCount(userNotificationCount, "user")}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+              {formatCount(systemNotificationCount, "system")}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">
+                Active work
+              </h3>
+              <span className="text-[0.68rem] tracking-[0.2em] text-white/35 uppercase">
+                {formatCount(activeNotifications.length, "item")}
+              </span>
+            </div>
+            {activeNotifications.length === 0 ? (
+              <div className="rounded-[1.2rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-white/42">
+                No active notifications right now.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {activeNotifications.map((notification) => (
+                  <NotificationCard
+                    key={notification.id}
+                    notification={notification}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">
+                Recent history
+              </h3>
+              <span className="text-[0.68rem] tracking-[0.2em] text-white/35 uppercase">
+                {formatCount(recentNotifications.length, "item")}
+              </span>
+            </div>
+            {recentNotifications.length === 0 ? (
+              <div className="rounded-[1.2rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-white/42">
+                No completed or failed notifications captured yet.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recentNotifications.map((notification) => (
+                  <NotificationCard
+                    key={notification.id}
+                    notification={notification}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

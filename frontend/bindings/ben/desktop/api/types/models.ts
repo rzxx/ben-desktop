@@ -2124,6 +2124,148 @@ export enum NetworkSyncReason {
     NetworkSyncReasonTimer = "timer",
 };
 
+export enum NotificationAudience {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    NotificationAudienceUser = "user",
+    NotificationAudienceSystem = "system",
+};
+
+export enum NotificationImportance {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    NotificationImportanceImportant = "important",
+    NotificationImportanceNormal = "normal",
+    NotificationImportanceDebug = "debug",
+};
+
+export enum NotificationPhase {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    NotificationPhaseQueued = "queued",
+    NotificationPhaseRunning = "running",
+    NotificationPhaseSuccess = "success",
+    NotificationPhaseError = "error",
+};
+
+export class NotificationPreferences {
+    "verbosity": NotificationVerbosity;
+
+    /** Creates a new NotificationPreferences instance. */
+    constructor($$source: Partial<NotificationPreferences> = {}) {
+        if (!("verbosity" in $$source)) {
+            this["verbosity"] = NotificationVerbosity.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new NotificationPreferences instance from a string or object.
+     */
+    static createFrom($$source: any = {}): NotificationPreferences {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new NotificationPreferences($$parsedSource as Partial<NotificationPreferences>);
+    }
+}
+
+export class NotificationSnapshot {
+    "id": string;
+    "kind": string;
+    "libraryId"?: string;
+    "audience": NotificationAudience;
+    "importance": NotificationImportance;
+    "phase": NotificationPhase;
+    "message"?: string;
+    "error"?: string;
+    "progress"?: number;
+    "sticky"?: boolean;
+    "createdAt": time$0.Time;
+    "updatedAt": time$0.Time;
+    "finishedAt"?: time$0.Time;
+    "subject"?: NotificationSubject | null;
+
+    /** Creates a new NotificationSnapshot instance. */
+    constructor($$source: Partial<NotificationSnapshot> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
+        }
+        if (!("audience" in $$source)) {
+            this["audience"] = NotificationAudience.$zero;
+        }
+        if (!("importance" in $$source)) {
+            this["importance"] = NotificationImportance.$zero;
+        }
+        if (!("phase" in $$source)) {
+            this["phase"] = NotificationPhase.$zero;
+        }
+        if (!("createdAt" in $$source)) {
+            this["createdAt"] = null;
+        }
+        if (!("updatedAt" in $$source)) {
+            this["updatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new NotificationSnapshot instance from a string or object.
+     */
+    static createFrom($$source: any = {}): NotificationSnapshot {
+        const $$createField13_0 = $$createType28;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("subject" in $$parsedSource) {
+            $$parsedSource["subject"] = $$createField13_0($$parsedSource["subject"]);
+        }
+        return new NotificationSnapshot($$parsedSource as Partial<NotificationSnapshot>);
+    }
+}
+
+export class NotificationSubject {
+    "recordingId"?: string;
+    "title"?: string;
+    "subtitle"?: string;
+    "artworkRef"?: string;
+
+    /** Creates a new NotificationSubject instance. */
+    constructor($$source: Partial<NotificationSubject> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new NotificationSubject instance from a string or object.
+     */
+    static createFrom($$source: any = {}): NotificationSubject {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new NotificationSubject($$parsedSource as Partial<NotificationSubject>);
+    }
+}
+
+export enum NotificationVerbosity {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    NotificationVerbosityImportant = "important",
+    NotificationVerbosityUserActivity = "user_activity",
+    NotificationVerbosityEverything = "everything",
+};
+
 export class OplogDiagnosticsGroup {
     "Key": string;
     "Count": number;
@@ -2196,8 +2338,8 @@ export class Page<T> {
      * of the generic class Page.
      */
     static createFrom<T = any>($$createParamT: (source: any) => T): ($$source?: any) => Page<T> {
-        const $$createField0_0 = $$createType27($$createParamT);
-        const $$createField1_0 = $$createType28;
+        const $$createField0_0 = $$createType29($$createParamT);
+        const $$createField1_0 = $$createType30;
         return ($$source: any = {}) => {
             let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
             if ("Items" in $$parsedSource) {
@@ -2894,10 +3036,10 @@ export class RecordingAvailabilityOverview {
      * Creates a new RecordingAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingAvailabilityOverview {
-        const $$createField2_0 = $$createType29;
-        const $$createField3_0 = $$createType30;
-        const $$createField4_0 = $$createType32;
-        const $$createField5_0 = $$createType34;
+        const $$createField2_0 = $$createType31;
+        const $$createField3_0 = $$createType32;
+        const $$createField4_0 = $$createType34;
+        const $$createField5_0 = $$createType36;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Playback" in $$parsedSource) {
             $$parsedSource["Playback"] = $$createField2_0($$parsedSource["Playback"]);
@@ -3095,8 +3237,8 @@ export class RecordingVariantAvailabilityOverview {
      * Creates a new RecordingVariantAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingVariantAvailabilityOverview {
-        const $$createField0_0 = $$createType35;
-        const $$createField1_0 = $$createType32;
+        const $$createField0_0 = $$createType37;
+        const $$createField1_0 = $$createType34;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Variant" in $$parsedSource) {
             $$parsedSource["Variant"] = $$createField0_0($$parsedSource["Variant"]);
@@ -3482,12 +3624,14 @@ const $$createType23 = OplogRecencyBucket.createFrom;
 const $$createType24 = $Create.Array($$createType23);
 const $$createType25 = LibraryMaterializedCounts.createFrom;
 const $$createType26 = TranscodeOplogDiagnostics.createFrom;
-const $$createType27 = ($$createParamT: any) => $Create.Array($$createParamT);
-const $$createType28 = PageInfo.createFrom;
-const $$createType29 = RecordingPlaybackAvailability.createFrom;
-const $$createType30 = TrackAvailabilitySummary.createFrom;
-const $$createType31 = RecordingAvailabilityItem.createFrom;
-const $$createType32 = $Create.Array($$createType31);
-const $$createType33 = RecordingVariantAvailabilityOverview.createFrom;
+const $$createType27 = NotificationSubject.createFrom;
+const $$createType28 = $Create.Nullable($$createType27);
+const $$createType29 = ($$createParamT: any) => $Create.Array($$createParamT);
+const $$createType30 = PageInfo.createFrom;
+const $$createType31 = RecordingPlaybackAvailability.createFrom;
+const $$createType32 = TrackAvailabilitySummary.createFrom;
+const $$createType33 = RecordingAvailabilityItem.createFrom;
 const $$createType34 = $Create.Array($$createType33);
-const $$createType35 = RecordingVariantItem.createFrom;
+const $$createType35 = RecordingVariantAvailabilityOverview.createFrom;
+const $$createType36 = $Create.Array($$createType35);
+const $$createType37 = RecordingVariantItem.createFrom;

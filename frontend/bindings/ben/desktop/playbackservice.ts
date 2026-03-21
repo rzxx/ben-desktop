@@ -193,6 +193,10 @@ export function SubscribePlaybackEvents(): $CancellablePromise<string> {
     return $Call.ByID(4115999572);
 }
 
+export function SubscribeSnapshots(listener: any): $CancellablePromise<any> {
+    return $Call.ByID(4017242129, listener);
+}
+
 export function TogglePlayback(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(934724953).then(($result: any) => {
         return $$createType0($result);

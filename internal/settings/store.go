@@ -10,7 +10,8 @@ import (
 )
 
 type State struct {
-	Core CoreRuntimeSettings `json:"core,omitempty"`
+	Core          CoreRuntimeSettings      `json:"core,omitempty"`
+	Notifications NotificationUISettings  `json:"notifications,omitempty"`
 }
 
 type CoreRuntimeSettings struct {
@@ -19,6 +20,10 @@ type CoreRuntimeSettings struct {
 	IdentityKeyPath  string `json:"identityKeyPath,omitempty"`
 	FFmpegPath       string `json:"ffmpegPath,omitempty"`
 	TranscodeProfile string `json:"transcodeProfile,omitempty"`
+}
+
+type NotificationUISettings struct {
+	Verbosity string `json:"verbosity,omitempty"`
 }
 
 const (
@@ -106,6 +111,7 @@ func (s *Store) Close() error {
 
 func normalizeState(state State) State {
 	state.Core = normalizeCoreRuntimeSettings(state.Core)
+	state.Notifications = normalizeNotificationUISettings(state.Notifications)
 	return state
 }
 
@@ -115,6 +121,11 @@ func normalizeCoreRuntimeSettings(settings CoreRuntimeSettings) CoreRuntimeSetti
 	settings.IdentityKeyPath = strings.TrimSpace(settings.IdentityKeyPath)
 	settings.FFmpegPath = strings.TrimSpace(settings.FFmpegPath)
 	settings.TranscodeProfile = NormalizeTranscodeProfile(settings.TranscodeProfile)
+	return settings
+}
+
+func normalizeNotificationUISettings(settings NotificationUISettings) NotificationUISettings {
+	settings.Verbosity = NormalizeNotificationVerbosity(settings.Verbosity)
 	return settings
 }
 
@@ -132,4 +143,15 @@ func EffectiveTranscodeProfile(value string) string {
 		return DefaultTranscodeProfile
 	}
 	return value
+}
+
+func NormalizeNotificationVerbosity(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "important":
+		return "important"
+	case "everything":
+		return "everything"
+	default:
+		return "user_activity"
+	}
 }

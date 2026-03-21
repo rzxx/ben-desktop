@@ -1,4 +1,3 @@
-import { Events } from "@wailsio/runtime";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ActivityStatus,
@@ -9,7 +8,6 @@ import type {
   LibrarySummary,
   LocalContext,
 } from "@/lib/api/models";
-import { DesktopCoreModels } from "@/lib/api/models";
 import {
   addScanRoots,
   getActiveLibrary,
@@ -24,7 +22,6 @@ import {
   getLibraryOplogDiagnostics,
   getLocalContext,
 } from "@/lib/api/network";
-import { listJobs, subscribeJobEvents } from "@/lib/api/jobs";
 
 type OperationsState = {
   loading: boolean;
@@ -35,12 +32,10 @@ type OperationsState = {
   activity: ActivityStatus | null;
   inspect: InspectSummary | null;
   oplog: LibraryOplogDiagnostics | null;
-  jobs: JobSnapshot[];
   error: string;
 };
 
 const SUMMARY_REFRESH_DEBOUNCE_MS = 400;
-const MAX_VISIBLE_JOBS = 12;
 
 const initialState: OperationsState = {
   loading: true,
@@ -51,7 +46,6 @@ const initialState: OperationsState = {
   activity: null,
   inspect: null,
   oplog: null,
-  jobs: [],
   error: "",
 };
 
@@ -73,36 +67,6 @@ function canProvideLocalMedia(role: string) {
 function canManageLibrary(role: string) {
   const normalized = normalizeRole(role);
   return normalized === "owner" || normalized === "admin";
-}
-
-function timeValue(value?: Date | string | null) {
-  if (!value) {
-    return 0;
-  }
-  const date = value instanceof Date ? value : new Date(value);
-  const timestamp = date.getTime();
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function sortJobs(jobs: JobSnapshot[]) {
-  return [...jobs].sort((left, right) => {
-    const updatedDiff = timeValue(right.updatedAt) - timeValue(left.updatedAt);
-    if (updatedDiff !== 0) {
-      return updatedDiff;
-    }
-    const createdDiff = timeValue(right.createdAt) - timeValue(left.createdAt);
-    if (createdDiff !== 0) {
-      return createdDiff;
-    }
-    return left.jobId.localeCompare(right.jobId);
-  });
-}
-
-function upsertJobSnapshot(jobs: JobSnapshot[], snapshot: JobSnapshot) {
-  return sortJobs([
-    snapshot,
-    ...jobs.filter((job) => job.jobId !== snapshot.jobId),
-  ]);
 }
 
 function formatGroupCounts(
@@ -146,7 +110,6 @@ function jobKindLabel(kind: string) {
 
 export function useOperationsPage() {
   const mountedRef = useRef(true);
-  const activeLibraryIdRef = useRef("");
   const refreshTimerRef = useRef<number | null>(null);
   const [state, setState] = useState<OperationsState>(initialState);
   const [pendingAction, setPendingAction] = useState("");
@@ -165,7 +128,6 @@ export function useOperationsPage() {
       }
 
       if (!found || !library.LibraryID) {
-        activeLibraryIdRef.current = "";
         setState({
           loading: false,
           library: null,
@@ -175,20 +137,17 @@ export function useOperationsPage() {
           activity: null,
           inspect: null,
           oplog: null,
-          jobs: [],
           error: "",
         });
         return;
       }
 
-      activeLibraryIdRef.current = library.LibraryID;
       const results = await Promise.allSettled([
         getScanRoots(),
         getCheckpointStatus(),
         getActivityStatus(),
         getInspectSummary(),
         getLibraryOplogDiagnostics(library.LibraryID),
-        listJobs(library.LibraryID),
       ]);
 
       if (!mountedRef.current) {
@@ -201,7 +160,6 @@ export function useOperationsPage() {
         activityResult,
         inspectResult,
         oplogResult,
-        jobsResult,
       ] = results;
       const nextError = results.find((result) => result.status === "rejected");
 
@@ -219,8 +177,6 @@ export function useOperationsPage() {
         inspect:
           inspectResult.status === "fulfilled" ? inspectResult.value : null,
         oplog: oplogResult.status === "fulfilled" ? oplogResult.value : null,
-        jobs:
-          jobsResult.status === "fulfilled" ? sortJobs(jobsResult.value) : [],
         error:
           nextError?.status === "rejected"
             ? describeError(nextError.reason)
@@ -261,39 +217,6 @@ export function useOperationsPage() {
     mountedRef.current = true;
     void refresh();
 
-    let disposed = false;
-    let stopListening: (() => void) | undefined;
-
-    void subscribeJobEvents()
-      .then((eventName) => {
-        if (disposed) {
-          return;
-        }
-        stopListening = Events.On(eventName, (event) => {
-          const snapshot = DesktopCoreModels.JobSnapshot.createFrom(event.data);
-          if (
-            !activeLibraryIdRef.current ||
-            snapshot.libraryId !== activeLibraryIdRef.current
-          ) {
-            return;
-          }
-          setState((current) => ({
-            ...current,
-            jobs: upsertJobSnapshot(current.jobs, snapshot),
-          }));
-          scheduleRefresh();
-        });
-      })
-      .catch((error) => {
-        if (!mountedRef.current) {
-          return;
-        }
-        setState((current) => ({
-          ...current,
-          error: describeError(error),
-        }));
-      });
-
     const handleWindowFocus = () => {
       scheduleRefresh(0);
     };
@@ -306,13 +229,11 @@ export function useOperationsPage() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      disposed = true;
       mountedRef.current = false;
       if (refreshTimerRef.current !== null) {
         window.clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;
       }
-      stopListening?.();
       window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -333,15 +254,6 @@ export function useOperationsPage() {
           return;
         }
         setFeedback(`${successLabel}: ${jobKindLabel(job.kind)} queued`);
-        if (
-          activeLibraryIdRef.current &&
-          job.libraryId === activeLibraryIdRef.current
-        ) {
-          setState((current) => ({
-            ...current,
-            jobs: upsertJobSnapshot(current.jobs, job),
-          }));
-        }
         scheduleRefresh(0);
       } catch (error) {
         if (!mountedRef.current) {
@@ -398,7 +310,6 @@ export function useOperationsPage() {
   const canScan = canProvideLocalMedia(role);
   const canCheckpoint = canManageLibrary(role);
   const scanPhase = state.activity?.Scan?.Phase || "idle";
-  const visibleJobs = state.jobs.slice(0, MAX_VISIBLE_JOBS);
   const oplogEntityCounts = formatGroupCounts(
     state.oplog?.OplogByEntityType,
   ).slice(0, 6);
@@ -424,6 +335,5 @@ export function useOperationsPage() {
     runAction,
     scanPhase,
     state,
-    visibleJobs,
   };
 }

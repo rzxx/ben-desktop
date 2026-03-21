@@ -1,13 +1,17 @@
 import { type MouseEvent, type ReactNode } from "react";
 import { Window } from "@wailsio/runtime";
-import { Copy, Minus, Square, X } from "lucide-react";
+import { Bell, BellRing, Bug, Copy, Minus, Square, X } from "lucide-react";
 import {
   toggleWindowMaximised,
   useWindowMaximised,
 } from "@/hooks/app/useWindowMaximised";
+import { useNotificationsStore } from "@/stores/notifications/store";
 
 export function TitleBar() {
   const isMaximised = useWindowMaximised();
+  const preferences = useNotificationsStore((state) => state.preferences);
+  const toggleCenter = useNotificationsStore((state) => state.toggleCenter);
+  const setVerbosity = useNotificationsStore((state) => state.setVerbosity);
   const handleDoubleClick = (event: MouseEvent<HTMLElement>) => {
     if (event.button !== 0) {
       return;
@@ -35,6 +39,22 @@ export function TitleBar() {
       </div>
 
       <div className="wails-no-drag flex h-full items-center gap-px">
+        <ControlButton
+          label="Open notifications"
+          onClick={() => {
+            toggleCenter();
+          }}
+        >
+          <NotificationGlyph verbosity={preferences.verbosity} />
+        </ControlButton>
+        <WideControlButton
+          label={`Notification level: ${preferences.verbosity}`}
+          onClick={() => {
+            void setVerbosity(nextVerbosity(preferences.verbosity));
+          }}
+        >
+          <span className="truncate">{verbosityLabel(preferences.verbosity)}</span>
+        </WideControlButton>
         <ControlButton
           label="Minimise"
           onClick={() => {
@@ -97,4 +117,51 @@ function ControlButton(props: ControlButtonProps) {
       {props.children}
     </button>
   );
+}
+
+function WideControlButton(props: ControlButtonProps) {
+  return (
+    <button
+      type="button"
+      aria-label={props.label}
+      title={props.label}
+      onClick={props.onClick}
+      className="wails-no-drag text-theme-200 hover:bg-theme-800 hover:text-theme-100 inline-flex h-full max-w-28 items-center justify-center px-3 text-[0.65rem] tracking-[0.18em] uppercase transition-colors"
+    >
+      {props.children}
+    </button>
+  );
+}
+
+function NotificationGlyph({ verbosity }: { verbosity?: string }) {
+  switch (verbosity) {
+    case "important":
+      return <Bell className="h-4 w-4" />;
+    case "everything":
+      return <Bug className="h-4 w-4" />;
+    default:
+      return <BellRing className="h-4 w-4" />;
+  }
+}
+
+function verbosityLabel(verbosity?: string) {
+  switch (verbosity) {
+    case "important":
+      return "Important";
+    case "everything":
+      return "Everything";
+    default:
+      return "User";
+  }
+}
+
+function nextVerbosity(verbosity?: string) {
+  switch (verbosity) {
+    case "important":
+      return "user_activity";
+    case "user_activity":
+      return "everything";
+    default:
+      return "important";
+  }
 }
