@@ -8,6 +8,26 @@ import (
 	"ben/desktop/internal/desktopcore"
 )
 
+func newNotificationFacadeForTest(now *time.Time, emitted *[]apitypes.NotificationSnapshot) *NotificationsFacade {
+	return &NotificationsFacade{
+		notifications:     make(map[string]apitypes.NotificationSnapshot),
+		activeTranscodes:  make(map[string]apitypes.NotificationSnapshot),
+		scanEmitStates:    make(map[string]notificationEmitState),
+		artworkEmitStates: make(map[string]notificationEmitState),
+		now: func() time.Time {
+			if now == nil {
+				return time.Now().UTC()
+			}
+			return *now
+		},
+		emitNotification: func(notification apitypes.NotificationSnapshot) {
+			if emitted != nil {
+				*emitted = append(*emitted, notification)
+			}
+		},
+	}
+}
+
 func TestNotificationFromJobMapsClassificationAndPhase(t *testing.T) {
 	job := desktopcore.JobSnapshot{
 		JobID:     "job-1",
@@ -228,5 +248,237 @@ func TestArtworkActivityReusesSingleNotificationAcrossSequentialAlbums(t *testin
 	}
 	if notification.Message != "Generating artwork for album-2" {
 		t.Fatalf("second artwork message = %q", notification.Message)
+	}
+}
+
+func TestScanRunningNotificationsAreCoalesced(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 4)
+	_jsii := newNotificationFacadeForTest(&now, &emitted)
+	_jsii.setScanNotificationMetadata(
+		"scan-library",
+		apitypes.NotificationAudienceUser,
+		apitypes.NotificationImportanceNormal,
+	)
+
+	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
+		Phase:         "ingesting",
+		TracksDone:    1,
+		TracksTotal:   100,
+		WorkersActive: 1,
+	})
+
+	now = now.Add(100 * time.Millisecond)
+	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
+		Phase:       "ingesting",
+		TracksDone:  2,
+		TracksTotal: 100,
+	})
+
+	now = now.Add(100 * time.Millisecond)
+	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
+		Phase:       "ingesting",
+		TracksDone:  3,
+		TracksTotal: 100,
+	})
+
+	if len(emitted) != 1 {
+		t.Fatalf("emitted notifications = %d, want 1", len(emitted))
+	}
+	if emitted[0].Phase != apitypes.NotificationPhaseRunning {
+		t.Fatalf("emitted phase = %q, want %q", emitted[0].Phase, apitypes.NotificationPhaseRunning)
+	}
+}
+
+func TestScanQueuedAndTerminalNotificationsBypassThrottle(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 4)
+	_jsii := newNotificationFacadeForTest(&now, &emitted)
+
+	_jsii.handleScanJobSnapshot(desktopcore.JobSnapshot{
+		JobID:     "scan-job-1",
+		Kind:      "scan-library",
+		LibraryID: "lib-1",
+		Phase:     desktopcore.JobPhaseQueued,
+		Message:   "queued library scan",
+	})
+
+	now = now.Add(10 * time.Millisecond)
+	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
+		Phase:         "ingesting",
+		TracksDone:    1,
+		TracksTotal:   100,
+		WorkersActive: 1,
+	})
+
+	now = now.Add(10 * time.Millisecond)
+	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
+		Phase:       "completed",
+		TracksDone:  100,
+		TracksTotal: 100,
+	})
+
+	if len(emitted) != 3 {
+		t.Fatalf("emitted notifications = %d, want 3", len(emitted))
+	}
+	if emitted[0].Phase != apitypes.NotificationPhaseQueued {
+		t.Fatalf("queued phase = %q, want %q", emitted[0].Phase, apitypes.NotificationPhaseQueued)
+	}
+	if emitted[2].Phase != apitypes.NotificationPhaseSuccess {
+		t.Fatalf("terminal phase = %q, want %q", emitted[2].Phase, apitypes.NotificationPhaseSuccess)
+	}
+}
+
+func TestScanRunningJobSnapshotsOnlyUpdateMetadata(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 2)
+	_jsii := newNotificationFacadeForTest(&now, &emitted)
+
+	_jsii.handleScanJobSnapshot(desktopcore.JobSnapshot{
+		JobID:     "scan-job-1",
+		Kind:      "scan-library",
+		LibraryID: "lib-1",
+		Phase:     desktopcore.JobPhaseQueued,
+		Message:   "queued library scan",
+	})
+
+	now = now.Add(5 * time.Millisecond)
+	_jsii.handleScanJobSnapshot(desktopcore.JobSnapshot{
+		JobID:     "scan-job-1",
+		Kind:      "scan-library",
+		LibraryID: "lib-1",
+		Phase:     desktopcore.JobPhaseRunning,
+		Message:   "ingesting track",
+		Progress:  0.15,
+	})
+
+	if len(emitted) != 1 {
+		t.Fatalf("emitted notifications = %d, want 1", len(emitted))
+	}
+	if got := _jsii.scanNotificationKind; got != "scan-library" {
+		t.Fatalf("scan notification kind = %q, want %q", got, "scan-library")
+	}
+}
+
+func TestSuppressedScanNotificationStillUpdatesStoredSnapshot(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 2)
+	_jsii := newNotificationFacadeForTest(&now, &emitted)
+	_jsii.setScanNotificationMetadata(
+		"scan-library",
+		apitypes.NotificationAudienceUser,
+		apitypes.NotificationImportanceNormal,
+	)
+
+	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
+		Phase:         "ingesting",
+		TracksDone:    1,
+		TracksTotal:   100,
+		WorkersActive: 1,
+	})
+
+	now = now.Add(100 * time.Millisecond)
+	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
+		Phase:       "ingesting",
+		TracksDone:  2,
+		TracksTotal: 100,
+	})
+
+	notifications := _jsii.ListNotifications()
+	if len(notifications) != 1 {
+		t.Fatalf("notification count = %d, want 1", len(notifications))
+	}
+	if len(emitted) != 1 {
+		t.Fatalf("emitted notifications = %d, want 1", len(emitted))
+	}
+	if got := notifications[0].Progress; got != 0.02 {
+		t.Fatalf("stored progress = %v, want %v", got, 0.02)
+	}
+	if notifications[0].UpdatedAt != now {
+		t.Fatalf("stored updated at = %v, want %v", notifications[0].UpdatedAt, now)
+	}
+}
+
+func TestArtworkRunningNotificationsAreCoalesced(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 4)
+	_jsii := newNotificationFacadeForTest(&now, &emitted)
+
+	_jsii.handleArtworkActivity(apitypes.ArtworkActivityStatus{
+		Phase:          "running",
+		AlbumsTotal:    100,
+		CurrentAlbumID: "album-1",
+	})
+
+	now = now.Add(100 * time.Millisecond)
+	_jsii.handleArtworkActivity(apitypes.ArtworkActivityStatus{
+		Phase:          "running",
+		AlbumsTotal:    100,
+		AlbumsDone:     1,
+		CurrentAlbumID: "album-2",
+	})
+
+	if len(emitted) != 1 {
+		t.Fatalf("emitted notifications = %d, want 1", len(emitted))
+	}
+}
+
+func TestArtworkTerminalNotificationsBypassThrottle(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 4)
+	_jsii := newNotificationFacadeForTest(&now, &emitted)
+
+	_jsii.handleArtworkActivity(apitypes.ArtworkActivityStatus{
+		Phase:          "running",
+		AlbumsTotal:    10,
+		CurrentAlbumID: "album-1",
+	})
+
+	now = now.Add(10 * time.Millisecond)
+	_jsii.handleArtworkActivity(apitypes.ArtworkActivityStatus{
+		Phase:       "completed",
+		AlbumsTotal: 10,
+		AlbumsDone:  10,
+	})
+
+	if len(emitted) != 2 {
+		t.Fatalf("emitted notifications = %d, want 2", len(emitted))
+	}
+	if emitted[1].Phase != apitypes.NotificationPhaseSuccess {
+		t.Fatalf("terminal phase = %q, want %q", emitted[1].Phase, apitypes.NotificationPhaseSuccess)
+	}
+}
+
+func TestSuppressedArtworkNotificationStillUpdatesStoredSnapshot(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 2)
+	_jsii := newNotificationFacadeForTest(&now, &emitted)
+
+	_jsii.handleArtworkActivity(apitypes.ArtworkActivityStatus{
+		Phase:          "running",
+		AlbumsTotal:    100,
+		CurrentAlbumID: "album-1",
+	})
+
+	now = now.Add(100 * time.Millisecond)
+	_jsii.handleArtworkActivity(apitypes.ArtworkActivityStatus{
+		Phase:          "running",
+		AlbumsTotal:    100,
+		AlbumsDone:     1,
+		CurrentAlbumID: "album-2",
+	})
+
+	notifications := _jsii.ListNotifications()
+	if len(notifications) != 1 {
+		t.Fatalf("notification count = %d, want 1", len(notifications))
+	}
+	if len(emitted) != 1 {
+		t.Fatalf("emitted notifications = %d, want 1", len(emitted))
+	}
+	if got := notifications[0].Progress; got != 0.01 {
+		t.Fatalf("stored progress = %v, want %v", got, 0.01)
+	}
+	if notifications[0].Message != "Generating artwork for album-2" {
+		t.Fatalf("stored message = %q, want %q", notifications[0].Message, "Generating artwork for album-2")
 	}
 }

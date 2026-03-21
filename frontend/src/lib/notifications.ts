@@ -11,10 +11,36 @@ export function upsertNotificationSnapshots(
   current: NotificationSnapshot[],
   next: NotificationSnapshot,
 ) {
-  return sortNotifications([
-    next,
-    ...current.filter((notification) => notification.id !== next.id),
-  ]);
+  return applyNotificationSnapshotBatch(current, [next]);
+}
+
+export function applyNotificationSnapshotBatch(
+  current: NotificationSnapshot[],
+  incoming: NotificationSnapshot[],
+) {
+  if (incoming.length === 0) {
+    return current;
+  }
+
+  const notificationsById = new Map(
+    current.map((notification) => [notification.id, notification] as const),
+  );
+  let changed = false;
+
+  for (const next of incoming) {
+    const previous = notificationsById.get(next.id);
+    if (previous && notificationsEqual(previous, next)) {
+      continue;
+    }
+    notificationsById.set(next.id, next);
+    changed = true;
+  }
+
+  if (!changed) {
+    return current;
+  }
+
+  return sortNotifications(Array.from(notificationsById.values()));
 }
 
 export function sortNotifications(notifications: NotificationSnapshot[]) {
@@ -33,7 +59,9 @@ export function sortNotifications(notifications: NotificationSnapshot[]) {
   });
 }
 
-export function isNotificationActive(phase?: NotificationPhase | string | null) {
+export function isNotificationActive(
+  phase?: NotificationPhase | string | null,
+) {
   return phase === "queued" || phase === "running";
 }
 
@@ -46,7 +74,10 @@ export function shouldToastNotification(
   }
   switch (verbosity) {
     case "important":
-      return notification.audience === "user" && notification.importance === "important";
+      return (
+        notification.audience === "user" &&
+        notification.importance === "important"
+      );
     case "everything":
       return true;
     default:
@@ -206,4 +237,44 @@ function importanceLabel(importance?: string | null) {
     default:
       return "";
   }
+}
+
+function notificationsEqual(
+  left: NotificationSnapshot,
+  right: NotificationSnapshot,
+) {
+  return (
+    left.id === right.id &&
+    left.kind === right.kind &&
+    left.libraryId === right.libraryId &&
+    left.audience === right.audience &&
+    left.importance === right.importance &&
+    left.phase === right.phase &&
+    left.message === right.message &&
+    left.error === right.error &&
+    left.progress === right.progress &&
+    left.sticky === right.sticky &&
+    String(left.createdAt ?? "") === String(right.createdAt ?? "") &&
+    String(left.updatedAt ?? "") === String(right.updatedAt ?? "") &&
+    String(left.finishedAt ?? "") === String(right.finishedAt ?? "") &&
+    notificationSubjectsEqual(left.subject, right.subject)
+  );
+}
+
+function notificationSubjectsEqual(
+  left?: NotificationSnapshot["subject"] | null,
+  right?: NotificationSnapshot["subject"] | null,
+) {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.recordingId === right.recordingId &&
+    left.title === right.title &&
+    left.subtitle === right.subtitle &&
+    left.artworkRef === right.artworkRef
+  );
 }

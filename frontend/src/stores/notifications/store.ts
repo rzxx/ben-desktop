@@ -12,10 +12,40 @@ import {
   subscribeNotificationEvents,
 } from "@/lib/api/notifications";
 import {
+  applyNotificationSnapshotBatch,
   type NotificationFilter,
   sortNotifications,
-  upsertNotificationSnapshots,
 } from "@/lib/notifications";
+
+const queuedNotifications = new Map<string, NotificationSnapshot>();
+let scheduledFlush: number | null = null;
+
+function scheduleNotificationFlush() {
+  if (scheduledFlush !== null) {
+    return;
+  }
+  scheduledFlush = window.requestAnimationFrame(() => {
+    scheduledFlush = null;
+    flushQueuedNotifications();
+  });
+}
+
+function flushQueuedNotifications() {
+  if (queuedNotifications.size === 0) {
+    return;
+  }
+  const batch = Array.from(queuedNotifications.values());
+  queuedNotifications.clear();
+  useNotificationsStore.getState().applyNotificationBatch(batch);
+}
+
+function cancelNotificationFlush() {
+  if (scheduledFlush !== null) {
+    window.cancelAnimationFrame(scheduledFlush);
+    scheduledFlush = null;
+  }
+  queuedNotifications.clear();
+}
 
 type NotificationsStore = {
   started: boolean;
@@ -27,7 +57,7 @@ type NotificationsStore = {
   bootstrap: () => Promise<void>;
   teardown: () => void;
   setNotifications: (notifications: NotificationSnapshot[]) => void;
-  upsertNotification: (notification: NotificationSnapshot) => void;
+  applyNotificationBatch: (notifications: NotificationSnapshot[]) => void;
   setCenterOpen: (open: boolean) => void;
   toggleCenter: () => void;
   setCenterFilter: (filter: NotificationFilter) => void;
@@ -52,11 +82,11 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
     });
   },
 
-  upsertNotification: (notification) => {
+  applyNotificationBatch: (notifications) => {
     set((current) => ({
-      notifications: upsertNotificationSnapshots(
+      notifications: applyNotificationSnapshotBatch(
         current.notifications,
-        notification,
+        notifications,
       ),
     }));
   },
@@ -74,7 +104,8 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
 
     const stopListening = Events.On(eventName, (event) => {
       const notification = Types.NotificationSnapshot.createFrom(event.data);
-      get().upsertNotification(notification);
+      queuedNotifications.set(notification.id, notification);
+      scheduleNotificationFlush();
     });
 
     set({
@@ -87,6 +118,7 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
 
   teardown: () => {
     get().stopListening?.();
+    cancelNotificationFlush();
     set({
       started: false,
       stopListening: undefined,

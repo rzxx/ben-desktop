@@ -17,11 +17,28 @@ import (
 
 const EventNotificationChanged = "notifications:snapshot"
 
+const (
+	scanNotificationEmitInterval         = 250 * time.Millisecond
+	scanNotificationEmitProgressDelta    = 0.02
+	artworkNotificationEmitInterval      = 250 * time.Millisecond
+	artworkNotificationEmitProgressDelta = 0.02
+)
+
+type notificationEmitState struct {
+	LastEmittedAt       time.Time
+	LastEmittedProgress float64
+	LastEmittedPhase    apitypes.NotificationPhase
+	HasEmitted          bool
+}
+
 type NotificationsFacade struct {
 	host     *coreHost
 	playback *PlaybackService
 
 	mu sync.Mutex
+
+	now              func() time.Time
+	emitNotification func(apitypes.NotificationSnapshot)
 
 	app           *application.App
 	notifications map[string]apitypes.NotificationSnapshot
@@ -32,9 +49,11 @@ type NotificationsFacade struct {
 	scanNotificationKind  string
 	scanAudience          apitypes.NotificationAudience
 	scanImportance        apitypes.NotificationImportance
+	scanEmitStates        map[string]notificationEmitState
 
 	artworkNotificationID    string
 	artworkNotificationPhase string
+	artworkEmitStates        map[string]notificationEmitState
 
 	activeTranscodes map[string]apitypes.NotificationSnapshot
 
@@ -44,10 +63,13 @@ type NotificationsFacade struct {
 
 func NewNotificationsFacade(host *coreHost, playbackService *PlaybackService) *NotificationsFacade {
 	return &NotificationsFacade{
-		host:             host,
-		playback:         playbackService,
-		notifications:    make(map[string]apitypes.NotificationSnapshot),
-		activeTranscodes: make(map[string]apitypes.NotificationSnapshot),
+		host:              host,
+		now:               func() time.Time { return time.Now().UTC() },
+		playback:          playbackService,
+		notifications:     make(map[string]apitypes.NotificationSnapshot),
+		scanEmitStates:    make(map[string]notificationEmitState),
+		artworkEmitStates: make(map[string]notificationEmitState),
+		activeTranscodes:  make(map[string]apitypes.NotificationSnapshot),
 	}
 }
 
@@ -224,6 +246,12 @@ func (s *NotificationsFacade) handleArtworkActivity(status apitypes.ArtworkActiv
 }
 
 func (s *NotificationsFacade) handleScanJobSnapshot(job desktopcore.JobSnapshot) {
+	kind := strings.TrimSpace(job.Kind)
+	audience, importance := classifyJob(kind)
+	s.setScanNotificationMetadata(kind, audience, importance)
+	if job.Phase == desktopcore.JobPhaseRunning {
+		return
+	}
 	phase := notificationPhaseFromJob(job.Phase)
 	if phase == "" {
 		return
@@ -232,9 +260,6 @@ func (s *NotificationsFacade) handleScanJobSnapshot(job desktopcore.JobSnapshot)
 	if id == "" {
 		return
 	}
-	kind := strings.TrimSpace(job.Kind)
-	audience, importance := classifyJob(kind)
-	s.setScanNotificationMetadata(kind, audience, importance)
 	s.upsertNotification(apitypes.NotificationSnapshot{
 		ID:         id,
 		Kind:       kind,
@@ -377,12 +402,15 @@ func (s *NotificationsFacade) activityNotificationID(kind string, phase apitypes
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	nowID := kind + ":" + fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	nowID := kind + ":" + fmt.Sprintf("%d", s.currentTime().UnixNano())
 	switch kind {
 	case "scan":
 		switch phase {
 		case apitypes.NotificationPhaseQueued, apitypes.NotificationPhaseRunning:
 			if s.scanNotificationID == "" || !isNotificationActivePhase(s.scanNotificationPhase) {
+				if s.scanNotificationID != "" && s.scanNotificationID != nowID {
+					delete(s.scanEmitStates, s.scanNotificationID)
+				}
 				s.scanNotificationID = nowID
 			}
 			s.scanNotificationPhase = string(phase)
@@ -423,7 +451,7 @@ func (s *NotificationsFacade) ensurePlaybackNotificationID(recordingID string) s
 	defer s.mu.Unlock()
 
 	if s.playbackNotificationID == "" || s.playbackRecordingID != recordingID {
-		s.playbackNotificationID = "playback:" + recordingID + ":" + fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+		s.playbackNotificationID = "playback:" + recordingID + ":" + fmt.Sprintf("%d", s.currentTime().UnixNano())
 	}
 	s.playbackRecordingID = recordingID
 	return s.playbackNotificationID
@@ -491,12 +519,18 @@ func (s *NotificationsFacade) notificationByID(id string) (apitypes.Notification
 }
 
 func (s *NotificationsFacade) upsertNotification(notification apitypes.NotificationSnapshot) {
-	notification = normalizeNotificationSnapshot(notification)
+	notification = normalizeNotificationSnapshotAt(notification, s.currentTime())
 	if notification.ID == "" {
 		return
 	}
 
 	s.mu.Lock()
+	if s.scanEmitStates == nil {
+		s.scanEmitStates = make(map[string]notificationEmitState)
+	}
+	if s.artworkEmitStates == nil {
+		s.artworkEmitStates = make(map[string]notificationEmitState)
+	}
 	existing, ok := s.notifications[notification.ID]
 	if ok {
 		notification.CreatedAt = existing.CreatedAt
@@ -509,15 +543,42 @@ func (s *NotificationsFacade) upsertNotification(notification apitypes.Notificat
 	}
 	s.notifications[notification.ID] = notification
 	app := s.app
+	shouldEmit := true
+	if isScanNotification(notification) {
+		shouldEmit = shouldEmitActivityNotificationLocked(
+			notification,
+			s.scanEmitStates,
+			scanNotificationEmitInterval,
+			scanNotificationEmitProgressDelta,
+			true,
+		)
+		if shouldEmit {
+			recordActivityNotificationEmitLocked(notification, s.scanEmitStates)
+		}
+	} else if isArtworkNotification(notification) {
+		shouldEmit = shouldEmitActivityNotificationLocked(
+			notification,
+			s.artworkEmitStates,
+			artworkNotificationEmitInterval,
+			artworkNotificationEmitProgressDelta,
+			false,
+		)
+		if shouldEmit {
+			recordActivityNotificationEmitLocked(notification, s.artworkEmitStates)
+		}
+	}
 	s.mu.Unlock()
 
-	if app != nil && app.Event != nil {
-		app.Event.Emit(EventNotificationChanged, notification)
+	if shouldEmit {
+		s.emitNotificationSnapshot(notification, app)
 	}
 }
 
 func normalizeNotificationSnapshot(notification apitypes.NotificationSnapshot) apitypes.NotificationSnapshot {
-	now := time.Now().UTC()
+	return normalizeNotificationSnapshotAt(notification, time.Now().UTC())
+}
+
+func normalizeNotificationSnapshotAt(notification apitypes.NotificationSnapshot, now time.Time) apitypes.NotificationSnapshot {
 	notification.ID = strings.TrimSpace(notification.ID)
 	notification.Kind = strings.TrimSpace(notification.Kind)
 	notification.LibraryID = strings.TrimSpace(notification.LibraryID)
@@ -700,10 +761,7 @@ func scanActivityMessage(status apitypes.ScanActivityStatus) string {
 		}
 		return "Enumerating scan roots..."
 	case "ingesting":
-		if path := strings.TrimSpace(status.CurrentPath); path != "" {
-			return "Ingesting " + path
-		}
-		return "Ingesting scanned tracks..."
+		return scanActivityTrackMessage(status)
 	case "completed":
 		return "Scan completed."
 	case "failed":
@@ -763,6 +821,103 @@ func clampNotificationProgress(progress float64) float64 {
 	default:
 		return progress
 	}
+}
+
+func (s *NotificationsFacade) currentTime() time.Time {
+	if s != nil && s.now != nil {
+		return s.now()
+	}
+	return time.Now().UTC()
+}
+
+func (s *NotificationsFacade) emitNotificationSnapshot(
+	notification apitypes.NotificationSnapshot,
+	app *application.App,
+) {
+	if s != nil && s.emitNotification != nil {
+		s.emitNotification(notification)
+		return
+	}
+	if app != nil && app.Event != nil {
+		app.Event.Emit(EventNotificationChanged, notification)
+	}
+}
+
+func shouldEmitActivityNotificationLocked(
+	notification apitypes.NotificationSnapshot,
+	states map[string]notificationEmitState,
+	interval time.Duration,
+	progressDelta float64,
+	emitQueuedImmediately bool,
+) bool {
+	switch notification.Phase {
+	case apitypes.NotificationPhaseSuccess,
+		apitypes.NotificationPhaseError:
+		return true
+	}
+	if emitQueuedImmediately && notification.Phase == apitypes.NotificationPhaseQueued {
+		return true
+	}
+
+	state, ok := states[notification.ID]
+	if !ok || !state.HasEmitted {
+		return true
+	}
+	if state.LastEmittedPhase != notification.Phase {
+		return true
+	}
+	if notification.Phase != apitypes.NotificationPhaseRunning {
+		return true
+	}
+	if notification.Progress-state.LastEmittedProgress >= progressDelta {
+		return true
+	}
+	return notification.UpdatedAt.Sub(state.LastEmittedAt) >= interval
+}
+
+func recordActivityNotificationEmitLocked(
+	notification apitypes.NotificationSnapshot,
+	states map[string]notificationEmitState,
+) {
+	states[notification.ID] = notificationEmitState{
+		LastEmittedAt:       notification.UpdatedAt,
+		LastEmittedProgress: notification.Progress,
+		LastEmittedPhase:    notification.Phase,
+		HasEmitted:          true,
+	}
+}
+
+func isScanNotification(notification apitypes.NotificationSnapshot) bool {
+	if strings.HasPrefix(strings.TrimSpace(notification.ID), "scan:") {
+		return true
+	}
+	kind := strings.TrimSpace(notification.Kind)
+	return kind == "scan-activity" || isScanJobKind(kind)
+}
+
+func isArtworkNotification(notification apitypes.NotificationSnapshot) bool {
+	return strings.TrimSpace(notification.ID) == "artwork:activity" ||
+		strings.TrimSpace(notification.Kind) == "artwork-activity"
+}
+
+func scanActivityTrackMessage(status apitypes.ScanActivityStatus) string {
+	if status.TracksTotal <= 0 {
+		return "Scanning tracks..."
+	}
+	current := status.TracksDone
+	if status.WorkersActive > 0 && current < status.TracksTotal {
+		current++
+	}
+	if current < 0 {
+		current = 0
+	}
+	if current > status.TracksTotal {
+		current = status.TracksTotal
+	}
+	if root := strings.TrimSpace(status.CurrentRoot); root != "" {
+		return fmt.Sprintf("Scanning tracks %d/%d in %s", current, status.TracksTotal, root)
+	}
+	return fmt.Sprintf("Scanning tracks %d/%d", current, status.TracksTotal)
 }
 
 func loadSettingsState() (settings.State, error) {

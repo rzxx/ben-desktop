@@ -610,15 +610,39 @@ func (a *App) reconcileLocalAlbumArtworkBestEffort(ctx context.Context, local ap
 		return nil
 	}
 
+	a.setArtworkActivity(apitypes.ArtworkActivityStatus{
+		Phase:          "running",
+		AlbumsTotal:    len(albumIDs),
+		CurrentAlbumID: albumIDs[0],
+		Workers:        1,
+		WorkersActive:  1,
+	})
+
 	errorCount := 0
-	for _, albumID := range albumIDs {
-		if err := a.artwork.ReconcileAlbumArtwork(ctx, local, albumID); err != nil {
+	for idx, albumID := range albumIDs {
+		if err := a.artwork.reconcileAlbumArtwork(ctx, local, albumID); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return err
 			}
 			errorCount++
 			a.logf("desktopcore: reconcile album artwork after catalog rebuild failed for album %s: %v", albumID, err)
 		}
+
+		nextAlbumID := ""
+		workersActive := 0
+		if idx+1 < len(albumIDs) {
+			nextAlbumID = albumIDs[idx+1]
+			workersActive = 1
+		}
+		a.updateArtworkActivity(func(status *apitypes.ArtworkActivityStatus) {
+			status.Phase = "running"
+			status.AlbumsTotal = len(albumIDs)
+			status.AlbumsDone = idx + 1
+			status.CurrentAlbumID = nextAlbumID
+			status.Workers = 1
+			status.WorkersActive = workersActive
+			status.Errors = errorCount
+		})
 	}
 	if errorCount > 0 {
 		a.setArtworkActivity(apitypes.ArtworkActivityStatus{
@@ -628,7 +652,14 @@ func (a *App) reconcileLocalAlbumArtworkBestEffort(ctx context.Context, local ap
 			Workers:     1,
 			Errors:      errorCount,
 		})
+		return nil
 	}
+	a.setArtworkActivity(apitypes.ArtworkActivityStatus{
+		Phase:       "completed",
+		AlbumsTotal: len(albumIDs),
+		AlbumsDone:  len(albumIDs),
+		Workers:     1,
+	})
 	return nil
 }
 

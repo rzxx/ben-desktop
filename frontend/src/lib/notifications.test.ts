@@ -1,14 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { Types } from "./api/models";
 import {
+  applyNotificationSnapshotBatch,
   matchesNotificationFilter,
   shouldToastNotification,
   upsertNotificationSnapshots,
 } from "./notifications";
 
-function makeNotification(
-  source: Partial<Types.NotificationSnapshot> = {},
-) {
+function makeNotification(source: Partial<Types.NotificationSnapshot> = {}) {
   return new Types.NotificationSnapshot({
     id: "notification-1",
     kind: "scan-library",
@@ -48,6 +47,54 @@ describe("upsertNotificationSnapshots", () => {
     expect(updated).toHaveLength(2);
     expect(updated[0].id).toBe("scan-1");
     expect(updated[0].message).toBe("Running");
+    expect(updated[1].id).toBe("sync-1");
+  });
+
+  test("keeps the same array reference when nothing changed", () => {
+    const current = [
+      makeNotification({
+        id: "scan-1",
+        message: "Running",
+        updatedAt: "2026-03-21T10:01:00.000Z",
+      }),
+    ];
+
+    const updated = upsertNotificationSnapshots(current, current[0]);
+
+    expect(updated).toBe(current);
+  });
+});
+
+describe("applyNotificationSnapshotBatch", () => {
+  test("applies the latest snapshot per id and sorts once at the end", () => {
+    const current = [
+      makeNotification({
+        id: "sync-1",
+        kind: "sync-now",
+        updatedAt: "2026-03-21T10:00:00.000Z",
+      }),
+      makeNotification({
+        id: "scan-1",
+        updatedAt: "2026-03-21T09:59:00.000Z",
+      }),
+    ];
+
+    const updated = applyNotificationSnapshotBatch(current, [
+      makeNotification({
+        id: "scan-1",
+        message: "Running slowly",
+        updatedAt: "2026-03-21T10:01:00.000Z",
+      }),
+      makeNotification({
+        id: "scan-1",
+        message: "Running fast",
+        updatedAt: "2026-03-21T10:02:00.000Z",
+      }),
+    ]);
+
+    expect(updated).toHaveLength(2);
+    expect(updated[0].id).toBe("scan-1");
+    expect(updated[0].message).toBe("Running fast");
     expect(updated[1].id).toBe("sync-1");
   });
 });
