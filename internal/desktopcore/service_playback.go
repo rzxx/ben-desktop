@@ -1635,8 +1635,52 @@ func playbackPreparationUnavailableMessage(status apitypes.PlaybackPreparationSt
 	}
 }
 
+func (s *PlaybackService) exactTrackVariantIDsSet(ctx context.Context, libraryID string, recordingIDs []string) (map[string]struct{}, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
+		return map[string]struct{}{}, nil
+	}
+
+	type row struct{ RecordingID string }
+	var rows []row
+	if err := s.app.storage.WithContext(ctx).
+		Model(&TrackVariantModel{}).
+		Select("track_variant_id AS recording_id").
+		Where("library_id = ? AND track_variant_id IN ?", libraryID, recordingIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		recordingID := strings.TrimSpace(row.RecordingID)
+		if recordingID == "" {
+			continue
+		}
+		out[recordingID] = struct{}{}
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) isExactTrackVariantID(ctx context.Context, libraryID, recordingID string) (bool, error) {
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return false, nil
+	}
+	exactIDs, err := s.exactTrackVariantIDsSet(ctx, libraryID, []string{recordingID})
+	if err != nil {
+		return false, err
+	}
+	_, ok := exactIDs[recordingID]
+	return ok, nil
+}
+
 func (s *PlaybackService) bestLocalRecordingPath(ctx context.Context, libraryID, deviceID, recordingID string) (string, bool, error) {
 	type localPathRow struct{ LocalPath string }
+	exactVariant, err := s.isExactTrackVariantID(ctx, libraryID, recordingID)
+	if err != nil {
+		return "", false, err
+	}
 	query := `
 SELECT sf.local_path
 FROM source_files sf
@@ -1645,8 +1689,18 @@ JOIN track_variants cand ON cand.library_id = sf.library_id AND cand.track_varia
 WHERE sf.library_id = ? AND sf.device_id = ? AND sf.is_present = 1 AND req.track_variant_id = ? AND cand.track_cluster_id = req.track_cluster_id
 ORDER BY CASE WHEN sf.track_variant_id = ? THEN 0 ELSE 1 END ASC, sf.last_seen_at DESC, sf.quality_rank DESC, sf.size_bytes DESC, sf.local_path ASC
 LIMIT 1`
+	args := []any{libraryID, deviceID, recordingID, recordingID}
+	if exactVariant {
+		query = `
+SELECT sf.local_path
+FROM source_files sf
+WHERE sf.library_id = ? AND sf.device_id = ? AND sf.is_present = 1 AND sf.track_variant_id = ?
+ORDER BY sf.last_seen_at DESC, sf.quality_rank DESC, sf.size_bytes DESC, sf.local_path ASC
+LIMIT 1`
+		args = []any{libraryID, deviceID, recordingID}
+	}
 	var result localPathRow
-	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, deviceID, recordingID, recordingID).Scan(&result).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&result).Error; err != nil {
 		return "", false, err
 	}
 	if strings.TrimSpace(result.LocalPath) == "" {
@@ -1660,6 +1714,10 @@ LIMIT 1`
 
 func (s *PlaybackService) bestCachedEncoding(ctx context.Context, libraryID, deviceID, recordingID, profile string) (string, string, bool, error) {
 	aliasProfile := normalizedPlaybackProfileAlias(profile)
+	exactVariant, err := s.isExactTrackVariantID(ctx, libraryID, recordingID)
+	if err != nil {
+		return "", "", false, err
+	}
 	type encodingRow struct {
 		BlobID           string
 		OptimizedAssetID string
@@ -1676,8 +1734,22 @@ LEFT JOIN device_asset_caches de ON de.library_id = ? AND de.optimized_asset_id 
 WHERE e.library_id = ? AND cand.track_cluster_id = req.track_cluster_id AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
 ORDER BY CASE WHEN sf.track_variant_id = ? THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC
 LIMIT 1`
+	args := []any{recordingID, libraryID, deviceID, libraryID, profile, profile, aliasProfile, recordingID}
+	if exactVariant {
+		query = `
+SELECT
+	e.blob_id,
+	e.optimized_asset_id AS optimized_asset_id
+FROM optimized_assets e
+JOIN source_files sf ON sf.library_id = e.library_id AND sf.source_file_id = e.source_file_id
+LEFT JOIN device_asset_caches de ON de.library_id = e.library_id AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
+WHERE e.library_id = ? AND sf.track_variant_id = ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
+ORDER BY e.bitrate DESC, e.optimized_asset_id ASC
+LIMIT 1`
+		args = []any{deviceID, libraryID, recordingID, profile, profile, aliasProfile}
+	}
 	var result encodingRow
-	if err := s.app.storage.WithContext(ctx).Raw(query, recordingID, libraryID, deviceID, libraryID, profile, profile, aliasProfile, recordingID).Scan(&result).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&result).Error; err != nil {
 		return "", "", false, err
 	}
 	if strings.TrimSpace(result.BlobID) == "" {
@@ -1694,13 +1766,41 @@ func (s *PlaybackService) batchBestLocalRecordingPaths(ctx context.Context, libr
 	if len(recordingIDs) == 0 {
 		return map[string]string{}, nil
 	}
+	exactVariantIDs, err := s.exactTrackVariantIDsSet(ctx, libraryID, recordingIDs)
+	if err != nil {
+		return nil, err
+	}
+	exactIDs := make([]string, 0, len(recordingIDs))
+	clusterIDs := make([]string, 0, len(recordingIDs))
+	for _, recordingID := range recordingIDs {
+		if _, ok := exactVariantIDs[recordingID]; ok {
+			exactIDs = append(exactIDs, recordingID)
+			continue
+		}
+		clusterIDs = append(clusterIDs, recordingID)
+	}
 
 	type row struct {
 		RecordingID string
 		LocalPath   string
 	}
-	var rows []row
-	query := `
+	rows := make([]row, 0, len(recordingIDs))
+	if len(exactIDs) > 0 {
+		exactQuery := `
+SELECT
+	sf.track_variant_id AS recording_id,
+	sf.local_path
+FROM source_files sf
+WHERE sf.library_id = ? AND sf.track_variant_id IN ? AND sf.device_id = ? AND sf.is_present = 1
+ORDER BY sf.track_variant_id ASC, sf.last_seen_at DESC, sf.quality_rank DESC, sf.size_bytes DESC, sf.local_path ASC`
+		var exactRows []row
+		if err := s.app.storage.WithContext(ctx).Raw(exactQuery, libraryID, exactIDs, deviceID).Scan(&exactRows).Error; err != nil {
+			return nil, err
+		}
+		rows = append(rows, exactRows...)
+	}
+	if len(clusterIDs) > 0 {
+		query := `
 SELECT
 	req.track_variant_id AS recording_id,
 	sf.local_path
@@ -1709,8 +1809,11 @@ JOIN track_variants cand ON cand.library_id = req.library_id AND cand.track_clus
 JOIN source_files sf ON sf.library_id = req.library_id AND sf.track_variant_id = cand.track_variant_id
 WHERE req.library_id = ? AND req.track_variant_id IN ? AND sf.device_id = ? AND sf.is_present = 1
 ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_variant_id THEN 0 ELSE 1 END ASC, sf.last_seen_at DESC, sf.quality_rank DESC, sf.size_bytes DESC, sf.local_path ASC`
-	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, recordingIDs, deviceID).Scan(&rows).Error; err != nil {
-		return nil, err
+		var clusterRows []row
+		if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, clusterIDs, deviceID).Scan(&clusterRows).Error; err != nil {
+			return nil, err
+		}
+		rows = append(rows, clusterRows...)
 	}
 
 	out := make(map[string]string, len(recordingIDs))
@@ -1741,12 +1844,43 @@ func (s *PlaybackService) batchBestCachedRecordingIDs(ctx context.Context, libra
 	}
 
 	aliasProfile := normalizedPlaybackProfileAlias(profile)
+	exactVariantIDs, err := s.exactTrackVariantIDsSet(ctx, libraryID, recordingIDs)
+	if err != nil {
+		return nil, err
+	}
+	exactIDs := make([]string, 0, len(recordingIDs))
+	clusterIDs := make([]string, 0, len(recordingIDs))
+	for _, recordingID := range recordingIDs {
+		if _, ok := exactVariantIDs[recordingID]; ok {
+			exactIDs = append(exactIDs, recordingID)
+			continue
+		}
+		clusterIDs = append(clusterIDs, recordingID)
+	}
+
 	type row struct {
 		RecordingID string
 		BlobID      string
 	}
-	var rows []row
-	query := `
+	rows := make([]row, 0, len(recordingIDs))
+	if len(exactIDs) > 0 {
+		exactQuery := `
+SELECT
+	sf.track_variant_id AS recording_id,
+	e.blob_id
+FROM optimized_assets e
+JOIN source_files sf ON sf.library_id = e.library_id AND sf.source_file_id = e.source_file_id
+LEFT JOIN device_asset_caches de ON de.library_id = e.library_id AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
+WHERE e.library_id = ? AND sf.track_variant_id IN ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
+ORDER BY sf.track_variant_id ASC, e.bitrate DESC, e.optimized_asset_id ASC`
+		var exactRows []row
+		if err := s.app.storage.WithContext(ctx).Raw(exactQuery, deviceID, libraryID, exactIDs, profile, profile, aliasProfile).Scan(&exactRows).Error; err != nil {
+			return nil, err
+		}
+		rows = append(rows, exactRows...)
+	}
+	if len(clusterIDs) > 0 {
+		query := `
 SELECT
 	req.track_variant_id AS recording_id,
 	e.blob_id
@@ -1757,8 +1891,11 @@ JOIN optimized_assets e ON e.library_id = sf.library_id AND e.source_file_id = s
 LEFT JOIN device_asset_caches de ON de.library_id = e.library_id AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
 WHERE req.library_id = ? AND req.track_variant_id IN ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
 ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_variant_id THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC`
-	if err := s.app.storage.WithContext(ctx).Raw(query, deviceID, libraryID, recordingIDs, profile, profile, aliasProfile).Scan(&rows).Error; err != nil {
-		return nil, err
+		var clusterRows []row
+		if err := s.app.storage.WithContext(ctx).Raw(query, deviceID, libraryID, clusterIDs, profile, profile, aliasProfile).Scan(&clusterRows).Error; err != nil {
+			return nil, err
+		}
+		rows = append(rows, clusterRows...)
 	}
 
 	out := make(map[string]bool, len(recordingIDs))

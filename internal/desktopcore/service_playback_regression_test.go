@@ -51,3 +51,72 @@ func TestListAlbumAvailabilitySummariesResolvesClusterTracksToVariants(t *testin
 		}
 	}
 }
+
+func TestExactVariantPlaybackAvailabilityDoesNotBorrowLocalSibling(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "explicit-variant-availability")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-local-sibling",
+		TrackClusterID: "cluster-explicit",
+		AlbumID:        "album-local-edition",
+		AlbumClusterID: "album-family",
+		SourceFileID:   "src-local-sibling",
+		QualityRank:    100,
+	})
+
+	lastSeen := time.Now().UTC().Add(-3 * availabilityOnlineWindow)
+	remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-explicit-remote", lastSeen)
+	seedSourceOnlyRecording(t, app, library.LibraryID, remoteDeviceID, playbackSeedInput{
+		RecordingID:    "rec-remote-explicit",
+		TrackClusterID: "cluster-explicit",
+		AlbumID:        "album-remote-edition",
+		AlbumClusterID: "album-family",
+		SourceFileID:   "src-remote-explicit",
+		QualityRank:    90,
+	})
+
+	item, err := app.GetRecordingAvailability(ctx, "rec-remote-explicit", "desktop")
+	if err != nil {
+		t.Fatalf("get exact variant playback availability: %v", err)
+	}
+	if item.State != apitypes.AvailabilityUnavailableProvider {
+		t.Fatalf("exact variant state = %q, want %q", item.State, apitypes.AvailabilityUnavailableProvider)
+	}
+	if item.Reason != apitypes.PlaybackUnavailableProviderOffline {
+		t.Fatalf("exact variant reason = %q, want %q", item.Reason, apitypes.PlaybackUnavailableProviderOffline)
+	}
+	if item.LocalPath != "" {
+		t.Fatalf("exact variant unexpectedly resolved local path %q", item.LocalPath)
+	}
+
+	items, err := app.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
+		RecordingIDs:     []string{"rec-remote-explicit"},
+		PreferredProfile: "desktop",
+	})
+	if err != nil {
+		t.Fatalf("list exact variant playback availability: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("batch exact variant count = %d, want 1", len(items))
+	}
+	if items[0].State != apitypes.AvailabilityUnavailableProvider {
+		t.Fatalf("batch exact variant state = %q, want %q", items[0].State, apitypes.AvailabilityUnavailableProvider)
+	}
+	if items[0].Reason != apitypes.PlaybackUnavailableProviderOffline {
+		t.Fatalf("batch exact variant reason = %q, want %q", items[0].Reason, apitypes.PlaybackUnavailableProviderOffline)
+	}
+	if items[0].LocalPath != "" {
+		t.Fatalf("batch exact variant unexpectedly resolved local path %q", items[0].LocalPath)
+	}
+}
