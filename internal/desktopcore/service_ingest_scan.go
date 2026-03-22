@@ -669,8 +669,7 @@ func (s *IngestService) reconcileRootPresence(ctx context.Context, libraryID, de
 
 func normalizedRecordKeys(tags Tags) (recordingKey, albumKey, groupKey string) {
 	primaryArtist := firstArtist(tags.Artists)
-	durationBucket := tags.DurationMS / 2000
-	recordingKey = normalizeCatalogKey(strings.Join([]string{primaryArtist, tags.Title, fmt.Sprintf("%d", durationBucket)}, "|"))
+	recordingKey = normalizeCatalogKey(strings.Join([]string{primaryArtist, tags.Title}, "|"))
 	albumKey = normalizeCatalogKey(strings.Join([]string{firstNonEmpty(tags.AlbumArtist, primaryArtist), tags.Album, fmt.Sprintf("%d", tags.Year)}, "|"))
 	groupKey = normalizeCatalogKey(strings.Join([]string{firstNonEmpty(tags.AlbumArtist, primaryArtist), tags.Album}, "|"))
 	return recordingKey, albumKey, groupKey

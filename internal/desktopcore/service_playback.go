@@ -119,7 +119,7 @@ func (s *PlaybackService) ensureAlbumEncodingsForLocalContext(ctx context.Contex
 		job.Queued(0, "queued album encoding batch")
 		job.Running(0.1, "collecting album recordings")
 	}
-	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, albumID)
+	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, local.DeviceID, albumID)
 	if err != nil {
 		if job != nil {
 			if errors.Is(err, context.Canceled) {
@@ -373,7 +373,7 @@ func (s *PlaybackService) EnsurePlaybackAlbum(ctx context.Context, albumID, pref
 	if albumID == "" {
 		return apitypes.PlaybackBatchResult{}, fmt.Errorf("album id is required")
 	}
-	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, albumID)
+	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, local.DeviceID, albumID)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
@@ -1230,7 +1230,7 @@ func (s *PlaybackService) PinAlbumOffline(ctx context.Context, albumID, preferre
 	if !ok {
 		return apitypes.PlaybackBatchResult{}, fmt.Errorf("album %s not found", albumID)
 	}
-	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, albumID)
+	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, local.DeviceID, albumID)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
@@ -1965,7 +1965,7 @@ func (s *PlaybackService) deleteOfflinePin(ctx context.Context, local apitypes.L
 	})
 }
 
-func (s *PlaybackService) recordingIDsForAlbum(ctx context.Context, libraryID, albumID string) ([]string, error) {
+func (s *PlaybackService) recordingIDsForAlbum(ctx context.Context, libraryID, deviceID, albumID string) ([]string, error) {
 	albumID = strings.TrimSpace(albumID)
 	if albumID == "" {
 		return nil, nil
@@ -2001,17 +2001,23 @@ func (s *PlaybackService) recordingIDsForAlbum(ctx context.Context, libraryID, a
 	}
 
 	type row struct{ RecordingID string }
+	explicitAlbumID, ok, err := s.app.catalog.explicitAlbumVariantID(ctx, libraryID, deviceID, albumID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || strings.TrimSpace(explicitAlbumID) == "" {
+		return nil, nil
+	}
 	var rows []row
 	query := `
 SELECT
 	tv.track_cluster_id AS recording_id
 FROM album_tracks at
 JOIN track_variants tv ON tv.library_id = at.library_id AND tv.track_variant_id = at.track_variant_id
-JOIN album_variants av ON av.library_id = at.library_id AND av.album_variant_id = at.album_variant_id
-WHERE at.library_id = ? AND av.album_cluster_id = ?
+WHERE at.library_id = ? AND at.album_variant_id = ?
 GROUP BY tv.track_cluster_id, at.disc_no, at.track_no
 ORDER BY at.disc_no ASC, at.track_no ASC, tv.track_cluster_id ASC`
-	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, albumID).
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, explicitAlbumID).
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -2085,7 +2091,7 @@ func (s *PlaybackService) albumAvailabilitySummaries(ctx context.Context, local 
 			libraryAlbumIDs = append(libraryAlbumIDs, libraryAlbumID)
 		}
 
-		recordings, err := s.recordingIDsForAlbum(ctx, local.LibraryID, trimmedAlbumID)
+		recordings, err := s.recordingIDsForAlbum(ctx, local.LibraryID, local.DeviceID, trimmedAlbumID)
 		if err != nil {
 			return nil, err
 		}

@@ -273,7 +273,7 @@ func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list albums: %v", err)
 	}
-	albumID := albums.Items[0].AlbumID
+	albumID := albums.Items[0].LibraryAlbumID
 	before := loadAlbumArtworkRows(t, app, albumID)
 	if len(before) != 3 {
 		t.Fatalf("initial artwork variant count = %d, want 3", len(before))
@@ -297,9 +297,9 @@ func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
 	if len(updatedAlbums.Items) != 1 {
 		t.Fatalf("updated album count = %d, want 1", len(updatedAlbums.Items))
 	}
-	updatedAlbumID := updatedAlbums.Items[0].AlbumID
-	if updatedAlbumID == albumID {
-		t.Fatalf("expected library album id to change after track removal")
+	updatedAlbumID := updatedAlbums.Items[0].LibraryAlbumID
+	if updatedAlbumID != albumID {
+		t.Fatalf("expected library album id to stay stable after track removal, got %q want %q", updatedAlbumID, albumID)
 	}
 
 	after := loadAlbumArtworkRows(t, app, updatedAlbumID)
@@ -380,7 +380,7 @@ func TestRescanNowReusesUnchangedSidecarArtwork(t *testing.T) {
 	if len(albums.Items) != 1 {
 		t.Fatalf("album count = %d, want 1", len(albums.Items))
 	}
-	albumID := albums.Items[0].AlbumID
+	albumID := albums.Items[0].LibraryAlbumID
 	before := loadAlbumArtworkRows(t, app, albumID)
 	if len(before) != 3 {
 		t.Fatalf("initial artwork variant count = %d, want 3", len(before))
@@ -925,9 +925,9 @@ func TestRescanNowRefreshesArtworkWhenAlbumVariantSurvives(t *testing.T) {
 	if len(updatedAlbums.Items) != 1 {
 		t.Fatalf("updated album count = %d, want 1", len(updatedAlbums.Items))
 	}
-	updatedAlbumID := updatedAlbums.Items[0].AlbumID
-	if updatedAlbumID == albumID {
-		t.Fatalf("expected library album id to change after track list update")
+	updatedAlbumID := updatedAlbums.Items[0].LibraryAlbumID
+	if updatedAlbumID != albumID {
+		t.Fatalf("expected library album id to stay stable after track list update, got %q want %q", updatedAlbumID, albumID)
 	}
 	if updatedAlbums.Items[0].TrackCount != 2 {
 		t.Fatalf("track count = %d, want 2", updatedAlbums.Items[0].TrackCount)
@@ -1007,7 +1007,7 @@ func TestRescanNowPrefersNewerTrackArtworkWhenAlbumVariantSurvives(t *testing.T)
 	if len(albums.Items) != 1 {
 		t.Fatalf("initial album count = %d, want 1", len(albums.Items))
 	}
-	albumID := albums.Items[0].AlbumID
+	albumID := albums.Items[0].LibraryAlbumID
 	before := loadAlbumArtworkRows(t, app, albumID)
 	if len(before) != 3 {
 		t.Fatalf("initial artwork variant count = %d, want 3", len(before))
@@ -1057,9 +1057,9 @@ func TestRescanNowPrefersNewerTrackArtworkWhenAlbumVariantSurvives(t *testing.T)
 	if len(updatedAlbums.Items) != 1 {
 		t.Fatalf("updated album count = %d, want 1", len(updatedAlbums.Items))
 	}
-	updatedAlbumID := updatedAlbums.Items[0].AlbumID
-	if updatedAlbumID == albumID {
-		t.Fatalf("expected library album id to change after track list update")
+	updatedAlbumID := updatedAlbums.Items[0].LibraryAlbumID
+	if updatedAlbumID != albumID {
+		t.Fatalf("expected library album id to stay stable after track list update, got %q want %q", updatedAlbumID, albumID)
 	}
 	if updatedAlbums.Items[0].TrackCount != 2 {
 		t.Fatalf("track count = %d, want 2", updatedAlbums.Items[0].TrackCount)

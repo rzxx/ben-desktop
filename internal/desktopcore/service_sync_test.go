@@ -881,7 +881,8 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if len(initialAlbums.Items) != 1 {
 		t.Fatalf("initial owner album count = %d, want 1", len(initialAlbums.Items))
 	}
-	oldAlbumID := initialAlbums.Items[0].AlbumID
+	oldAlbumID := initialAlbums.Items[0].LibraryAlbumID
+	oldVariantAlbumID := initialAlbums.Items[0].PreferredVariantAlbumID
 	if _, err := owner.PinAlbumOffline(ctx, oldAlbumID, "desktop"); err != nil {
 		t.Fatalf("pin owner album offline: %v", err)
 	}
@@ -970,9 +971,13 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if len(updatedOwnerAlbums.Items) != 1 {
 		t.Fatalf("updated owner album count = %d, want 1", len(updatedOwnerAlbums.Items))
 	}
-	newAlbumID := updatedOwnerAlbums.Items[0].AlbumID
-	if newAlbumID == oldAlbumID {
-		t.Fatalf("expected owner album id to change after update")
+	newAlbumID := updatedOwnerAlbums.Items[0].LibraryAlbumID
+	if newAlbumID != oldAlbumID {
+		t.Fatalf("expected owner library album id to stay stable, got %q want %q", newAlbumID, oldAlbumID)
+	}
+	newVariantAlbumID := updatedOwnerAlbums.Items[0].PreferredVariantAlbumID
+	if newVariantAlbumID == oldVariantAlbumID {
+		t.Fatalf("expected owner preferred variant album id to change after update")
 	}
 
 	if err := joiner.SyncNow(ctx); err != nil {
@@ -986,8 +991,11 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if len(joinerAlbums.Items) != 1 {
 		t.Fatalf("joiner album count = %d, want 1", len(joinerAlbums.Items))
 	}
-	if joinerAlbums.Items[0].AlbumID != newAlbumID {
-		t.Fatalf("joiner album id = %q, want %q", joinerAlbums.Items[0].AlbumID, newAlbumID)
+	if joinerAlbums.Items[0].LibraryAlbumID != newAlbumID {
+		t.Fatalf("joiner library album id = %q, want %q", joinerAlbums.Items[0].LibraryAlbumID, newAlbumID)
+	}
+	if joinerAlbums.Items[0].PreferredVariantAlbumID != newVariantAlbumID {
+		t.Fatalf("joiner preferred variant album id = %q, want %q", joinerAlbums.Items[0].PreferredVariantAlbumID, newVariantAlbumID)
 	}
 	if joinerAlbums.Items[0].VariantCount != 1 || joinerAlbums.Items[0].HasVariants {
 		t.Fatalf("unexpected joiner album variants: %+v", joinerAlbums.Items[0])
@@ -1007,15 +1015,14 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	var staleAlbumCount int64
 	if err := joiner.db.WithContext(ctx).
 		Model(&AlbumVariantModel{}).
-		Where("library_id = ? AND album_variant_id = ?", library.LibraryID, oldAlbumID).
+		Where("library_id = ? AND album_variant_id = ?", library.LibraryID, oldVariantAlbumID).
 		Count(&staleAlbumCount).Error; err != nil {
 		t.Fatalf("count stale joiner album rows: %v", err)
 	}
 	if staleAlbumCount != 0 {
 		t.Fatalf("stale joiner album row count = %d, want 0", staleAlbumCount)
 	}
-	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, oldAlbumID, 0)
-	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 0)
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 1)
 }
 
 func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
@@ -1091,7 +1098,8 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if len(initialAlbums.Items) != 1 {
 		t.Fatalf("initial owner album count = %d, want 1", len(initialAlbums.Items))
 	}
-	oldAlbumID := initialAlbums.Items[0].AlbumID
+	oldAlbumID := initialAlbums.Items[0].LibraryAlbumID
+	oldVariantAlbumID := initialAlbums.Items[0].PreferredVariantAlbumID
 	if _, err := owner.PinAlbumOffline(ctx, oldAlbumID, "desktop"); err != nil {
 		t.Fatalf("pin owner album offline: %v", err)
 	}
@@ -1172,9 +1180,13 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if len(updatedOwnerAlbums.Items) != 1 {
 		t.Fatalf("updated owner album count = %d, want 1", len(updatedOwnerAlbums.Items))
 	}
-	newAlbumID := updatedOwnerAlbums.Items[0].AlbumID
-	if newAlbumID == oldAlbumID {
-		t.Fatalf("expected owner album id to change after update")
+	newAlbumID := updatedOwnerAlbums.Items[0].LibraryAlbumID
+	if newAlbumID != oldAlbumID {
+		t.Fatalf("expected owner library album id to stay stable, got %q want %q", newAlbumID, oldAlbumID)
+	}
+	newVariantAlbumID := updatedOwnerAlbums.Items[0].PreferredVariantAlbumID
+	if newVariantAlbumID == oldVariantAlbumID {
+		t.Fatalf("expected owner preferred variant album id to change after update")
 	}
 
 	manifest, err := owner.PublishCheckpoint(ctx)
@@ -1199,8 +1211,11 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if len(joinerAlbums.Items) != 1 {
 		t.Fatalf("joiner album count = %d, want 1", len(joinerAlbums.Items))
 	}
-	if joinerAlbums.Items[0].AlbumID != newAlbumID {
-		t.Fatalf("joiner album id = %q, want %q", joinerAlbums.Items[0].AlbumID, newAlbumID)
+	if joinerAlbums.Items[0].LibraryAlbumID != newAlbumID {
+		t.Fatalf("joiner library album id = %q, want %q", joinerAlbums.Items[0].LibraryAlbumID, newAlbumID)
+	}
+	if joinerAlbums.Items[0].PreferredVariantAlbumID != newVariantAlbumID {
+		t.Fatalf("joiner preferred variant album id = %q, want %q", joinerAlbums.Items[0].PreferredVariantAlbumID, newVariantAlbumID)
 	}
 	if joinerAlbums.Items[0].VariantCount != 1 || joinerAlbums.Items[0].HasVariants {
 		t.Fatalf("unexpected joiner album variants after checkpoint: %+v", joinerAlbums.Items[0])
@@ -1209,15 +1224,14 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	var staleAlbumCount int64
 	if err := joiner.db.WithContext(ctx).
 		Model(&AlbumVariantModel{}).
-		Where("library_id = ? AND album_variant_id = ?", library.LibraryID, oldAlbumID).
+		Where("library_id = ? AND album_variant_id = ?", library.LibraryID, oldVariantAlbumID).
 		Count(&staleAlbumCount).Error; err != nil {
 		t.Fatalf("count stale checkpoint joiner album rows: %v", err)
 	}
 	if staleAlbumCount != 0 {
 		t.Fatalf("stale checkpoint joiner album row count = %d, want 0", staleAlbumCount)
 	}
-	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, oldAlbumID, 0)
-	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 0)
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 1)
 }
 
 func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *testing.T) {

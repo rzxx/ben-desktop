@@ -878,38 +878,8 @@ func assignStrictAlbumClusterIDs(albums map[string]AlbumVariantModel, albumTrack
 		return
 	}
 
-	tracksByAlbum := make(map[string][]AlbumTrack, len(albums))
-	for _, row := range albumTracks {
-		albumID := strings.TrimSpace(row.AlbumVariantID)
-		if albumID == "" {
-			continue
-		}
-		tracksByAlbum[albumID] = append(tracksByAlbum[albumID], row)
-	}
-
 	for albumID, album := range albums {
-		ordered := append([]AlbumTrack(nil), tracksByAlbum[albumID]...)
-		sort.SliceStable(ordered, func(i, j int) bool {
-			if ordered[i].DiscNo != ordered[j].DiscNo {
-				return ordered[i].DiscNo < ordered[j].DiscNo
-			}
-			if ordered[i].TrackNo != ordered[j].TrackNo {
-				return ordered[i].TrackNo < ordered[j].TrackNo
-			}
-			return ordered[i].TrackVariantID < ordered[j].TrackVariantID
-		})
-
-		signatureParts := make([]string, 0, len(ordered)+1)
-		signatureParts = append(signatureParts, strings.TrimSpace(albumGroupKeys[albumID]))
-		for _, track := range ordered {
-			clusterID := strings.TrimSpace(tracks[track.TrackVariantID].TrackClusterID)
-			signatureParts = append(signatureParts, strings.Join([]string{
-				intKey(track.DiscNo),
-				intKey(track.TrackNo),
-				clusterID,
-			}, ":"))
-		}
-		album.AlbumClusterID = stableNameID("library_album", strings.Join(signatureParts, "|"))
+		album.AlbumClusterID = stableNameID("library_album", strings.TrimSpace(albumGroupKeys[albumID]))
 		albums[albumID] = album
 	}
 }

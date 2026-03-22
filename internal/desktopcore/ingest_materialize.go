@@ -115,7 +115,7 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 		mutatedAt = time.Now().UTC()
 	}
 
-	recordingKey, albumKey, _ := normalizedRecordKeys(in.Tags)
+	recordingKey, albumKey, groupKey := normalizedRecordKeys(in.Tags)
 	editionScopeKey := strings.TrimSpace(in.EditionScopeKey)
 	if editionScopeKey == "" {
 		editionScopeKey = normalizeCatalogKey(strings.Join([]string{
@@ -126,7 +126,7 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 	trackVariantID := explicitTrackVariantID(recordingKey, editionScopeKey, in.Tags.DiscNo, in.Tags.TrackNo)
 	trackClusterID := stableNameID("track_cluster", recordingKey)
 	albumVariantID := explicitAlbumVariantID(albumKey, editionScopeKey)
-	albumClusterID := stableNameID("library_album_seed", albumKey+"|"+editionScopeKey)
+	albumClusterID := stableNameID("library_album", groupKey)
 
 	tagsJSON, err := tagsSnapshotJSON(in.Tags)
 	if err != nil {

@@ -548,7 +548,8 @@ func TestRescanNowReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
 		t.Fatalf("initial album count = %d, want 1", len(albums.Items))
 	}
 	oldAlbumID := albums.Items[0].AlbumID
-	if err := app.SetPreferredAlbumVariant(ctx, oldAlbumID, oldAlbumID); err != nil {
+	oldVariantAlbumID := albums.Items[0].PreferredVariantAlbumID
+	if err := app.SetPreferredAlbumVariant(ctx, oldAlbumID, oldVariantAlbumID); err != nil {
 		t.Fatalf("set preferred album variant: %v", err)
 	}
 	seedOfflinePin(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
@@ -636,8 +637,8 @@ func TestRescanNowReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
 		t.Fatalf("updated album count = %d, want 1", len(updatedAlbums.Items))
 	}
 	newAlbum := updatedAlbums.Items[0]
-	if newAlbum.AlbumID == oldAlbumID {
-		t.Fatalf("expected updated album id to change after year bump")
+	if newAlbum.AlbumID != oldAlbumID {
+		t.Fatalf("expected library album id to remain stable after year bump")
 	}
 	if newAlbum.TrackCount != 3 {
 		t.Fatalf("updated track count = %d, want 3", newAlbum.TrackCount)
@@ -668,8 +669,15 @@ func TestRescanNowReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
 		t.Fatalf("updated recording count = %d, want 3", len(recordings.Items))
 	}
 
-	if got := len(loadAlbumArtworkRows(t, app, oldAlbumID)); got != 0 {
-		t.Fatalf("old artwork row count after rebuild = %d, want 0", got)
+	var oldArtworkCount int64
+	if err := app.db.WithContext(ctx).
+		Model(&ArtworkVariant{}).
+		Where("library_id = ? AND scope_type = ? AND scope_id = ?", library.LibraryID, "album", oldVariantAlbumID).
+		Count(&oldArtworkCount).Error; err != nil {
+		t.Fatalf("count old artwork rows after rebuild: %v", err)
+	}
+	if oldArtworkCount != 0 {
+		t.Fatalf("old artwork row count after rebuild = %d, want 0", oldArtworkCount)
 	}
 	if got := len(loadAlbumArtworkRows(t, app, newAlbum.AlbumID)); got != 3 {
 		t.Fatalf("new artwork row count = %d, want 3", got)
@@ -681,7 +689,7 @@ func TestRescanNowReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
 	var prefCount int64
 	if err := app.db.WithContext(ctx).
 		Model(&DeviceVariantPreference{}).
-		Where("library_id = ? AND chosen_variant_id = ?", library.LibraryID, oldAlbumID).
+		Where("library_id = ? AND chosen_variant_id = ?", library.LibraryID, oldVariantAlbumID).
 		Count(&prefCount).Error; err != nil {
 		t.Fatalf("count stale variant preferences: %v", err)
 	}
@@ -689,8 +697,7 @@ func TestRescanNowReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
 		t.Fatalf("stale variant preference count = %d, want 0", prefCount)
 	}
 
-	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, oldAlbumID, 0)
-	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, newAlbum.AlbumID, 1)
+	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, oldAlbumID, 1)
 }
 
 func TestRescanNowKeepsCatalogWhenArtworkRebuildFails(t *testing.T) {
