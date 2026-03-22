@@ -1507,6 +1507,37 @@ func TestCatalogLoaderLoadPlaylistTrackContextStartsAtSelectedItem(t *testing.T)
 	}
 }
 
+func TestItemsFromPlaylistTracksPreserveExactVariantRecordingID(t *testing.T) {
+	t.Parallel()
+
+	items := ItemsFromPlaylistTracks("playlist-1", []apitypes.PlaylistTrackItem{
+		{
+			ItemID:             "item-1",
+			LibraryRecordingID: "cluster-1",
+			RecordingID:        "variant-2",
+			Title:              "Track",
+			DurationMS:         1000,
+			Artists:            []string{"Artist"},
+		},
+	})
+
+	if len(items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(items))
+	}
+	if items[0].LibraryRecordingID != "cluster-1" {
+		t.Fatalf("library recording id = %q, want cluster-1", items[0].LibraryRecordingID)
+	}
+	if items[0].VariantRecordingID != "variant-2" {
+		t.Fatalf("variant recording id = %q, want variant-2", items[0].VariantRecordingID)
+	}
+	if items[0].RecordingID != "variant-2" {
+		t.Fatalf("recording id = %q, want variant-2", items[0].RecordingID)
+	}
+	if items[0].ResolutionMode != ResolutionModeExplicit {
+		t.Fatalf("resolution mode = %q, want %q", items[0].ResolutionMode, ResolutionModeExplicit)
+	}
+}
+
 func TestCatalogLoaderLoadLikedTrackContextStartsAtSelectedTrack(t *testing.T) {
 	t.Parallel()
 

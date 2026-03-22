@@ -617,50 +617,73 @@ func (s *CatalogService) ListPlaylistTracks(ctx context.Context, req apitypes.Pl
 	if err != nil {
 		return apitypes.Page[apitypes.PlaylistTrackItem]{}, err
 	}
-	type row struct {
+	type seedRow struct {
 		ItemID             string
 		LibraryRecordingID string
-		Title              string
-		DurationMS         int64
-		ArtistsCSV         string
 		AddedAt            time.Time
 	}
 	query := `
 SELECT
 	pi.item_id,
 	pi.track_variant_id AS library_recording_id,
-	MIN(r.title) AS title,
-	MAX(r.duration_ms) AS duration_ms,
-	COALESCE(GROUP_CONCAT(ar.name, '` + artistSeparator + `'), '') AS artists_csv,
 	pi.added_at
 FROM playlist_items pi
 JOIN playlists p ON p.library_id = pi.library_id AND p.playlist_id = pi.playlist_id
-JOIN track_variants r ON r.library_id = pi.library_id AND r.track_cluster_id = pi.track_variant_id
-LEFT JOIN credits c ON c.library_id = r.library_id AND c.entity_type = 'track' AND c.entity_id = r.track_variant_id
-LEFT JOIN artists ar ON ar.library_id = c.library_id AND ar.artist_id = c.artist_id
 WHERE pi.library_id = ? AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.deleted_at IS NULL
 GROUP BY pi.item_id, pi.track_variant_id, pi.position_key, pi.added_at, p.kind
 ORDER BY CASE WHEN p.kind = 'liked' THEN 0 ELSE 1 END ASC,
 	CASE WHEN p.kind = 'liked' THEN pi.added_at END DESC,
 	CASE WHEN p.kind <> 'liked' THEN pi.position_key END ASC,
 	pi.item_id ASC`
-	var rows []row
-	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, strings.TrimSpace(req.PlaylistID)).Scan(&rows).Error; err != nil {
+	var seeds []seedRow
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, strings.TrimSpace(req.PlaylistID)).Scan(&seeds).Error; err != nil {
 		return apitypes.Page[apitypes.PlaylistTrackItem]{}, err
 	}
-	paged, pageInfo := pageItems(rows, req.PageRequest)
-	out := make([]apitypes.PlaylistTrackItem, 0, len(paged))
-	for _, row := range paged {
+
+	pagedSeeds, pageInfo := pageItems(seeds, req.PageRequest)
+	clusterIDs := make([]string, 0, len(pagedSeeds))
+	for _, seed := range pagedSeeds {
+		clusterID := strings.TrimSpace(seed.LibraryRecordingID)
+		if clusterID == "" {
+			continue
+		}
+		clusterIDs = append(clusterIDs, clusterID)
+	}
+	rowsByCluster, err := s.listRecordingVariantRowsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs, s.app.cfg.TranscodeProfile)
+	if err != nil {
+		return apitypes.Page[apitypes.PlaylistTrackItem]{}, err
+	}
+	preferredByCluster, err := s.preferredRecordingVariantIDsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs)
+	if err != nil {
+		return apitypes.Page[apitypes.PlaylistTrackItem]{}, err
+	}
+
+	out := make([]apitypes.PlaylistTrackItem, 0, len(pagedSeeds))
+	for _, seed := range pagedSeeds {
+		clusterID := strings.TrimSpace(seed.LibraryRecordingID)
+		variants := rowsByCluster[clusterID]
+		if len(variants) == 0 {
+			continue
+		}
+		preferredID := chooseRecordingVariantID(variants, preferredByCluster[clusterID])
+		chosen := variants[0]
+		for _, variant := range variants {
+			if variant.TrackVariantID == preferredID {
+				chosen = variant
+				break
+			}
+		}
 		out = append(out, apitypes.PlaylistTrackItem{
-			ItemID:             row.ItemID,
-			LibraryRecordingID: row.LibraryRecordingID,
-			RecordingID:        row.LibraryRecordingID,
-			Title:              row.Title,
-			DurationMS:         row.DurationMS,
-			Artists:            splitArtists(row.ArtistsCSV),
-			AddedAt:            row.AddedAt,
+			ItemID:             strings.TrimSpace(seed.ItemID),
+			LibraryRecordingID: clusterID,
+			RecordingID:        strings.TrimSpace(chosen.TrackVariantID),
+			Title:              chosen.Title,
+			DurationMS:         chosen.DurationMS,
+			Artists:            append([]string(nil), chosen.Artists...),
+			AddedAt:            seed.AddedAt,
 		})
 	}
+	pageInfo.Returned = len(out)
 	return apitypes.Page[apitypes.PlaylistTrackItem]{Items: out, Page: pageInfo}, nil
 }
 
@@ -669,44 +692,67 @@ func (s *CatalogService) ListLikedRecordings(ctx context.Context, req apitypes.L
 	if err != nil {
 		return apitypes.Page[apitypes.LikedRecordingItem]{}, err
 	}
-	type row struct {
+	type seedRow struct {
 		LibraryRecordingID string
-		Title              string
-		DurationMS         int64
-		ArtistsCSV         string
 		AddedAt            time.Time
 	}
 	query := `
 SELECT
 	pi.track_variant_id AS library_recording_id,
-	MIN(r.title) AS title,
-	MAX(r.duration_ms) AS duration_ms,
-	COALESCE(GROUP_CONCAT(ar.name, '` + artistSeparator + `'), '') AS artists_csv,
 	pi.added_at
 FROM playlist_items pi
 JOIN playlists p ON p.library_id = pi.library_id AND p.playlist_id = pi.playlist_id
-JOIN track_variants r ON r.library_id = pi.library_id AND r.track_cluster_id = pi.track_variant_id
-LEFT JOIN credits c ON c.library_id = r.library_id AND c.entity_type = 'track' AND c.entity_id = r.track_variant_id
-LEFT JOIN artists ar ON ar.library_id = c.library_id AND ar.artist_id = c.artist_id
 WHERE pi.library_id = ? AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.deleted_at IS NULL
 GROUP BY pi.item_id, pi.track_variant_id, pi.added_at
 ORDER BY pi.added_at DESC, pi.item_id DESC`
-	var rows []row
-	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, likedPlaylistIDForLibrary(local.LibraryID)).Scan(&rows).Error; err != nil {
+	var seeds []seedRow
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, likedPlaylistIDForLibrary(local.LibraryID)).Scan(&seeds).Error; err != nil {
 		return apitypes.Page[apitypes.LikedRecordingItem]{}, err
 	}
-	paged, pageInfo := pageItems(rows, req.PageRequest)
-	out := make([]apitypes.LikedRecordingItem, 0, len(paged))
-	for _, row := range paged {
+
+	pagedSeeds, pageInfo := pageItems(seeds, req.PageRequest)
+	clusterIDs := make([]string, 0, len(pagedSeeds))
+	for _, seed := range pagedSeeds {
+		clusterID := strings.TrimSpace(seed.LibraryRecordingID)
+		if clusterID == "" {
+			continue
+		}
+		clusterIDs = append(clusterIDs, clusterID)
+	}
+	rowsByCluster, err := s.listRecordingVariantRowsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs, s.app.cfg.TranscodeProfile)
+	if err != nil {
+		return apitypes.Page[apitypes.LikedRecordingItem]{}, err
+	}
+	preferredByCluster, err := s.preferredRecordingVariantIDsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs)
+	if err != nil {
+		return apitypes.Page[apitypes.LikedRecordingItem]{}, err
+	}
+
+	out := make([]apitypes.LikedRecordingItem, 0, len(pagedSeeds))
+	for _, seed := range pagedSeeds {
+		clusterID := strings.TrimSpace(seed.LibraryRecordingID)
+		variants := rowsByCluster[clusterID]
+		if len(variants) == 0 {
+			continue
+		}
+		preferredID := chooseRecordingVariantID(variants, preferredByCluster[clusterID])
+		chosen := variants[0]
+		for _, variant := range variants {
+			if variant.TrackVariantID == preferredID {
+				chosen = variant
+				break
+			}
+		}
 		out = append(out, apitypes.LikedRecordingItem{
-			LibraryRecordingID: row.LibraryRecordingID,
-			RecordingID:        row.LibraryRecordingID,
-			Title:              row.Title,
-			DurationMS:         row.DurationMS,
-			Artists:            splitArtists(row.ArtistsCSV),
-			AddedAt:            row.AddedAt,
+			LibraryRecordingID: clusterID,
+			RecordingID:        strings.TrimSpace(chosen.TrackVariantID),
+			Title:              chosen.Title,
+			DurationMS:         chosen.DurationMS,
+			Artists:            append([]string(nil), chosen.Artists...),
+			AddedAt:            seed.AddedAt,
 		})
 	}
+	pageInfo.Returned = len(out)
 	return apitypes.Page[apitypes.LikedRecordingItem]{Items: out, Page: pageInfo}, nil
 }
 

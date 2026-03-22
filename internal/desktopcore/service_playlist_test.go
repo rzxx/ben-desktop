@@ -219,6 +219,99 @@ func TestPlaylistItemMutationsAndLikedLifecycle(t *testing.T) {
 	}
 }
 
+func TestPlaylistAndLikedListingsExposePreferredVariantRecordingID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+	library, err := app.CreateLibrary(ctx, "playlist-preferred-variants")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	now := time.Now().UTC()
+	for _, row := range []TrackVariantModel{
+		{
+			LibraryID:      library.LibraryID,
+			TrackVariantID: "variant-a",
+			TrackClusterID: "cluster-a",
+			KeyNorm:        "Track A",
+			Title:          "Track A",
+			DurationMS:     180000,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+		{
+			LibraryID:      library.LibraryID,
+			TrackVariantID: "variant-b",
+			TrackClusterID: "cluster-a",
+			KeyNorm:        "Track B",
+			Title:          "Track B",
+			DurationMS:     181000,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	} {
+		if err := app.db.Create(&row).Error; err != nil {
+			t.Fatalf("seed variant %s: %v", row.TrackVariantID, err)
+		}
+	}
+	if err := app.SetPreferredRecordingVariant(ctx, "cluster-a", "variant-b"); err != nil {
+		t.Fatalf("set preferred recording variant: %v", err)
+	}
+
+	playlist, err := app.CreatePlaylist(ctx, "Queue", string(apitypes.PlaylistKindNormal))
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	if _, err := app.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{
+		PlaylistID:  playlist.PlaylistID,
+		RecordingID: "cluster-a",
+	}); err != nil {
+		t.Fatalf("add playlist item: %v", err)
+	}
+	if err := app.LikeRecording(ctx, "cluster-a"); err != nil {
+		t.Fatalf("like recording: %v", err)
+	}
+
+	tracks, err := app.ListPlaylistTracks(ctx, apitypes.PlaylistTrackListRequest{PlaylistID: playlist.PlaylistID})
+	if err != nil {
+		t.Fatalf("list playlist tracks: %v", err)
+	}
+	if len(tracks.Items) != 1 {
+		t.Fatalf("playlist track count = %d, want 1", len(tracks.Items))
+	}
+	if tracks.Items[0].LibraryRecordingID != "cluster-a" {
+		t.Fatalf("playlist library recording id = %q, want cluster-a", tracks.Items[0].LibraryRecordingID)
+	}
+	if tracks.Items[0].RecordingID != "variant-b" {
+		t.Fatalf("playlist recording id = %q, want variant-b", tracks.Items[0].RecordingID)
+	}
+	if tracks.Items[0].Title != "Track B" {
+		t.Fatalf("playlist title = %q, want Track B", tracks.Items[0].Title)
+	}
+	if tracks.Items[0].DurationMS != 181000 {
+		t.Fatalf("playlist duration = %d, want 181000", tracks.Items[0].DurationMS)
+	}
+
+	liked, err := app.ListLikedRecordings(ctx, apitypes.LikedRecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list liked recordings: %v", err)
+	}
+	if len(liked.Items) != 1 {
+		t.Fatalf("liked track count = %d, want 1", len(liked.Items))
+	}
+	if liked.Items[0].LibraryRecordingID != "cluster-a" {
+		t.Fatalf("liked library recording id = %q, want cluster-a", liked.Items[0].LibraryRecordingID)
+	}
+	if liked.Items[0].RecordingID != "variant-b" {
+		t.Fatalf("liked recording id = %q, want variant-b", liked.Items[0].RecordingID)
+	}
+	if liked.Items[0].Title != "Track B" {
+		t.Fatalf("liked title = %q, want Track B", liked.Items[0].Title)
+	}
+}
+
 func TestPlaylistCoverLifecycle(t *testing.T) {
 	t.Parallel()
 

@@ -52,17 +52,20 @@ func ItemsFromAlbumTracks(albumID string, tracks []apitypes.AlbumTrackItem) []Se
 func ItemsFromPlaylistTracks(playlistID string, tracks []apitypes.PlaylistTrackItem) []SessionItem {
 	items := make([]SessionItem, 0, len(tracks))
 	for _, track := range tracks {
+		libraryRecordingID := firstNonEmpty(track.LibraryRecordingID, track.RecordingID)
+		variantRecordingID := firstNonEmpty(track.RecordingID, track.LibraryRecordingID)
 		items = append(items, SessionItem{
-			LibraryRecordingID: firstNonEmpty(track.LibraryRecordingID, track.RecordingID),
-			RecordingID:        firstNonEmpty(track.LibraryRecordingID, track.RecordingID),
+			LibraryRecordingID: libraryRecordingID,
+			VariantRecordingID: variantRecordingID,
+			RecordingID:        variantRecordingID,
 			Title:              track.Title,
 			Subtitle:           joinArtists(track.Artists),
 			DurationMS:         track.DurationMS,
-			ArtworkRef:         firstNonEmpty(track.LibraryRecordingID, track.RecordingID),
+			ArtworkRef:         variantRecordingID,
 			SourceKind:         SourceKindPlaylist,
 			SourceID:           strings.TrimSpace(playlistID),
 			SourceItemID:       strings.TrimSpace(track.ItemID),
-			ResolutionMode:     ResolutionModeLibrary,
+			ResolutionMode:     ResolutionModeExplicit,
 		})
 	}
 	return items
@@ -71,15 +74,18 @@ func ItemsFromPlaylistTracks(playlistID string, tracks []apitypes.PlaylistTrackI
 func ItemsFromLikedRecordings(recordings []apitypes.LikedRecordingItem) []SessionItem {
 	items := make([]SessionItem, 0, len(recordings))
 	for _, recording := range recordings {
+		libraryRecordingID := firstNonEmpty(recording.LibraryRecordingID, recording.RecordingID)
+		variantRecordingID := firstNonEmpty(recording.RecordingID, recording.LibraryRecordingID)
 		items = append(items, SessionItem{
-			LibraryRecordingID: firstNonEmpty(recording.LibraryRecordingID, recording.RecordingID),
-			RecordingID:        firstNonEmpty(recording.LibraryRecordingID, recording.RecordingID),
+			LibraryRecordingID: libraryRecordingID,
+			VariantRecordingID: variantRecordingID,
+			RecordingID:        variantRecordingID,
 			Title:              recording.Title,
 			Subtitle:           joinArtists(recording.Artists),
 			DurationMS:         recording.DurationMS,
-			ArtworkRef:         firstNonEmpty(recording.LibraryRecordingID, recording.RecordingID),
+			ArtworkRef:         variantRecordingID,
 			SourceKind:         SourceKindLiked,
-			ResolutionMode:     ResolutionModeLibrary,
+			ResolutionMode:     ResolutionModeExplicit,
 		})
 	}
 	return items
