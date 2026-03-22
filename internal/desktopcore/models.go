@@ -204,13 +204,13 @@ type Credit struct {
 }
 
 type AlbumVariantModel struct {
-	LibraryID      string `gorm:"primaryKey;size:64;index:idx_album_variant_key,unique,priority:1"`
+	LibraryID      string `gorm:"primaryKey;size:64;index:idx_album_variant_key,priority:1"`
 	AlbumVariantID string `gorm:"primaryKey;size:64;column:album_variant_id"`
 	AlbumClusterID string `gorm:"size:64;not null;index;column:album_cluster_id"`
 	Title          string `gorm:"size:512;not null"`
 	Year           *int   `gorm:"index"`
 	Edition        string `gorm:"size:256"`
-	KeyNorm        string `gorm:"size:1024;not null;index:idx_album_variant_key,unique,priority:2"`
+	KeyNorm        string `gorm:"size:1024;not null;index:idx_album_variant_key,priority:2"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
@@ -218,10 +218,10 @@ type AlbumVariantModel struct {
 func (AlbumVariantModel) TableName() string { return "album_variants" }
 
 type TrackVariantModel struct {
-	LibraryID      string `gorm:"primaryKey;size:64;index:idx_track_variant_key,unique,priority:1"`
+	LibraryID      string `gorm:"primaryKey;size:64;index:idx_track_variant_key,priority:1"`
 	TrackVariantID string `gorm:"primaryKey;size:64;column:track_variant_id"`
 	TrackClusterID string `gorm:"size:64;not null;index;column:track_cluster_id"`
-	KeyNorm        string `gorm:"size:1024;not null;index:idx_track_variant_key,unique,priority:2"`
+	KeyNorm        string `gorm:"size:1024;not null;index:idx_track_variant_key,priority:2"`
 	Title          string `gorm:"size:512;not null"`
 	DurationMS     int64  `gorm:"not null"`
 	CreatedAt      time.Time
@@ -249,13 +249,14 @@ type DeviceVariantPreference struct {
 }
 
 type SourceFileModel struct {
-	LibraryID         string    `gorm:"primaryKey;size:64;index:idx_source_file_path,unique,priority:1;index:idx_source_file_fingerprint,unique,priority:1"`
-	DeviceID          string    `gorm:"primaryKey;size:64;index:idx_source_file_path,unique,priority:2;index:idx_source_file_fingerprint,unique,priority:2"`
+	LibraryID         string    `gorm:"primaryKey;size:64;index:idx_source_file_path,unique,priority:1;index:idx_source_file_fingerprint,priority:1"`
+	DeviceID          string    `gorm:"primaryKey;size:64;index:idx_source_file_path,unique,priority:2;index:idx_source_file_fingerprint,priority:2"`
 	SourceFileID      string    `gorm:"primaryKey;size:128;column:source_file_id"`
 	TrackVariantID    string    `gorm:"size:64;not null;index;column:track_variant_id"`
 	LocalPath         string    `gorm:"size:4096;not null"`
 	PathKey           string    `gorm:"size:4096;not null;index:idx_source_file_path,unique,priority:3"`
-	SourceFingerprint string    `gorm:"size:256;not null;index:idx_source_file_fingerprint,unique,priority:3"`
+	SourceFingerprint string    `gorm:"size:256;not null;index:idx_source_file_fingerprint,priority:3"`
+	EditionScopeKey   string    `gorm:"size:512;not null;index;column:edition_scope_key"`
 	HashAlgo          string    `gorm:"size:32;not null"`
 	HashHex           string    `gorm:"size:128;not null;index"`
 	MTimeNS           int64     `gorm:"not null"`

@@ -116,7 +116,11 @@ func autoMigrate(db *gorm.DB) error {
 	)
 }
 
-const pathPrivacyEpoch = "2"
+const (
+	pathPrivacyEpoch                 = "2"
+	contextIdentityEpoch             = "3"
+	localSettingCatalogIdentityEpoch = "catalog_identity_epoch"
+)
 
 func (a *App) runPathPrivacyMigration(ctx context.Context) error {
 	if a == nil || a.storage == nil {
@@ -204,6 +208,66 @@ func (a *App) runPathPrivacyMigration(ctx context.Context) error {
 			return err
 		}
 		return upsertLocalSettingTx(tx, localSettingPathPrivacyEpoch, pathPrivacyEpoch, now)
+	})
+}
+
+func (a *App) runContextIdentityMigration(ctx context.Context) error {
+	if a == nil || a.storage == nil {
+		return nil
+	}
+
+	var setting LocalSetting
+	err := a.storage.WithContext(ctx).Where("key = ?", localSettingCatalogIdentityEpoch).Take(&setting).Error
+	switch {
+	case err == nil && strings.TrimSpace(setting.Value) == contextIdentityEpoch:
+		return nil
+	case err != nil && err != gorm.ErrRecordNotFound:
+		return err
+	}
+
+	now := time.Now().UTC()
+	return a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, stmt := range []string{
+			"DROP INDEX IF EXISTS idx_source_file_fingerprint",
+			"DROP INDEX IF EXISTS idx_album_variant_key",
+			"DROP INDEX IF EXISTS idx_track_variant_key",
+		} {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+
+		for _, model := range []any{
+			&PlaylistItem{},
+			&OfflinePin{},
+			&DeviceVariantPreference{},
+			&ArtworkVariant{},
+			&LocalArtworkSourceRef{},
+			&AlbumTrack{},
+			&AlbumVariantModel{},
+			&TrackVariantModel{},
+			&OptimizedAssetModel{},
+			&DeviceAssetCacheModel{},
+			&SourceFileModel{},
+			&LocalSourcePath{},
+			&OplogEntry{},
+			&DeviceClock{},
+			&PeerSyncState{},
+			&LibraryCheckpointChunk{},
+			&LibraryCheckpoint{},
+			&DeviceCheckpointAck{},
+		} {
+			if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(model).Error; err != nil {
+				return err
+			}
+		}
+
+		if err := tx.Model(&Playlist{}).
+			Where("kind = ?", playlistKindLiked).
+			Update("deleted_at", now).Error; err != nil {
+			return err
+		}
+		return upsertLocalSettingTx(tx, localSettingCatalogIdentityEpoch, contextIdentityEpoch, now)
 	})
 }
 

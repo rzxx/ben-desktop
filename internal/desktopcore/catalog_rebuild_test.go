@@ -55,10 +55,9 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToSurvivingVariant(t *test
 	}
 
 	newAlbumID := onlyAlbumID(t, app, ctx)
-	if newAlbumID == oldAlbumID {
-		t.Fatalf("expected rebuilt album id to change")
+	if newAlbumID != oldAlbumID {
+		t.Fatalf("expected library album id to remain stable across metadata-only rebuilds")
 	}
-	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, oldAlbumID, 0)
 	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, newAlbumID, 1)
 }
 
@@ -186,8 +185,8 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToExplicitPreferredVariant
 		t.Fatalf("rebuild with preferred survivor: %v", err)
 	}
 
-	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, oldAlbumID, 0)
-	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, preferredAlbumID, 1)
+	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, oldAlbumID, 1)
+	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, preferredAlbumID, 0)
 }
 
 func TestRebuildCatalogMaterializationMigratesAlbumPinToLocalSurvivingVariant(t *testing.T) {
@@ -248,8 +247,8 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToLocalSurvivingVariant(t 
 		t.Fatalf("rebuild with local and remote survivors: %v", err)
 	}
 
-	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, oldAlbumID, 0)
-	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, localAlbumID, 1)
+	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, oldAlbumID, 1)
+	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, localAlbumID, 0)
 	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, remoteAlbumID, 0)
 }
 

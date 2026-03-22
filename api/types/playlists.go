@@ -26,19 +26,21 @@ type PlaylistRecord struct {
 }
 
 type PlaylistItemRecord struct {
-	LibraryID   string
-	PlaylistID  string
-	ItemID      string
-	RecordingID string
-	AddedAt     time.Time
-	UpdatedAt   time.Time
+	LibraryID          string
+	PlaylistID         string
+	ItemID             string
+	LibraryRecordingID string
+	RecordingID        string
+	AddedAt            time.Time
+	UpdatedAt          time.Time
 }
 
 type PlaylistAddItemRequest struct {
-	PlaylistID   string
-	RecordingID  string
-	AfterItemID  string
-	BeforeItemID string
+	PlaylistID         string
+	LibraryRecordingID string
+	RecordingID        string
+	AfterItemID        string
+	BeforeItemID       string
 }
 
 type PlaylistMoveItemRequest struct {
@@ -82,7 +84,7 @@ type PlaylistSurface interface {
 	GetPlaylistCover(ctx context.Context, playlistID string) (PlaylistCoverRecord, bool, error)
 	SetPlaylistCover(ctx context.Context, req PlaylistCoverUploadRequest) (PlaylistCoverRecord, error)
 	ClearPlaylistCover(ctx context.Context, playlistID string) error
-	LikeRecording(ctx context.Context, recordingID string) error
-	UnlikeRecording(ctx context.Context, recordingID string) error
-	IsRecordingLiked(ctx context.Context, recordingID string) (bool, error)
+	LikeRecording(ctx context.Context, libraryRecordingID string) error
+	UnlikeRecording(ctx context.Context, libraryRecordingID string) error
+	IsRecordingLiked(ctx context.Context, libraryRecordingID string) (bool, error)
 }

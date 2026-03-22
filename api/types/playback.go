@@ -48,14 +48,16 @@ type PlaybackRecordingResult struct {
 }
 
 type PlaybackResolveResult struct {
-	RecordingID string
-	State       RecordingAvailabilityState
-	SourceKind  PlaybackSourceKind
-	Reason      PlaybackUnavailableReason
-	PlayableURI string
-	EncodingID  string
-	BlobID      string
-	Profile     string
+	LibraryRecordingID string
+	VariantRecordingID string
+	RecordingID        string
+	State              RecordingAvailabilityState
+	SourceKind         PlaybackSourceKind
+	Reason             PlaybackUnavailableReason
+	PlayableURI        string
+	EncodingID         string
+	BlobID             string
+	Profile            string
 }
 
 type PlaybackPreparationPurpose string
@@ -76,24 +78,30 @@ const (
 )
 
 type PlaybackPreparationStatus struct {
-	RecordingID      string                     `json:"recordingId"`
-	PreferredProfile string                     `json:"preferredProfile"`
-	Purpose          PlaybackPreparationPurpose `json:"purpose"`
-	Phase            PlaybackPreparationPhase   `json:"phase"`
-	SourceKind       PlaybackSourceKind         `json:"sourceKind,omitempty"`
-	Reason           PlaybackUnavailableReason  `json:"reason,omitempty"`
-	PlayableURI      string                     `json:"playableUri,omitempty"`
-	EncodingID       string                     `json:"encodingId,omitempty"`
-	BlobID           string                     `json:"blobId,omitempty"`
-	UpdatedAt        time.Time                  `json:"updatedAt"`
+	LibraryRecordingID string                     `json:"libraryRecordingId,omitempty"`
+	VariantRecordingID string                     `json:"variantRecordingId,omitempty"`
+	RecordingID        string                     `json:"recordingId"`
+	PreferredProfile   string                     `json:"preferredProfile"`
+	Purpose            PlaybackPreparationPurpose `json:"purpose"`
+	Phase              PlaybackPreparationPhase   `json:"phase"`
+	SourceKind         PlaybackSourceKind         `json:"sourceKind,omitempty"`
+	Reason             PlaybackUnavailableReason  `json:"reason,omitempty"`
+	PlayableURI        string                     `json:"playableUri,omitempty"`
+	EncodingID         string                     `json:"encodingId,omitempty"`
+	BlobID             string                     `json:"blobId,omitempty"`
+	UpdatedAt          time.Time                  `json:"updatedAt"`
 }
 
 type RecordingArtworkResult struct {
-	RecordingID string
-	AlbumID     string
-	Artwork     ArtworkRef
-	LocalPath   string
-	Available   bool
+	LibraryRecordingID string
+	VariantRecordingID string
+	RecordingID        string
+	LibraryAlbumID     string
+	VariantAlbumID     string
+	AlbumID            string
+	Artwork            ArtworkRef
+	LocalPath          string
+	Available          bool
 }
 
 type ArtworkResolveResult struct {
@@ -127,12 +135,14 @@ type RecordingAvailabilityItem struct {
 }
 
 type RecordingPlaybackAvailability struct {
-	RecordingID      string
-	PreferredProfile string
-	State            RecordingAvailabilityState
-	SourceKind       PlaybackSourceKind
-	LocalPath        string
-	Reason           PlaybackUnavailableReason
+	LibraryRecordingID string
+	VariantRecordingID string
+	RecordingID        string
+	PreferredProfile   string
+	State              RecordingAvailabilityState
+	SourceKind         PlaybackSourceKind
+	LocalPath          string
+	Reason             PlaybackUnavailableReason
 }
 
 type RecordingPlaybackAvailabilityListRequest struct {
@@ -146,6 +156,8 @@ type AlbumAvailabilitySummaryListRequest struct {
 }
 
 type AlbumAvailabilitySummaryItem struct {
+	LibraryAlbumID   string
+	VariantAlbumID   string
 	AlbumID          string
 	PreferredProfile string
 	Availability     AggregateAvailabilitySummary
@@ -199,12 +211,14 @@ type RecordingVariantAvailabilityOverview struct {
 }
 
 type RecordingAvailabilityOverview struct {
-	RecordingID      string
-	PreferredProfile string
-	Playback         RecordingPlaybackAvailability
-	Availability     TrackAvailabilitySummary
-	Devices          []RecordingAvailabilityItem
-	Variants         []RecordingVariantAvailabilityOverview
+	LibraryRecordingID string
+	VariantRecordingID string
+	RecordingID        string
+	PreferredProfile   string
+	Playback           RecordingPlaybackAvailability
+	Availability       TrackAvailabilitySummary
+	Devices            []RecordingAvailabilityItem
+	Variants           []RecordingVariantAvailabilityOverview
 }
 
 type AlbumTrackAvailabilityOverview struct {
@@ -216,6 +230,8 @@ type AlbumVariantAvailabilityOverview struct {
 }
 
 type AlbumAvailabilityOverview struct {
+	LibraryAlbumID   string
+	VariantAlbumID   string
 	AlbumID          string
 	PreferredProfile string
 	Availability     AggregateAvailabilitySummary

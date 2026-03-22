@@ -176,6 +176,16 @@ export enum RepeatMode {
     RepeatOne = "one",
 };
 
+export enum ResolutionMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    ResolutionModeLibrary = "library",
+    ResolutionModeExplicit = "explicit",
+};
+
 export class SessionEntry {
     "entryId": string;
     "origin": EntryOrigin;
@@ -211,6 +221,8 @@ export class SessionEntry {
 }
 
 export class SessionItem {
+    "libraryRecordingId"?: string;
+    "variantRecordingId"?: string;
     "recordingId": string;
     "title": string;
     "subtitle": string;
@@ -220,6 +232,8 @@ export class SessionItem {
     "sourceId": string;
     "sourceItemId": string;
     "albumId"?: string;
+    "variantAlbumId"?: string;
+    "resolutionMode"?: ResolutionMode;
 
     /** Creates a new SessionItem instance. */
     constructor($$source: Partial<SessionItem> = {}) {

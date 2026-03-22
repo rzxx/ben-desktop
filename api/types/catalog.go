@@ -42,34 +42,38 @@ type ArtistAlbumListRequest struct {
 }
 
 type ArtistListItem struct {
-	ArtistID     string
-	Name         string
-	AlbumCount   int64
-	TrackCount   int64
+	ArtistID   string
+	Name       string
+	AlbumCount int64
+	TrackCount int64
 }
 
 type AlbumListItem struct {
-	AlbumID        string
-	AlbumClusterID string
-	Title          string
-	Artists        []string
-	Year           *int
-	TrackCount     int64
-	Thumb          ArtworkRef
-	VariantCount   int64
-	HasVariants    bool
+	LibraryAlbumID          string
+	PreferredVariantAlbumID string
+	AlbumID                 string
+	AlbumClusterID          string
+	Title                   string
+	Artists                 []string
+	Year                    *int
+	TrackCount              int64
+	Thumb                   ArtworkRef
+	VariantCount            int64
+	HasVariants             bool
 }
 
 type RecordingListRequest struct{ PageRequest }
 
 type RecordingListItem struct {
-	TrackClusterID string
-	RecordingID    string
-	Title          string
-	DurationMS     int64
-	Artists        []string
-	VariantCount   int64
-	HasVariants    bool
+	LibraryRecordingID          string
+	PreferredVariantRecordingID string
+	TrackClusterID              string
+	RecordingID                 string
+	Title                       string
+	DurationMS                  int64
+	Artists                     []string
+	VariantCount                int64
+	HasVariants                 bool
 }
 
 type AlbumTrackListRequest struct {
@@ -78,20 +82,25 @@ type AlbumTrackListRequest struct {
 }
 
 type AlbumTrackItem struct {
-	RecordingID  string
-	Title        string
-	DurationMS   int64
-	DiscNo       int
-	TrackNo      int
-	Artists      []string
+	LibraryRecordingID string
+	VariantRecordingID string
+	RecordingID        string
+	Title              string
+	DurationMS         int64
+	DiscNo             int
+	TrackNo            int
+	Artists            []string
 }
 
 type RecordingVariantListRequest struct {
-	RecordingID string
+	LibraryRecordingID string
+	RecordingID        string
 	PageRequest
 }
 
 type RecordingVariantItem struct {
+	LibraryRecordingID  string
+	VariantRecordingID  string
 	RecordingID         string
 	TrackClusterID      string
 	ContentID           string
@@ -117,11 +126,14 @@ type RecordingVariantItem struct {
 }
 
 type AlbumVariantListRequest struct {
-	AlbumID string
+	LibraryAlbumID string
+	AlbumID        string
 	PageRequest
 }
 
 type AlbumVariantItem struct {
+	LibraryAlbumID      string
+	VariantAlbumID      string
 	AlbumID             string
 	AlbumClusterID      string
 	Title               string
@@ -174,22 +186,24 @@ type PlaylistTrackListRequest struct {
 }
 
 type PlaylistTrackItem struct {
-	ItemID       string
-	RecordingID  string
-	Title        string
-	DurationMS   int64
-	Artists      []string
-	AddedAt      time.Time
+	ItemID             string
+	LibraryRecordingID string
+	RecordingID        string
+	Title              string
+	DurationMS         int64
+	Artists            []string
+	AddedAt            time.Time
 }
 
 type LikedRecordingListRequest struct{ PageRequest }
 
 type LikedRecordingItem struct {
-	RecordingID  string
-	Title        string
-	DurationMS   int64
-	Artists      []string
-	AddedAt      time.Time
+	LibraryRecordingID string
+	RecordingID        string
+	Title              string
+	DurationMS         int64
+	Artists            []string
+	AddedAt            time.Time
 }
 
 type CatalogChangeKind string
@@ -214,14 +228,14 @@ const (
 )
 
 type CatalogChangeEvent struct {
-	Kind         CatalogChangeKind
-	Entity       CatalogChangeEntity
-	EntityID     string
-	QueryKey     string
-	RecordingIDs []string
-	AlbumIDs     []string
+	Kind          CatalogChangeKind
+	Entity        CatalogChangeEntity
+	EntityID      string
+	QueryKey      string
+	RecordingIDs  []string
+	AlbumIDs      []string
 	InvalidateAll bool
-	OccurredAt   time.Time
+	OccurredAt    time.Time
 }
 
 type CatalogSurface interface {

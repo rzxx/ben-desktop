@@ -807,8 +807,8 @@ func TestRescanNowKeepsCatalogWhenArtworkRebuildFails(t *testing.T) {
 		t.Fatalf("updated album count = %d, want 1", len(updatedAlbums.Items))
 	}
 	newAlbumID := updatedAlbums.Items[0].AlbumID
-	if newAlbumID == oldAlbumID {
-		t.Fatalf("expected album id to change after update")
+	if newAlbumID != oldAlbumID {
+		t.Fatalf("expected library album id to remain stable after metadata-only update")
 	}
 	if updatedAlbums.Items[0].TrackCount != 1 {
 		t.Fatalf("updated track count = %d, want 1", updatedAlbums.Items[0].TrackCount)

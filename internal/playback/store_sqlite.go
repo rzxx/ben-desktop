@@ -18,7 +18,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const playbackSessionStateRowID = 1
+const (
+	playbackSessionStateRowID    = 1
+	playbackSessionSchemaVersion = 2
+)
 
 type SQLiteStore struct {
 	path string
@@ -27,9 +30,10 @@ type SQLiteStore struct {
 }
 
 type sqliteSessionRow struct {
-	ID           int       `gorm:"primaryKey;column:id"`
-	SnapshotJSON string    `gorm:"column:snapshot_json;type:text"`
-	UpdatedAt    time.Time `gorm:"column:updated_at"`
+	ID            int       `gorm:"primaryKey;column:id"`
+	SchemaVersion int       `gorm:"column:schema_version"`
+	SnapshotJSON  string    `gorm:"column:snapshot_json;type:text"`
+	UpdatedAt     time.Time `gorm:"column:updated_at"`
 }
 
 func (sqliteSessionRow) TableName() string {
@@ -72,6 +76,10 @@ func (s *SQLiteStore) Load(ctx context.Context) (SessionSnapshot, error) {
 	if err != nil {
 		return SessionSnapshot{}, err
 	}
+	if row.SchemaVersion != playbackSessionSchemaVersion {
+		_ = s.db.WithContext(ctx).Delete(&sqliteSessionRow{}, "id = ?", playbackSessionStateRowID).Error
+		return normalizeSnapshot(SessionSnapshot{}), nil
+	}
 
 	var snapshot SessionSnapshot
 	if strings.TrimSpace(row.SnapshotJSON) != "" {
@@ -107,9 +115,10 @@ func (s *SQLiteStore) Save(ctx context.Context, snapshot SessionSnapshot) error 
 	}
 
 	row := sqliteSessionRow{
-		ID:           playbackSessionStateRowID,
-		SnapshotJSON: string(payload),
-		UpdatedAt:    rowUpdatedAt(normalized),
+		ID:            playbackSessionStateRowID,
+		SchemaVersion: playbackSessionSchemaVersion,
+		SnapshotJSON:  string(payload),
+		UpdatedAt:     rowUpdatedAt(normalized),
 	}
 	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "id"}},

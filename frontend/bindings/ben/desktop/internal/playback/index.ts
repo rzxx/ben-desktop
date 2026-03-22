@@ -9,6 +9,7 @@ export {
     PlaybackContext,
     PlaybackContextInput,
     RepeatMode,
+    ResolutionMode,
     SessionEntry,
     SessionItem,
     SessionSnapshot,

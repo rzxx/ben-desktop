@@ -717,7 +717,7 @@ func TestListRecordingPlaybackAvailabilityRespectsPreferredVariantSelection(t *t
 	}
 
 	batchItems, err := app.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
-		RecordingIDs:     []string{requestedRecordingID},
+		RecordingIDs:     []string{trackClusterID},
 		PreferredProfile: "desktop",
 	})
 	if err != nil {
@@ -727,7 +727,7 @@ func TestListRecordingPlaybackAvailabilityRespectsPreferredVariantSelection(t *t
 		t.Fatalf("batch availability items = %d, want 1", len(batchItems))
 	}
 
-	single, err := app.GetRecordingAvailability(ctx, requestedRecordingID, "desktop")
+	single, err := app.GetRecordingAvailability(ctx, trackClusterID, "desktop")
 	if err != nil {
 		t.Fatalf("get recording availability: %v", err)
 	}

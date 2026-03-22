@@ -108,6 +108,9 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	if err := app.runPathPrivacyMigration(ctx); err != nil {
 		return nil, fmt.Errorf("run path privacy migration: %w", err)
 	}
+	if err := app.runContextIdentityMigration(ctx); err != nil {
+		return nil, fmt.Errorf("run context identity migration: %w", err)
+	}
 	if err := app.syncActiveRuntimeServices(ctx); err != nil {
 		return nil, fmt.Errorf("configure active runtime services: %w", err)
 	}

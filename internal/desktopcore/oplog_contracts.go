@@ -26,16 +26,17 @@ type scanRootsOplogPayload struct {
 }
 
 type sourceFileOplogPayload struct {
-	DeviceID     string `json:"deviceId"`
-	SourceFileID string `json:"sourceFileId"`
-	LibraryID    string `json:"libraryId"`
-	LocalPath    string `json:"localPath"`
-	MTimeNS      int64  `json:"mTimeNs"`
-	SizeBytes    int64  `json:"sizeBytes"`
-	HashAlgo     string `json:"hashAlgo"`
-	HashHex      string `json:"hashHex"`
-	Tags         Tags   `json:"tags"`
-	IsPresent    bool   `json:"isPresent"`
+	DeviceID        string `json:"deviceId"`
+	SourceFileID    string `json:"sourceFileId"`
+	LibraryID       string `json:"libraryId"`
+	LocalPath       string `json:"localPath"`
+	EditionScopeKey string `json:"editionScopeKey"`
+	MTimeNS         int64  `json:"mTimeNs"`
+	SizeBytes       int64  `json:"sizeBytes"`
+	HashAlgo        string `json:"hashAlgo"`
+	HashHex         string `json:"hashHex"`
+	Tags            Tags   `json:"tags"`
+	IsPresent       bool   `json:"isPresent"`
 }
 
 type deviceVariantPreferenceOplogPayload struct {

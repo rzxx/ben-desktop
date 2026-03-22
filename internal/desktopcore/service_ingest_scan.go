@@ -280,7 +280,7 @@ func (s *IngestService) runScanCycle(ctx context.Context, libraryID, deviceID st
 				job.Running(progress, "ingesting "+filepath.Base(path))
 			}
 
-			imported, skipped, err := s.ingestPath(ctx, libraryID, deviceID, path)
+			imported, skipped, err := s.ingestPath(ctx, libraryID, deviceID, root, path)
 			combined.Scanned++
 			if imported {
 				combined.Imported++
@@ -406,7 +406,7 @@ func isAudioPath(path string) bool {
 	return ok
 }
 
-func (s *IngestService) ingestPath(ctx context.Context, libraryID, deviceID, path string) (bool, bool, error) {
+func (s *IngestService) ingestPath(ctx context.Context, libraryID, deviceID, root, path string) (bool, bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false, false, err
@@ -430,15 +430,16 @@ func (s *IngestService) ingestPath(ctx context.Context, libraryID, deviceID, pat
 		return false, false, err
 	}
 	if err := s.upsertIngest(ctx, ingestRecord{
-		LibraryID:    libraryID,
-		DeviceID:     deviceID,
-		Path:         path,
-		MTimeNS:      mtimeNS,
-		SizeBytes:    info.Size(),
-		HashAlgo:     "sha256",
-		HashHex:      hashHex,
-		SourceFileID: "sha256:" + hashHex,
-		Tags:         tags,
+		LibraryID:       libraryID,
+		DeviceID:        deviceID,
+		Path:            path,
+		MTimeNS:         mtimeNS,
+		SizeBytes:       info.Size(),
+		HashAlgo:        "sha256",
+		HashHex:         hashHex,
+		SourceFileID:    sourceFileIDForDevicePath(deviceID, path),
+		EditionScopeKey: editionScopeKeyForPath(root, path, tags),
+		Tags:            tags,
 	}); err != nil {
 		return false, false, err
 	}
@@ -472,15 +473,16 @@ func (s *IngestService) lookupFileState(ctx context.Context, libraryID, deviceID
 }
 
 type ingestRecord struct {
-	LibraryID    string
-	DeviceID     string
-	Path         string
-	MTimeNS      int64
-	SizeBytes    int64
-	HashAlgo     string
-	HashHex      string
-	SourceFileID string
-	Tags         Tags
+	LibraryID       string
+	DeviceID        string
+	Path            string
+	MTimeNS         int64
+	SizeBytes       int64
+	HashAlgo        string
+	HashHex         string
+	SourceFileID    string
+	EditionScopeKey string
+	Tags            Tags
 }
 
 func (s *IngestService) upsertIngest(ctx context.Context, in ingestRecord) error {
@@ -505,16 +507,17 @@ func (s *IngestService) upsertIngest(ctx context.Context, in ingestRecord) error
 			return err
 		}
 		_, err = s.app.appendLocalOplogTx(tx, local, entityTypeSourceFile, sourceFileEntityID(in.DeviceID, in.SourceFileID), "upsert", sourceFileOplogPayload{
-			DeviceID:     in.DeviceID,
-			SourceFileID: in.SourceFileID,
-			LibraryID:    in.LibraryID,
-			LocalPath:    filepath.Clean(in.Path),
-			MTimeNS:      in.MTimeNS,
-			SizeBytes:    in.SizeBytes,
-			HashAlgo:     in.HashAlgo,
-			HashHex:      in.HashHex,
-			Tags:         in.Tags,
-			IsPresent:    true,
+			DeviceID:        in.DeviceID,
+			SourceFileID:    in.SourceFileID,
+			LibraryID:       in.LibraryID,
+			LocalPath:       filepath.Clean(in.Path),
+			EditionScopeKey: in.EditionScopeKey,
+			MTimeNS:         in.MTimeNS,
+			SizeBytes:       in.SizeBytes,
+			HashAlgo:        in.HashAlgo,
+			HashHex:         in.HashHex,
+			Tags:            in.Tags,
+			IsPresent:       true,
 		})
 		if err != nil {
 			return err
@@ -765,4 +768,3 @@ func sha256File(path string) (string, error) {
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
-

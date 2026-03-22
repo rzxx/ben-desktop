@@ -796,9 +796,29 @@ func (s *PlaybackService) ResolveAlbumArtwork(ctx context.Context, albumID, vari
 	if albumID == "" {
 		return result, nil
 	}
+	if libraryAlbumID, ok, err := s.app.catalog.albumClusterIDForVariant(ctx, local.LibraryID, albumID); err != nil {
+		return apitypes.RecordingArtworkResult{}, err
+	} else if ok {
+		result.LibraryAlbumID = libraryAlbumID
+	} else {
+		result.LibraryAlbumID = albumID
+	}
+	variantAlbumID, ok, err := s.app.catalog.explicitAlbumVariantID(ctx, local.LibraryID, local.DeviceID, albumID)
+	if err != nil {
+		return apitypes.RecordingArtworkResult{}, err
+	}
+	if ok {
+		result.VariantAlbumID = variantAlbumID
+	}
 	ref, err := s.app.catalog.loadArtworkRef(ctx, local.LibraryID, "album", albumID, variant)
 	if err != nil {
 		return apitypes.RecordingArtworkResult{}, err
+	}
+	if strings.TrimSpace(ref.BlobID) == "" && strings.TrimSpace(variantAlbumID) != "" && variantAlbumID != albumID {
+		ref, err = s.app.catalog.loadArtworkRef(ctx, local.LibraryID, "album", variantAlbumID, variant)
+		if err != nil {
+			return apitypes.RecordingArtworkResult{}, err
+		}
 	}
 	if strings.TrimSpace(ref.BlobID) == "" {
 		return result, nil
@@ -822,6 +842,10 @@ func (s *PlaybackService) ResolveRecordingArtwork(ctx context.Context, recording
 	if err != nil {
 		return apitypes.RecordingArtworkResult{}, err
 	}
+	libraryRecordingID, _, err := s.app.catalog.trackClusterIDForVariant(ctx, local.LibraryID, resolvedRecordingID)
+	if err != nil {
+		return apitypes.RecordingArtworkResult{}, err
+	}
 	variants, err := s.app.catalog.listRecordingVariantsRows(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, s.app.cfg.TranscodeProfile)
 	if err != nil {
 		return apitypes.RecordingArtworkResult{}, err
@@ -837,11 +861,19 @@ func (s *PlaybackService) ResolveRecordingArtwork(ctx context.Context, recording
 		albumID = strings.TrimSpace(variants[0].AlbumVariantID)
 	}
 	result := apitypes.RecordingArtworkResult{
-		RecordingID: resolvedRecordingID,
-		AlbumID:     albumID,
+		RecordingID:        resolvedRecordingID,
+		LibraryRecordingID: libraryRecordingID,
+		VariantRecordingID: resolvedRecordingID,
+		AlbumID:            albumID,
+		VariantAlbumID:     albumID,
 	}
 	if albumID == "" {
 		return result, nil
+	}
+	if libraryAlbumID, ok, err := s.app.catalog.albumClusterIDForVariant(ctx, local.LibraryID, albumID); err != nil {
+		return apitypes.RecordingArtworkResult{}, err
+	} else if ok {
+		result.LibraryAlbumID = libraryAlbumID
 	}
 	ref, err := s.app.catalog.loadArtworkRef(ctx, local.LibraryID, "album", albumID, variant)
 	if err != nil {
@@ -1137,6 +1169,13 @@ func (s *PlaybackService) PinRecordingOffline(ctx context.Context, recordingID, 
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
+	libraryRecordingID, ok, err := s.app.catalog.trackClusterIDForVariant(ctx, local.LibraryID, recordingID)
+	if err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	if !ok {
+		return apitypes.PlaybackRecordingResult{}, fmt.Errorf("recording %s not found", strings.TrimSpace(recordingID))
+	}
 	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
@@ -1145,13 +1184,13 @@ func (s *PlaybackService) PinRecordingOffline(ctx context.Context, recordingID, 
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
-	if err := s.upsertOfflinePin(ctx, local, "recording", resolvedRecordingID, profile); err != nil {
+	if err := s.upsertOfflinePin(ctx, local, "recording", libraryRecordingID, profile); err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
 	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
 		Kind:         apitypes.CatalogChangeInvalidateAvailability,
 		Entity:       apitypes.CatalogChangeEntityTracks,
-		RecordingIDs: []string{resolvedRecordingID},
+		RecordingIDs: []string{libraryRecordingID},
 	})
 	return result, nil
 }
@@ -1161,8 +1200,7 @@ func (s *PlaybackService) UnpinRecordingOffline(ctx context.Context, recordingID
 	if err != nil {
 		return err
 	}
-	resolvedRecordingID, _, resolveErr := s.resolvePlaybackVariant(ctx, local, recordingID, "")
-	if resolveErr == nil && strings.TrimSpace(resolvedRecordingID) != "" {
+	if resolvedRecordingID, ok, resolveErr := s.app.catalog.trackClusterIDForVariant(ctx, local.LibraryID, recordingID); resolveErr == nil && ok && strings.TrimSpace(resolvedRecordingID) != "" {
 		recordingID = resolvedRecordingID
 	}
 	if err := s.deleteOfflinePin(ctx, local, "recording", recordingID); err != nil {
@@ -1185,6 +1223,13 @@ func (s *PlaybackService) PinAlbumOffline(ctx context.Context, albumID, preferre
 	if albumID == "" {
 		return apitypes.PlaybackBatchResult{}, fmt.Errorf("album id is required")
 	}
+	libraryAlbumID, ok, err := s.app.catalog.albumClusterIDForVariant(ctx, local.LibraryID, albumID)
+	if err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	if !ok {
+		return apitypes.PlaybackBatchResult{}, fmt.Errorf("album %s not found", albumID)
+	}
 	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, albumID)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
@@ -1192,15 +1237,15 @@ func (s *PlaybackService) PinAlbumOffline(ctx context.Context, albumID, preferre
 	if len(recordingIDs) == 0 {
 		return apitypes.PlaybackBatchResult{}, fmt.Errorf("no recordings found for album %s", albumID)
 	}
-	result, err := s.pinOfflineScope(ctx, local, "album", albumID, recordingIDs, preferredProfile)
+	result, err := s.pinOfflineScope(ctx, local, "album", libraryAlbumID, recordingIDs, preferredProfile)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
 	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
 		Kind:         apitypes.CatalogChangeInvalidateAvailability,
 		Entity:       apitypes.CatalogChangeEntityAlbum,
-		EntityID:     albumID,
-		AlbumIDs:     []string{albumID},
+		EntityID:     libraryAlbumID,
+		AlbumIDs:     []string{libraryAlbumID},
 		RecordingIDs: recordingIDs,
 	})
 	return result, nil
@@ -1210,6 +1255,9 @@ func (s *PlaybackService) UnpinAlbumOffline(ctx context.Context, albumID string)
 	local, err := s.app.requireActiveContext(ctx)
 	if err != nil {
 		return err
+	}
+	if resolvedAlbumID, ok, resolveErr := s.app.catalog.albumClusterIDForVariant(ctx, local.LibraryID, albumID); resolveErr == nil && ok && strings.TrimSpace(resolvedAlbumID) != "" {
+		albumID = resolvedAlbumID
 	}
 	if err := s.deleteOfflinePin(ctx, local, "album", albumID); err != nil {
 		return err
@@ -1404,6 +1452,11 @@ func (s *PlaybackService) resolvePlaybackVariant(ctx context.Context, local apit
 		return "", "", fmt.Errorf("recording id is required")
 	}
 	profile := s.resolvePlaybackProfile(preferredProfile)
+	if exact, ok, err := s.trackVariantExists(ctx, local.LibraryID, recordingID); err != nil {
+		return "", "", err
+	} else if ok {
+		return exact, profile, nil
+	}
 	variants, err := s.app.catalog.listRecordingVariantsRows(ctx, local.LibraryID, local.DeviceID, recordingID, profile)
 	if err != nil {
 		return "", "", err
@@ -1444,28 +1497,33 @@ func (s *PlaybackService) resolvePlaybackVariantsBatch(ctx context.Context, loca
 	}
 
 	type row struct {
-		RecordingID string
-		ClusterID   string
+		VariantID string
+		ClusterID string
 	}
 	var rows []row
 	if err := s.app.storage.WithContext(ctx).
 		Model(&TrackVariantModel{}).
-		Select("track_variant_id AS recording_id, track_cluster_id AS cluster_id").
-		Where("library_id = ? AND track_variant_id IN ?", local.LibraryID, recordingIDs).
+		Select("track_variant_id AS variant_id, track_cluster_id AS cluster_id").
+		Where("library_id = ? AND (track_variant_id IN ? OR track_cluster_id IN ?)", local.LibraryID, recordingIDs, recordingIDs).
 		Scan(&rows).Error; err != nil {
 		return recordingBatchResolution{}, err
 	}
 
 	clusterByRecording := make(map[string]string, len(rows))
+	exactVariantIDs := make(map[string]struct{}, len(rows))
 	clusterIDs := make([]string, 0, len(rows))
 	clusterSeen := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
-		recordingID := strings.TrimSpace(row.RecordingID)
+		recordingID := strings.TrimSpace(row.VariantID)
 		clusterID := strings.TrimSpace(row.ClusterID)
 		if recordingID == "" || clusterID == "" {
 			continue
 		}
 		clusterByRecording[recordingID] = clusterID
+		exactVariantIDs[recordingID] = struct{}{}
+		if _, ok := clusterByRecording[clusterID]; !ok {
+			clusterByRecording[clusterID] = clusterID
+		}
 		if _, ok := clusterSeen[clusterID]; ok {
 			continue
 		}
@@ -1487,7 +1545,9 @@ func (s *PlaybackService) resolvePlaybackVariantsBatch(ctx context.Context, loca
 	resolvedSeen := make(map[string]struct{}, len(recordingIDs))
 	for _, recordingID := range recordingIDs {
 		resolvedID := recordingID
-		if clusterID := clusterByRecording[recordingID]; clusterID != "" {
+		if _, ok := exactVariantIDs[recordingID]; ok {
+			resolvedID = recordingID
+		} else if clusterID := clusterByRecording[recordingID]; clusterID != "" {
 			if preferredID := chooseRecordingVariantID(variantsByCluster[clusterID], preferredByCluster[clusterID]); preferredID != "" {
 				resolvedID = preferredID
 			}
@@ -1505,6 +1565,20 @@ func (s *PlaybackService) resolvePlaybackVariantsBatch(ctx context.Context, loca
 		resolvedByRecording:  resolvedByRecording,
 		resolvedRecordingIDs: resolvedRecordingIDs,
 	}, nil
+}
+
+func (s *PlaybackService) trackVariantExists(ctx context.Context, libraryID, recordingID string) (string, bool, error) {
+	var row TrackVariantModel
+	if err := s.app.storage.WithContext(ctx).
+		Select("track_variant_id").
+		Where("library_id = ? AND track_variant_id = ?", libraryID, strings.TrimSpace(recordingID)).
+		Take(&row).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return strings.TrimSpace(row.TrackVariantID), true, nil
 }
 
 func (s *PlaybackService) preparationKey(recordingID, profile string) string {
@@ -1892,13 +1966,52 @@ func (s *PlaybackService) deleteOfflinePin(ctx context.Context, local apitypes.L
 }
 
 func (s *PlaybackService) recordingIDsForAlbum(ctx context.Context, libraryID, albumID string) ([]string, error) {
+	albumID = strings.TrimSpace(albumID)
+	if albumID == "" {
+		return nil, nil
+	}
+	var explicitAlbum AlbumVariantModel
+	if err := s.app.storage.WithContext(ctx).Where("library_id = ? AND album_variant_id = ?", libraryID, albumID).Take(&explicitAlbum).Error; err == nil {
+		type row struct{ RecordingID string }
+		var rows []row
+		if err := s.app.storage.WithContext(ctx).
+			Table("album_tracks").
+			Select("track_variant_id AS recording_id").
+			Where("library_id = ? AND album_variant_id = ?", libraryID, albumID).
+			Order("disc_no ASC, track_no ASC, track_variant_id ASC").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		out := make([]string, 0, len(rows))
+		seen := make(map[string]struct{}, len(rows))
+		for _, row := range rows {
+			recordingID := strings.TrimSpace(row.RecordingID)
+			if recordingID == "" {
+				continue
+			}
+			if _, ok := seen[recordingID]; ok {
+				continue
+			}
+			seen[recordingID] = struct{}{}
+			out = append(out, recordingID)
+		}
+		return out, nil
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
 	type row struct{ RecordingID string }
 	var rows []row
-	if err := s.app.storage.WithContext(ctx).
-		Table("album_tracks").
-		Select("track_variant_id AS recording_id").
-		Where("library_id = ? AND album_variant_id = ?", libraryID, strings.TrimSpace(albumID)).
-		Order("disc_no ASC, track_no ASC, track_variant_id ASC").
+	query := `
+SELECT
+	tv.track_cluster_id AS recording_id
+FROM album_tracks at
+JOIN track_variants tv ON tv.library_id = at.library_id AND tv.track_variant_id = at.track_variant_id
+JOIN album_variants av ON av.library_id = at.library_id AND av.album_variant_id = at.album_variant_id
+WHERE at.library_id = ? AND av.album_cluster_id = ?
+GROUP BY tv.track_cluster_id, at.disc_no, at.track_no
+ORDER BY at.disc_no ASC, at.track_no ASC, tv.track_cluster_id ASC`
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, albumID).
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -1952,49 +2065,56 @@ func (s *PlaybackService) albumAvailabilitySummaries(ctx context.Context, local 
 		return map[string]apitypes.AggregateAvailabilitySummary{}, nil
 	}
 
-	type albumTrackRow struct {
-		AlbumID     string
-		RecordingID string
-	}
-
-	var rows []albumTrackRow
-	query := `
-SELECT
-	at.album_variant_id AS album_id,
-	at.track_variant_id AS recording_id
-FROM album_tracks at
-WHERE at.library_id = ? AND at.album_variant_id IN ?
-GROUP BY at.album_variant_id, at.track_variant_id
-ORDER BY at.album_variant_id ASC, at.disc_no ASC, at.track_no ASC, at.track_variant_id ASC`
-	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, albumIDs).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-
 	grouped := make(map[string][]string, len(albumIDs))
-	recordingIDs := make([]string, 0, len(rows))
-	recordingSeen := make(map[string]struct{}, len(rows))
-	for _, row := range rows {
-		albumID := strings.TrimSpace(row.AlbumID)
-		recordingID := strings.TrimSpace(row.RecordingID)
-		if albumID == "" || recordingID == "" {
-			continue
+	libraryAlbumByRequested := make(map[string]string, len(albumIDs))
+	libraryAlbumIDs := make([]string, 0, len(albumIDs))
+	libraryAlbumSeen := make(map[string]struct{}, len(albumIDs))
+	recordingIDs := make([]string, 0, len(albumIDs)*8)
+	recordingSeen := make(map[string]struct{}, len(albumIDs)*8)
+	for _, albumID := range albumIDs {
+		trimmedAlbumID := strings.TrimSpace(albumID)
+		libraryAlbumID := trimmedAlbumID
+		if resolvedAlbumID, ok, err := s.app.catalog.albumClusterIDForVariant(ctx, local.LibraryID, trimmedAlbumID); err != nil {
+			return nil, err
+		} else if ok && strings.TrimSpace(resolvedAlbumID) != "" {
+			libraryAlbumID = strings.TrimSpace(resolvedAlbumID)
 		}
-		grouped[albumID] = append(grouped[albumID], recordingID)
-		if _, ok := recordingSeen[recordingID]; ok {
-			continue
+		libraryAlbumByRequested[trimmedAlbumID] = libraryAlbumID
+		if _, ok := libraryAlbumSeen[libraryAlbumID]; !ok {
+			libraryAlbumSeen[libraryAlbumID] = struct{}{}
+			libraryAlbumIDs = append(libraryAlbumIDs, libraryAlbumID)
 		}
-		recordingSeen[recordingID] = struct{}{}
-		recordingIDs = append(recordingIDs, recordingID)
+
+		recordings, err := s.recordingIDsForAlbum(ctx, local.LibraryID, trimmedAlbumID)
+		if err != nil {
+			return nil, err
+		}
+		grouped[trimmedAlbumID] = recordings
+		for _, recordingID := range recordings {
+			recordingID = strings.TrimSpace(recordingID)
+			if recordingID == "" {
+				continue
+			}
+			if _, ok := recordingSeen[recordingID]; ok {
+				continue
+			}
+			recordingSeen[recordingID] = struct{}{}
+			recordingIDs = append(recordingIDs, recordingID)
+		}
 	}
 
-	profile := s.resolvePlaybackProfile(preferredProfile)
-	aliasProfile := normalizedPlaybackProfileAlias(profile)
-	cutoff := time.Now().UTC().Add(-availabilityOnlineWindow)
-	facts, err := s.batchRecordingAvailabilityFacts(ctx, local.LibraryID, local.DeviceID, recordingIDs, profile, aliasProfile, s.app.NetworkStatus().Running, cutoff)
+	resolution, err := s.resolvePlaybackVariantsBatch(ctx, local, recordingIDs, preferredProfile)
 	if err != nil {
 		return nil, err
 	}
-	albumPins, err := s.batchAlbumPins(ctx, local.LibraryID, local.DeviceID, albumIDs, profile, aliasProfile)
+	profile := resolution.profile
+	aliasProfile := normalizedPlaybackProfileAlias(profile)
+	cutoff := time.Now().UTC().Add(-availabilityOnlineWindow)
+	facts, err := s.batchRecordingAvailabilityFacts(ctx, local.LibraryID, local.DeviceID, resolution.resolvedRecordingIDs, profile, aliasProfile, s.app.NetworkStatus().Running, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	albumPins, err := s.batchAlbumPins(ctx, local.LibraryID, local.DeviceID, libraryAlbumIDs, profile, aliasProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -2010,9 +2130,9 @@ ORDER BY at.album_variant_id ASC, at.disc_no ASC, at.track_no ASC, at.track_vari
 		summary := apitypes.AggregateAvailabilitySummary{
 			TrackCount: int64(len(recordings)),
 		}
-		albumPinned := albumPins[trimmedAlbumID]
+		albumPinned := albumPins[libraryAlbumByRequested[trimmedAlbumID]]
 		for _, recordingID := range recordings {
-			fact := facts[recordingID]
+			fact := facts[resolution.resolvedByRecording[recordingID]]
 			if fact.isLocal {
 				summary.IsLocal = true
 				summary.LocalTrackCount++
@@ -2195,19 +2315,63 @@ func (s *PlaybackService) batchTrackPins(ctx context.Context, libraryID, localDe
 		return map[string]bool{}, nil
 	}
 
+	type variantRow struct {
+		TrackVariantID string
+		TrackClusterID string
+	}
+	var variants []variantRow
+	if err := s.app.storage.WithContext(ctx).
+		Model(&TrackVariantModel{}).
+		Select("track_variant_id, track_cluster_id").
+		Where("library_id = ? AND (track_variant_id IN ? OR track_cluster_id IN ?)", libraryID, recordingIDs, recordingIDs).
+		Scan(&variants).Error; err != nil {
+		return nil, err
+	}
+	clusterIDs := make([]string, 0, len(variants))
+	clusterSeen := make(map[string]struct{}, len(variants))
+	clusterByInput := make(map[string]string, len(recordingIDs))
+	for _, row := range variants {
+		variantID := strings.TrimSpace(row.TrackVariantID)
+		clusterID := strings.TrimSpace(row.TrackClusterID)
+		if clusterID == "" {
+			continue
+		}
+		if variantID != "" {
+			clusterByInput[variantID] = clusterID
+		}
+		clusterByInput[clusterID] = clusterID
+		if _, ok := clusterSeen[clusterID]; ok {
+			continue
+		}
+		clusterSeen[clusterID] = struct{}{}
+		clusterIDs = append(clusterIDs, clusterID)
+	}
+	if len(clusterIDs) == 0 {
+		return map[string]bool{}, nil
+	}
 	type row struct{ ScopeID string }
 	var rows []row
 	query := `
 SELECT scope_id
 FROM offline_pins
 WHERE library_id = ? AND device_id = ? AND scope = 'recording' AND scope_id IN ? AND (profile = ? OR profile = ?)`
-	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, localDeviceID, recordingIDs, profile, aliasProfile).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, localDeviceID, clusterIDs, profile, aliasProfile).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
-	out := make(map[string]bool, len(rows))
+	pinnedClusters := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
-		out[strings.TrimSpace(row.ScopeID)] = true
+		pinnedClusters[strings.TrimSpace(row.ScopeID)] = struct{}{}
+	}
+	out := make(map[string]bool, len(recordingIDs))
+	for _, recordingID := range recordingIDs {
+		clusterID := strings.TrimSpace(clusterByInput[recordingID])
+		if clusterID == "" {
+			clusterID = strings.TrimSpace(recordingID)
+		}
+		if _, ok := pinnedClusters[clusterID]; ok {
+			out[strings.TrimSpace(recordingID)] = true
+		}
 	}
 	return out, nil
 }

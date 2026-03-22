@@ -65,10 +65,10 @@ func (s *PlaylistService) CreatePlaylist(ctx context.Context, name, kind string)
 		return apitypes.PlaylistRecord{}, err
 	}
 	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
-		Kind:         apitypes.CatalogChangeInvalidateBase,
-		Entity:       apitypes.CatalogChangeEntityPlaylists,
-		QueryKey:     "playlists",
-		EntityID:     row.PlaylistID,
+		Kind:          apitypes.CatalogChangeInvalidateBase,
+		Entity:        apitypes.CatalogChangeEntityPlaylists,
+		QueryKey:      "playlists",
+		EntityID:      row.PlaylistID,
 		InvalidateAll: true,
 	})
 	return s.toPlaylistRecord(ctx, row)
@@ -118,10 +118,10 @@ func (s *PlaylistService) RenamePlaylist(ctx context.Context, playlistID, name s
 		return apitypes.PlaylistRecord{}, err
 	}
 	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
-		Kind:         apitypes.CatalogChangeInvalidateBase,
-		Entity:       apitypes.CatalogChangeEntityPlaylists,
-		QueryKey:     "playlists",
-		EntityID:     playlistID,
+		Kind:          apitypes.CatalogChangeInvalidateBase,
+		Entity:        apitypes.CatalogChangeEntityPlaylists,
+		QueryKey:      "playlists",
+		EntityID:      playlistID,
 		InvalidateAll: true,
 	})
 	return s.toPlaylistRecord(ctx, row)
@@ -165,10 +165,10 @@ func (s *PlaylistService) DeletePlaylist(ctx context.Context, playlistID string)
 		return err
 	}
 	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
-		Kind:         apitypes.CatalogChangeInvalidateBase,
-		Entity:       apitypes.CatalogChangeEntityPlaylists,
-		QueryKey:     "playlists",
-		EntityID:     playlistID,
+		Kind:          apitypes.CatalogChangeInvalidateBase,
+		Entity:        apitypes.CatalogChangeEntityPlaylists,
+		QueryKey:      "playlists",
+		EntityID:      playlistID,
 		InvalidateAll: true,
 	})
 	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
@@ -186,7 +186,7 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 		return apitypes.PlaylistItemRecord{}, err
 	}
 	playlistID := strings.TrimSpace(req.PlaylistID)
-	recordingID := strings.TrimSpace(req.RecordingID)
+	recordingID := firstNonEmpty(strings.TrimSpace(req.LibraryRecordingID), strings.TrimSpace(req.RecordingID))
 	if playlistID == "" {
 		return apitypes.PlaylistItemRecord{}, fmt.Errorf("playlist id is required")
 	}
@@ -200,16 +200,23 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 	if !ok {
 		return apitypes.PlaylistItemRecord{}, fmt.Errorf("playlist %q does not exist", playlistID)
 	}
-	if exists, err := s.recordingExists(ctx, local.LibraryID, recordingID); err != nil {
+	libraryRecordingID, ok, err := s.resolveLibraryRecordingID(ctx, local.LibraryID, recordingID)
+	if err != nil {
 		return apitypes.PlaylistItemRecord{}, err
-	} else if !exists {
+	}
+	if !ok {
 		return apitypes.PlaylistItemRecord{}, fmt.Errorf("recording %q does not exist", recordingID)
 	}
+	if exists, err := s.recordingExists(ctx, local.LibraryID, libraryRecordingID); err != nil {
+		return apitypes.PlaylistItemRecord{}, err
+	} else if !exists {
+		return apitypes.PlaylistItemRecord{}, fmt.Errorf("recording %q does not exist", libraryRecordingID)
+	}
 	if isReservedPlaylist(playlist) {
-		if err := s.LikeRecording(ctx, recordingID); err != nil {
+		if err := s.LikeRecording(ctx, libraryRecordingID); err != nil {
 			return apitypes.PlaylistItemRecord{}, err
 		}
-		item, ok, err := s.playlistItemByTrackVariant(ctx, local.LibraryID, playlistID, recordingID)
+		item, ok, err := s.playlistItemByTrackVariant(ctx, local.LibraryID, playlistID, libraryRecordingID)
 		if err != nil {
 			return apitypes.PlaylistItemRecord{}, err
 		}
@@ -230,7 +237,7 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 			LibraryID:      local.LibraryID,
 			PlaylistID:     playlistID,
 			ItemID:         uuid.NewString(),
-			TrackVariantID: recordingID,
+			TrackVariantID: libraryRecordingID,
 			AddedAt:        now,
 			UpdatedAt:      now,
 			PositionKey:    positionKey,
@@ -252,7 +259,7 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 	if err != nil {
 		return apitypes.PlaylistItemRecord{}, err
 	}
-	s.emitPlaylistMutationEvents(playlistID, recordingID, isReservedPlaylist(playlist))
+	s.emitPlaylistMutationEvents(playlistID, libraryRecordingID, isReservedPlaylist(playlist))
 	return toPlaylistItemRecord(item), nil
 }
 
@@ -375,14 +382,21 @@ func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string)
 	if recordingID == "" {
 		return fmt.Errorf("recording id is required")
 	}
-	if exists, err := s.recordingExists(ctx, local.LibraryID, recordingID); err != nil {
+	libraryRecordingID, ok, err := s.resolveLibraryRecordingID(ctx, local.LibraryID, recordingID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("recording %q does not exist", recordingID)
+	}
+	if exists, err := s.recordingExists(ctx, local.LibraryID, libraryRecordingID); err != nil {
 		return err
 	} else if !exists {
-		return fmt.Errorf("recording %q does not exist", recordingID)
+		return fmt.Errorf("recording %q does not exist", libraryRecordingID)
 	}
 
 	likedPlaylistID := likedPlaylistIDForLibrary(local.LibraryID)
-	active, err := s.isRecordingLikedInLibrary(ctx, local.LibraryID, recordingID)
+	active, err := s.isRecordingLikedInLibrary(ctx, local.LibraryID, libraryRecordingID)
 	if err != nil {
 		return err
 	}
@@ -394,8 +408,8 @@ func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string)
 	item := PlaylistItem{
 		LibraryID:      local.LibraryID,
 		PlaylistID:     likedPlaylistID,
-		ItemID:         likedItemID(likedPlaylistID, recordingID),
-		TrackVariantID: recordingID,
+		ItemID:         likedItemID(likedPlaylistID, libraryRecordingID),
+		TrackVariantID: libraryRecordingID,
 		AddedAt:        now,
 		UpdatedAt:      now,
 		PositionKey:    defaultPositionKey(),
@@ -432,7 +446,7 @@ func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string)
 	}); err != nil {
 		return err
 	}
-	s.emitPlaylistMutationEvents(likedPlaylistID, recordingID, true)
+	s.emitPlaylistMutationEvents(likedPlaylistID, libraryRecordingID, true)
 	return nil
 }
 
@@ -445,7 +459,17 @@ func (s *PlaylistService) UnlikeRecording(ctx context.Context, recordingID strin
 	if recordingID == "" {
 		return fmt.Errorf("recording id is required")
 	}
-	item, ok, err := s.playlistItemByTrackVariant(ctx, local.LibraryID, likedPlaylistIDForLibrary(local.LibraryID), recordingID)
+	libraryRecordingID, ok, err := s.resolveLibraryRecordingID(ctx, local.LibraryID, recordingID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if err := s.ensureLikedPlaylist(ctx, local.LibraryID, local.DeviceID); err != nil {
+			return err
+		}
+		return nil
+	}
+	item, ok, err := s.playlistItemByTrackVariant(ctx, local.LibraryID, likedPlaylistIDForLibrary(local.LibraryID), libraryRecordingID)
 	if err != nil {
 		return err
 	}
@@ -482,7 +506,14 @@ func (s *PlaylistService) IsRecordingLiked(ctx context.Context, recordingID stri
 	if err != nil {
 		return false, err
 	}
-	return s.isRecordingLikedInLibrary(ctx, local.LibraryID, strings.TrimSpace(recordingID))
+	libraryRecordingID, ok, err := s.resolveLibraryRecordingID(ctx, local.LibraryID, recordingID)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+	return s.isRecordingLikedInLibrary(ctx, local.LibraryID, libraryRecordingID)
 }
 
 func (s *PlaylistService) emitPlaylistMutationEvents(playlistID, recordingID string, liked bool) {
@@ -570,11 +601,36 @@ func (s *PlaylistService) recordingExists(ctx context.Context, libraryID, record
 	var count int64
 	if err := s.app.storage.WithContext(ctx).
 		Model(&TrackVariantModel{}).
-		Where("library_id = ? AND track_variant_id = ?", libraryID, recordingID).
+		Where("library_id = ? AND track_cluster_id = ?", libraryID, recordingID).
 		Count(&count).Error; err != nil {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (s *PlaylistService) resolveLibraryRecordingID(ctx context.Context, libraryID, recordingID string) (string, bool, error) {
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return "", false, nil
+	}
+
+	var row TrackVariantModel
+	if err := s.app.storage.WithContext(ctx).
+		Where("library_id = ? AND track_cluster_id = ?", libraryID, recordingID).
+		Take(&row).Error; err == nil {
+		return strings.TrimSpace(row.TrackClusterID), true, nil
+	} else if err != gorm.ErrRecordNotFound {
+		return "", false, err
+	}
+	if err := s.app.storage.WithContext(ctx).
+		Where("library_id = ? AND track_variant_id = ?", libraryID, recordingID).
+		Take(&row).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return strings.TrimSpace(row.TrackClusterID), true, nil
 }
 
 func (s *PlaylistService) ensureLikedPlaylist(ctx context.Context, libraryID, deviceID string) error {
@@ -587,7 +643,6 @@ func (s *PlaylistService) isRecordingLikedInLibrary(ctx context.Context, library
 	var count int64
 	if err := s.app.storage.WithContext(ctx).
 		Table("playlist_items AS pi").
-		Joins("JOIN track_variants tv ON tv.library_id = pi.library_id AND tv.track_variant_id = pi.track_variant_id").
 		Where("pi.library_id = ? AND pi.playlist_id = ? AND pi.track_variant_id = ? AND pi.deleted_at IS NULL",
 			libraryID, likedPlaylistIDForLibrary(libraryID), recordingID).
 		Count(&count).Error; err != nil {
@@ -598,12 +653,13 @@ func (s *PlaylistService) isRecordingLikedInLibrary(ctx context.Context, library
 
 func toPlaylistItemRecord(row PlaylistItem) apitypes.PlaylistItemRecord {
 	return apitypes.PlaylistItemRecord{
-		LibraryID:   strings.TrimSpace(row.LibraryID),
-		PlaylistID:  strings.TrimSpace(row.PlaylistID),
-		ItemID:      strings.TrimSpace(row.ItemID),
-		RecordingID: strings.TrimSpace(row.TrackVariantID),
-		AddedAt:     row.AddedAt,
-		UpdatedAt:   row.UpdatedAt,
+		LibraryID:          strings.TrimSpace(row.LibraryID),
+		PlaylistID:         strings.TrimSpace(row.PlaylistID),
+		ItemID:             strings.TrimSpace(row.ItemID),
+		LibraryRecordingID: strings.TrimSpace(row.TrackVariantID),
+		RecordingID:        strings.TrimSpace(row.TrackVariantID),
+		AddedAt:            row.AddedAt,
+		UpdatedAt:          row.UpdatedAt,
 	}
 }
 
@@ -643,8 +699,8 @@ func isReservedPlaylist(row Playlist) bool {
 	return strings.EqualFold(strings.TrimSpace(row.Kind), playlistKindLiked)
 }
 
-func likedItemID(playlistID, recordingID string) string {
-	return stableNameID("liked_item", strings.TrimSpace(playlistID)+":"+strings.TrimSpace(recordingID))
+func likedItemID(playlistID, libraryRecordingID string) string {
+	return stableNameID("liked_item", strings.TrimSpace(playlistID)+":"+strings.TrimSpace(libraryRecordingID))
 }
 
 func playlistItemByIDTx(tx *gorm.DB, libraryID, playlistID, itemID string) (PlaylistItem, bool, error) {
@@ -829,4 +885,3 @@ func maxPositionKeyValue() *big.Int {
 	max.Sub(max, big.NewInt(1))
 	return max
 }
-

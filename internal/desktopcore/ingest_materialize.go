@@ -86,15 +86,16 @@ func sourceFileOplogPayloadFromRow(row SourceFileModel) (sourceFileOplogPayload,
 		return sourceFileOplogPayload{}, err
 	}
 	return sourceFileOplogPayload{
-		DeviceID:     strings.TrimSpace(row.DeviceID),
-		SourceFileID: strings.TrimSpace(row.SourceFileID),
-		LibraryID:    strings.TrimSpace(row.LibraryID),
-		MTimeNS:      row.MTimeNS,
-		SizeBytes:    row.SizeBytes,
-		HashAlgo:     strings.TrimSpace(row.HashAlgo),
-		HashHex:      strings.TrimSpace(row.HashHex),
-		Tags:         tags,
-		IsPresent:    row.IsPresent,
+		DeviceID:        strings.TrimSpace(row.DeviceID),
+		SourceFileID:    strings.TrimSpace(row.SourceFileID),
+		LibraryID:       strings.TrimSpace(row.LibraryID),
+		EditionScopeKey: strings.TrimSpace(row.EditionScopeKey),
+		MTimeNS:         row.MTimeNS,
+		SizeBytes:       row.SizeBytes,
+		HashAlgo:        strings.TrimSpace(row.HashAlgo),
+		HashHex:         strings.TrimSpace(row.HashHex),
+		Tags:            tags,
+		IsPresent:       row.IsPresent,
 	}, nil
 }
 
@@ -114,11 +115,18 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 		mutatedAt = time.Now().UTC()
 	}
 
-	recordingKey, albumKey, groupKey := normalizedRecordKeys(in.Tags)
-	trackVariantID := stableNameID("recording", recordingKey)
+	recordingKey, albumKey, _ := normalizedRecordKeys(in.Tags)
+	editionScopeKey := strings.TrimSpace(in.EditionScopeKey)
+	if editionScopeKey == "" {
+		editionScopeKey = normalizeCatalogKey(strings.Join([]string{
+			firstNonEmpty(in.Tags.AlbumArtist, firstArtist(in.Tags.Artists)),
+			in.Tags.Album,
+		}, "|"))
+	}
+	trackVariantID := explicitTrackVariantID(recordingKey, editionScopeKey, in.Tags.DiscNo, in.Tags.TrackNo)
 	trackClusterID := stableNameID("track_cluster", recordingKey)
-	albumVariantID := stableNameID("album", albumKey)
-	albumClusterID := stableNameID("album_cluster", groupKey)
+	albumVariantID := explicitAlbumVariantID(albumKey, editionScopeKey)
+	albumClusterID := stableNameID("library_album_seed", albumKey+"|"+editionScopeKey)
 
 	tagsJSON, err := tagsSnapshotJSON(in.Tags)
 	if err != nil {
@@ -139,8 +147,8 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 		album.Year = &year
 	}
 	if err := tx.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "library_id"}, {Name: "key_norm"}},
-		DoUpdates: clause.AssignmentColumns([]string{"album_variant_id", "album_cluster_id", "title", "year", "updated_at"}),
+		Columns:   []clause.Column{{Name: "library_id"}, {Name: "album_variant_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"album_cluster_id", "title", "year", "updated_at"}),
 	}).Create(&album).Error; err != nil {
 		return err
 	}
@@ -156,8 +164,8 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 		UpdatedAt:      mutatedAt,
 	}
 	if err := tx.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "library_id"}, {Name: "key_norm"}},
-		DoUpdates: clause.AssignmentColumns([]string{"track_variant_id", "track_cluster_id", "title", "duration_ms", "updated_at"}),
+		Columns:   []clause.Column{{Name: "library_id"}, {Name: "track_variant_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"track_cluster_id", "title", "duration_ms", "updated_at"}),
 	}).Create(&recording).Error; err != nil {
 		return err
 	}
@@ -215,6 +223,7 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 		LocalPath:         localPath,
 		PathKey:           pathKey,
 		SourceFingerprint: sourceFingerprint,
+		EditionScopeKey:   editionScopeKey,
 		HashAlgo:          in.HashAlgo,
 		HashHex:           in.HashHex,
 		MTimeNS:           in.MTimeNS,
@@ -235,37 +244,38 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 	}
 	values := sourceFileUpsertValues(content)
 	return tx.Model(&SourceFileModel{}).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "library_id"}, {Name: "device_id"}, {Name: "source_fingerprint"}},
+		Columns:   []clause.Column{{Name: "library_id"}, {Name: "device_id"}, {Name: "path_key"}},
 		DoUpdates: clause.Assignments(sourceFileConflictAssignments(content)),
 	}).Create(values).Error
 }
 
 func sourceFileUpsertValues(content SourceFileModel) map[string]any {
 	return map[string]any{
-		"library_id":          content.LibraryID,
-		"device_id":           content.DeviceID,
-		"source_file_id":      content.SourceFileID,
-		"track_variant_id":    content.TrackVariantID,
-		"local_path":          content.LocalPath,
-		"path_key":            content.PathKey,
-		"source_fingerprint":  content.SourceFingerprint,
-		"hash_algo":           content.HashAlgo,
-		"hash_hex":            content.HashHex,
-		"m_time_ns":           content.MTimeNS,
-		"size_bytes":          content.SizeBytes,
-		"container":           content.Container,
-		"codec":               content.Codec,
-		"bitrate":             content.Bitrate,
-		"sample_rate":         content.SampleRate,
-		"channels":            content.Channels,
-		"is_lossless":         content.IsLossless,
-		"quality_rank":        content.QualityRank,
-		"duration_ms":         content.DurationMS,
-		"tags_json":           content.TagsJSON,
-		"last_seen_at":        content.LastSeenAt,
-		"is_present":          content.IsPresent,
-		"created_at":          content.CreatedAt,
-		"updated_at":          content.UpdatedAt,
+		"library_id":         content.LibraryID,
+		"device_id":          content.DeviceID,
+		"source_file_id":     content.SourceFileID,
+		"track_variant_id":   content.TrackVariantID,
+		"local_path":         content.LocalPath,
+		"path_key":           content.PathKey,
+		"source_fingerprint": content.SourceFingerprint,
+		"edition_scope_key":  content.EditionScopeKey,
+		"hash_algo":          content.HashAlgo,
+		"hash_hex":           content.HashHex,
+		"m_time_ns":          content.MTimeNS,
+		"size_bytes":         content.SizeBytes,
+		"container":          content.Container,
+		"codec":              content.Codec,
+		"bitrate":            content.Bitrate,
+		"sample_rate":        content.SampleRate,
+		"channels":           content.Channels,
+		"is_lossless":        content.IsLossless,
+		"quality_rank":       content.QualityRank,
+		"duration_ms":        content.DurationMS,
+		"tags_json":          content.TagsJSON,
+		"last_seen_at":       content.LastSeenAt,
+		"is_present":         content.IsPresent,
+		"created_at":         content.CreatedAt,
+		"updated_at":         content.UpdatedAt,
 	}
 }
 
@@ -275,6 +285,8 @@ func sourceFileConflictAssignments(content SourceFileModel) map[string]any {
 		"track_variant_id":   content.TrackVariantID,
 		"local_path":         content.LocalPath,
 		"path_key":           content.PathKey,
+		"source_fingerprint": content.SourceFingerprint,
+		"edition_scope_key":  content.EditionScopeKey,
 		"hash_algo":          content.HashAlgo,
 		"hash_hex":           content.HashHex,
 		"m_time_ns":          content.MTimeNS,

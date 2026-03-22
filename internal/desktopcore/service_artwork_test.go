@@ -290,11 +290,23 @@ func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
 		t.Fatalf("rescan root after removal: %v", err)
 	}
 
-	after := loadAlbumArtworkRows(t, app, albumID)
+	updatedAlbums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list updated albums: %v", err)
+	}
+	if len(updatedAlbums.Items) != 1 {
+		t.Fatalf("updated album count = %d, want 1", len(updatedAlbums.Items))
+	}
+	updatedAlbumID := updatedAlbums.Items[0].AlbumID
+	if updatedAlbumID == albumID {
+		t.Fatalf("expected library album id to change after track removal")
+	}
+
+	after := loadAlbumArtworkRows(t, app, updatedAlbumID)
 	if len(after) != 3 {
 		t.Fatalf("rebuilt artwork variant count = %d, want 3", len(after))
 	}
-	if got := loadLocalArtworkSourceRef(t, app, albumID, after[0].Variant); got != filepath.Clean(pathB) {
+	if got := loadLocalArtworkSourceRef(t, app, updatedAlbumID, after[0].Variant); got != filepath.Clean(pathB) {
 		t.Fatalf("rebuilt local chosen source ref = %q, want %q", got, filepath.Clean(pathB))
 	}
 	if equalStringSlices(beforeBlobIDs, artworkBlobIDs(after)) {
@@ -913,18 +925,19 @@ func TestRescanNowRefreshesArtworkWhenAlbumVariantSurvives(t *testing.T) {
 	if len(updatedAlbums.Items) != 1 {
 		t.Fatalf("updated album count = %d, want 1", len(updatedAlbums.Items))
 	}
-	if updatedAlbums.Items[0].AlbumID != albumID {
-		t.Fatalf("album id = %q, want %q", updatedAlbums.Items[0].AlbumID, albumID)
+	updatedAlbumID := updatedAlbums.Items[0].AlbumID
+	if updatedAlbumID == albumID {
+		t.Fatalf("expected library album id to change after track list update")
 	}
 	if updatedAlbums.Items[0].TrackCount != 2 {
 		t.Fatalf("track count = %d, want 2", updatedAlbums.Items[0].TrackCount)
 	}
 
-	after := loadAlbumArtworkRows(t, app, albumID)
+	after := loadAlbumArtworkRows(t, app, updatedAlbumID)
 	if len(after) != 3 {
 		t.Fatalf("updated artwork variant count = %d, want 3", len(after))
 	}
-	if got := loadLocalArtworkSourceRef(t, app, albumID, after[0].Variant); got != filepath.Clean(pathA) {
+	if got := loadLocalArtworkSourceRef(t, app, updatedAlbumID, after[0].Variant); got != filepath.Clean(pathA) {
 		t.Fatalf("updated local chosen source ref = %q, want %q", got, filepath.Clean(pathA))
 	}
 	if equalStringSlices(beforeBlobIDs, artworkBlobIDs(after)) {
@@ -1044,21 +1057,22 @@ func TestRescanNowPrefersNewerTrackArtworkWhenAlbumVariantSurvives(t *testing.T)
 	if len(updatedAlbums.Items) != 1 {
 		t.Fatalf("updated album count = %d, want 1", len(updatedAlbums.Items))
 	}
-	if updatedAlbums.Items[0].AlbumID != albumID {
-		t.Fatalf("album id = %q, want %q", updatedAlbums.Items[0].AlbumID, albumID)
+	updatedAlbumID := updatedAlbums.Items[0].AlbumID
+	if updatedAlbumID == albumID {
+		t.Fatalf("expected library album id to change after track list update")
 	}
 	if updatedAlbums.Items[0].TrackCount != 2 {
 		t.Fatalf("track count = %d, want 2", updatedAlbums.Items[0].TrackCount)
 	}
 
-	after := loadAlbumArtworkRows(t, app, albumID)
+	after := loadAlbumArtworkRows(t, app, updatedAlbumID)
 	if len(after) != 3 {
 		t.Fatalf("updated artwork variant count = %d, want 3", len(after))
 	}
 	if equalStringSlices(beforeBlobIDs, artworkBlobIDs(after)) {
 		t.Fatalf("expected newer track artwork blobs to replace old blobs, before=%v after=%v", beforeBlobIDs, artworkBlobIDs(after))
 	}
-	if got := loadLocalArtworkSourceRef(t, app, albumID, after[0].Variant); got != filepath.Clean(newPath) {
+	if got := loadLocalArtworkSourceRef(t, app, updatedAlbumID, after[0].Variant); got != filepath.Clean(newPath) {
 		t.Fatalf("local chosen source ref = %q, want %q", got, filepath.Clean(newPath))
 	}
 }
@@ -1176,6 +1190,15 @@ func openArtworkIngestTestApp(t *testing.T, reader TagReader, artworkBuilder Art
 
 func loadAlbumArtworkRows(t *testing.T, app *App, albumID string) []ArtworkVariant {
 	t.Helper()
+	local, err := app.EnsureLocalContext(context.Background())
+	if err != nil {
+		t.Fatalf("ensure local context: %v", err)
+	}
+	if explicitAlbumID, ok, err := app.catalog.explicitAlbumVariantID(context.Background(), local.LibraryID, local.DeviceID, albumID); err != nil {
+		t.Fatalf("resolve explicit album variant id: %v", err)
+	} else if ok {
+		albumID = explicitAlbumID
+	}
 
 	var rows []ArtworkVariant
 	if err := app.db.WithContext(context.Background()).
@@ -1193,6 +1216,11 @@ func loadLocalArtworkSourceRef(t *testing.T, app *App, albumID, variant string) 
 	local, err := app.EnsureLocalContext(context.Background())
 	if err != nil {
 		t.Fatalf("ensure local context: %v", err)
+	}
+	if explicitAlbumID, ok, err := app.catalog.explicitAlbumVariantID(context.Background(), local.LibraryID, local.DeviceID, albumID); err != nil {
+		t.Fatalf("resolve explicit album variant id: %v", err)
+	} else if ok {
+		albumID = explicitAlbumID
 	}
 	_, chosenSourceRef, ok, err := localArtworkSourceRefForScopeTx(
 		app.db.WithContext(context.Background()),

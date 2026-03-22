@@ -1015,7 +1015,7 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 		t.Fatalf("stale joiner album row count = %d, want 0", staleAlbumCount)
 	}
 	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, oldAlbumID, 0)
-	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 1)
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 0)
 }
 
 func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
@@ -1217,7 +1217,7 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 		t.Fatalf("stale checkpoint joiner album row count = %d, want 0", staleAlbumCount)
 	}
 	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, oldAlbumID, 0)
-	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 1)
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 0)
 }
 
 func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *testing.T) {
@@ -1273,10 +1273,11 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 	if len(recordings.Items) != 1 {
 		t.Fatalf("recording count = %d, want 1", len(recordings.Items))
 	}
-	recordingID := recordings.Items[0].RecordingID
+	recordingID := recordings.Items[0].LibraryRecordingID
+	recordingVariantID := recordings.Items[0].PreferredVariantRecordingID
 	var recording TrackVariantModel
 	if err := owner.db.WithContext(ctx).
-		Where("library_id = ? AND track_variant_id = ?", library.LibraryID, recordingID).
+		Where("library_id = ? AND track_variant_id = ?", library.LibraryID, recordingVariantID).
 		Take(&recording).Error; err != nil {
 		t.Fatalf("load owner recording row: %v", err)
 	}
@@ -1288,18 +1289,19 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 	if len(albums.Items) != 1 {
 		t.Fatalf("album count = %d, want 1", len(albums.Items))
 	}
-	albumID := albums.Items[0].AlbumID
+	albumID := albums.Items[0].LibraryAlbumID
+	albumVariantID := albums.Items[0].PreferredVariantAlbumID
 	var album AlbumVariantModel
 	if err := owner.db.WithContext(ctx).
-		Where("library_id = ? AND album_variant_id = ?", library.LibraryID, albumID).
+		Where("library_id = ? AND album_variant_id = ?", library.LibraryID, albumVariantID).
 		Take(&album).Error; err != nil {
 		t.Fatalf("load owner album row: %v", err)
 	}
 
-	if err := owner.SetPreferredRecordingVariant(ctx, recordingID, recordingID); err != nil {
+	if err := owner.SetPreferredRecordingVariant(ctx, recordingID, recordingVariantID); err != nil {
 		t.Fatalf("set preferred recording variant: %v", err)
 	}
-	if err := owner.SetPreferredAlbumVariant(ctx, albumID, albumID); err != nil {
+	if err := owner.SetPreferredAlbumVariant(ctx, albumID, albumVariantID); err != nil {
 		t.Fatalf("set preferred album variant: %v", err)
 	}
 
@@ -1320,7 +1322,7 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 		if err := owner.upsertOptimizedAssetTx(tx, ownerLocal, OptimizedAssetModel{
 			OptimizedAssetID:  "enc-sync",
 			SourceFileID:      source.SourceFileID,
-			TrackVariantID:    recordingID,
+			TrackVariantID:    recordingVariantID,
 			Profile:           "desktop",
 			BlobID:            encodingBlobID,
 			MIME:              "audio/mp4",
@@ -1345,7 +1347,7 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 		}
 		return owner.upsertArtworkVariantTx(tx, ownerLocal, ArtworkVariant{
 			ScopeType:       "album",
-			ScopeID:         albumID,
+			ScopeID:         albumVariantID,
 			Variant:         defaultArtworkVariant320,
 			BlobID:          artworkBlobID,
 			MIME:            "image/webp",
@@ -1380,8 +1382,8 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 		Take(&trackPref).Error; err != nil {
 		t.Fatalf("load synced track preference: %v", err)
 	}
-	if trackPref.ChosenVariantID != recordingID {
-		t.Fatalf("track preference = %q, want %q", trackPref.ChosenVariantID, recordingID)
+	if trackPref.ChosenVariantID != recordingVariantID {
+		t.Fatalf("track preference = %q, want %q", trackPref.ChosenVariantID, recordingVariantID)
 	}
 
 	var albumPref DeviceVariantPreference
@@ -1390,8 +1392,8 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 		Take(&albumPref).Error; err != nil {
 		t.Fatalf("load synced album preference: %v", err)
 	}
-	if albumPref.ChosenVariantID != albumID {
-		t.Fatalf("album preference = %q, want %q", albumPref.ChosenVariantID, albumID)
+	if albumPref.ChosenVariantID != albumVariantID {
+		t.Fatalf("album preference = %q, want %q", albumPref.ChosenVariantID, albumVariantID)
 	}
 
 	var pin OfflinePin
@@ -1410,7 +1412,7 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 		Take(&encoding).Error; err != nil {
 		t.Fatalf("load synced optimized asset: %v", err)
 	}
-	if encoding.BlobID != encodingBlobID || encoding.TrackVariantID != recordingID {
+	if encoding.BlobID != encodingBlobID || encoding.TrackVariantID != recordingVariantID {
 		t.Fatalf("unexpected synced optimized asset: %+v", encoding)
 	}
 
@@ -1426,7 +1428,7 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 
 	var artwork ArtworkVariant
 	if err := joiner.db.WithContext(ctx).
-		Where("library_id = ? AND scope_type = ? AND scope_id = ? AND variant = ?", library.LibraryID, "album", albumID, defaultArtworkVariant320).
+		Where("library_id = ? AND scope_type = ? AND scope_id = ? AND variant = ?", library.LibraryID, "album", albumVariantID, defaultArtworkVariant320).
 		Take(&artwork).Error; err != nil {
 		t.Fatalf("load synced artwork variant: %v", err)
 	}

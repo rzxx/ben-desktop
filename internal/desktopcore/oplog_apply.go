@@ -111,15 +111,16 @@ func applySourceFileOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 			return fmt.Errorf("source file id is required")
 		}
 		return upsertIngestTx(tx, ingestRecord{
-			LibraryID:    entry.LibraryID,
-			DeviceID:     payload.DeviceID,
-			Path:         "",
-			MTimeNS:      payload.MTimeNS,
-			SizeBytes:    payload.SizeBytes,
-			HashAlgo:     payload.HashAlgo,
-			HashHex:      payload.HashHex,
-			SourceFileID: payload.SourceFileID,
-			Tags:         payload.Tags,
+			LibraryID:       entry.LibraryID,
+			DeviceID:        payload.DeviceID,
+			Path:            "",
+			MTimeNS:         payload.MTimeNS,
+			SizeBytes:       payload.SizeBytes,
+			HashAlgo:        payload.HashAlgo,
+			HashHex:         payload.HashHex,
+			SourceFileID:    payload.SourceFileID,
+			EditionScopeKey: payload.EditionScopeKey,
+			Tags:            payload.Tags,
 		}, oplogMutationTime(entry), payload.IsPresent)
 	case "delete":
 		var payload sourceFileOplogPayload

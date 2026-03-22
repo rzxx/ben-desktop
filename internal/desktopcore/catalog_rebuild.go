@@ -14,7 +14,10 @@ import (
 
 type catalogRebuildSnapshot struct {
 	albumIDs              map[string]struct{}
+	albumClusterIDs       map[string]struct{}
 	albumClusterByVariant map[string]string
+	albumFamilyByCluster  map[string]string
+	clusterIDsByFamily    map[string][]string
 	variantsByCluster     map[string][]catalogAlbumVariantSnapshot
 	localAlbumIDs         map[string]struct{}
 }
@@ -122,6 +125,7 @@ func rebuildCatalogMaterializationTx(tx *gorm.DB, libraryID string) error {
 	}
 
 	albums := make(map[string]AlbumVariantModel)
+	albumGroupKeys := make(map[string]string)
 	tracks := make(map[string]TrackVariantModel)
 	albumTracks := make(map[string]AlbumTrack)
 	artists := make(map[string]Artist)
@@ -134,14 +138,20 @@ func rebuildCatalogMaterializationTx(tx *gorm.DB, libraryID string) error {
 		}
 
 		recordingKey, albumKey, groupKey := normalizedRecordKeys(tags)
-		if recordingKey == "" || albumKey == "" || groupKey == "" {
+		if recordingKey == "" || albumKey == "" {
 			continue
 		}
 
-		trackVariantID := stableNameID("recording", recordingKey)
+		editionScopeKey := strings.TrimSpace(row.EditionScopeKey)
+		if editionScopeKey == "" {
+			editionScopeKey = normalizeCatalogKey(strings.Join([]string{
+				firstNonEmpty(tags.AlbumArtist, firstArtist(tags.Artists)),
+				tags.Album,
+			}, "|"))
+		}
+		trackVariantID := explicitTrackVariantID(recordingKey, editionScopeKey, tags.DiscNo, tags.TrackNo)
 		trackClusterID := stableNameID("track_cluster", recordingKey)
-		albumVariantID := stableNameID("album", albumKey)
-		albumClusterID := stableNameID("album_cluster", groupKey)
+		albumVariantID := explicitAlbumVariantID(albumKey, editionScopeKey)
 		mutatedAt := latestNonZeroTime(row.UpdatedAt, row.LastSeenAt, row.CreatedAt)
 
 		track, ok := tracks[trackVariantID]
@@ -166,7 +176,7 @@ func rebuildCatalogMaterializationTx(tx *gorm.DB, libraryID string) error {
 			album = AlbumVariantModel{
 				LibraryID:      libraryID,
 				AlbumVariantID: albumVariantID,
-				AlbumClusterID: albumClusterID,
+				AlbumClusterID: "",
 				Title:          strings.TrimSpace(tags.Album),
 				KeyNorm:        albumKey,
 				CreatedAt:      mutatedAt,
@@ -180,6 +190,7 @@ func rebuildCatalogMaterializationTx(tx *gorm.DB, libraryID string) error {
 			album.UpdatedAt = mutatedAt
 		}
 		albums[albumVariantID] = album
+		albumGroupKeys[albumVariantID] = groupKey
 
 		albumTrack := AlbumTrack{
 			LibraryID:      libraryID,
@@ -192,6 +203,8 @@ func rebuildCatalogMaterializationTx(tx *gorm.DB, libraryID string) error {
 
 		collectArtistsAndCredits(libraryID, trackVariantID, albumVariantID, tags, artists, credits)
 	}
+
+	assignStrictAlbumClusterIDs(albums, albumTracks, tracks, albumGroupKeys)
 
 	for _, model := range []any{
 		&Credit{},
@@ -304,11 +317,14 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 		if albumID == "" {
 			continue
 		}
-		if _, ok := after.albumIDs[albumID]; ok {
+		if _, ok := after.albumClusterIDs[albumID]; ok {
 			continue
 		}
 
-		clusterID := strings.TrimSpace(before.albumClusterByVariant[albumID])
+		clusterID := albumID
+		if _, ok := before.albumClusterIDs[clusterID]; !ok {
+			clusterID = strings.TrimSpace(before.albumClusterByVariant[albumID])
+		}
 		if clusterID == "" {
 			if err := deleteAlbumOfflinePinTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
 				return err
@@ -316,22 +332,25 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 			continue
 		}
 
-		destinationID, ok, err := chooseMigratedAlbumPinVariantIDTx(tx, pin.LibraryID, pin.DeviceID, clusterID, after.variantsByCluster[clusterID])
-		if err != nil {
-			return err
-		}
-		if !ok {
-			if err := deleteAlbumOfflinePinTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
-				return err
+		if _, ok := after.albumClusterIDs[clusterID]; !ok {
+			familyKey := strings.TrimSpace(before.albumFamilyByCluster[clusterID])
+			candidateClusters := after.clusterIDsByFamily[familyKey]
+			destinationID := chooseMigratedAlbumPinClusterID(candidateClusters, after.variantsByCluster)
+			if destinationID == "" {
+				if err := deleteAlbumOfflinePinTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
+					return err
+				}
+				continue
 			}
-			continue
+			clusterID = destinationID
 		}
+		destinationID := clusterID
 		if destinationID == albumID {
 			continue
 		}
 
 		var existing OfflinePin
-		err = tx.Where(
+		err := tx.Where(
 			"library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?",
 			pin.LibraryID,
 			pin.DeviceID,
@@ -473,6 +492,66 @@ func deleteAlbumOfflinePinTx(tx *gorm.DB, libraryID, deviceID, albumID string) e
 	).Delete(&OfflinePin{}).Error
 }
 
+func chooseMigratedAlbumPinClusterID(clusterIDs []string, variantsByCluster map[string][]catalogAlbumVariantSnapshot) string {
+	bestClusterID := ""
+	bestTrackCount := int64(-1)
+	bestQualityRank := -1
+	bestTitle := ""
+	for _, clusterID := range clusterIDs {
+		clusterID = strings.TrimSpace(clusterID)
+		if clusterID == "" {
+			continue
+		}
+		var trackCount int64
+		bestClusterQuality := -1
+		bestClusterTitle := ""
+		for _, candidate := range variantsByCluster[clusterID] {
+			if candidate.TrackCount > trackCount {
+				trackCount = candidate.TrackCount
+			}
+			if candidate.BestQualityRank > bestClusterQuality {
+				bestClusterQuality = candidate.BestQualityRank
+			}
+			title := strings.TrimSpace(candidate.Title)
+			if bestClusterTitle == "" || strings.ToLower(title) < strings.ToLower(bestClusterTitle) {
+				bestClusterTitle = title
+			}
+		}
+		switch {
+		case bestClusterID == "":
+			bestClusterID = clusterID
+			bestTrackCount = trackCount
+			bestQualityRank = bestClusterQuality
+			bestTitle = bestClusterTitle
+		case trackCount > bestTrackCount:
+			bestClusterID = clusterID
+			bestTrackCount = trackCount
+			bestQualityRank = bestClusterQuality
+			bestTitle = bestClusterTitle
+		case trackCount == bestTrackCount && bestClusterQuality > bestQualityRank:
+			bestClusterID = clusterID
+			bestQualityRank = bestClusterQuality
+			bestTitle = bestClusterTitle
+		case trackCount == bestTrackCount && bestClusterQuality == bestQualityRank && strings.ToLower(bestClusterTitle) < strings.ToLower(bestTitle):
+			bestClusterID = clusterID
+			bestTitle = bestClusterTitle
+		case trackCount == bestTrackCount && bestClusterQuality == bestQualityRank && strings.EqualFold(bestClusterTitle, bestTitle) && clusterID < bestClusterID:
+			bestClusterID = clusterID
+		}
+	}
+	return bestClusterID
+}
+
+func stringSliceContains(values []string, target string) bool {
+	target = strings.TrimSpace(target)
+	for _, value := range values {
+		if strings.TrimSpace(value) == target {
+			return true
+		}
+	}
+	return false
+}
+
 func loadVariantPreferenceTargetsTx(tx *gorm.DB, libraryID, scopeType string) (map[string]struct{}, map[string]struct{}, error) {
 	switch strings.TrimSpace(scopeType) {
 	case "album":
@@ -535,6 +614,7 @@ func captureCatalogRebuildSnapshotTx(tx *gorm.DB, libraryID, deviceID string) (c
 		AlbumVariantID  string
 		AlbumClusterID  string
 		Title           string
+		ArtistsCSV      string
 		TrackCount      int64
 		BestQualityRank int
 	}
@@ -544,10 +624,13 @@ SELECT
 	a.album_variant_id AS album_variant_id,
 	a.album_cluster_id AS album_cluster_id,
 	a.title,
+	COALESCE(GROUP_CONCAT(DISTINCT ar.name), '') AS artists_csv,
 	COUNT(DISTINCT at.track_variant_id) AS track_count,
 	COALESCE(MAX(sf.quality_rank), 0) AS best_quality_rank
 FROM album_variants a
 LEFT JOIN album_tracks at ON at.library_id = a.library_id AND at.album_variant_id = a.album_variant_id
+LEFT JOIN credits c ON c.library_id = a.library_id AND c.entity_type = 'album' AND c.entity_id = a.album_variant_id
+LEFT JOIN artists ar ON ar.library_id = c.library_id AND ar.artist_id = c.artist_id
 LEFT JOIN source_files sf ON sf.library_id = at.library_id AND sf.track_variant_id = at.track_variant_id AND sf.is_present = 1
 WHERE a.library_id = ?
 GROUP BY a.album_variant_id, a.album_cluster_id, a.title
@@ -558,16 +641,27 @@ ORDER BY a.album_variant_id ASC`
 
 	snapshot := catalogRebuildSnapshot{
 		albumIDs:              make(map[string]struct{}, len(albumRows)),
+		albumClusterIDs:       make(map[string]struct{}, len(albumRows)),
 		albumClusterByVariant: make(map[string]string, len(albumRows)),
+		albumFamilyByCluster:  make(map[string]string, len(albumRows)),
+		clusterIDsByFamily:    make(map[string][]string, len(albumRows)),
 		variantsByCluster:     make(map[string][]catalogAlbumVariantSnapshot, len(albumRows)),
 		localAlbumIDs:         map[string]struct{}{},
 	}
 	for _, row := range albumRows {
 		albumID := strings.TrimSpace(row.AlbumVariantID)
 		clusterID := strings.TrimSpace(row.AlbumClusterID)
+		familyKey := normalizeCatalogKey(strings.TrimSpace(row.Title))
 		if albumID != "" {
 			snapshot.albumIDs[albumID] = struct{}{}
 			snapshot.albumClusterByVariant[albumID] = clusterID
+			if clusterID != "" {
+				snapshot.albumClusterIDs[clusterID] = struct{}{}
+				snapshot.albumFamilyByCluster[clusterID] = familyKey
+				if !stringSliceContains(snapshot.clusterIDsByFamily[familyKey], clusterID) {
+					snapshot.clusterIDsByFamily[familyKey] = append(snapshot.clusterIDsByFamily[familyKey], clusterID)
+				}
+			}
 			snapshot.variantsByCluster[clusterID] = append(snapshot.variantsByCluster[clusterID], catalogAlbumVariantSnapshot{
 				AlbumVariantID:  albumID,
 				AlbumClusterID:  clusterID,
@@ -777,6 +871,47 @@ func createAlbumTracksTx(tx *gorm.DB, albumTracks map[string]AlbumTrack) error {
 		rows = append(rows, albumTracks[key])
 	}
 	return tx.CreateInBatches(rows, 400).Error
+}
+
+func assignStrictAlbumClusterIDs(albums map[string]AlbumVariantModel, albumTracks map[string]AlbumTrack, tracks map[string]TrackVariantModel, albumGroupKeys map[string]string) {
+	if len(albums) == 0 {
+		return
+	}
+
+	tracksByAlbum := make(map[string][]AlbumTrack, len(albums))
+	for _, row := range albumTracks {
+		albumID := strings.TrimSpace(row.AlbumVariantID)
+		if albumID == "" {
+			continue
+		}
+		tracksByAlbum[albumID] = append(tracksByAlbum[albumID], row)
+	}
+
+	for albumID, album := range albums {
+		ordered := append([]AlbumTrack(nil), tracksByAlbum[albumID]...)
+		sort.SliceStable(ordered, func(i, j int) bool {
+			if ordered[i].DiscNo != ordered[j].DiscNo {
+				return ordered[i].DiscNo < ordered[j].DiscNo
+			}
+			if ordered[i].TrackNo != ordered[j].TrackNo {
+				return ordered[i].TrackNo < ordered[j].TrackNo
+			}
+			return ordered[i].TrackVariantID < ordered[j].TrackVariantID
+		})
+
+		signatureParts := make([]string, 0, len(ordered)+1)
+		signatureParts = append(signatureParts, strings.TrimSpace(albumGroupKeys[albumID]))
+		for _, track := range ordered {
+			clusterID := strings.TrimSpace(tracks[track.TrackVariantID].TrackClusterID)
+			signatureParts = append(signatureParts, strings.Join([]string{
+				intKey(track.DiscNo),
+				intKey(track.TrackNo),
+				clusterID,
+			}, ":"))
+		}
+		album.AlbumClusterID = stableNameID("library_album", strings.Join(signatureParts, "|"))
+		albums[albumID] = album
+	}
 }
 
 func albumTrackKey(row AlbumTrack) string {

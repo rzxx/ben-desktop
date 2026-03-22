@@ -52,16 +52,27 @@ const (
 
 const DefaultVolume = 80
 
+type ResolutionMode string
+
+const (
+	ResolutionModeLibrary  ResolutionMode = "library"
+	ResolutionModeExplicit ResolutionMode = "explicit"
+)
+
 type SessionItem struct {
-	RecordingID  string `json:"recordingId"`
-	Title        string `json:"title"`
-	Subtitle     string `json:"subtitle"`
-	DurationMS   int64  `json:"durationMs"`
-	ArtworkRef   string `json:"artworkRef"`
-	SourceKind   string `json:"sourceKind"`
-	SourceID     string `json:"sourceId"`
-	SourceItemID string `json:"sourceItemId"`
-	AlbumID      string `json:"albumId,omitempty"`
+	LibraryRecordingID string         `json:"libraryRecordingId,omitempty"`
+	VariantRecordingID string         `json:"variantRecordingId,omitempty"`
+	RecordingID        string         `json:"recordingId"`
+	Title              string         `json:"title"`
+	Subtitle           string         `json:"subtitle"`
+	DurationMS         int64          `json:"durationMs"`
+	ArtworkRef         string         `json:"artworkRef"`
+	SourceKind         string         `json:"sourceKind"`
+	SourceID           string         `json:"sourceId"`
+	SourceItemID       string         `json:"sourceItemId"`
+	AlbumID            string         `json:"albumId,omitempty"`
+	VariantAlbumID     string         `json:"variantAlbumId,omitempty"`
+	ResolutionMode     ResolutionMode `json:"resolutionMode,omitempty"`
 }
 
 type SessionEntry struct {

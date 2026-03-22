@@ -357,16 +357,25 @@ func (s *CacheService) addArtworkEntries(ctx context.Context, entries map[string
 		if row.UpdatedAt.After(entry.LastAccessed) {
 			entry.LastAccessed = row.UpdatedAt.UTC()
 		}
+		scopeType := strings.TrimSpace(row.ScopeType)
+		scopeID := strings.TrimSpace(row.ScopeID)
+		if scopeType == "album" {
+			if clusterID, ok, err := s.app.catalog.albumClusterIDForVariant(ctx, libraryID, scopeID); err != nil {
+				return err
+			} else if ok && strings.TrimSpace(clusterID) != "" {
+				scopeID = strings.TrimSpace(clusterID)
+			}
+		}
 		if strings.TrimSpace(entry.ThumbnailScope) == "" {
-			entry.ThumbnailScope = strings.TrimSpace(row.ScopeType)
-			entry.ThumbnailScopeID = strings.TrimSpace(row.ScopeID)
+			entry.ThumbnailScope = scopeType
+			entry.ThumbnailScopeID = scopeID
 		}
 		if strings.TrimSpace(entry.ArtworkFileExt) == "" {
 			entry.ArtworkFileExt = fileExt
 		}
 		addPinScope(entry, apitypes.CachePinScopeRef{
 			Scope:   "thumbnail",
-			ScopeID: strings.TrimSpace(row.ScopeType) + ":" + strings.TrimSpace(row.ScopeID),
+			ScopeID: scopeType + ":" + scopeID,
 			Durable: true,
 		})
 	}
@@ -441,18 +450,20 @@ func (s *CacheService) offlinePinBlobIDs(ctx context.Context, libraryID, deviceI
 SELECT DISTINCT oa.blob_id
 FROM device_asset_caches dac
 JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
-WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND oa.track_variant_id = ? AND (? = '' OR oa.profile = ?)
+JOIN track_variants tv ON tv.library_id = oa.library_id AND tv.track_variant_id = oa.track_variant_id
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND (oa.track_variant_id = ? OR tv.track_cluster_id = ?) AND (? = '' OR oa.profile = ?)
 ORDER BY oa.blob_id ASC`
-		args = []any{libraryID, deviceID, scopeID, profile, profile}
+		args = []any{libraryID, deviceID, scopeID, scopeID, profile, profile}
 	case "album":
 		query = `
 SELECT DISTINCT oa.blob_id
 FROM device_asset_caches dac
 JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
 JOIN album_tracks at ON at.library_id = oa.library_id AND at.track_variant_id = oa.track_variant_id
-WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND at.album_variant_id = ? AND (? = '' OR oa.profile = ?)
+JOIN album_variants av ON av.library_id = at.library_id AND av.album_variant_id = at.album_variant_id
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND (at.album_variant_id = ? OR av.album_cluster_id = ?) AND (? = '' OR oa.profile = ?)
 ORDER BY oa.blob_id ASC`
-		args = []any{libraryID, deviceID, scopeID, profile, profile}
+		args = []any{libraryID, deviceID, scopeID, scopeID, profile, profile}
 	case "playlist":
 		query = `
 SELECT DISTINCT oa.blob_id
