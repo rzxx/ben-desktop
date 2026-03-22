@@ -176,6 +176,18 @@ func (c *UnavailableCore) RemovePlaylistItem(context.Context, string, string) er
 	return c.err
 }
 
+func (c *UnavailableCore) GetPlaylistCover(context.Context, string) (apitypes.PlaylistCoverRecord, bool, error) {
+	return apitypes.PlaylistCoverRecord{}, false, c.err
+}
+
+func (c *UnavailableCore) SetPlaylistCover(context.Context, apitypes.PlaylistCoverUploadRequest) (apitypes.PlaylistCoverRecord, error) {
+	return apitypes.PlaylistCoverRecord{}, c.err
+}
+
+func (c *UnavailableCore) ClearPlaylistCover(context.Context, string) error {
+	return c.err
+}
+
 func (c *UnavailableCore) LikeRecording(context.Context, string) error {
 	return c.err
 }

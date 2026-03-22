@@ -1,7 +1,7 @@
 import type { RecordingListItem } from "@/lib/api/models";
+import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
-import { TrackListRow } from "@/components/catalog/TrackListRow";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
@@ -63,12 +63,13 @@ export function TracksPage() {
             void query.fetchNextPage();
           }}
           renderRow={(track, index) => (
-            <TrackListRow
+            <ManagedTrackListRow
               availabilityState={
                 trackAvailabilityByRecordingId[track.RecordingID]?.data?.State
               }
               durationMs={track.DurationMS}
               indexLabel={String(index + 1).padStart(2, "0")}
+              libraryRecordingId={track.LibraryRecordingID}
               mode="list"
               onPlay={() => {
                 void playRecording(track.RecordingID);
@@ -76,6 +77,7 @@ export function TracksPage() {
               onQueue={() => {
                 void queueRecording(track.RecordingID);
               }}
+              recordingId={track.RecordingID}
               subtitle={joinArtists(track.Artists)}
               title={track.Title}
             />

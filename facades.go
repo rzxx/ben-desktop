@@ -386,6 +386,18 @@ func (s *CatalogFacade) RemovePlaylistItem(ctx context.Context, playlistID, item
 	return s.catalog().RemovePlaylistItem(ctx, playlistID, itemID)
 }
 
+func (s *CatalogFacade) GetPlaylistCover(ctx context.Context, playlistID string) (apitypes.PlaylistCoverRecord, bool, error) {
+	return s.catalog().GetPlaylistCover(ctx, playlistID)
+}
+
+func (s *CatalogFacade) SetPlaylistCover(ctx context.Context, req apitypes.PlaylistCoverUploadRequest) (apitypes.PlaylistCoverRecord, error) {
+	return s.catalog().SetPlaylistCover(ctx, req)
+}
+
+func (s *CatalogFacade) ClearPlaylistCover(ctx context.Context, playlistID string) error {
+	return s.catalog().ClearPlaylistCover(ctx, playlistID)
+}
+
 func (s *CatalogFacade) LikeRecording(ctx context.Context, recordingID string) error {
 	return s.catalog().LikeRecording(ctx, recordingID)
 }

@@ -1,4 +1,4 @@
-import { ListPlus, Play } from "lucide-react";
+import { FolderPlus, Heart, ListPlus, Play, Trash2 } from "lucide-react";
 import {
   availabilityLabel,
   formatDuration,
@@ -9,18 +9,30 @@ export function TrackListRow({
   availabilityState,
   durationMs,
   indexLabel,
+  isLiked = false,
+  likeBusy = false,
   mode = "list",
+  onAddToPlaylist,
+  onRemove,
+  onToggleLike,
   onPlay,
   onQueue,
+  removeLabel = "Remove track",
   subtitle,
   title,
 }: {
   availabilityState?: string;
   durationMs: number;
   indexLabel: string;
+  isLiked?: boolean;
+  likeBusy?: boolean;
   mode?: "album" | "list";
+  onAddToPlaylist?: () => void;
+  onRemove?: () => void;
+  onToggleLike?: () => void;
   onPlay: () => void;
   onQueue: () => void;
+  removeLabel?: string;
   subtitle: string;
   title: string;
 }) {
@@ -62,6 +74,43 @@ export function TrackListRow({
         >
           <ListPlus className="h-4 w-4" />
         </button>
+        {onAddToPlaylist ? (
+          <button
+            aria-label={`Add ${title} to playlist`}
+            className="text-theme-500 hover:text-theme-200 ml-1 rounded p-2 transition-colors"
+            onClick={onAddToPlaylist}
+            title="Add to playlist"
+            type="button"
+          >
+            <FolderPlus className="h-4 w-4" />
+          </button>
+        ) : null}
+        {onToggleLike ? (
+          <button
+            aria-label={isLiked ? `Unlike ${title}` : `Like ${title}`}
+            className="text-theme-500 hover:text-theme-200 ml-1 rounded p-2 transition-colors disabled:opacity-50"
+            disabled={likeBusy}
+            onClick={onToggleLike}
+            title={isLiked ? "Unlike track" : "Like track"}
+            type="button"
+          >
+            <Heart
+              className="h-4 w-4"
+              fill={isLiked ? "currentColor" : "none"}
+            />
+          </button>
+        ) : null}
+        {onRemove ? (
+          <button
+            aria-label={removeLabel}
+            className="text-theme-500 ml-1 rounded p-2 transition-colors hover:text-red-200"
+            onClick={onRemove}
+            title={removeLabel}
+            type="button"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -93,6 +142,31 @@ export function TrackListRow({
         <ListPlus className="h-4 w-4" />
       </button>
 
+      {onAddToPlaylist ? (
+        <button
+          aria-label={`Add ${title} to playlist`}
+          className="text-theme-500 hover:text-theme-100 rounded p-2 transition-colors"
+          onClick={onAddToPlaylist}
+          title="Add to playlist"
+          type="button"
+        >
+          <FolderPlus className="h-4 w-4" />
+        </button>
+      ) : null}
+
+      {onToggleLike ? (
+        <button
+          aria-label={isLiked ? `Unlike ${title}` : `Like ${title}`}
+          className="text-theme-500 hover:text-theme-100 rounded p-2 transition-colors disabled:opacity-50"
+          disabled={likeBusy}
+          onClick={onToggleLike}
+          title={isLiked ? "Unlike track" : "Like track"}
+          type="button"
+        >
+          <Heart className="h-4 w-4" fill={isLiked ? "currentColor" : "none"} />
+        </button>
+      ) : null}
+
       <button
         aria-label={`Play ${title}`}
         className="text-theme-500 hover:text-theme-100 rounded p-2 transition-colors disabled:pointer-events-none disabled:opacity-40"
@@ -103,6 +177,18 @@ export function TrackListRow({
       >
         <Play className="h-4 w-4" />
       </button>
+
+      {onRemove ? (
+        <button
+          aria-label={removeLabel}
+          className="text-theme-500 rounded p-2 transition-colors hover:text-red-200"
+          onClick={onRemove}
+          title={removeLabel}
+          type="button"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ) : null}
     </div>
   );
 }

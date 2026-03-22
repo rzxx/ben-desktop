@@ -640,7 +640,6 @@ export function OperationsSurface() {
               </div>
             </div>
           </section>
-
         </>
       )}
 
@@ -674,9 +673,7 @@ export function OperationsSurface() {
         <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
           <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-white">
-                Active work
-              </h3>
+              <h3 className="text-sm font-semibold text-white">Active work</h3>
               <span className="text-[0.68rem] tracking-[0.2em] text-white/35 uppercase">
                 {formatCount(activeNotifications.length, "item")}
               </span>

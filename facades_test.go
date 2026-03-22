@@ -274,6 +274,11 @@ func TestCatalogFacadeForwardsToRuntime(t *testing.T) {
 	playlist := apitypes.PlaylistListItem{PlaylistID: "pl-1", Name: "Playlist"}
 	liked := apitypes.LikedRecordingItem{RecordingID: "rec-1", Title: "Track"}
 	item := apitypes.PlaylistItemRecord{PlaylistID: "pl-1", ItemID: "item-1", RecordingID: "rec-1"}
+	cover := apitypes.PlaylistCoverRecord{
+		PlaylistID:     "pl-1",
+		HasCustomCover: true,
+		Thumb:          apitypes.ArtworkRef{BlobID: "b3:" + strings.Repeat("f", 64), MIME: "image/webp", FileExt: ".webp", Variant: "320_webp"},
+	}
 	pageInfo := apitypes.PageInfo{Returned: 1, Total: 1}
 	calls := make([]string, 0, 18)
 	host := newPassthroughHost(&passthroughRuntimeStub{
@@ -366,6 +371,18 @@ func TestCatalogFacadeForwardsToRuntime(t *testing.T) {
 			calls = append(calls, "remove-playlist-item:"+playlistID+":"+itemID)
 			return nil
 		},
+		getPlaylistCoverFn: func(_ context.Context, playlistID string) (apitypes.PlaylistCoverRecord, bool, error) {
+			calls = append(calls, "get-playlist-cover:"+playlistID)
+			return cover, true, nil
+		},
+		setPlaylistCoverFn: func(_ context.Context, req apitypes.PlaylistCoverUploadRequest) (apitypes.PlaylistCoverRecord, error) {
+			calls = append(calls, "set-playlist-cover:"+req.PlaylistID+":"+req.SourcePath)
+			return cover, nil
+		},
+		clearPlaylistCoverFn: func(_ context.Context, playlistID string) error {
+			calls = append(calls, "clear-playlist-cover:"+playlistID)
+			return nil
+		},
 		likeRecordingFn: func(_ context.Context, recordingID string) error {
 			calls = append(calls, "like:"+recordingID)
 			return nil
@@ -446,6 +463,18 @@ func TestCatalogFacadeForwardsToRuntime(t *testing.T) {
 	}
 	if err := facade.RemovePlaylistItem(ctx, "pl-1", "item-1"); err != nil {
 		t.Fatalf("remove playlist item: %v", err)
+	}
+	if got, found, err := facade.GetPlaylistCover(ctx, "pl-1"); err != nil || !found || got.PlaylistID != cover.PlaylistID {
+		t.Fatalf("get playlist cover = %+v, found=%v, err=%v", got, found, err)
+	}
+	if got, err := facade.SetPlaylistCover(ctx, apitypes.PlaylistCoverUploadRequest{
+		PlaylistID: "pl-1",
+		SourcePath: "C:/cover.webp",
+	}); err != nil || got.PlaylistID != cover.PlaylistID {
+		t.Fatalf("set playlist cover = %+v, err=%v", got, err)
+	}
+	if err := facade.ClearPlaylistCover(ctx, "pl-1"); err != nil {
+		t.Fatalf("clear playlist cover: %v", err)
 	}
 	if err := facade.LikeRecording(ctx, "rec-1"); err != nil {
 		t.Fatalf("like recording: %v", err)

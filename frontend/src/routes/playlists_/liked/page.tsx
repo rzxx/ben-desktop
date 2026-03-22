@@ -2,9 +2,9 @@ import { Play } from "lucide-react";
 import type { LikedRecordingItem } from "@/lib/api/models";
 import { Button } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
+import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
-import { TrackListRow } from "@/components/catalog/TrackListRow";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
@@ -86,12 +86,14 @@ export function LikedPlaylistPage() {
             void query.fetchNextPage();
           }}
           renderRow={(track, index) => (
-            <TrackListRow
+            <ManagedTrackListRow
               availabilityState={
                 trackAvailabilityByRecordingId[track.RecordingID]?.data?.State
               }
               durationMs={track.DurationMS}
+              initialLiked
               indexLabel={String(index + 1).padStart(2, "0")}
+              libraryRecordingId={track.LibraryRecordingID}
               mode="list"
               onPlay={() => {
                 void playLikedTrack(track.RecordingID);
@@ -99,6 +101,7 @@ export function LikedPlaylistPage() {
               onQueue={() => {
                 void queueRecording(track.RecordingID);
               }}
+              recordingId={track.RecordingID}
               subtitle={`${joinArtists(track.Artists)} • added ${formatRelativeDate(track.AddedAt)}`}
               title={track.Title}
             />

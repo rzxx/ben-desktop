@@ -2,6 +2,7 @@ package desktopcore
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -174,6 +175,13 @@ func TestPlaylistItemMutationsAndLikedLifecycle(t *testing.T) {
 		t.Fatalf("remove playlist item: %v", err)
 	}
 	assertPlaylistTrackOrder(t, ctx, app, playlist.PlaylistID, []string{"rec-2", "rec-1"})
+	summary, err := app.GetPlaylistSummary(ctx, playlist.PlaylistID)
+	if err != nil {
+		t.Fatalf("get playlist summary after item updates: %v", err)
+	}
+	if summary.ItemCount != 2 {
+		t.Fatalf("playlist item count = %d, want 2", summary.ItemCount)
+	}
 
 	likedPlaylistID := likedPlaylistIDForLibrary(library.LibraryID)
 	likedItem, err := app.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{
@@ -208,6 +216,158 @@ func TestPlaylistItemMutationsAndLikedLifecycle(t *testing.T) {
 	}
 	if isLiked {
 		t.Fatalf("expected recording to be unliked")
+	}
+}
+
+func TestPlaylistCoverLifecycle(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+	library, err := app.CreateLibrary(ctx, "playlist-cover")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	playlist, err := app.CreatePlaylist(ctx, "Queue", string(apitypes.PlaylistKindNormal))
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	events := make(chan apitypes.CatalogChangeEvent, 8)
+	stop := app.SubscribeCatalogChanges(func(event apitypes.CatalogChangeEvent) {
+		events <- event
+	})
+	defer stop()
+
+	coverPath := writePlaylistCoverImage(t)
+	app.artwork.builder = artworkBuilderByPathStub{
+		buildBySourceRef: map[string]ArtworkBuildResult{
+			filepath.Clean(coverPath): {
+				SourceKind: "manual",
+				SourceRef:  filepath.Clean(coverPath),
+				Variants: []GeneratedArtworkVariant{
+					{Variant: defaultArtworkVariant96, MIME: "image/jpeg", FileExt: ".jpg", Bytes: []byte("cover-96"), W: 96, H: 96},
+					{Variant: defaultArtworkVariant320, MIME: "image/webp", FileExt: ".webp", Bytes: []byte("cover-320"), W: 320, H: 320},
+					{Variant: defaultArtworkVariant1024, MIME: "image/avif", FileExt: ".avif", Bytes: []byte("cover-1024"), W: 1024, H: 1024},
+				},
+			},
+		},
+	}
+
+	cover, err := app.SetPlaylistCover(ctx, apitypes.PlaylistCoverUploadRequest{
+		PlaylistID: playlist.PlaylistID,
+		SourcePath: coverPath,
+	})
+	if err != nil {
+		t.Fatalf("set playlist cover: %v", err)
+	}
+	if !cover.HasCustomCover {
+		t.Fatalf("expected uploaded cover to be marked custom")
+	}
+	if cover.Thumb.Variant != defaultArtworkVariant320 || cover.Thumb.BlobID == "" {
+		t.Fatalf("unexpected cover thumb: %+v", cover.Thumb)
+	}
+	if len(cover.Variants) != 3 {
+		t.Fatalf("cover variants = %d, want 3", len(cover.Variants))
+	}
+
+	got, found, err := app.GetPlaylistCover(ctx, playlist.PlaylistID)
+	if err != nil {
+		t.Fatalf("get playlist cover: %v", err)
+	}
+	if !found || got.Thumb.BlobID != cover.Thumb.BlobID {
+		t.Fatalf("got cover = %+v, found=%v, want blob %q", got, found, cover.Thumb.BlobID)
+	}
+
+	summary, err := app.GetPlaylistSummary(ctx, playlist.PlaylistID)
+	if err != nil {
+		t.Fatalf("get playlist summary: %v", err)
+	}
+	if !summary.HasCustomCover || summary.Thumb.BlobID != cover.Thumb.BlobID {
+		t.Fatalf("playlist summary cover = %+v", summary)
+	}
+
+	var artworkCount int64
+	if err := app.db.WithContext(ctx).
+		Model(&ArtworkVariant{}).
+		Where("library_id = ? AND scope_type = ? AND scope_id = ?", library.LibraryID, "playlist", playlist.PlaylistID).
+		Count(&artworkCount).Error; err != nil {
+		t.Fatalf("count playlist artwork: %v", err)
+	}
+	if artworkCount != 3 {
+		t.Fatalf("playlist artwork count = %d, want 3", artworkCount)
+	}
+
+	if !waitForPlaylistEvent(events, playlist.PlaylistID) {
+		t.Fatalf("expected playlist invalidation event after cover upload")
+	}
+
+	if err := app.ClearPlaylistCover(ctx, playlist.PlaylistID); err != nil {
+		t.Fatalf("clear playlist cover: %v", err)
+	}
+
+	cleared, found, err := app.GetPlaylistCover(ctx, playlist.PlaylistID)
+	if err != nil {
+		t.Fatalf("get cleared playlist cover: %v", err)
+	}
+	if found || cleared.HasCustomCover || cleared.Thumb.BlobID != "" {
+		t.Fatalf("cleared cover = %+v, found=%v", cleared, found)
+	}
+
+	summary, err = app.GetPlaylistSummary(ctx, playlist.PlaylistID)
+	if err != nil {
+		t.Fatalf("get playlist summary after clear: %v", err)
+	}
+	if summary.HasCustomCover || summary.Thumb.BlobID != "" {
+		t.Fatalf("playlist summary after clear = %+v", summary)
+	}
+
+	if err := app.db.WithContext(ctx).
+		Model(&ArtworkVariant{}).
+		Where("library_id = ? AND scope_type = ? AND scope_id = ?", library.LibraryID, "playlist", playlist.PlaylistID).
+		Count(&artworkCount).Error; err != nil {
+		t.Fatalf("count cleared playlist artwork: %v", err)
+	}
+	if artworkCount != 0 {
+		t.Fatalf("cleared playlist artwork count = %d, want 0", artworkCount)
+	}
+
+	if !waitForPlaylistEvent(events, playlist.PlaylistID) {
+		t.Fatalf("expected playlist invalidation event after cover clear")
+	}
+}
+
+func TestPlaylistCoverRejectsLikedPlaylist(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+	library, err := app.CreateLibrary(ctx, "playlist-liked-cover")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	seedPlaylistRecording(t, app, library.LibraryID, "rec-liked-cover", "Liked Cover")
+	if err := app.LikeRecording(ctx, "rec-liked-cover"); err != nil {
+		t.Fatalf("like recording: %v", err)
+	}
+
+	likedPlaylistID := likedPlaylistIDForLibrary(library.LibraryID)
+	coverPath := writePlaylistCoverImage(t)
+	if _, err := app.SetPlaylistCover(ctx, apitypes.PlaylistCoverUploadRequest{
+		PlaylistID: likedPlaylistID,
+		SourcePath: coverPath,
+	}); err == nil {
+		t.Fatalf("expected liked playlist cover upload to fail")
+	}
+	if err := app.ClearPlaylistCover(ctx, likedPlaylistID); err == nil {
+		t.Fatalf("expected liked playlist cover clear to fail")
+	}
+
+	cover, found, err := app.GetPlaylistCover(ctx, likedPlaylistID)
+	if err != nil {
+		t.Fatalf("get liked playlist cover: %v", err)
+	}
+	if found || cover.HasCustomCover || cover.Thumb.BlobID != "" {
+		t.Fatalf("liked playlist cover = %+v, found=%v", cover, found)
 	}
 }
 
@@ -269,4 +429,39 @@ func assertPlaylistTrackOrder(t *testing.T, ctx context.Context, app *App, playl
 			t.Fatalf("playlist item %d = %q, want %q", i, item.RecordingID, want[i])
 		}
 	}
+}
+
+func waitForPlaylistEvent(events <-chan apitypes.CatalogChangeEvent, playlistID string) bool {
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Entity == apitypes.CatalogChangeEntityPlaylists && event.QueryKey == "playlists" && event.EntityID == playlistID {
+				return true
+			}
+		case <-timeout:
+			return false
+		}
+	}
+}
+
+func writePlaylistCoverImage(t *testing.T) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "cover.png")
+	data := []byte{
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+		0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
+		0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
+		0x00, 0x03, 0x01, 0x01, 0x00, 0xc9, 0xfe, 0x92,
+		0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e,
+		0x44, 0xae, 0x42, 0x60, 0x82,
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write cover image: %v", err)
+	}
+	return path
 }

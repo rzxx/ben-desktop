@@ -5,7 +5,7 @@ import type { AlbumTrackItem, AlbumVariantItem } from "@/lib/api/models";
 import { Button } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { AlbumTracksEmptyState } from "@/components/catalog/EmptyState";
-import { TrackListRow } from "@/components/catalog/TrackListRow";
+import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import {
   useStoreInfiniteQuery,
@@ -297,7 +297,7 @@ export function AlbumDetailPage() {
               void trackQuery.fetchNextPage();
             }}
             renderRow={(track) => (
-              <TrackListRow
+              <ManagedTrackListRow
                 availabilityState={
                   trackAvailabilityByRecordingId[track.RecordingID]?.data?.State
                 }
@@ -307,6 +307,7 @@ export function AlbumDetailPage() {
                     ? `${track.DiscNo}-${track.TrackNo}`
                     : String(track.TrackNo)
                 }
+                libraryRecordingId={track.LibraryRecordingID}
                 mode="album"
                 onPlay={() => {
                   void playAlbumTrack(selectedVariantId, track.RecordingID);
@@ -314,6 +315,7 @@ export function AlbumDetailPage() {
                 onQueue={() => {
                   void queueRecording(track.RecordingID);
                 }}
+                recordingId={track.RecordingID}
                 subtitle={joinArtists(track.Artists)}
                 title={track.Title}
               />

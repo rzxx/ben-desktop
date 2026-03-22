@@ -70,8 +70,7 @@ type PlaylistCoverRecord struct {
 
 type PlaylistCoverUploadRequest struct {
 	PlaylistID string
-	Bytes      []byte
-	MIME       string
+	SourcePath string
 }
 
 type PlaylistSurface interface {

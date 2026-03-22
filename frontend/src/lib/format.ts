@@ -152,9 +152,11 @@ export function aggregateAvailabilityLabel(
   return availabilityLabel("PENDING");
 }
 
-export function isAlbumUnavailableInCatalog(availability?: {
-  State?: string | null;
-} | null) {
+export function isAlbumUnavailableInCatalog(
+  availability?: {
+    State?: string | null;
+  } | null,
+) {
   switch (availability?.State) {
     case "OFFLINE":
     case "UNAVAILABLE":

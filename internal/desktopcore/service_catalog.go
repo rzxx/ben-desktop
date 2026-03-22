@@ -565,11 +565,10 @@ SELECT
 	p.kind,
 	p.created_by,
 	p.updated_at,
-	COUNT(DISTINCT CASE WHEN r.track_variant_id IS NOT NULL THEN pi.item_id END) AS item_count,
+	COUNT(DISTINCT pi.item_id) AS item_count,
 	MAX(CASE WHEN aw.scope_id IS NULL THEN 0 ELSE 1 END) AS has_custom_cover
 FROM playlists p
 LEFT JOIN playlist_items pi ON pi.library_id = p.library_id AND pi.playlist_id = p.playlist_id AND pi.deleted_at IS NULL
-LEFT JOIN track_variants r ON r.library_id = pi.library_id AND r.track_variant_id = pi.track_variant_id
 LEFT JOIN artwork_variants aw ON aw.library_id = p.library_id AND aw.scope_type = 'playlist' AND aw.scope_id = p.playlist_id
 WHERE p.library_id = ? AND p.deleted_at IS NULL
 GROUP BY p.playlist_id, p.name, p.kind, p.created_by, p.updated_at

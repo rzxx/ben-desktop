@@ -46,13 +46,9 @@ function makeNotification(source: Partial<Types.NotificationSnapshot> = {}) {
 }
 
 describe("notifications store batching", () => {
-  let animationFrameHandle = 0;
-
   beforeEach(() => {
     notificationEventListener = undefined;
-    animationFrameHandle = 0;
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      animationFrameHandle += 1;
       return window.setTimeout(() => callback(performance.now()), 0);
     });
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation((handle) => {

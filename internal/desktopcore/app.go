@@ -655,6 +655,18 @@ func (a *App) RemovePlaylistItem(ctx context.Context, playlistID, itemID string)
 	return a.playlist.RemovePlaylistItem(ctx, playlistID, itemID)
 }
 
+func (a *App) GetPlaylistCover(ctx context.Context, playlistID string) (apitypes.PlaylistCoverRecord, bool, error) {
+	return a.playlist.GetPlaylistCover(ctx, playlistID)
+}
+
+func (a *App) SetPlaylistCover(ctx context.Context, req apitypes.PlaylistCoverUploadRequest) (apitypes.PlaylistCoverRecord, error) {
+	return a.playlist.SetPlaylistCover(ctx, req)
+}
+
+func (a *App) ClearPlaylistCover(ctx context.Context, playlistID string) error {
+	return a.playlist.ClearPlaylistCover(ctx, playlistID)
+}
+
 func (a *App) LikeRecording(ctx context.Context, recordingID string) error {
 	return a.playlist.LikeRecording(ctx, recordingID)
 }

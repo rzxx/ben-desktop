@@ -15,8 +15,12 @@ const PLAYER_SCROLL_BUFFER_REM = 1;
 export function AppShell({ children }: PropsWithChildren) {
   const bootstrap = usePlaybackStore((state) => state.bootstrap);
   const teardown = usePlaybackStore((state) => state.teardown);
-  const bootstrapNotifications = useNotificationsStore((state) => state.bootstrap);
-  const teardownNotifications = useNotificationsStore((state) => state.teardown);
+  const bootstrapNotifications = useNotificationsStore(
+    (state) => state.bootstrap,
+  );
+  const teardownNotifications = useNotificationsStore(
+    (state) => state.teardown,
+  );
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playerBarRef = useRef<HTMLDivElement | null>(null);
   const queueSidebarRef = useRef<HTMLDivElement | null>(null);

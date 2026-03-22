@@ -13,6 +13,7 @@ import {
   getValueQuery,
   useCatalogStore,
 } from "@/stores/catalog/store";
+import { useRecordingLikesStore } from "@/stores/catalog/likes";
 
 function hasLoadedIdQuery(key: string) {
   const record = getIdQuery(useCatalogStore.getState(), key);
@@ -25,7 +26,9 @@ function hasLoadedValueQuery(key: string) {
 }
 
 function loadedTrackAvailabilityIDs() {
-  return Object.entries(useCatalogStore.getState().trackAvailabilityByRecordingId)
+  return Object.entries(
+    useCatalogStore.getState().trackAvailabilityByRecordingId,
+  )
     .filter(([, record]) => record.data !== null)
     .map(([recordingID]) => recordingID);
 }
@@ -87,9 +90,6 @@ function handleBaseInvalidation(
       break;
     case "liked":
       store.invalidateValueQuery("liked", { dropAfterOffset: 0 });
-      if (hasLoadedValueQuery("liked")) {
-        void catalogLoaderClient.refetchLiked();
-      }
       break;
     default:
       if (event.QueryKey.startsWith("albumTracks:")) {
@@ -164,6 +164,9 @@ function handleBaseInvalidation(
 
   if (event.RecordingIDs?.length) {
     store.invalidateTrackAvailability(event.RecordingIDs);
+    useRecordingLikesStore
+      .getState()
+      .invalidateRecordingLikes(event.RecordingIDs);
     void ensureTrackAvailability(event.RecordingIDs, { force: true });
   }
   if (event.AlbumIDs?.length) {
@@ -182,9 +185,16 @@ function handleAvailabilityInvalidation(
   const albumIDs = event.InvalidateAll
     ? loadedAlbumAvailabilityIDs()
     : (event.AlbumIDs ?? []);
+  if (
+    event.InvalidateAll &&
+    event.Entity === Types.CatalogChangeEntity.CatalogChangeEntityLiked
+  ) {
+    useRecordingLikesStore.getState().invalidateAllRecordingLikes();
+  }
 
   if (recordingIDs.length) {
     store.invalidateTrackAvailability(recordingIDs);
+    useRecordingLikesStore.getState().invalidateRecordingLikes(recordingIDs);
     void ensureTrackAvailability(recordingIDs, { force: true });
   }
   if (albumIDs.length) {

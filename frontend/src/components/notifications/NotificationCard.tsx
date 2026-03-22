@@ -1,4 +1,10 @@
-import { BellRing, Bug, CircleAlert, LoaderCircle, UserRound } from "lucide-react";
+import {
+  BellRing,
+  Bug,
+  CircleAlert,
+  LoaderCircle,
+  UserRound,
+} from "lucide-react";
 import type { NotificationSnapshot } from "@/lib/api/models";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { useRecordingArtworkUrl } from "@/hooks/media/useRecordingArtworkUrl";
@@ -48,7 +54,9 @@ export function NotificationCard({
           {notification.subject?.recordingId ? (
             <ArtworkTile
               alt={title}
-              className={compact ? "h-12 w-12 rounded-xl" : "h-14 w-14 rounded-2xl"}
+              className={
+                compact ? "h-12 w-12 rounded-xl" : "h-14 w-14 rounded-2xl"
+              }
               src={artworkUrl}
               title={title}
             />
@@ -62,7 +70,9 @@ export function NotificationCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">{title}</p>
+              <p className="truncate text-sm font-semibold text-white">
+                {title}
+              </p>
               {notification.subject?.subtitle ? (
                 <p className="mt-1 truncate text-xs text-white/45">
                   {notification.subject.subtitle}
@@ -78,7 +88,8 @@ export function NotificationCard({
 
           <p className="mt-2 text-sm leading-5 text-white/70">{description}</p>
 
-          {(notification.phase === "queued" || notification.phase === "running") && (
+          {(notification.phase === "queued" ||
+            notification.phase === "running") && (
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8">
               <div
                 className="h-full rounded-full bg-[linear-gradient(90deg,rgba(251,146,60,0.92),rgba(14,165,233,0.8))] transition-[width] duration-300"

@@ -67,6 +67,9 @@ type CatalogRuntime interface {
 	AddPlaylistItem(ctx context.Context, req apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error)
 	MovePlaylistItem(ctx context.Context, req apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error)
 	RemovePlaylistItem(ctx context.Context, playlistID, itemID string) error
+	GetPlaylistCover(ctx context.Context, playlistID string) (apitypes.PlaylistCoverRecord, bool, error)
+	SetPlaylistCover(ctx context.Context, req apitypes.PlaylistCoverUploadRequest) (apitypes.PlaylistCoverRecord, error)
+	ClearPlaylistCover(ctx context.Context, playlistID string) error
 	LikeRecording(ctx context.Context, recordingID string) error
 	UnlikeRecording(ctx context.Context, recordingID string) error
 	IsRecordingLiked(ctx context.Context, recordingID string) (bool, error)

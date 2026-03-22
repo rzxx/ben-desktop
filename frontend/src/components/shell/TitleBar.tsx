@@ -53,7 +53,9 @@ export function TitleBar() {
             void setVerbosity(nextVerbosity(preferences.verbosity));
           }}
         >
-          <span className="truncate">{verbosityLabel(preferences.verbosity)}</span>
+          <span className="truncate">
+            {verbosityLabel(preferences.verbosity)}
+          </span>
         </WideControlButton>
         <ControlButton
           label="Minimise"

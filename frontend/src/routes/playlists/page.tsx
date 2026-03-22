@@ -1,9 +1,14 @@
+import { useState } from "react";
+import { Plus } from "lucide-react";
 import type { PlaylistListItem } from "@/lib/api/models";
 import { MetricPill } from "@/components/catalog/MetricPill";
+import { PlaylistNameDialog } from "@/components/catalog/PlaylistDialogs";
 import { PlaylistRow } from "@/components/catalog/PlaylistRow";
 import { PlaylistEmptyState } from "@/components/catalog/EmptyState";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
+import { Button } from "@/components/ui/Button";
 import { VirtualRows } from "@/components/ui/VirtualRows";
+import { createPlaylist } from "@/lib/api/catalog";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import { formatCount } from "@/lib/format";
@@ -11,6 +16,7 @@ import { getIdQuery, useCatalogStore } from "@/stores/catalog/store";
 import { selectEntityQuery } from "@/stores/catalog/query-state";
 
 export function PlaylistsPage() {
+  const [createOpen, setCreateOpen] = useState(false);
   const query = useStoreInfiniteQuery<PlaylistListItem>(
     (state) =>
       selectEntityQuery<PlaylistListItem>(
@@ -34,6 +40,17 @@ export function PlaylistsPage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <SectionHeading
+        actions={
+          <Button
+            icon={<Plus className="h-4 w-4" />}
+            onClick={() => {
+              setCreateOpen(true);
+            }}
+            tone="primary"
+          >
+            Create playlist
+          </Button>
+        }
         meta={
           <MetricPill
             label={formatCount(
@@ -63,6 +80,18 @@ export function PlaylistsPage() {
           viewportClassName="pr-2"
         />
       </div>
+      <PlaylistNameDialog
+        confirmLabel="Create playlist"
+        description="Create a normal playlist in the active library."
+        onClose={() => {
+          setCreateOpen(false);
+        }}
+        onConfirm={async (name) => {
+          await createPlaylist(name);
+        }}
+        open={createOpen}
+        title="Create playlist"
+      />
     </div>
   );
 }

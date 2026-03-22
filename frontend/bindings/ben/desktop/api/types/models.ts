@@ -2712,6 +2712,121 @@ export class PlaylistAddItemRequest {
     }
 }
 
+export class PlaylistCoverRecord {
+    "PlaylistID": string;
+    "HasCustomCover": boolean;
+    "Thumb": ArtworkRef;
+    "UpdatedAt": time$0.Time;
+    "Variants": PlaylistCoverVariant[];
+
+    /** Creates a new PlaylistCoverRecord instance. */
+    constructor($$source: Partial<PlaylistCoverRecord> = {}) {
+        if (!("PlaylistID" in $$source)) {
+            this["PlaylistID"] = "";
+        }
+        if (!("HasCustomCover" in $$source)) {
+            this["HasCustomCover"] = false;
+        }
+        if (!("Thumb" in $$source)) {
+            this["Thumb"] = (new ArtworkRef());
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = null;
+        }
+        if (!("Variants" in $$source)) {
+            this["Variants"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistCoverRecord instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistCoverRecord {
+        const $$createField2_0 = $$createType10;
+        const $$createField4_0 = $$createType32;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Thumb" in $$parsedSource) {
+            $$parsedSource["Thumb"] = $$createField2_0($$parsedSource["Thumb"]);
+        }
+        if ("Variants" in $$parsedSource) {
+            $$parsedSource["Variants"] = $$createField4_0($$parsedSource["Variants"]);
+        }
+        return new PlaylistCoverRecord($$parsedSource as Partial<PlaylistCoverRecord>);
+    }
+}
+
+export class PlaylistCoverUploadRequest {
+    "PlaylistID": string;
+    "SourcePath": string;
+
+    /** Creates a new PlaylistCoverUploadRequest instance. */
+    constructor($$source: Partial<PlaylistCoverUploadRequest> = {}) {
+        if (!("PlaylistID" in $$source)) {
+            this["PlaylistID"] = "";
+        }
+        if (!("SourcePath" in $$source)) {
+            this["SourcePath"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistCoverUploadRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistCoverUploadRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaylistCoverUploadRequest($$parsedSource as Partial<PlaylistCoverUploadRequest>);
+    }
+}
+
+export class PlaylistCoverVariant {
+    "Variant": string;
+    "BlobID": string;
+    "MIME": string;
+    "FileExt": string;
+    "W": number;
+    "H": number;
+    "Bytes": number;
+
+    /** Creates a new PlaylistCoverVariant instance. */
+    constructor($$source: Partial<PlaylistCoverVariant> = {}) {
+        if (!("Variant" in $$source)) {
+            this["Variant"] = "";
+        }
+        if (!("BlobID" in $$source)) {
+            this["BlobID"] = "";
+        }
+        if (!("MIME" in $$source)) {
+            this["MIME"] = "";
+        }
+        if (!("FileExt" in $$source)) {
+            this["FileExt"] = "";
+        }
+        if (!("W" in $$source)) {
+            this["W"] = 0;
+        }
+        if (!("H" in $$source)) {
+            this["H"] = 0;
+        }
+        if (!("Bytes" in $$source)) {
+            this["Bytes"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaylistCoverVariant instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaylistCoverVariant {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PlaylistCoverVariant($$parsedSource as Partial<PlaylistCoverVariant>);
+    }
+}
+
 export class PlaylistItemRecord {
     "LibraryID": string;
     "PlaylistID": string;
@@ -3114,10 +3229,10 @@ export class RecordingAvailabilityOverview {
      * Creates a new RecordingAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingAvailabilityOverview {
-        const $$createField4_0 = $$createType31;
-        const $$createField5_0 = $$createType32;
-        const $$createField6_0 = $$createType34;
-        const $$createField7_0 = $$createType36;
+        const $$createField4_0 = $$createType33;
+        const $$createField5_0 = $$createType34;
+        const $$createField6_0 = $$createType36;
+        const $$createField7_0 = $$createType38;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Playback" in $$parsedSource) {
             $$parsedSource["Playback"] = $$createField4_0($$parsedSource["Playback"]);
@@ -3331,8 +3446,8 @@ export class RecordingVariantAvailabilityOverview {
      * Creates a new RecordingVariantAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingVariantAvailabilityOverview {
-        const $$createField0_0 = $$createType37;
-        const $$createField1_0 = $$createType34;
+        const $$createField0_0 = $$createType39;
+        const $$createField1_0 = $$createType36;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Variant" in $$parsedSource) {
             $$parsedSource["Variant"] = $$createField0_0($$parsedSource["Variant"]);
@@ -3734,10 +3849,12 @@ const $$createType27 = NotificationSubject.createFrom;
 const $$createType28 = $Create.Nullable($$createType27);
 const $$createType29 = ($$createParamT: any) => $Create.Array($$createParamT);
 const $$createType30 = PageInfo.createFrom;
-const $$createType31 = RecordingPlaybackAvailability.createFrom;
-const $$createType32 = TrackAvailabilitySummary.createFrom;
-const $$createType33 = RecordingAvailabilityItem.createFrom;
-const $$createType34 = $Create.Array($$createType33);
-const $$createType35 = RecordingVariantAvailabilityOverview.createFrom;
+const $$createType31 = PlaylistCoverVariant.createFrom;
+const $$createType32 = $Create.Array($$createType31);
+const $$createType33 = RecordingPlaybackAvailability.createFrom;
+const $$createType34 = TrackAvailabilitySummary.createFrom;
+const $$createType35 = RecordingAvailabilityItem.createFrom;
 const $$createType36 = $Create.Array($$createType35);
-const $$createType37 = RecordingVariantItem.createFrom;
+const $$createType37 = RecordingVariantAvailabilityOverview.createFrom;
+const $$createType38 = $Create.Array($$createType37);
+const $$createType39 = RecordingVariantItem.createFrom;

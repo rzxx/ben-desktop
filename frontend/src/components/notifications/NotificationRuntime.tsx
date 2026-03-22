@@ -78,7 +78,11 @@ export function NotificationRuntime() {
   }, [notifications, visibleNotifications]);
 
   return (
-    <Toast.Provider limit={4} timeout={0} toastManager={notificationToastManager}>
+    <Toast.Provider
+      limit={4}
+      timeout={0}
+      toastManager={notificationToastManager}
+    >
       <NotificationToastViewport />
     </Toast.Provider>
   );

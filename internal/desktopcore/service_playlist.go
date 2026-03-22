@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -373,6 +374,167 @@ func (s *PlaylistService) RemovePlaylistItem(ctx context.Context, playlistID, it
 	return nil
 }
 
+func (s *PlaylistService) GetPlaylistCover(ctx context.Context, playlistID string) (apitypes.PlaylistCoverRecord, bool, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaylistCoverRecord{}, false, err
+	}
+	playlistID = strings.TrimSpace(playlistID)
+	if playlistID == "" {
+		return apitypes.PlaylistCoverRecord{}, false, fmt.Errorf("playlist id is required")
+	}
+	playlist, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.PlaylistCoverRecord{}, false, err
+	}
+	if !ok {
+		return apitypes.PlaylistCoverRecord{}, false, fmt.Errorf("playlist %q does not exist", playlistID)
+	}
+	if isReservedPlaylist(playlist) {
+		return apitypes.PlaylistCoverRecord{
+			PlaylistID: strings.TrimSpace(playlistID),
+			UpdatedAt:  playlist.UpdatedAt,
+		}, false, nil
+	}
+	record, found, err := s.loadPlaylistCoverRecord(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.PlaylistCoverRecord{}, false, err
+	}
+	if !record.UpdatedAt.IsZero() {
+		return record, found, nil
+	}
+	record.UpdatedAt = playlist.UpdatedAt
+	return record, found, nil
+}
+
+func (s *PlaylistService) SetPlaylistCover(ctx context.Context, req apitypes.PlaylistCoverUploadRequest) (apitypes.PlaylistCoverRecord, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.PlaylistCoverRecord{}, err
+	}
+	playlistID := strings.TrimSpace(req.PlaylistID)
+	if playlistID == "" {
+		return apitypes.PlaylistCoverRecord{}, fmt.Errorf("playlist id is required")
+	}
+	sourcePath := filepath.Clean(strings.TrimSpace(req.SourcePath))
+	if sourcePath == "" {
+		return apitypes.PlaylistCoverRecord{}, fmt.Errorf("artwork source path is required")
+	}
+
+	playlist, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.PlaylistCoverRecord{}, err
+	}
+	if !ok {
+		return apitypes.PlaylistCoverRecord{}, fmt.Errorf("playlist %q does not exist", playlistID)
+	}
+	if isReservedPlaylist(playlist) {
+		return apitypes.PlaylistCoverRecord{}, fmt.Errorf("reserved playlists do not support custom covers")
+	}
+
+	built, err := s.app.artwork.buildArtworkFromImagePath(ctx, sourcePath)
+	if err != nil {
+		return apitypes.PlaylistCoverRecord{}, err
+	}
+
+	now := time.Now().UTC()
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.app.deleteArtworkScopeTx(tx, local, "playlist", playlistID); err != nil {
+			return err
+		}
+		for _, variant := range built.Variants {
+			blobID, err := s.app.blobs.StoreArtworkBytes(variant.Bytes, variant.FileExt)
+			if err != nil {
+				return err
+			}
+			if err := s.app.upsertArtworkVariantTx(tx, local, ArtworkVariant{
+				LibraryID:       local.LibraryID,
+				ScopeType:       "playlist",
+				ScopeID:         playlistID,
+				Variant:         strings.TrimSpace(variant.Variant),
+				BlobID:          blobID,
+				MIME:            strings.TrimSpace(variant.MIME),
+				FileExt:         normalizeArtworkFileExt(variant.FileExt, variant.MIME),
+				W:               variant.W,
+				H:               variant.H,
+				Bytes:           int64(len(variant.Bytes)),
+				ChosenSource:    strings.TrimSpace(built.SourceKind),
+				ChosenSourceRef: strings.TrimSpace(built.SourceRef),
+				UpdatedAt:       now,
+			}); err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&Playlist{}).
+			Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
+			Update("updated_at", now).Error; err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, "playlist", playlistID, "upsert", map[string]any{
+			"playlistId": playlistID,
+			"name":       playlist.Name,
+			"kind":       playlist.Kind,
+			"createdBy":  playlist.CreatedBy,
+			"deleted":    false,
+		})
+		return err
+	}); err != nil {
+		return apitypes.PlaylistCoverRecord{}, err
+	}
+	s.emitPlaylistCoverMutationEvents(playlistID)
+
+	record, _, err := s.loadPlaylistCoverRecord(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return apitypes.PlaylistCoverRecord{}, err
+	}
+	return record, nil
+}
+
+func (s *PlaylistService) ClearPlaylistCover(ctx context.Context, playlistID string) error {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return err
+	}
+	playlistID = strings.TrimSpace(playlistID)
+	if playlistID == "" {
+		return fmt.Errorf("playlist id is required")
+	}
+	playlist, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("playlist %q does not exist", playlistID)
+	}
+	if isReservedPlaylist(playlist) {
+		return fmt.Errorf("reserved playlists do not support custom covers")
+	}
+
+	now := time.Now().UTC()
+	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.app.deleteArtworkScopeTx(tx, local, "playlist", playlistID); err != nil {
+			return err
+		}
+		if err := tx.Model(&Playlist{}).
+			Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
+			Update("updated_at", now).Error; err != nil {
+			return err
+		}
+		_, err := s.app.appendLocalOplogTx(tx, local, "playlist", playlistID, "upsert", map[string]any{
+			"playlistId": playlistID,
+			"name":       playlist.Name,
+			"kind":       playlist.Kind,
+			"createdBy":  playlist.CreatedBy,
+			"deleted":    false,
+		})
+		return err
+	}); err != nil {
+		return err
+	}
+	s.emitPlaylistCoverMutationEvents(playlistID)
+	return nil
+}
+
 func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string) error {
 	local, err := s.app.requireActiveContext(ctx)
 	if err != nil {
@@ -541,6 +703,15 @@ func (s *PlaylistService) emitPlaylistMutationEvents(playlistID, recordingID str
 	}
 }
 
+func (s *PlaylistService) emitPlaylistCoverMutationEvents(playlistID string) {
+	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:     apitypes.CatalogChangeInvalidateBase,
+		Entity:   apitypes.CatalogChangeEntityPlaylists,
+		QueryKey: "playlists",
+		EntityID: strings.TrimSpace(playlistID),
+	})
+}
+
 func (s *PlaylistService) toPlaylistRecord(ctx context.Context, row Playlist) (apitypes.PlaylistRecord, error) {
 	record := apitypes.PlaylistRecord{
 		LibraryID:  strings.TrimSpace(row.LibraryID),
@@ -562,6 +733,43 @@ func (s *PlaylistService) toPlaylistRecord(ctx context.Context, row Playlist) (a
 	record.Thumb = thumb
 	record.HasCustomCover = ok
 	return record, nil
+}
+
+func (s *PlaylistService) loadPlaylistCoverRecord(ctx context.Context, libraryID, playlistID string) (apitypes.PlaylistCoverRecord, bool, error) {
+	var rows []ArtworkVariant
+	if err := s.app.storage.WithContext(ctx).
+		Where("library_id = ? AND scope_type = ? AND scope_id = ?", libraryID, "playlist", playlistID).
+		Order("variant ASC").
+		Find(&rows).Error; err != nil {
+		return apitypes.PlaylistCoverRecord{}, false, err
+	}
+	record := apitypes.PlaylistCoverRecord{
+		PlaylistID: strings.TrimSpace(playlistID),
+	}
+	if len(rows) == 0 {
+		return record, false, nil
+	}
+
+	record.HasCustomCover = true
+	record.Variants = make([]apitypes.PlaylistCoverVariant, 0, len(rows))
+	for _, row := range rows {
+		record.Variants = append(record.Variants, apitypes.PlaylistCoverVariant{
+			Variant: strings.TrimSpace(row.Variant),
+			BlobID:  strings.TrimSpace(row.BlobID),
+			MIME:    strings.TrimSpace(row.MIME),
+			FileExt: normalizeArtworkFileExt(row.FileExt, row.MIME),
+			W:       row.W,
+			H:       row.H,
+			Bytes:   row.Bytes,
+		})
+		if row.Variant == defaultArtworkVariant320 {
+			record.Thumb = artworkRefFromRow(row)
+		}
+		if row.UpdatedAt.After(record.UpdatedAt) {
+			record.UpdatedAt = row.UpdatedAt
+		}
+	}
+	return record, true, nil
 }
 
 func (s *PlaylistService) playlistByID(ctx context.Context, libraryID, playlistID string) (Playlist, bool, error) {

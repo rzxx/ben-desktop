@@ -13,9 +13,7 @@ export function getNotificationPreferences() {
   return NotificationsFacade.GetNotificationPreferences();
 }
 
-export function setNotificationVerbosity(
-  verbosity: string,
-) {
+export function setNotificationVerbosity(verbosity: string) {
   return NotificationsFacade.SetNotificationVerbosity(
     verbosity as Types.NotificationVerbosity,
   );

@@ -1,13 +1,21 @@
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Play, Plus } from "lucide-react";
+import { Pencil, Play, Plus, Trash2 } from "lucide-react";
 import type { PlaylistListItem } from "@/lib/api/models";
+import {
+  ConfirmPlaylistDeleteDialog,
+  PlaylistNameDialog,
+} from "@/components/catalog/PlaylistDialogs";
 import { formatCount, formatRelativeDate } from "@/lib/format";
+import { deletePlaylist, renamePlaylist } from "@/lib/api/catalog";
 import { useThumbnailUrl } from "@/hooks/media/useThumbnailUrl";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { IconButton } from "@/components/ui/Button";
 import { usePlaybackStore } from "@/stores/playback/store";
 
 export function PlaylistRow({ playlist }: { playlist: PlaylistListItem }) {
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const artworkUrl = useThumbnailUrl(playlist.Thumb);
   const playPlaylist = usePlaybackStore((state) => state.playPlaylist);
   const queuePlaylist = usePlaybackStore((state) => state.queuePlaylist);
@@ -83,7 +91,52 @@ export function PlaylistRow({ playlist }: { playlist: PlaylistListItem }) {
             <Plus className="h-4 w-4" />
           </IconButton>
         ) : null}
+        {!isLiked ? (
+          <IconButton
+            label="Rename playlist"
+            onClick={() => {
+              setRenameOpen(true);
+            }}
+          >
+            <Pencil className="h-4 w-4" />
+          </IconButton>
+        ) : null}
+        {!isLiked ? (
+          <IconButton
+            label="Delete playlist"
+            onClick={() => {
+              setDeleteOpen(true);
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </IconButton>
+        ) : null}
       </div>
+
+      <PlaylistNameDialog
+        confirmLabel="Save name"
+        description="Rename this playlist."
+        initialValue={playlist.Name}
+        onClose={() => {
+          setRenameOpen(false);
+        }}
+        onConfirm={async (name) => {
+          await renamePlaylist(playlist.PlaylistID, name);
+        }}
+        open={renameOpen}
+        title="Rename playlist"
+      />
+      <ConfirmPlaylistDeleteDialog
+        description={`Delete "${playlist.Name}" and remove its custom cover and track order.`}
+        onClose={() => {
+          setDeleteOpen(false);
+        }}
+        onConfirm={async () => {
+          await deletePlaylist(playlist.PlaylistID);
+        }}
+        open={deleteOpen}
+        title="Delete playlist?"
+      />
     </div>
   );
 }

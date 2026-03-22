@@ -3,6 +3,11 @@ import {
   listArtistsPage,
   listPlaylistsPage,
 } from "@/lib/api/catalog";
+import type {
+  AlbumListItem,
+  ArtistListItem,
+  PlaylistListItem,
+} from "@/lib/api/models";
 import {
   getIdQuery,
   getValueQuery,
@@ -32,12 +37,13 @@ export const catalogLoaderClient = {
       offset,
       options,
       listAlbumsPage,
-      (album) => album.AlbumID,
-      (albums) => useCatalogStore.getState().upsertAlbums(albums),
+      (album: AlbumListItem) => album.AlbumID,
+      (albums: AlbumListItem[]) =>
+        useCatalogStore.getState().upsertAlbums(albums),
     ).then((page) => {
       if (page) {
         void ensureAlbumAvailability(
-          page.Items.map((album) => album.AlbumID),
+          page.Items.map((album: AlbumListItem) => album.AlbumID),
           options,
         );
       }
@@ -59,8 +65,9 @@ export const catalogLoaderClient = {
       offset,
       options,
       listArtistsPage,
-      (artist) => artist.ArtistID,
-      (artists) => useCatalogStore.getState().upsertArtists(artists),
+      (artist: ArtistListItem) => artist.ArtistID,
+      (artists: ArtistListItem[]) =>
+        useCatalogStore.getState().upsertArtists(artists),
     );
   },
 
@@ -92,8 +99,10 @@ export const catalogLoaderClient = {
       offset,
       options,
       listPlaylistsPage,
-      (playlist) => (playlist.Kind === "liked" ? "liked" : playlist.PlaylistID),
-      (playlists) => useCatalogStore.getState().upsertPlaylists(playlists),
+      (playlist: PlaylistListItem) =>
+        playlist.Kind === "liked" ? "liked" : playlist.PlaylistID,
+      (playlists: PlaylistListItem[]) =>
+        useCatalogStore.getState().upsertPlaylists(playlists),
     );
   },
 

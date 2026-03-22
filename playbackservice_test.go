@@ -68,6 +68,9 @@ type passthroughRuntimeStub struct {
 	addPlaylistItemFn           func(context.Context, apitypes.PlaylistAddItemRequest) (apitypes.PlaylistItemRecord, error)
 	movePlaylistItemFn          func(context.Context, apitypes.PlaylistMoveItemRequest) (apitypes.PlaylistItemRecord, error)
 	removePlaylistItemFn        func(context.Context, string, string) error
+	getPlaylistCoverFn          func(context.Context, string) (apitypes.PlaylistCoverRecord, bool, error)
+	setPlaylistCoverFn          func(context.Context, apitypes.PlaylistCoverUploadRequest) (apitypes.PlaylistCoverRecord, error)
+	clearPlaylistCoverFn        func(context.Context, string) error
 	likeRecordingFn             func(context.Context, string) error
 	unlikeRecordingFn           func(context.Context, string) error
 	isRecordingLikedFn          func(context.Context, string) (bool, error)
@@ -340,6 +343,18 @@ func (b *passthroughBridgeStub) MovePlaylistItem(ctx context.Context, req apityp
 
 func (b *passthroughBridgeStub) RemovePlaylistItem(ctx context.Context, playlistID, itemID string) error {
 	return b.removePlaylistItemFn(ctx, playlistID, itemID)
+}
+
+func (b *passthroughBridgeStub) GetPlaylistCover(ctx context.Context, playlistID string) (apitypes.PlaylistCoverRecord, bool, error) {
+	return b.getPlaylistCoverFn(ctx, playlistID)
+}
+
+func (b *passthroughBridgeStub) SetPlaylistCover(ctx context.Context, req apitypes.PlaylistCoverUploadRequest) (apitypes.PlaylistCoverRecord, error) {
+	return b.setPlaylistCoverFn(ctx, req)
+}
+
+func (b *passthroughBridgeStub) ClearPlaylistCover(ctx context.Context, playlistID string) error {
+	return b.clearPlaylistCoverFn(ctx, playlistID)
 }
 
 func (b *passthroughBridgeStub) LikeRecording(ctx context.Context, recordingID string) error {

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Slider } from "@base-ui/react/slider";
 import { Link } from "@tanstack/react-router";
 import {
+  Heart,
   Pause,
   Play,
   Repeat,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { formatDuration } from "@/lib/format";
+import { useRecordingLikeState } from "@/hooks/catalog/useRecordingLikeState";
 import { useRecordingArtworkUrl } from "@/hooks/media/useRecordingArtworkUrl";
 import { playbackLoadingDescription } from "@/lib/playback/loading-state";
 import { usePlaybackStore } from "@/stores/playback/store";
@@ -62,6 +64,10 @@ export function PlayerBar() {
   const volume = snapshot?.volume ?? 80;
   const repeatMode = snapshot?.repeatMode ?? "off";
   const shuffle = snapshot?.shuffle ?? false;
+  const likeState = useRecordingLikeState({
+    libraryRecordingId: visibleItem?.libraryRecordingId,
+    recordingId: visibleItem?.recordingId,
+  });
   const hasCurrent = Boolean(currentItem);
   const hasUpcoming = (snapshot?.upcomingEntries?.length ?? 0) > 0;
   const canGoNext =
@@ -104,6 +110,24 @@ export function PlayerBar() {
               <p className="truncate text-[11px] text-red-300">{error}</p>
             )}
           </div>
+          {likeState.hasIdentity ? (
+            <PlayerIconButton
+              active={likeState.liked}
+              className="shrink-0"
+              disabled={likeState.inFlight}
+              label={
+                likeState.liked ? "Unlike current song" : "Like current song"
+              }
+              onClick={() => {
+                void likeState.toggleLike().catch(() => {});
+              }}
+            >
+              <Heart
+                className="h-4 w-4"
+                fill={likeState.liked ? "currentColor" : "none"}
+              />
+            </PlayerIconButton>
+          ) : null}
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">

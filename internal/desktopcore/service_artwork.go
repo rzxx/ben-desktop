@@ -594,6 +594,35 @@ func (s *ArtworkService) buildAlbumArtworkFromBestSource(ctx context.Context, ca
 	return builder.BuildFromSource(ctx, best)
 }
 
+func (s *ArtworkService) buildArtworkFromImagePath(ctx context.Context, imagePath string) (ArtworkBuildResult, error) {
+	if s == nil || s.builder == nil {
+		return ArtworkBuildResult{}, fmt.Errorf("artwork builder is unavailable")
+	}
+	builder, ok := s.builder.(artworkEvaluatingBuilder)
+	if !ok {
+		return ArtworkBuildResult{}, fmt.Errorf("artwork builder does not support image uploads")
+	}
+	imagePath = filepath.Clean(strings.TrimSpace(imagePath))
+	if imagePath == "" {
+		return ArtworkBuildResult{}, fmt.Errorf("artwork source path is required")
+	}
+	if _, err := os.Stat(imagePath); err != nil {
+		return ArtworkBuildResult{}, fmt.Errorf("artwork source path is not readable: %w", err)
+	}
+
+	source, err := newArtworkSourceCandidate(
+		imagePath,
+		"manual",
+		imagePath,
+		imagePath,
+		nil,
+	)
+	if err != nil {
+		return ArtworkBuildResult{}, err
+	}
+	return builder.BuildFromSource(ctx, source)
+}
+
 func closeArtworkSourceCandidates(candidates []ArtworkSourceCandidate) {
 	for _, candidate := range candidates {
 		candidate.Close()

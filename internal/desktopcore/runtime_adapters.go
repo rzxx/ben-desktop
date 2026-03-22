@@ -245,6 +245,18 @@ func (r *catalogRuntimeAdapter) RemovePlaylistItem(ctx context.Context, playlist
 	return r.playlist.RemovePlaylistItem(ctx, playlistID, itemID)
 }
 
+func (r *catalogRuntimeAdapter) GetPlaylistCover(ctx context.Context, playlistID string) (apitypes.PlaylistCoverRecord, bool, error) {
+	return r.playlist.GetPlaylistCover(ctx, playlistID)
+}
+
+func (r *catalogRuntimeAdapter) SetPlaylistCover(ctx context.Context, req apitypes.PlaylistCoverUploadRequest) (apitypes.PlaylistCoverRecord, error) {
+	return r.playlist.SetPlaylistCover(ctx, req)
+}
+
+func (r *catalogRuntimeAdapter) ClearPlaylistCover(ctx context.Context, playlistID string) error {
+	return r.playlist.ClearPlaylistCover(ctx, playlistID)
+}
+
 func (r *catalogRuntimeAdapter) LikeRecording(ctx context.Context, recordingID string) error {
 	return r.playlist.LikeRecording(ctx, recordingID)
 }
