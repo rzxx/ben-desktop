@@ -121,6 +121,7 @@ func (b *ffmpegAACBuilder) BuildAAC(ctx context.Context, sourcePath string, prof
 
 func runFFmpeg(ctx context.Context, ffmpegPath string, args []string) error {
 	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
+	configureBackgroundProcess(cmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		var execErr *exec.Error
