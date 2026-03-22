@@ -1255,6 +1255,90 @@ func TestSessionPreloadNextSkipsUnavailableStructuralNext(t *testing.T) {
 	}
 }
 
+func TestSessionPreloadNextSkipsUnavailableUsingShuffledUpcomingOrder(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	bridge := &mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"rec-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+			"rec-3": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/three.mp3"},
+			"rec-4": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/four.mp3"},
+		},
+		availability: map[string]apitypes.RecordingPlaybackAvailability{},
+	}
+	session := NewSession(bridge, backend, &memoryStore{}, "desktop", nil)
+	session.rng = rand.New(rand.NewSource(7))
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", DurationMS: duration},
+			{RecordingID: "rec-2", Title: "Two", DurationMS: duration},
+			{RecordingID: "rec-3", Title: "Three", DurationMS: duration},
+			{RecordingID: "rec-4", Title: "Four", DurationMS: duration},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if _, err := session.SetRepeatMode(string(RepeatAll)); err != nil {
+		t.Fatalf("set repeat mode: %v", err)
+	}
+
+	shuffled, err := session.SetShuffle(true)
+	if err != nil {
+		t.Fatalf("set shuffle: %v", err)
+	}
+	upcoming := buildUpcomingEntries(shuffled)
+	if len(upcoming) < 2 {
+		t.Fatalf("expected at least two shuffled upcoming entries, got %+v", upcoming)
+	}
+
+	skipped := upcoming[0]
+	expected := upcoming[1]
+	bridge.availability[skipped.Item.RecordingID] = apitypes.RecordingPlaybackAvailability{
+		RecordingID: skipped.Item.RecordingID,
+		State:       apitypes.AvailabilityUnavailableNoPath,
+		Reason:      apitypes.PlaybackUnavailableNoPath,
+	}
+	delete(bridge.results, skipped.Item.RecordingID)
+
+	backend.duration = &duration
+	backend.position = 60000
+	session.refreshPosition()
+	session.preloadNext(context.Background())
+
+	expectedResult, ok := bridge.results[expected.Item.RecordingID]
+	if !ok {
+		t.Fatalf("missing playable result for expected shuffled preload target %s", expected.Item.RecordingID)
+	}
+	if backend.preloadedURI != expectedResult.PlayableURI {
+		t.Fatalf(
+			"expected preload to follow shuffled upcoming order and skip unavailable %s for %s, got %q",
+			skipped.Item.RecordingID,
+			expected.Item.RecordingID,
+			backend.preloadedURI,
+		)
+	}
+	if bridge.prepareCalls[skipped.Item.RecordingID] != 0 {
+		t.Fatalf("expected unavailable shuffled candidate %s not to be prepared, got %d calls", skipped.Item.RecordingID, bridge.prepareCalls[skipped.Item.RecordingID])
+	}
+	if bridge.prepareCalls[expected.Item.RecordingID] != 1 {
+		t.Fatalf("expected playable shuffled candidate %s to be prepared once, got %d", expected.Item.RecordingID, bridge.prepareCalls[expected.Item.RecordingID])
+	}
+}
+
 func TestSessionPendingUnavailableFallsThroughToNextPlayableEntry(t *testing.T) {
 	t.Parallel()
 
