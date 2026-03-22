@@ -3,6 +3,7 @@ import { Types } from "./api/models";
 import {
   applyNotificationSnapshotBatch,
   matchesNotificationFilter,
+  notificationHeading,
   shouldToastNotification,
   upsertNotificationSnapshots,
 } from "./notifications";
@@ -143,5 +144,18 @@ describe("matchesNotificationFilter", () => {
     expect(matchesNotificationFilter(userNotification, "user")).toBe(true);
     expect(matchesNotificationFilter(userNotification, "system")).toBe(false);
     expect(matchesNotificationFilter(systemNotification, "system")).toBe(true);
+  });
+});
+
+describe("notificationHeading", () => {
+  test("uses a stable label for playback skip notifications without a subject", () => {
+    expect(
+      notificationHeading(
+        makeNotification({
+          kind: "playback-skip",
+          subject: null,
+        }),
+      ),
+    ).toBe("Playback queue");
   });
 });

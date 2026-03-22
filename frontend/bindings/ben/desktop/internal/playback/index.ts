@@ -8,6 +8,7 @@ export {
     HistoryEntry,
     PlaybackContext,
     PlaybackContextInput,
+    PlaybackSkipEvent,
     RepeatMode,
     ResolutionMode,
     SessionEntry,

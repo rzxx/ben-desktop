@@ -120,6 +120,7 @@ type SessionSnapshot struct {
 	CurrentPreparation  *EntryPreparation           `json:"currentPreparation,omitempty"`
 	LoadingPreparation  *EntryPreparation           `json:"loadingPreparation,omitempty"`
 	NextPreparation     *EntryPreparation           `json:"nextPreparation,omitempty"`
+	LastSkipEvent       *PlaybackSkipEvent          `json:"lastSkipEvent,omitempty"`
 	QueueLength         int                         `json:"queueLength"`
 	NextEntrySeq        int64                       `json:"nextEntrySeq,omitempty"`
 }
@@ -127,6 +128,15 @@ type SessionSnapshot struct {
 type EntryPreparation struct {
 	EntryID string                             `json:"entryId"`
 	Status  apitypes.PlaybackPreparationStatus `json:"status"`
+}
+
+type PlaybackSkipEvent struct {
+	EventID    string        `json:"eventId"`
+	Message    string        `json:"message"`
+	Count      int           `json:"count"`
+	Stopped    bool          `json:"stopped"`
+	FirstEntry *SessionEntry `json:"firstEntry,omitempty"`
+	OccurredAt string        `json:"occurredAt"`
 }
 
 type PlaybackCore interface {
@@ -144,6 +154,7 @@ type PlaybackCore interface {
 	ResolveAlbumArtwork(ctx context.Context, albumID, variant string) (apitypes.RecordingArtworkResult, error)
 	ResolveRecordingArtwork(ctx context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error)
 	GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error)
+	ListRecordingPlaybackAvailability(ctx context.Context, req apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error)
 }
 
 type SessionStore interface {

@@ -1,12 +1,18 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ListMusic, X } from "lucide-react";
 import type { PlaybackModels } from "@/lib/api/models";
 import { Button } from "@/components/ui/Button";
+import { buildQueueRows } from "@/components/playback/QueueSidebar.helpers";
+import { ensureTrackAvailability } from "@/lib/catalog/loader-availability";
+import { useCatalogStore } from "@/stores/catalog/store";
 import { usePlaybackStore } from "@/stores/playback/store";
 
 export function QueueSidebar() {
   const snapshot = usePlaybackStore((state) => state.snapshot);
+  const trackAvailabilityByRecordingId = useCatalogStore(
+    (state) => state.trackAvailabilityByRecordingId,
+  );
   const selectEntry = usePlaybackStore((state) => state.selectEntry);
   const removeQueuedEntry = usePlaybackStore(
     (state) => state.removeQueuedEntry,
@@ -15,12 +21,42 @@ export function QueueSidebar() {
 
   const activeEntryId =
     snapshot?.currentEntry?.entryId ?? snapshot?.loadingEntry?.entryId ?? "";
+  const recordingIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const entry of snapshot?.queuedEntries ?? []) {
+      if (entry.item.recordingId) {
+        ids.add(entry.item.recordingId);
+      }
+    }
+    for (const entry of snapshot?.context?.entries ?? []) {
+      if (entry.item.recordingId) {
+        ids.add(entry.item.recordingId);
+      }
+    }
+    return Array.from(ids);
+  }, [snapshot?.context?.entries, snapshot?.queuedEntries]);
+
+  useEffect(() => {
+    if (recordingIds.length === 0) {
+      return;
+    }
+    void ensureTrackAvailability(recordingIds);
+  }, [recordingIds]);
+
   const rows = useMemo(() => {
     const queuedEntries = snapshot?.queuedEntries ?? [];
     const contextEntries = snapshot?.context?.entries ?? [];
 
-    return buildQueueRows(queuedEntries, contextEntries);
-  }, [snapshot?.context?.entries, snapshot?.queuedEntries]);
+    return buildQueueRows(
+      queuedEntries,
+      contextEntries,
+      trackAvailabilityByRecordingId,
+    );
+  }, [
+    snapshot?.context?.entries,
+    snapshot?.queuedEntries,
+    trackAvailabilityByRecordingId,
+  ]);
   const parentRef = useRef<HTMLDivElement | null>(null);
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
@@ -88,8 +124,10 @@ export function QueueSidebar() {
                       <QueueSectionTitle title={row.title} />
                     ) : (
                       <QueueEntryRow
+                        actionable={row.actionable}
                         entry={row.entry}
                         isActive={row.entry.entryId === activeEntryId}
+                        secondaryText={row.secondaryText}
                         onRemove={
                           row.entry.origin === "queued"
                             ? () => {
@@ -97,9 +135,13 @@ export function QueueSidebar() {
                               }
                             : undefined
                         }
-                        onSelect={() => {
-                          void selectEntry(row.entry.entryId);
-                        }}
+                        onSelect={
+                          row.actionable
+                            ? () => {
+                                void selectEntry(row.entry.entryId);
+                              }
+                            : undefined
+                        }
                       />
                     )}
                   </div>
@@ -117,49 +159,6 @@ export function QueueSidebar() {
   );
 }
 
-type QueueRow =
-  | { type: "section"; id: string; title: string }
-  | { type: "entry"; id: string; entry: PlaybackModels.SessionEntry };
-
-function buildQueueRows(
-  queuedEntries: PlaybackModels.SessionEntry[],
-  listEntries: PlaybackModels.SessionEntry[],
-): QueueRow[] {
-  const rows: QueueRow[] = [];
-
-  if (queuedEntries.length > 0) {
-    rows.push({
-      type: "section",
-      id: "section-queued",
-      title: "Queued",
-    });
-    queuedEntries.forEach((entry) => {
-      rows.push({
-        type: "entry",
-        id: `queued-${entry.entryId}`,
-        entry,
-      });
-    });
-  }
-
-  if (listEntries.length > 0) {
-    rows.push({
-      type: "section",
-      id: "section-context",
-      title: "Context",
-    });
-    listEntries.forEach((entry) => {
-      rows.push({
-        type: "entry",
-        id: `context-${entry.entryId}`,
-        entry,
-      });
-    });
-  }
-
-  return rows;
-}
-
 function QueueSectionTitle({ title }: { title: string }) {
   return (
     <p className="text-theme-500 px-2 text-[11px] tracking-[0.28em] uppercase">
@@ -171,7 +170,9 @@ function QueueSectionTitle({ title }: { title: string }) {
 type QueueEntryRowProps = {
   entry: PlaybackModels.SessionEntry;
   isActive: boolean;
-  onSelect: () => void;
+  actionable: boolean;
+  secondaryText: string;
+  onSelect?: () => void;
   onRemove?: () => void;
 };
 
@@ -180,11 +181,13 @@ function QueueEntryRow(props: QueueEntryRowProps) {
     <div
       className={[
         "group flex min-w-0 items-center gap-2 rounded-md p-2 transition-colors",
-        props.isActive ? "" : "hover:bg-theme-800",
+        props.isActive || !props.actionable ? "" : "hover:bg-theme-800",
+        props.actionable ? "" : "opacity-40",
       ].join(" ")}
     >
       <button
-        className="wails-no-drag min-w-0 flex-1 text-left"
+        className="wails-no-drag min-w-0 flex-1 text-left disabled:pointer-events-none"
+        disabled={!props.actionable}
         onClick={props.onSelect}
         type="button"
       >
@@ -196,7 +199,7 @@ function QueueEntryRow(props: QueueEntryRowProps) {
           {props.entry.item.title}
         </p>
         <p className="text-theme-400 truncate text-xs">
-          {props.entry.item.subtitle}
+          {props.secondaryText}
         </p>
       </button>
       {props.onRemove && (

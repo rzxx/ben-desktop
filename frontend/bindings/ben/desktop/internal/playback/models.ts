@@ -165,6 +165,48 @@ export class PlaybackContextInput {
     }
 }
 
+export class PlaybackSkipEvent {
+    "eventId": string;
+    "message": string;
+    "count": number;
+    "stopped": boolean;
+    "firstEntry"?: SessionEntry | null;
+    "occurredAt": string;
+
+    /** Creates a new PlaybackSkipEvent instance. */
+    constructor($$source: Partial<PlaybackSkipEvent> = {}) {
+        if (!("eventId" in $$source)) {
+            this["eventId"] = "";
+        }
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+        if (!("count" in $$source)) {
+            this["count"] = 0;
+        }
+        if (!("stopped" in $$source)) {
+            this["stopped"] = false;
+        }
+        if (!("occurredAt" in $$source)) {
+            this["occurredAt"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlaybackSkipEvent instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PlaybackSkipEvent {
+        const $$createField4_0 = $$createType5;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("firstEntry" in $$parsedSource) {
+            $$parsedSource["firstEntry"] = $$createField4_0($$parsedSource["firstEntry"]);
+        }
+        return new PlaybackSkipEvent($$parsedSource as Partial<PlaybackSkipEvent>);
+    }
+}
+
 export enum RepeatMode {
     /**
      * The Go zero value for the underlying type of the enum.
@@ -300,6 +342,7 @@ export class SessionSnapshot {
     "currentPreparation"?: EntryPreparation | null;
     "loadingPreparation"?: EntryPreparation | null;
     "nextPreparation"?: EntryPreparation | null;
+    "lastSkipEvent"?: PlaybackSkipEvent | null;
     "queueLength": number;
     "nextEntrySeq"?: number;
 
@@ -349,18 +392,19 @@ export class SessionSnapshot {
      * Creates a new SessionSnapshot instance from a string or object.
      */
     static createFrom($$source: any = {}): SessionSnapshot {
-        const $$createField0_0 = $$createType6;
+        const $$createField0_0 = $$createType7;
         const $$createField1_0 = $$createType2;
-        const $$createField2_0 = $$createType8;
-        const $$createField4_0 = $$createType9;
+        const $$createField2_0 = $$createType9;
+        const $$createField4_0 = $$createType5;
         const $$createField5_0 = $$createType10;
-        const $$createField6_0 = $$createType9;
+        const $$createField6_0 = $$createType5;
         const $$createField7_0 = $$createType10;
         const $$createField8_0 = $$createType2;
         const $$createField12_0 = $$createType11;
         const $$createField22_0 = $$createType13;
         const $$createField23_0 = $$createType13;
         const $$createField24_0 = $$createType13;
+        const $$createField25_0 = $$createType15;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("context" in $$parsedSource) {
             $$parsedSource["context"] = $$createField0_0($$parsedSource["context"]);
@@ -398,6 +442,9 @@ export class SessionSnapshot {
         if ("nextPreparation" in $$parsedSource) {
             $$parsedSource["nextPreparation"] = $$createField24_0($$parsedSource["nextPreparation"]);
         }
+        if ("lastSkipEvent" in $$parsedSource) {
+            $$parsedSource["lastSkipEvent"] = $$createField25_0($$parsedSource["lastSkipEvent"]);
+        }
         return new SessionSnapshot($$parsedSource as Partial<SessionSnapshot>);
     }
 }
@@ -420,12 +467,14 @@ const $$createType1 = SessionEntry.createFrom;
 const $$createType2 = $Create.Array($$createType1);
 const $$createType3 = SessionItem.createFrom;
 const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = PlaybackContext.createFrom;
-const $$createType6 = $Create.Nullable($$createType5);
-const $$createType7 = HistoryEntry.createFrom;
-const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = $Create.Nullable($$createType1);
+const $$createType5 = $Create.Nullable($$createType1);
+const $$createType6 = PlaybackContext.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);
+const $$createType8 = HistoryEntry.createFrom;
+const $$createType9 = $Create.Array($$createType8);
 const $$createType10 = $Create.Nullable($$createType3);
 const $$createType11 = $Create.Array($Create.Any);
 const $$createType12 = EntryPreparation.createFrom;
 const $$createType13 = $Create.Nullable($$createType12);
+const $$createType14 = PlaybackSkipEvent.createFrom;
+const $$createType15 = $Create.Nullable($$createType14);

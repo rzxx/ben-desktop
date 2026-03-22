@@ -6,6 +6,7 @@ import (
 
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
+	"ben/desktop/internal/playback"
 )
 
 func newNotificationFacadeForTest(now *time.Time, emitted *[]apitypes.NotificationSnapshot) *NotificationsFacade {
@@ -480,5 +481,79 @@ func TestSuppressedArtworkNotificationStillUpdatesStoredSnapshot(t *testing.T) {
 	}
 	if notifications[0].Message != "Generating artwork for album-2" {
 		t.Fatalf("stored message = %q, want %q", notifications[0].Message, "Generating artwork for album-2")
+	}
+}
+
+func TestPlaybackSkipNotificationsEmitAfterInitialPrime(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 4)
+	_jsii := newNotificationFacadeForTest(&now, &emitted)
+
+	_jsii.handlePlaybackSnapshot(playback.SessionSnapshot{
+		LastSkipEvent: &playback.PlaybackSkipEvent{
+			EventID: "skip-primed",
+			Message: "Primed skip event.",
+			Count:   1,
+		},
+	})
+
+	if len(emitted) != 0 {
+		t.Fatalf("initial playback snapshot should not emit skip toast, got %d", len(emitted))
+	}
+
+	now = now.Add(time.Second)
+	_jsii.handlePlaybackSnapshot(playback.SessionSnapshot{
+		LastSkipEvent: &playback.PlaybackSkipEvent{
+			EventID: "skip-2",
+			Message: "Skipped unavailable track: Track 2.",
+			Count:   1,
+			FirstEntry: &playback.SessionEntry{
+				Item: playback.SessionItem{
+					RecordingID: "rec-2",
+					Title:       "Track 2",
+					Subtitle:    "Artist",
+				},
+			},
+		},
+	})
+
+	if len(emitted) != 1 {
+		t.Fatalf("emitted notifications = %d, want 1", len(emitted))
+	}
+	if emitted[0].Kind != "playback-skip" {
+		t.Fatalf("kind = %q, want %q", emitted[0].Kind, "playback-skip")
+	}
+	if emitted[0].Phase != apitypes.NotificationPhaseSuccess {
+		t.Fatalf("phase = %q, want %q", emitted[0].Phase, apitypes.NotificationPhaseSuccess)
+	}
+	if emitted[0].Subject == nil || emitted[0].Subject.Title != "Track 2" {
+		t.Fatalf("subject = %+v, want track title", emitted[0].Subject)
+	}
+}
+
+func TestPlaybackSkipNotificationsUseErrorPhaseWhenPlaybackStops(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 4)
+	_jsii := newNotificationFacadeForTest(&now, &emitted)
+
+	_jsii.handlePlaybackSnapshot(playback.SessionSnapshot{})
+	now = now.Add(time.Second)
+	_jsii.handlePlaybackSnapshot(playback.SessionSnapshot{
+		LastSkipEvent: &playback.PlaybackSkipEvent{
+			EventID: "skip-stop",
+			Message: "Skipped 3 unavailable tracks. No playable tracks remain.",
+			Count:   3,
+			Stopped: true,
+		},
+	})
+
+	if len(emitted) != 1 {
+		t.Fatalf("emitted notifications = %d, want 1", len(emitted))
+	}
+	if emitted[0].Phase != apitypes.NotificationPhaseError {
+		t.Fatalf("phase = %q, want %q", emitted[0].Phase, apitypes.NotificationPhaseError)
+	}
+	if !emitted[0].Sticky {
+		t.Fatalf("stopped skip notification should be sticky")
 	}
 }

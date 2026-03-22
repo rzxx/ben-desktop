@@ -5,6 +5,7 @@ package playback
 import (
 	"context"
 	"math"
+	"strconv"
 	"sync"
 
 	mpv "github.com/gen2brain/go-mpv"
@@ -159,14 +160,17 @@ func (b *mpvBackend) PreloadNext(_ context.Context, uri string) error {
 }
 
 func (b *mpvBackend) ClearPreloaded(context.Context) error {
+	index, ok, err := b.preloadedPlaylistIndex()
 	b.mu.Lock()
-	hasPreloaded := b.preloadedURI != ""
 	b.preloadedURI = ""
 	b.mu.Unlock()
-	if !hasPreloaded {
+	if err != nil {
+		return err
+	}
+	if !ok {
 		return nil
 	}
-	return b.client.Command([]string{"playlist-remove", "1"})
+	return b.client.Command([]string{"playlist-remove", strconv.FormatInt(index, 10)})
 }
 
 func (b *mpvBackend) Close() error {
@@ -258,6 +262,46 @@ func (b *mpvBackend) pushEvent(event BackendEvent) {
 	case b.out <- event:
 	default:
 	}
+}
+
+func (b *mpvBackend) preloadedPlaylistIndex() (int64, bool, error) {
+	countValue, err := b.client.GetProperty("playlist-count", mpv.FormatInt64)
+	if err != nil {
+		if err == mpv.ErrPropertyUnavailable || err == mpv.ErrPropertyNotFound {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	playlistCount, ok := countValue.(int64)
+	if !ok || playlistCount <= 0 {
+		return 0, false, nil
+	}
+
+	positionValue, err := b.client.GetProperty("playlist-pos", mpv.FormatInt64)
+	if err != nil {
+		if err == mpv.ErrPropertyUnavailable || err == mpv.ErrPropertyNotFound {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	playlistPos, ok := positionValue.(int64)
+	if !ok {
+		return 0, false, nil
+	}
+
+	index, ok := nextPlaylistIndex(playlistPos, playlistCount)
+	return index, ok, nil
+}
+
+func nextPlaylistIndex(playlistPos, playlistCount int64) (int64, bool) {
+	if playlistPos < 0 || playlistCount <= 0 {
+		return 0, false
+	}
+	nextIndex := playlistPos + 1
+	if nextIndex >= playlistCount {
+		return 0, false
+	}
+	return nextIndex, true
 }
 
 func mapEndReason(reason mpv.Reason) string {

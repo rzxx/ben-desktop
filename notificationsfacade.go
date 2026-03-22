@@ -59,6 +59,8 @@ type NotificationsFacade struct {
 
 	playbackNotificationID string
 	playbackRecordingID    string
+	playbackSkipEventID    string
+	playbackSkipPrimed     bool
 }
 
 func NewNotificationsFacade(host *coreHost, playbackService *PlaybackService) *NotificationsFacade {
@@ -310,6 +312,7 @@ func (s *NotificationsFacade) handleTranscodeActivity(items []apitypes.Transcode
 }
 
 func (s *NotificationsFacade) handlePlaybackSnapshot(snapshot playback.SessionSnapshot) {
+	s.handlePlaybackSkipEvent(snapshot.LastSkipEvent)
 	item := snapshot.LoadingItem
 	status := snapshot.LoadingPreparation
 	if item == nil {
@@ -366,6 +369,54 @@ func (s *NotificationsFacade) handlePlaybackSnapshot(snapshot playback.SessionSn
 	if phase == apitypes.NotificationPhaseSuccess || phase == apitypes.NotificationPhaseError {
 		s.clearPlaybackNotificationID()
 	}
+}
+
+func (s *NotificationsFacade) handlePlaybackSkipEvent(event *playback.PlaybackSkipEvent) {
+	eventID := ""
+	if event != nil {
+		eventID = strings.TrimSpace(event.EventID)
+	}
+
+	s.mu.Lock()
+	if !s.playbackSkipPrimed {
+		s.playbackSkipPrimed = true
+		s.playbackSkipEventID = eventID
+		s.mu.Unlock()
+		return
+	}
+	if eventID == "" || eventID == s.playbackSkipEventID {
+		s.mu.Unlock()
+		return
+	}
+	s.playbackSkipEventID = eventID
+	s.mu.Unlock()
+
+	phase := apitypes.NotificationPhaseSuccess
+	if event.Stopped {
+		phase = apitypes.NotificationPhaseError
+	}
+
+	var subject *apitypes.NotificationSubject
+	if event.FirstEntry != nil {
+		subject = &apitypes.NotificationSubject{
+			RecordingID: strings.TrimSpace(event.FirstEntry.Item.RecordingID),
+			Title:       strings.TrimSpace(event.FirstEntry.Item.Title),
+			Subtitle:    strings.TrimSpace(event.FirstEntry.Item.Subtitle),
+			ArtworkRef:  strings.TrimSpace(event.FirstEntry.Item.ArtworkRef),
+		}
+	}
+
+	s.upsertNotification(apitypes.NotificationSnapshot{
+		ID:         "playback-skip:" + eventID,
+		Kind:       "playback-skip",
+		Audience:   apitypes.NotificationAudienceUser,
+		Importance: apitypes.NotificationImportanceImportant,
+		Phase:      phase,
+		Message:    strings.TrimSpace(event.Message),
+		Sticky:     event.Stopped,
+		Progress:   1,
+		Subject:    subject,
+	})
 }
 
 func (s *NotificationsFacade) finishPlaybackNotification(snapshot playback.SessionSnapshot) {

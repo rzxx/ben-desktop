@@ -103,6 +103,8 @@ export function notificationHeading(notification: NotificationSnapshot) {
   switch (notification.kind) {
     case "playback-loading":
       return "Preparing playback";
+    case "playback-skip":
+      return "Playback queue";
     case "scan-activity":
       return "Scan activity";
     case "artwork-activity":
