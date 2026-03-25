@@ -17,6 +17,7 @@ import {
   aggregateAvailabilityLabel,
   formatCount,
   formatDuration,
+  isAggregateAvailabilityPlayable,
   joinArtists,
 } from "@/lib/format";
 import { resolveAlbumArtworkURL } from "@/lib/api/playback";
@@ -126,6 +127,7 @@ export function AlbumDetailPage() {
     (detail.data
       ? albumAvailabilityByAlbumId[detail.data.AlbumID]?.data
       : undefined);
+  const canPlayAlbum = isAggregateAvailabilityPlayable(heroAvailability);
   const trackCount = activeVariant?.TrackCount ?? detail.data?.TrackCount ?? 0;
   const totalDurationMs = trackQuery.items.reduce(
     (total, track) => total + track.DurationMS,
@@ -194,6 +196,7 @@ export function AlbumDetailPage() {
 
             <div>
               <Button
+                disabled={!canPlayAlbum}
                 icon={<Play className="h-4 w-4" />}
                 onClick={() => {
                   void playAlbum(selectedVariantId);

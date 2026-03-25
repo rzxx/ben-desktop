@@ -152,6 +152,40 @@ export function aggregateAvailabilityLabel(
   return availabilityLabel("PENDING");
 }
 
+export function isAggregateAvailabilityPlayable(
+  availability?: {
+    State?: string | null;
+    AvailableNowTrackCount?: number | null;
+    TrackCount?: number | null;
+  } | null,
+) {
+  if (!availability) {
+    return true;
+  }
+
+  const availableNowTrackCount = Math.max(
+    0,
+    Math.trunc(availability.AvailableNowTrackCount ?? 0),
+  );
+  if (availableNowTrackCount > 0) {
+    return true;
+  }
+
+  const trackCount = Math.max(0, Math.trunc(availability.TrackCount ?? 0));
+  switch (availability.State) {
+    case "LOCAL":
+    case "PINNED":
+    case "CACHED":
+    case "AVAILABLE":
+      return true;
+    case "OFFLINE":
+    case "UNAVAILABLE":
+      return false;
+    default:
+      return trackCount > 0;
+  }
+}
+
 export function isAlbumUnavailableInCatalog(
   availability?: {
     State?: string | null;
@@ -164,6 +198,25 @@ export function isAlbumUnavailableInCatalog(
     default:
       return false;
   }
+}
+
+export function isTrackCollectionPlayable({
+  trackCount,
+  fullyLoaded = false,
+  hasPlayableLoadedTrack = false,
+}: {
+  trackCount?: number | null;
+  fullyLoaded?: boolean;
+  hasPlayableLoadedTrack?: boolean;
+}) {
+  const total = Math.max(0, Math.trunc(trackCount ?? 0));
+  if (total === 0) {
+    return false;
+  }
+  if (!fullyLoaded) {
+    return true;
+  }
+  return hasPlayableLoadedTrack;
 }
 
 export function isCatalogTrackActionable(state?: string) {

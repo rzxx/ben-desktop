@@ -9,7 +9,13 @@ import { TracksEmptyState } from "@/components/catalog/EmptyState";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
-import { formatCount, formatRelativeDate, joinArtists } from "@/lib/format";
+import {
+  formatCount,
+  formatRelativeDate,
+  isCatalogTrackActionable,
+  isTrackCollectionPlayable,
+  joinArtists,
+} from "@/lib/format";
 import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
 import { usePlaybackStore } from "@/stores/playback/store";
 import { selectValueQuery } from "@/stores/catalog/query-state";
@@ -38,6 +44,21 @@ export function LikedPlaylistPage() {
       refetch: () => catalogLoaderClient.refetchLiked(),
     },
   );
+  const likedTrackCount = query.pageInfo?.Total ?? query.items.length;
+  const hasPlayableLoadedTrack = query.items.some((track) =>
+    isCatalogTrackActionable(
+      trackAvailabilityByRecordingId[track.RecordingID]?.data?.State,
+    ),
+  );
+  const likedTracksFullyLoaded =
+    !query.isLoading &&
+    !query.hasMore &&
+    likedTrackCount === query.items.length;
+  const canPlayLiked = isTrackCollectionPlayable({
+    trackCount: likedTrackCount,
+    fullyLoaded: likedTracksFullyLoaded,
+    hasPlayableLoadedTrack,
+  });
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -61,6 +82,7 @@ export function LikedPlaylistPage() {
             title="Liked songs"
           />
           <Button
+            disabled={!canPlayLiked}
             icon={<Play className="h-4 w-4" />}
             onClick={() => {
               void playLiked();

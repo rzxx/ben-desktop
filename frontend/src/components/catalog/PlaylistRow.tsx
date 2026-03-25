@@ -6,7 +6,11 @@ import {
   ConfirmPlaylistDeleteDialog,
   PlaylistNameDialog,
 } from "@/components/catalog/PlaylistDialogs";
-import { formatCount, formatRelativeDate } from "@/lib/format";
+import {
+  formatCount,
+  formatRelativeDate,
+  isTrackCollectionPlayable,
+} from "@/lib/format";
 import { deletePlaylist, renamePlaylist } from "@/lib/api/catalog";
 import { useThumbnailUrl } from "@/hooks/media/useThumbnailUrl";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
@@ -21,6 +25,9 @@ export function PlaylistRow({ playlist }: { playlist: PlaylistListItem }) {
   const queuePlaylist = usePlaybackStore((state) => state.queuePlaylist);
   const playLiked = usePlaybackStore((state) => state.playLiked);
   const isLiked = playlist.Kind === "liked";
+  const canPlayPlaylist = isTrackCollectionPlayable({
+    trackCount: playlist.ItemCount,
+  });
 
   const details = (
     <>
@@ -70,6 +77,7 @@ export function PlaylistRow({ playlist }: { playlist: PlaylistListItem }) {
 
       <div className="flex shrink-0 gap-2">
         <IconButton
+          disabled={!canPlayPlaylist}
           label={isLiked ? "Play liked songs" : "Play playlist"}
           onClick={() => {
             if (isLiked) {
@@ -83,6 +91,7 @@ export function PlaylistRow({ playlist }: { playlist: PlaylistListItem }) {
         </IconButton>
         {!isLiked ? (
           <IconButton
+            disabled={!canPlayPlaylist}
             label="Queue playlist"
             onClick={() => {
               void queuePlaylist(playlist.PlaylistID);

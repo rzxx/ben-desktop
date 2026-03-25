@@ -27,7 +27,13 @@ import {
   renamePlaylist,
   setPlaylistCover,
 } from "@/lib/api/catalog";
-import { formatCount, formatRelativeDate, joinArtists } from "@/lib/format";
+import {
+  formatCount,
+  formatRelativeDate,
+  isCatalogTrackActionable,
+  isTrackCollectionPlayable,
+  joinArtists,
+} from "@/lib/format";
 import {
   getDetailRecord,
   getValueQuery,
@@ -86,6 +92,24 @@ export function PlaylistDetailPage() {
         }),
     },
   );
+  const playlistTrackCount =
+    detail.data?.ItemCount ??
+    trackQuery.pageInfo?.Total ??
+    trackQuery.items.length;
+  const hasPlayableLoadedTrack = trackQuery.items.some((track) =>
+    isCatalogTrackActionable(
+      trackAvailabilityByRecordingId[track.RecordingID]?.data?.State,
+    ),
+  );
+  const playlistTracksFullyLoaded =
+    !trackQuery.isLoading &&
+    !trackQuery.hasMore &&
+    playlistTrackCount === trackQuery.items.length;
+  const canPlayPlaylistNow = isTrackCollectionPlayable({
+    trackCount: playlistTrackCount,
+    fullyLoaded: playlistTracksFullyLoaded,
+    hasPlayableLoadedTrack,
+  });
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -194,6 +218,7 @@ export function PlaylistDetailPage() {
           />
           <div className="flex flex-wrap gap-2">
             <Button
+              disabled={!canPlayPlaylistNow}
               icon={<Play className="h-4 w-4" />}
               onClick={() => {
                 void playPlaylist(playlistId);
@@ -203,6 +228,7 @@ export function PlaylistDetailPage() {
               Play playlist
             </Button>
             <Button
+              disabled={!canPlayPlaylistNow}
               icon={<Plus className="h-4 w-4" />}
               onClick={() => {
                 void queuePlaylist(playlistId);
