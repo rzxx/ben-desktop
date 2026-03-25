@@ -198,9 +198,7 @@ function QueueEntryRow(props: QueueEntryRowProps) {
         >
           {props.entry.item.title}
         </p>
-        <p className="text-theme-400 truncate text-xs">
-          {props.secondaryText}
-        </p>
+        <p className="text-theme-400 truncate text-xs">{props.secondaryText}</p>
       </button>
       {props.onRemove && (
         <button

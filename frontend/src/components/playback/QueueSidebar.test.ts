@@ -21,17 +21,13 @@ function makeEntry(source: Partial<PlaybackModels.SessionEntry> = {}) {
 
 describe("QueueSidebar queue row state", () => {
   test("marks unavailable rows as non-actionable and appends availability text", () => {
-    const rows = buildQueueRows(
-      [makeEntry()],
-      [],
-      {
-        "rec-1": {
-          data: {
-            State: "UNAVAILABLE:NO_PATH",
-          },
+    const rows = buildQueueRows([makeEntry()], [], {
+      "rec-1": {
+        data: {
+          State: "UNAVAILABLE:NO_PATH",
         },
       },
-    );
+    });
 
     expect(rows).toHaveLength(2);
     expect(rows[1]).toMatchObject({
@@ -44,8 +40,8 @@ describe("QueueSidebar queue row state", () => {
   test("keeps actionable subtitle unchanged", () => {
     const entry = makeEntry();
 
-    expect(
-      queueEntrySecondaryText(entry, "PLAYABLE:REMOTE_OPT"),
-    ).toBe("Artist 1");
+    expect(queueEntrySecondaryText(entry, "PLAYABLE:REMOTE_OPT")).toBe(
+      "Artist 1",
+    );
   });
 });

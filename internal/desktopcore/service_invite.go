@@ -1610,17 +1610,39 @@ func (s *InviteService) syncJoinSessionJob(session JoinSession) {
 	if message == "" {
 		message = "join session in progress"
 	}
+	phase := JobPhaseRunning
+	progress := 0.5
 	switch strings.TrimSpace(session.Status) {
 	case joinSessionStatusPending:
-		job.Running(0.25, message)
+		phase = JobPhaseRunning
+		progress = 0.25
 	case joinSessionStatusApproved:
-		job.Running(0.75, message)
+		phase = JobPhaseRunning
+		progress = 0.75
 	case joinSessionStatusCompleted:
-		job.Complete(1, message)
+		phase = JobPhaseCompleted
+		progress = 1
 	case joinSessionStatusRejected, joinSessionStatusExpired, joinSessionStatusFailed:
-		job.Fail(1, message, nil)
+		phase = JobPhaseFailed
+		progress = 1
 	default:
-		job.Running(0.5, message)
+		phase = JobPhaseRunning
+		progress = 0.5
+	}
+	if existing, ok := s.app.jobs.Get(session.SessionID); ok &&
+		existing.Kind == jobKindJoinSession &&
+		existing.Phase == phase &&
+		strings.TrimSpace(existing.Message) == message &&
+		existing.Progress == progress {
+		return
+	}
+	switch phase {
+	case JobPhaseCompleted:
+		job.Complete(progress, message)
+	case JobPhaseFailed:
+		job.Fail(progress, message, nil)
+	default:
+		job.Running(progress, message)
 	}
 }
 

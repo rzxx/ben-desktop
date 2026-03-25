@@ -1,6 +1,18 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
-import { ChevronRight, FolderPlus, ListPlus, LoaderCircle, Plus } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  ChevronRight,
+  FolderPlus,
+  ListPlus,
+  LoaderCircle,
+  Plus,
+} from "lucide-react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { PlaylistNameDialog } from "@/components/catalog/PlaylistDialogs";
 import {
   addPlaylistItem,
@@ -134,7 +146,9 @@ export function TrackRowContextMenu({
         open={menuOpen}
       >
         <ContextMenu.Trigger className="block">
-          {typeof children === "function" ? children({ open: menuOpen }) : children}
+          {typeof children === "function"
+            ? children({ open: menuOpen })
+            : children}
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Positioner sideOffset={8}>
@@ -214,7 +228,10 @@ export function TrackRowContextMenu({
                                         {playlist.Name}
                                       </span>
                                       <span className="text-theme-500 block text-[11px]">
-                                        {formatCount(playlist.ItemCount, "track")}
+                                        {formatCount(
+                                          playlist.ItemCount,
+                                          "track",
+                                        )}
                                       </span>
                                     </span>
                                   </ContextMenu.Item>
@@ -231,7 +248,9 @@ export function TrackRowContextMenu({
                             </ContextMenu.Item>
                           ) : null}
 
-                          <ContextMenu.Separator className={menuSeparatorClass} />
+                          <ContextMenu.Separator
+                            className={menuSeparatorClass}
+                          />
                           <ContextMenu.Item
                             className={menuItemClass}
                             onClick={() => {

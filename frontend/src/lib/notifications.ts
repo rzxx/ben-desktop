@@ -69,6 +69,13 @@ export function shouldToastNotification(
   notification: NotificationSnapshot,
   verbosity?: NotificationVerbosity | string | null,
 ) {
+  if (
+    notification.phase === "success" &&
+    (notification.kind === "playback-loading" ||
+      notification.kind === "playback-preload")
+  ) {
+    return false;
+  }
   if (notification.phase === "error") {
     return true;
   }
@@ -105,10 +112,14 @@ export function notificationHeading(notification: NotificationSnapshot) {
       return "Preparing playback";
     case "playback-skip":
       return "Playback queue";
+    case "playback-preload":
+      return "Playback preload";
     case "scan-activity":
       return "Scan activity";
     case "artwork-activity":
       return "Artwork activity";
+    case "sync-activity":
+      return "Background sync";
     case "transcode-activity":
       return "Transcode activity";
     case "scan-library":

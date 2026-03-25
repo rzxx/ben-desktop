@@ -22,6 +22,8 @@ const (
 	scanNotificationEmitProgressDelta    = 0.02
 	artworkNotificationEmitInterval      = 250 * time.Millisecond
 	artworkNotificationEmitProgressDelta = 0.02
+	joinSessionRefreshInterval           = 2 * time.Second
+	networkSyncPollInterval              = 500 * time.Millisecond
 )
 
 type notificationEmitState struct {
@@ -59,19 +61,29 @@ type NotificationsFacade struct {
 
 	playbackNotificationID string
 	playbackRecordingID    string
+	playbackPreloadID      string
+	playbackPreloadEntryID string
 	playbackSkipEventID    string
 	playbackSkipPrimed     bool
+
+	activeJoinSessions map[string]struct{}
+	activeManualSyncID string
+
+	lastRuntimeSyncNotification apitypes.NotificationSnapshot
+	lastRuntimeSyncActive       bool
+	scanArtworkErrors           int
 }
 
 func NewNotificationsFacade(host *coreHost, playbackService *PlaybackService) *NotificationsFacade {
 	return &NotificationsFacade{
-		host:              host,
-		now:               func() time.Time { return time.Now().UTC() },
-		playback:          playbackService,
-		notifications:     make(map[string]apitypes.NotificationSnapshot),
-		scanEmitStates:    make(map[string]notificationEmitState),
-		artworkEmitStates: make(map[string]notificationEmitState),
-		activeTranscodes:  make(map[string]apitypes.NotificationSnapshot),
+		host:               host,
+		now:                func() time.Time { return time.Now().UTC() },
+		playback:           playbackService,
+		notifications:      make(map[string]apitypes.NotificationSnapshot),
+		scanEmitStates:     make(map[string]notificationEmitState),
+		artworkEmitStates:  make(map[string]notificationEmitState),
+		activeTranscodes:   make(map[string]apitypes.NotificationSnapshot),
+		activeJoinSessions: make(map[string]struct{}),
 	}
 }
 
@@ -98,6 +110,10 @@ func (s *NotificationsFacade) ServiceStartup(ctx context.Context, _ application.
 	if s.playback != nil {
 		stops = append(stops, s.playback.subscribeSnapshots(s.handlePlaybackSnapshot))
 	}
+	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
+	stops = append(stops, backgroundCancel)
+	go s.runJoinSessionRefreshLoop(backgroundCtx)
+	go s.runNetworkSyncPollLoop(backgroundCtx)
 
 	s.mu.Lock()
 	s.stopListening = stops
@@ -182,6 +198,7 @@ func (s *NotificationsFacade) SetNotificationVerbosity(level apitypes.Notificati
 }
 
 func (s *NotificationsFacade) handleJobSnapshot(job desktopcore.JobSnapshot) {
+	s.trackNotificationDrivenJobs(job)
 	if strings.TrimSpace(job.Kind) == "prepare-playback" {
 		return
 	}
@@ -212,20 +229,34 @@ func (s *NotificationsFacade) handleScanActivity(status apitypes.ScanActivitySta
 		return
 	}
 	kind, audience, importance := s.scanNotificationMetadata()
+	message := scanActivityMessage(status)
+	errorText := activityError(status.Phase, status.Errors)
+	if phase == apitypes.NotificationPhaseSuccess && s.currentScanArtworkErrors() > 0 {
+		artworkErrors := s.currentScanArtworkErrors()
+		message = fmt.Sprintf("Scan completed with %d artwork error(s).", artworkErrors)
+		errorText = fmt.Sprintf("%d artwork error(s)", artworkErrors)
+	}
 	s.upsertNotification(apitypes.NotificationSnapshot{
 		ID:         id,
 		Kind:       kind,
 		Audience:   audience,
 		Importance: importance,
 		Phase:      phase,
-		Message:    scanActivityMessage(status),
-		Error:      activityError(status.Phase, status.Errors),
+		Message:    message,
+		Error:      errorText,
 		Progress:   scanActivityProgress(status),
 		Sticky:     phase == apitypes.NotificationPhaseError,
 	})
+	if phase == apitypes.NotificationPhaseSuccess || phase == apitypes.NotificationPhaseError {
+		s.setCurrentScanArtworkErrors(0)
+	}
 }
 
 func (s *NotificationsFacade) handleArtworkActivity(status apitypes.ArtworkActivityStatus) {
+	if s.shouldMergeArtworkIntoScan() {
+		s.handleMergedScanArtworkActivity(status)
+		return
+	}
 	phase := activityPhase(status.Phase)
 	if phase == "" {
 		return
@@ -251,6 +282,9 @@ func (s *NotificationsFacade) handleScanJobSnapshot(job desktopcore.JobSnapshot)
 	kind := strings.TrimSpace(job.Kind)
 	audience, importance := classifyJob(kind)
 	s.setScanNotificationMetadata(kind, audience, importance)
+	if job.Phase == desktopcore.JobPhaseQueued {
+		s.setCurrentScanArtworkErrors(0)
+	}
 	if job.Phase == desktopcore.JobPhaseRunning {
 		return
 	}
@@ -262,6 +296,13 @@ func (s *NotificationsFacade) handleScanJobSnapshot(job desktopcore.JobSnapshot)
 	if id == "" {
 		return
 	}
+	message := strings.TrimSpace(job.Message)
+	errorText := strings.TrimSpace(job.Error)
+	if phase == apitypes.NotificationPhaseSuccess && s.currentScanArtworkErrors() > 0 {
+		artworkErrors := s.currentScanArtworkErrors()
+		message = fmt.Sprintf("Scan completed with %d artwork error(s).", artworkErrors)
+		errorText = fmt.Sprintf("%d artwork error(s)", artworkErrors)
+	}
 	s.upsertNotification(apitypes.NotificationSnapshot{
 		ID:         id,
 		Kind:       kind,
@@ -269,14 +310,17 @@ func (s *NotificationsFacade) handleScanJobSnapshot(job desktopcore.JobSnapshot)
 		Audience:   audience,
 		Importance: importance,
 		Phase:      phase,
-		Message:    strings.TrimSpace(job.Message),
-		Error:      strings.TrimSpace(job.Error),
+		Message:    message,
+		Error:      errorText,
 		Progress:   job.Progress,
 		Sticky:     job.Phase == desktopcore.JobPhaseFailed,
 		CreatedAt:  job.CreatedAt,
 		UpdatedAt:  job.UpdatedAt,
 		FinishedAt: job.FinishedAt,
 	})
+	if phase == apitypes.NotificationPhaseSuccess || phase == apitypes.NotificationPhaseError {
+		s.setCurrentScanArtworkErrors(0)
+	}
 }
 
 func (s *NotificationsFacade) handleTranscodeActivity(items []apitypes.TranscodeActivityStatus) {
@@ -313,62 +357,8 @@ func (s *NotificationsFacade) handleTranscodeActivity(items []apitypes.Transcode
 
 func (s *NotificationsFacade) handlePlaybackSnapshot(snapshot playback.SessionSnapshot) {
 	s.handlePlaybackSkipEvent(snapshot.LastSkipEvent)
-	item := snapshot.LoadingItem
-	status := snapshot.LoadingPreparation
-	if item == nil {
-		s.finishPlaybackNotification(snapshot)
-		return
-	}
-
-	phase := apitypes.NotificationPhaseRunning
-	message := "Preparing playback..."
-	progress := 0.35
-	sticky := false
-	errorText := ""
-	if status != nil {
-		switch status.Status.Phase {
-		case apitypes.PlaybackPreparationPreparingFetch:
-			message = "Fetching audio from another device..."
-			progress = 0.45
-		case apitypes.PlaybackPreparationPreparingTranscode:
-			message = "Preparing a playable file..."
-			progress = 0.7
-		case apitypes.PlaybackPreparationReady:
-			message = "Ready to play."
-			progress = 1
-			phase = apitypes.NotificationPhaseSuccess
-		case apitypes.PlaybackPreparationFailed:
-			message = "Playback preparation failed."
-			progress = 1
-			phase = apitypes.NotificationPhaseError
-			sticky = true
-			errorText = "Playback preparation failed."
-		default:
-			message = "Preparing playback..."
-		}
-	}
-
-	id := s.ensurePlaybackNotificationID(strings.TrimSpace(item.RecordingID))
-	s.upsertNotification(apitypes.NotificationSnapshot{
-		ID:         id,
-		Kind:       "playback-loading",
-		Audience:   apitypes.NotificationAudienceUser,
-		Importance: apitypes.NotificationImportanceImportant,
-		Phase:      phase,
-		Message:    message,
-		Error:      errorText,
-		Progress:   progress,
-		Sticky:     sticky,
-		Subject: &apitypes.NotificationSubject{
-			RecordingID: strings.TrimSpace(item.RecordingID),
-			Title:       strings.TrimSpace(item.Title),
-			Subtitle:    strings.TrimSpace(item.Subtitle),
-			ArtworkRef:  strings.TrimSpace(item.ArtworkRef),
-		},
-	})
-	if phase == apitypes.NotificationPhaseSuccess || phase == apitypes.NotificationPhaseError {
-		s.clearPlaybackNotificationID()
-	}
+	s.handlePlaybackLoadingSnapshot(snapshot)
+	s.handlePlaybackPreloadSnapshot(snapshot)
 }
 
 func (s *NotificationsFacade) handlePlaybackSkipEvent(event *playback.PlaybackSkipEvent) {
@@ -419,6 +409,64 @@ func (s *NotificationsFacade) handlePlaybackSkipEvent(event *playback.PlaybackSk
 	})
 }
 
+func (s *NotificationsFacade) handlePlaybackLoadingSnapshot(snapshot playback.SessionSnapshot) {
+	item := snapshot.LoadingItem
+	status := snapshot.LoadingPreparation
+	if item == nil {
+		s.finishPlaybackNotification(snapshot)
+		return
+	}
+
+	phase := apitypes.NotificationPhaseRunning
+	message := "Preparing playback..."
+	progress := 0.35
+	sticky := false
+	errorText := ""
+	if status != nil {
+		switch status.Status.Phase {
+		case apitypes.PlaybackPreparationPreparingFetch:
+			message = "Fetching audio from another device..."
+			progress = 0.45
+		case apitypes.PlaybackPreparationPreparingTranscode:
+			message = "Preparing a playable file..."
+			progress = 0.7
+		case apitypes.PlaybackPreparationReady:
+			message = "Starting playback..."
+			progress = 0.95
+		case apitypes.PlaybackPreparationUnavailable, apitypes.PlaybackPreparationFailed:
+			message = "Playback preparation failed."
+			progress = 1
+			phase = apitypes.NotificationPhaseError
+			sticky = true
+			errorText = playbackPreparationError(status.Status, snapshot.LastError)
+		default:
+			message = "Preparing playback..."
+		}
+	}
+
+	id := s.ensurePlaybackNotificationID(strings.TrimSpace(item.RecordingID))
+	s.upsertNotification(apitypes.NotificationSnapshot{
+		ID:         id,
+		Kind:       "playback-loading",
+		Audience:   apitypes.NotificationAudienceUser,
+		Importance: apitypes.NotificationImportanceImportant,
+		Phase:      phase,
+		Message:    message,
+		Error:      errorText,
+		Progress:   progress,
+		Sticky:     sticky,
+		Subject: &apitypes.NotificationSubject{
+			RecordingID: strings.TrimSpace(item.RecordingID),
+			Title:       strings.TrimSpace(item.Title),
+			Subtitle:    strings.TrimSpace(item.Subtitle),
+			ArtworkRef:  strings.TrimSpace(item.ArtworkRef),
+		},
+	})
+	if phase == apitypes.NotificationPhaseError {
+		s.clearPlaybackNotificationID()
+	}
+}
+
 func (s *NotificationsFacade) finishPlaybackNotification(snapshot playback.SessionSnapshot) {
 	s.mu.Lock()
 	id := s.playbackNotificationID
@@ -437,14 +485,103 @@ func (s *NotificationsFacade) finishPlaybackNotification(snapshot playback.Sessi
 	if notification.Phase == apitypes.NotificationPhaseError {
 		return
 	}
-	notification.Phase = apitypes.NotificationPhaseSuccess
 	if snapshot.CurrentItem != nil && strings.TrimSpace(snapshot.CurrentItem.RecordingID) == recordingID {
-		notification.Message = "Playback ready."
-	} else if notification.Message == "" {
-		notification.Message = "Playback ready."
+		notification.Phase = apitypes.NotificationPhaseSuccess
+		notification.Message = "Playback started."
+		notification.Sticky = false
+		notification.Error = ""
+		notification.Progress = 1
+		s.upsertNotification(notification)
+		return
+	}
+	if errorText := strings.TrimSpace(snapshot.LastError); errorText != "" {
+		notification.Phase = apitypes.NotificationPhaseError
+		notification.Message = "Playback preparation failed."
+		notification.Error = errorText
+		notification.Sticky = true
+		notification.Progress = 1
+		s.upsertNotification(notification)
+		return
+	}
+	notification.Phase = apitypes.NotificationPhaseSuccess
+	if notification.Message == "" {
+		notification.Message = "Playback preparation ended."
 	}
 	notification.Sticky = false
 	notification.Error = ""
+	notification.Progress = 1
+	s.upsertNotification(notification)
+}
+
+func (s *NotificationsFacade) handlePlaybackPreloadSnapshot(snapshot playback.SessionSnapshot) {
+	preparation := snapshot.NextPreparation
+	if preparation == nil || preparation.Status.Purpose != apitypes.PlaybackPreparationPreloadNext {
+		s.finishPlaybackPreloadNotification("")
+		return
+	}
+
+	entryID := strings.TrimSpace(preparation.EntryID)
+	recordingID := strings.TrimSpace(preparation.Status.RecordingID)
+	if entryID == "" || recordingID == "" {
+		s.finishPlaybackPreloadNotification("")
+		return
+	}
+
+	subject := playbackSubjectFromSnapshot(snapshot, entryID)
+	switch preparation.Status.Phase {
+	case apitypes.PlaybackPreparationPreparingFetch:
+		id := s.ensurePlaybackPreloadNotificationID(entryID)
+		s.upsertNotification(apitypes.NotificationSnapshot{
+			ID:         id,
+			Kind:       "playback-preload",
+			Audience:   apitypes.NotificationAudienceSystem,
+			Importance: apitypes.NotificationImportanceNormal,
+			Phase:      apitypes.NotificationPhaseRunning,
+			Message:    "Fetching the next track from another device...",
+			Progress:   0.45,
+			Subject:    subject,
+		})
+	case apitypes.PlaybackPreparationUnavailable, apitypes.PlaybackPreparationFailed:
+		id := s.ensurePlaybackPreloadNotificationID(entryID)
+		s.upsertNotification(apitypes.NotificationSnapshot{
+			ID:         id,
+			Kind:       "playback-preload",
+			Audience:   apitypes.NotificationAudienceSystem,
+			Importance: apitypes.NotificationImportanceNormal,
+			Phase:      apitypes.NotificationPhaseError,
+			Message:    "Preloading the next track failed.",
+			Error:      playbackPreparationError(preparation.Status, snapshot.LastError),
+			Progress:   1,
+			Sticky:     true,
+			Subject:    subject,
+		})
+		s.clearPlaybackPreloadNotificationID()
+	default:
+		s.finishPlaybackPreloadNotification("Next track is ready.")
+	}
+}
+
+func (s *NotificationsFacade) finishPlaybackPreloadNotification(message string) {
+	s.mu.Lock()
+	id := s.playbackPreloadID
+	s.playbackPreloadID = ""
+	s.playbackPreloadEntryID = ""
+	s.mu.Unlock()
+	if id == "" {
+		return
+	}
+	notification, ok := s.notificationByID(id)
+	if !ok || notification.Phase == apitypes.NotificationPhaseError {
+		return
+	}
+	notification.Phase = apitypes.NotificationPhaseSuccess
+	if strings.TrimSpace(message) != "" {
+		notification.Message = strings.TrimSpace(message)
+	} else if notification.Message == "" {
+		notification.Message = "Next track is ready."
+	}
+	notification.Error = ""
+	notification.Sticky = false
 	notification.Progress = 1
 	s.upsertNotification(notification)
 }
@@ -508,6 +645,17 @@ func (s *NotificationsFacade) ensurePlaybackNotificationID(recordingID string) s
 	return s.playbackNotificationID
 }
 
+func (s *NotificationsFacade) ensurePlaybackPreloadNotificationID(entryID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.playbackPreloadID == "" || s.playbackPreloadEntryID != entryID {
+		s.playbackPreloadID = "playback-preload:" + entryID
+	}
+	s.playbackPreloadEntryID = entryID
+	return s.playbackPreloadID
+}
+
 func (s *NotificationsFacade) setScanNotificationMetadata(
 	kind string,
 	audience apitypes.NotificationAudience,
@@ -544,6 +692,13 @@ func (s *NotificationsFacade) clearPlaybackNotificationID() {
 	s.mu.Lock()
 	s.playbackNotificationID = ""
 	s.playbackRecordingID = ""
+	s.mu.Unlock()
+}
+
+func (s *NotificationsFacade) clearPlaybackPreloadNotificationID() {
+	s.mu.Lock()
+	s.playbackPreloadID = ""
+	s.playbackPreloadEntryID = ""
 	s.mu.Unlock()
 }
 
@@ -590,6 +745,10 @@ func (s *NotificationsFacade) upsertNotification(notification apitypes.Notificat
 		}
 		if notification.Subject == nil {
 			notification.Subject = existing.Subject
+		}
+		if notificationSemanticallyEqual(existing, notification) {
+			s.mu.Unlock()
+			return
 		}
 	}
 	s.notifications[notification.ID] = notification
@@ -689,14 +848,10 @@ func notificationFromJob(job desktopcore.JobSnapshot) apitypes.NotificationSnaps
 }
 
 func notificationFromTranscode(item apitypes.TranscodeActivityStatus, localDeviceID string) apitypes.NotificationSnapshot {
-	requestKind := strings.TrimSpace(item.RequestKind)
 	requesterDeviceID := strings.TrimSpace(item.RequesterDeviceID)
 	audience := apitypes.NotificationAudienceSystem
 	importance := apitypes.NotificationImportanceDebug
 	if requesterDeviceID != "" && requesterDeviceID == strings.TrimSpace(localDeviceID) {
-		audience = apitypes.NotificationAudienceUser
-		importance = apitypes.NotificationImportanceImportant
-	} else if requestKind == "local" {
 		audience = apitypes.NotificationAudienceUser
 		importance = apitypes.NotificationImportanceImportant
 	}
@@ -969,6 +1124,379 @@ func scanActivityTrackMessage(status apitypes.ScanActivityStatus) string {
 		return fmt.Sprintf("Scanning tracks %d/%d in %s", current, status.TracksTotal, root)
 	}
 	return fmt.Sprintf("Scanning tracks %d/%d", current, status.TracksTotal)
+}
+
+func (s *NotificationsFacade) trackNotificationDrivenJobs(job desktopcore.JobSnapshot) {
+	jobID := strings.TrimSpace(job.JobID)
+	if jobID == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.activeJoinSessions == nil {
+		s.activeJoinSessions = make(map[string]struct{})
+	}
+
+	switch strings.TrimSpace(job.Kind) {
+	case "join-session":
+		if notificationTracksActiveJob(job.Phase) {
+			s.activeJoinSessions[jobID] = struct{}{}
+		} else {
+			delete(s.activeJoinSessions, jobID)
+		}
+	case "sync-now":
+		if notificationTracksActiveJob(job.Phase) {
+			s.activeManualSyncID = jobID
+		} else if s.activeManualSyncID == jobID {
+			s.activeManualSyncID = ""
+		}
+	}
+}
+
+func notificationTracksActiveJob(phase desktopcore.JobPhase) bool {
+	return phase == desktopcore.JobPhaseQueued || phase == desktopcore.JobPhaseRunning
+}
+
+func (s *NotificationsFacade) runJoinSessionRefreshLoop(ctx context.Context) {
+	ticker := time.NewTicker(joinSessionRefreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sessionIDs := s.activeJoinSessionIDs()
+			if len(sessionIDs) == 0 || s.host == nil {
+				continue
+			}
+			runtime := s.host.InviteRuntime()
+			if runtime == nil {
+				continue
+			}
+			for _, sessionID := range sessionIDs {
+				if _, err := runtime.GetJoinSession(ctx, sessionID); err != nil {
+					continue
+				}
+			}
+		}
+	}
+}
+
+func (s *NotificationsFacade) activeJoinSessionIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := make([]string, 0, len(s.activeJoinSessions))
+	for sessionID := range s.activeJoinSessions {
+		out = append(out, sessionID)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (s *NotificationsFacade) runNetworkSyncPollLoop(ctx context.Context) {
+	ticker := time.NewTicker(networkSyncPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.pollNetworkSyncStatus()
+		}
+	}
+}
+
+func (s *NotificationsFacade) pollNetworkSyncStatus() {
+	if s.host == nil {
+		return
+	}
+	runtime := s.host.NetworkRuntime()
+	if runtime == nil {
+		return
+	}
+
+	status := runtime.NetworkStatus()
+	manualJobID := s.currentManualSyncJobID()
+	if status.Mode != apitypes.NetworkSyncModeIdle && status.Reason == apitypes.NetworkSyncReasonManual && manualJobID != "" {
+		s.upsertNotification(apitypes.NotificationSnapshot{
+			ID:         "job:" + manualJobID,
+			Kind:       "sync-now",
+			LibraryID:  strings.TrimSpace(status.LibraryID),
+			Audience:   apitypes.NotificationAudienceUser,
+			Importance: apitypes.NotificationImportanceNormal,
+			Phase:      apitypes.NotificationPhaseRunning,
+			Message:    networkSyncRunningMessage(status, false),
+			Progress:   networkSyncProgress(status),
+		})
+		return
+	}
+
+	if status.Mode != apitypes.NetworkSyncModeIdle && status.Reason != apitypes.NetworkSyncReasonManual {
+		notification := apitypes.NotificationSnapshot{
+			ID:         "sync:runtime",
+			Kind:       "sync-activity",
+			LibraryID:  strings.TrimSpace(status.LibraryID),
+			Audience:   apitypes.NotificationAudienceSystem,
+			Importance: apitypes.NotificationImportanceNormal,
+			Phase:      apitypes.NotificationPhaseRunning,
+			Message:    networkSyncRunningMessage(status, true),
+			Progress:   networkSyncProgress(status),
+		}
+		s.mu.Lock()
+		s.lastRuntimeSyncNotification = notification
+		s.lastRuntimeSyncActive = true
+		s.mu.Unlock()
+		s.upsertNotification(notification)
+		return
+	}
+
+	s.mu.Lock()
+	previous := s.lastRuntimeSyncNotification
+	wasActive := s.lastRuntimeSyncActive
+	s.lastRuntimeSyncActive = false
+	s.mu.Unlock()
+	if !wasActive || previous.ID == "" {
+		return
+	}
+	if errorText := strings.TrimSpace(status.LastSyncError); errorText != "" {
+		previous.Phase = apitypes.NotificationPhaseError
+		previous.Message = "Background sync failed."
+		previous.Error = errorText
+		previous.Sticky = true
+		previous.Progress = 1
+	} else {
+		previous.Phase = apitypes.NotificationPhaseSuccess
+		previous.Message = networkSyncCompletionMessage(previous, status)
+		previous.Error = ""
+		previous.Sticky = false
+		previous.Progress = 1
+	}
+	s.upsertNotification(previous)
+}
+
+func (s *NotificationsFacade) currentManualSyncJobID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.activeManualSyncID
+}
+
+func networkSyncRunningMessage(status apitypes.NetworkStatus, background bool) string {
+	target := strings.TrimSpace(status.ActivePeerID)
+	if target == "" {
+		target = "peer"
+	}
+
+	switch status.Activity {
+	case apitypes.NetworkSyncActivityCheckpointInstall:
+		if background {
+			return fmt.Sprintf("Background sync is installing a checkpoint from %s.", target)
+		}
+		return fmt.Sprintf("Installing a checkpoint from %s.", target)
+	case apitypes.NetworkSyncActivityCheckpointMirror:
+		if background {
+			return fmt.Sprintf("Background sync is mirroring a checkpoint with %s.", target)
+		}
+		return fmt.Sprintf("Mirroring a checkpoint with %s.", target)
+	default:
+		applied := status.LastBatchApplied
+		remaining := status.BacklogEstimate
+		prefix := "Syncing"
+		if background {
+			prefix = "Background sync is updating"
+		}
+		if remaining > 0 {
+			return fmt.Sprintf("%s %s, applied %d ops, %d remaining.", prefix, target, applied, remaining)
+		}
+		return fmt.Sprintf("%s %s, applied %d ops.", prefix, target, applied)
+	}
+}
+
+func networkSyncCompletionMessage(previous apitypes.NotificationSnapshot, status apitypes.NetworkStatus) string {
+	if status.LastBatchApplied > 0 {
+		return fmt.Sprintf("Background sync applied %d ops.", status.LastBatchApplied)
+	}
+	if previous.Progress > 0 {
+		return "Background sync completed."
+	}
+	return "Background sync finished."
+}
+
+func networkSyncProgress(status apitypes.NetworkStatus) float64 {
+	if status.BacklogEstimate <= 0 || status.LastBatchApplied <= 0 {
+		return 0.35
+	}
+	applied := float64(status.LastBatchApplied)
+	remaining := float64(status.BacklogEstimate)
+	return clampNotificationProgress(applied / (applied + remaining))
+}
+
+func (s *NotificationsFacade) shouldMergeArtworkIntoScan() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scanNotificationID != "" && isNotificationActivePhase(s.scanNotificationPhase)
+}
+
+func (s *NotificationsFacade) handleMergedScanArtworkActivity(status apitypes.ArtworkActivityStatus) {
+	phase := strings.TrimSpace(status.Phase)
+	if phase == "" || phase == "idle" {
+		return
+	}
+	id, kind, audience, importance, ok := s.activeScanNotificationMetadata()
+	if !ok {
+		return
+	}
+	if phase == "failed" && status.Errors > 0 {
+		s.setCurrentScanArtworkErrors(status.Errors)
+	}
+
+	message := "Generating artwork..."
+	errorText := ""
+	progress := 0.82 + artworkActivityProgress(status)*0.18
+	switch phase {
+	case "running":
+		message = artworkActivityMessage(status)
+	case "completed":
+		message = "Finalizing library scan..."
+		progress = 0.98
+	case "failed":
+		message = "Artwork generation encountered errors."
+		errorText = activityError(phase, status.Errors)
+		progress = 0.98
+	}
+
+	s.upsertNotification(apitypes.NotificationSnapshot{
+		ID:         id,
+		Kind:       kind,
+		Audience:   audience,
+		Importance: importance,
+		Phase:      apitypes.NotificationPhaseRunning,
+		Message:    message,
+		Error:      errorText,
+		Progress:   clampNotificationProgress(progress),
+	})
+}
+
+func (s *NotificationsFacade) activeScanNotificationMetadata() (string, string, apitypes.NotificationAudience, apitypes.NotificationImportance, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.scanNotificationID == "" || !isNotificationActivePhase(s.scanNotificationPhase) {
+		return "", "", "", "", false
+	}
+	kind := strings.TrimSpace(s.scanNotificationKind)
+	if kind == "" {
+		kind = "scan-activity"
+	}
+	audience := s.scanAudience
+	if audience == "" {
+		audience = apitypes.NotificationAudienceUser
+	}
+	importance := s.scanImportance
+	if importance == "" {
+		importance = apitypes.NotificationImportanceNormal
+	}
+	return s.scanNotificationID, kind, audience, importance, true
+}
+
+func (s *NotificationsFacade) currentScanArtworkErrors() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scanArtworkErrors
+}
+
+func (s *NotificationsFacade) setCurrentScanArtworkErrors(errors int) {
+	s.mu.Lock()
+	s.scanArtworkErrors = errors
+	s.mu.Unlock()
+}
+
+func playbackPreparationError(status apitypes.PlaybackPreparationStatus, fallback string) string {
+	if text := strings.TrimSpace(fallback); text != "" {
+		return text
+	}
+	switch status.Reason {
+	case apitypes.PlaybackUnavailableProviderOffline:
+		return "The source device is offline."
+	case apitypes.PlaybackUnavailableNetworkOff:
+		return "Network playback is unavailable."
+	case apitypes.PlaybackUnavailableNoPath:
+		return "No playable source is available."
+	default:
+		if status.Phase == apitypes.PlaybackPreparationFailed || status.Phase == apitypes.PlaybackPreparationUnavailable {
+			return "Playback preparation failed."
+		}
+		return ""
+	}
+}
+
+func playbackSubjectFromSnapshot(snapshot playback.SessionSnapshot, entryID string) *apitypes.NotificationSubject {
+	if entryID == "" {
+		return nil
+	}
+	for _, entry := range snapshot.UpcomingEntries {
+		if strings.TrimSpace(entry.EntryID) == entryID {
+			return notificationSubjectFromSessionItem(entry.Item)
+		}
+	}
+	if snapshot.CurrentEntry != nil && strings.TrimSpace(snapshot.CurrentEntry.EntryID) == entryID {
+		return notificationSubjectFromSessionItem(snapshot.CurrentEntry.Item)
+	}
+	if snapshot.LoadingEntry != nil && strings.TrimSpace(snapshot.LoadingEntry.EntryID) == entryID {
+		return notificationSubjectFromSessionItem(snapshot.LoadingEntry.Item)
+	}
+	if snapshot.Context != nil {
+		for _, entry := range snapshot.Context.Entries {
+			if strings.TrimSpace(entry.EntryID) == entryID {
+				return notificationSubjectFromSessionItem(entry.Item)
+			}
+		}
+	}
+	for _, entry := range snapshot.QueuedEntries {
+		if strings.TrimSpace(entry.EntryID) == entryID {
+			return notificationSubjectFromSessionItem(entry.Item)
+		}
+	}
+	return nil
+}
+
+func notificationSubjectFromSessionItem(item playback.SessionItem) *apitypes.NotificationSubject {
+	return &apitypes.NotificationSubject{
+		RecordingID: strings.TrimSpace(item.RecordingID),
+		Title:       strings.TrimSpace(item.Title),
+		Subtitle:    strings.TrimSpace(item.Subtitle),
+		ArtworkRef:  strings.TrimSpace(item.ArtworkRef),
+	}
+}
+
+func notificationSemanticallyEqual(left, right apitypes.NotificationSnapshot) bool {
+	return left.ID == right.ID &&
+		left.Kind == right.Kind &&
+		left.LibraryID == right.LibraryID &&
+		left.Audience == right.Audience &&
+		left.Importance == right.Importance &&
+		left.Phase == right.Phase &&
+		left.Message == right.Message &&
+		left.Error == right.Error &&
+		left.Progress == right.Progress &&
+		left.Sticky == right.Sticky &&
+		notificationSubjectsEqual(left.Subject, right.Subject)
+}
+
+func notificationSubjectsEqual(left, right *apitypes.NotificationSubject) bool {
+	switch {
+	case left == nil && right == nil:
+		return true
+	case left == nil || right == nil:
+		return false
+	default:
+		return left.RecordingID == right.RecordingID &&
+			left.Title == right.Title &&
+			left.Subtitle == right.Subtitle &&
+			left.ArtworkRef == right.ArtworkRef
+	}
 }
 
 func loadSettingsState() (settings.State, error) {

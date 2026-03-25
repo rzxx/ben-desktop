@@ -73,7 +73,7 @@ func (s *PlaybackService) ensureRecordingEncodingForLocalContext(ctx context.Con
 	if err != nil {
 		return false, err
 	}
-	return s.app.transcode.EnsureRecordingEncoding(ctx, local, resolvedRecordingID, profile)
+	return s.app.transcode.EnsureRecordingEncoding(ctx, local, resolvedRecordingID, profile, local.DeviceID)
 }
 
 func (s *PlaybackService) EnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (apitypes.EnsureEncodingBatchResult, error) {
@@ -279,7 +279,7 @@ func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recording
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
-	if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, resolvedRecordingID, profile); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
+	if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, resolvedRecordingID, profile, local.DeviceID); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
 
@@ -1974,7 +1974,7 @@ func (s *PlaybackService) pinOfflineScope(ctx context.Context, local apitypes.Lo
 }
 
 func (s *PlaybackService) prepareRecordingOfflineResult(ctx context.Context, local apitypes.LocalContext, recordingID, profile string) (apitypes.PlaybackRecordingResult, error) {
-	if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, recordingID, profile); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
+	if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, recordingID, profile, local.DeviceID); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
 

@@ -274,7 +274,13 @@ func (a *App) buildPlaybackAssetResponse(ctx context.Context, req PlaybackAssetR
 		return PlaybackAssetResponse{}, fmt.Errorf("remote library mismatch")
 	}
 
-	asset, err := a.playback.resolvePlaybackAssetTransfer(ctx, local, strings.TrimSpace(req.RecordingID), strings.TrimSpace(req.PreferredProfile))
+	asset, err := a.playback.resolvePlaybackAssetTransfer(
+		ctx,
+		local,
+		strings.TrimSpace(req.RecordingID),
+		strings.TrimSpace(req.PreferredProfile),
+		strings.TrimSpace(req.DeviceID),
+	)
 	if err != nil {
 		return PlaybackAssetResponse{}, err
 	}
@@ -291,7 +297,7 @@ func (a *App) buildPlaybackAssetResponse(ctx context.Context, req PlaybackAssetR
 	}, nil
 }
 
-func (s *PlaybackService) resolvePlaybackAssetTransfer(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (PlaybackAssetTransfer, error) {
+func (s *PlaybackService) resolvePlaybackAssetTransfer(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile, requesterDeviceID string) (PlaybackAssetTransfer, error) {
 	if strings.TrimSpace(recordingID) == "" {
 		return PlaybackAssetTransfer{}, fmt.Errorf("recording id is required")
 	}
@@ -302,7 +308,7 @@ func (s *PlaybackService) resolvePlaybackAssetTransfer(ctx context.Context, loca
 		return PlaybackAssetTransfer{}, err
 	}
 	if !ok && canProvideLocalMedia(local.Role) {
-		if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, recordingID, profile); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
+		if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, recordingID, profile, requesterDeviceID); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
 			return PlaybackAssetTransfer{}, err
 		}
 		blobID, encodingID, ok, err = s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, profile)
@@ -340,4 +346,3 @@ func (s *PlaybackService) resolvePlaybackAssetTransfer(ctx context.Context, loca
 		Data:              data,
 	}, nil
 }
-

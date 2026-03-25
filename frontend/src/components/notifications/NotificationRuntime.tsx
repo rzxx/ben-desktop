@@ -23,6 +23,10 @@ export function NotificationRuntime() {
   const preferences = useNotificationsStore((state) => state.preferences);
   const [dismissedAt, setDismissedAt] = useState<Record<string, number>>({});
   const activeToastIdsRef = useRef<Set<string>>(new Set());
+  const activeToastNotificationsRef = useRef<Map<string, NotificationSnapshot>>(
+    new Map(),
+  );
+  const suppressDismissRef = useRef<Set<string>>(new Set());
 
   const visibleNotifications = useMemo(
     () =>
@@ -52,20 +56,50 @@ export function NotificationRuntime() {
         type: notification.phase,
         data: { notification },
         onRemove: () => {
-          setDismissedAt((current) => ({
-            ...current,
-            [notification.id]: Date.now(),
-          }));
-          activeToastIdsRef.current.delete(notification.id);
+          const currentNotification = activeToastNotificationsRef.current.get(
+            notification.id,
+          );
+          const isCurrentInstance =
+            currentNotification !== undefined &&
+            String(currentNotification.updatedAt ?? "") ===
+              String(notification.updatedAt ?? "") &&
+            currentNotification.phase === notification.phase;
+
+          if (suppressDismissRef.current.has(notification.id)) {
+            suppressDismissRef.current.delete(notification.id);
+          } else if (isCurrentInstance) {
+            setDismissedAt((current) => ({
+              ...current,
+              [notification.id]: Date.now(),
+            }));
+          }
+          if (isCurrentInstance) {
+            activeToastIdsRef.current.delete(notification.id);
+            activeToastNotificationsRef.current.delete(notification.id);
+          }
         },
       } as const;
 
       if (activeToastIdsRef.current.has(notification.id)) {
-        notificationToastManager.update(notification.id, payload);
+        const previous = activeToastNotificationsRef.current.get(
+          notification.id,
+        );
+        const becameTerminal =
+          previous !== undefined &&
+          isNotificationActive(previous.phase) &&
+          !isNotificationActive(notification.phase);
+        if (becameTerminal) {
+          suppressDismissRef.current.add(notification.id);
+          notificationToastManager.close(notification.id);
+          notificationToastManager.add(payload);
+        } else {
+          notificationToastManager.update(notification.id, payload);
+        }
       } else {
         notificationToastManager.add(payload);
         activeToastIdsRef.current.add(notification.id);
       }
+      activeToastNotificationsRef.current.set(notification.id, notification);
     }
 
     for (const notification of notifications) {
@@ -74,6 +108,7 @@ export function NotificationRuntime() {
       }
       notificationToastManager.close(notification.id);
       activeToastIdsRef.current.delete(notification.id);
+      activeToastNotificationsRef.current.delete(notification.id);
     }
   }, [notifications, visibleNotifications]);
 

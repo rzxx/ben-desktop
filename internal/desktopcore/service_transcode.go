@@ -137,7 +137,7 @@ func runFFmpeg(ctx context.Context, ffmpegPath string, args []string) error {
 	return nil
 }
 
-func (s *TranscodeService) EnsureRecordingEncoding(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (bool, error) {
+func (s *TranscodeService) EnsureRecordingEncoding(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile, requesterDeviceID string) (bool, error) {
 	if s == nil || s.app == nil {
 		return false, fmt.Errorf("transcode service is not available")
 	}
@@ -181,13 +181,14 @@ func (s *TranscodeService) EnsureRecordingEncoding(ctx context.Context, local ap
 	flight, leader := s.beginFlight(key)
 	if !leader {
 		s.app.setTranscodeActivity(activityKey, apitypes.TranscodeActivityStatus{
-			RecordingID:  recordingID,
-			SourceFileID: source.SourceFileID,
-			SourcePath:   source.LocalPath,
-			Profile:      spec.ID,
-			RequestKind:  "local",
-			Phase:        "waiting_existing",
-			StartedAt:    time.Now().UTC(),
+			RecordingID:       recordingID,
+			SourceFileID:      source.SourceFileID,
+			SourcePath:        source.LocalPath,
+			Profile:           spec.ID,
+			RequestKind:       "local",
+			RequesterDeviceID: strings.TrimSpace(requesterDeviceID),
+			Phase:             "waiting_existing",
+			StartedAt:         time.Now().UTC(),
 		})
 		defer s.app.clearTranscodeActivity(activityKey)
 		if err := waitForTranscodeFlight(ctx, flight); err != nil {
@@ -208,13 +209,14 @@ func (s *TranscodeService) EnsureRecordingEncoding(ctx context.Context, local ap
 		s.finishFlight(key, flight, runErr)
 	}()
 	s.app.setTranscodeActivity(activityKey, apitypes.TranscodeActivityStatus{
-		RecordingID:  recordingID,
-		SourceFileID: source.SourceFileID,
-		SourcePath:   source.LocalPath,
-		Profile:      spec.ID,
-		RequestKind:  "local",
-		Phase:        "running",
-		StartedAt:    time.Now().UTC(),
+		RecordingID:       recordingID,
+		SourceFileID:      source.SourceFileID,
+		SourcePath:        source.LocalPath,
+		Profile:           spec.ID,
+		RequestKind:       "local",
+		RequesterDeviceID: strings.TrimSpace(requesterDeviceID),
+		Phase:             "running",
+		StartedAt:         time.Now().UTC(),
 	})
 	defer s.app.clearTranscodeActivity(activityKey)
 

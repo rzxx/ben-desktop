@@ -1,6 +1,9 @@
 import { Heart, Trash2 } from "lucide-react";
 import { type MouseEvent, type ReactNode } from "react";
-import { TrackRowContextMenu, type TrackRowRecordingIdentity } from "@/components/catalog/TrackRowContextMenu";
+import {
+  TrackRowContextMenu,
+  type TrackRowRecordingIdentity,
+} from "@/components/catalog/TrackRowContextMenu";
 import {
   availabilityLabel,
   formatDuration,
@@ -101,7 +104,7 @@ export function TrackListRow({
           ].join(" ")}
         >
           <button
-          className={[
+            className={[
               "flex min-w-0 flex-1 items-center text-left transition-colors disabled:pointer-events-none",
               compact ? "rounded-xl px-3 py-2.5" : "rounded-2xl px-3 py-3",
               open ? "bg-theme-800" : "hover:bg-theme-800",
@@ -122,25 +125,25 @@ export function TrackListRow({
 
             <div className="min-w-0 flex-1">
               <p
-              className={[
-                "truncate font-medium",
-                compact
-                  ? "text-theme-100 text-sm"
-                  : "text-theme-100",
-                compact ? "group-hover:text-white" : "group-hover:text-theme-50",
-              ].join(" ")}
-            >
-              {title}
-            </p>
-            <p
-              className={[
-                "text-theme-500 truncate",
-                compact ? "text-[11px]" : "text-xs",
-              ].join(" ")}
-            >
-              {secondaryText}
-            </p>
-          </div>
+                className={[
+                  "truncate font-medium",
+                  compact ? "text-theme-100 text-sm" : "text-theme-100",
+                  compact
+                    ? "group-hover:text-white"
+                    : "group-hover:text-theme-50",
+                ].join(" ")}
+              >
+                {title}
+              </p>
+              <p
+                className={[
+                  "text-theme-500 truncate",
+                  compact ? "text-[11px]" : "text-xs",
+                ].join(" ")}
+              >
+                {secondaryText}
+              </p>
+            </div>
 
             <span
               className={[

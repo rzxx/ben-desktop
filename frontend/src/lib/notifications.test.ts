@@ -129,6 +129,32 @@ describe("shouldToastNotification", () => {
     expect(shouldToastNotification(systemDebug, "user_activity")).toBe(false);
     expect(shouldToastNotification(systemDebug, "everything")).toBe(true);
   });
+
+  test("suppresses playback success toasts while keeping failures toastable", () => {
+    const playbackSuccess = makeNotification({
+      kind: "playback-loading",
+      importance: Types.NotificationImportance.NotificationImportanceImportant,
+      phase: Types.NotificationPhase.NotificationPhaseSuccess,
+    });
+    const preloadSuccess = makeNotification({
+      kind: "playback-preload",
+      audience: Types.NotificationAudience.NotificationAudienceSystem,
+      importance: Types.NotificationImportance.NotificationImportanceNormal,
+      phase: Types.NotificationPhase.NotificationPhaseSuccess,
+    });
+    const preloadFailure = makeNotification({
+      kind: "playback-preload",
+      audience: Types.NotificationAudience.NotificationAudienceSystem,
+      importance: Types.NotificationImportance.NotificationImportanceNormal,
+      phase: Types.NotificationPhase.NotificationPhaseError,
+    });
+
+    expect(shouldToastNotification(playbackSuccess, "user_activity")).toBe(
+      false,
+    );
+    expect(shouldToastNotification(preloadSuccess, "everything")).toBe(false);
+    expect(shouldToastNotification(preloadFailure, "important")).toBe(true);
+  });
 });
 
 describe("matchesNotificationFilter", () => {
@@ -157,5 +183,14 @@ describe("notificationHeading", () => {
         }),
       ),
     ).toBe("Playback queue");
+  });
+
+  test("labels preload and background sync notifications", () => {
+    expect(
+      notificationHeading(makeNotification({ kind: "playback-preload" })),
+    ).toBe("Playback preload");
+    expect(
+      notificationHeading(makeNotification({ kind: "sync-activity" })),
+    ).toBe("Background sync");
   });
 });

@@ -30,6 +30,7 @@ type SharingState = {
 };
 
 const localStorageSessionKey = "ben.desktop.sharing.joinSessionId";
+const sharingRefreshIntervalMs = 2000;
 
 const initialState: SharingState = {
   loading: true,
@@ -213,6 +214,27 @@ export function useSharingPage() {
       ),
     [state.requests],
   );
+
+  useEffect(() => {
+    const trackedStatus = normalizeRole(state.trackedSession?.Status ?? "");
+    const shouldPoll =
+      pendingRequests.length > 0 ||
+      (trackedStatus !== "" &&
+        trackedStatus !== "completed" &&
+        trackedStatus !== "rejected" &&
+        trackedStatus !== "expired" &&
+        trackedStatus !== "failed");
+    if (!shouldPoll) {
+      return;
+    }
+
+    const handle = window.setInterval(() => {
+      void refresh();
+    }, sharingRefreshIntervalMs);
+    return () => {
+      window.clearInterval(handle);
+    };
+  }, [pendingRequests.length, refresh, state.trackedSession?.Status]);
 
   return {
     actionError,
