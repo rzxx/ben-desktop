@@ -55,6 +55,7 @@ export function TrackListRow({
   availabilityState,
   durationMs,
   indexLabel,
+  isActive = false,
   isLiked = false,
   likeBusy = false,
   mode = "list",
@@ -70,6 +71,7 @@ export function TrackListRow({
   availabilityState?: string;
   durationMs: number;
   indexLabel: string;
+  isActive?: boolean;
   isLiked?: boolean;
   likeBusy?: boolean;
   mode?: "album" | "list";
@@ -137,8 +139,11 @@ export function TrackListRow({
               <p
                 className={[
                   "truncate font-medium",
-                  compact ? "text-theme-100 text-sm" : "text-theme-100",
-                  compact
+                  compact ? "text-sm" : "",
+                  isActive ? "text-accent-300" : "text-theme-100",
+                  isActive
+                    ? ""
+                    : compact
                     ? "group-hover:text-white"
                     : "group-hover:text-theme-50",
                 ].join(" ")}

@@ -1,5 +1,32 @@
+import type { SessionItem } from "@/lib/api/models";
 import { TrackListRow } from "@/components/catalog/TrackListRow";
 import { useRecordingLikeState } from "@/hooks/catalog/useRecordingLikeState";
+import { usePlaybackStore } from "@/stores/playback/store";
+
+export function isTrackListRowActive(
+  playbackItem: SessionItem | null | undefined,
+  {
+    libraryRecordingId,
+    recordingId,
+  }: {
+    libraryRecordingId?: string;
+    recordingId?: string;
+  },
+) {
+  if (!playbackItem) {
+    return false;
+  }
+
+  if (
+    libraryRecordingId &&
+    playbackItem.libraryRecordingId &&
+    playbackItem.libraryRecordingId === libraryRecordingId
+  ) {
+    return true;
+  }
+
+  return Boolean(recordingId && playbackItem.recordingId === recordingId);
+}
 
 export function ManagedTrackListRow({
   availabilityState,
@@ -35,12 +62,20 @@ export function ManagedTrackListRow({
     libraryRecordingId,
     recordingId,
   });
+  const playbackItem = usePlaybackStore(
+    (state) => state.snapshot?.currentItem ?? state.snapshot?.loadingItem ?? null,
+  );
+  const isActive = isTrackListRowActive(playbackItem, {
+    libraryRecordingId,
+    recordingId,
+  });
 
   return (
     <TrackListRow
       availabilityState={availabilityState}
       durationMs={durationMs}
       indexLabel={indexLabel}
+      isActive={isActive}
       isLiked={likeState.liked}
       likeBusy={likeState.inFlight}
       mode={mode}
