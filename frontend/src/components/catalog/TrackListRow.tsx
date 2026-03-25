@@ -83,9 +83,12 @@ export function TrackListRow({
   title: string;
 }) {
   const actionable = isCatalogTrackActionable(availabilityState);
-  const secondaryText = actionable
-    ? subtitle
-    : `${subtitle} • ${availabilityLabel(availabilityState)}`;
+  const pendingAvailability =
+    !actionable && (!availabilityState || availabilityState === "PENDING");
+  const secondaryText =
+    actionable || pendingAvailability
+      ? subtitle
+      : `${subtitle} • ${availabilityLabel(availabilityState)}`;
   const compact = mode === "list";
 
   return (
@@ -101,6 +104,7 @@ export function TrackListRow({
             "group flex items-center gap-2 transition-colors",
             compact ? "rounded-xl px-1 py-0.5" : "rounded-2xl px-1.5 py-1",
             actionable ? "" : "opacity-50",
+            pendingAvailability ? "animate-pulse" : "",
           ].join(" ")}
         >
           <button
@@ -111,7 +115,13 @@ export function TrackListRow({
             ].join(" ")}
             disabled={!actionable}
             onClick={onPlay}
-            title={actionable ? `Play ${title}` : `${title} unavailable`}
+            title={
+              actionable
+                ? `Play ${title}`
+                : pendingAvailability
+                  ? `${title} pending availability`
+                  : `${title} unavailable`
+            }
             type="button"
           >
             <span
