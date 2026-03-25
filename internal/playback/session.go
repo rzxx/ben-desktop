@@ -1726,10 +1726,7 @@ func defaultFirstContextIndex(snapshot SessionSnapshot) int {
 	if !snapshot.Shuffle {
 		return 0
 	}
-	cycle := append([]int(nil), snapshot.ShuffleCycle...)
-	if len(cycle) == 0 {
-		cycle = buildSmartShuffleCycle(snapshot.Context.Entries, rand.New(rand.NewSource(1)))
-	}
+	cycle := effectiveShuffleCycle(snapshot)
 	if len(cycle) == 0 {
 		return -1
 	}
@@ -1755,10 +1752,7 @@ func nextContextIndexFromAnchor(snapshot SessionSnapshot, anchorIndex int, ignor
 		return -1
 	}
 
-	cycle := append([]int(nil), snapshot.ShuffleCycle...)
-	if len(cycle) == 0 {
-		cycle = buildSmartShuffleCycle(snapshot.Context.Entries, rand.New(rand.NewSource(1)))
-	}
+	cycle := effectiveShuffleCycle(snapshot)
 	if len(cycle) == 0 {
 		return -1
 	}
@@ -1813,10 +1807,7 @@ func previousContextIndexFromAnchor(snapshot SessionSnapshot, anchorIndex int) i
 		return -1
 	}
 
-	cycle := append([]int(nil), snapshot.ShuffleCycle...)
-	if len(cycle) == 0 {
-		cycle = buildSmartShuffleCycle(snapshot.Context.Entries, rand.New(rand.NewSource(1)))
-	}
+	cycle := effectiveShuffleCycle(snapshot)
 	if len(cycle) == 0 {
 		return -1
 	}
@@ -1986,7 +1977,11 @@ func (s *Session) rebuildShuffleCycleLocked() {
 		s.snapshot.ShuffleCycle = nil
 		return
 	}
-	s.snapshot.ShuffleCycle = buildSmartShuffleCycle(s.snapshot.Context.Entries, s.rng)
+	s.snapshot.ShuffleCycle = buildAnchoredSmartShuffleCycle(
+		s.snapshot.Context.Entries,
+		shuffleAnchorIndex(s.snapshot),
+		s.rng,
+	)
 }
 
 func (s *Session) nextEntryIDLocked(prefix string) string {
@@ -2405,10 +2400,7 @@ func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 	currentIsInContext := currentMatchesContext(snapshot)
 
 	if snapshot.Shuffle {
-		cycle := append([]int(nil), snapshot.ShuffleCycle...)
-		if len(cycle) == 0 {
-			cycle = buildSmartShuffleCycle(snapshot.Context.Entries, rand.New(rand.NewSource(1)))
-		}
+		cycle := effectiveShuffleCycle(snapshot)
 		resumeIndex := snapshot.ResumeContextIndex
 		startAdded := false
 		if currentIsInContext && snapshot.CurrentContextIndex >= 0 {
@@ -2632,6 +2624,76 @@ func buildSmartShuffleCycle(entries []SessionEntry, rng *rand.Rand) []int {
 		remaining = append(remaining[:chosenRemainingIndex], remaining[chosenRemainingIndex+1:]...)
 	}
 	return cycle
+}
+
+func buildAnchoredSmartShuffleCycle(entries []SessionEntry, anchorIndex int, rng *rand.Rand) []int {
+	if anchorIndex < 0 || anchorIndex >= len(entries) {
+		return buildSmartShuffleCycle(entries, rng)
+	}
+	if rng == nil {
+		rng = rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
+	}
+
+	remaining := make([]int, 0, len(entries)-1)
+	for index := range entries {
+		if index == anchorIndex {
+			continue
+		}
+		remaining = append(remaining, index)
+	}
+	rng.Shuffle(len(remaining), func(left int, right int) {
+		remaining[left], remaining[right] = remaining[right], remaining[left]
+	})
+
+	cycle := make([]int, 0, len(entries))
+	cycle = append(cycle, anchorIndex)
+	for len(remaining) > 0 {
+		bestScore := -1 << 30
+		bestIndexes := make([]int, 0, len(remaining))
+		for remainingIndex, entryIndex := range remaining {
+			score := smartShuffleScore(entries, cycle, entryIndex)
+			if score > bestScore {
+				bestScore = score
+				bestIndexes = bestIndexes[:0]
+				bestIndexes = append(bestIndexes, remainingIndex)
+				continue
+			}
+			if score == bestScore {
+				bestIndexes = append(bestIndexes, remainingIndex)
+			}
+		}
+
+		chosenRemainingIndex := bestIndexes[rng.Intn(len(bestIndexes))]
+		chosenEntryIndex := remaining[chosenRemainingIndex]
+		cycle = append(cycle, chosenEntryIndex)
+		remaining = append(remaining[:chosenRemainingIndex], remaining[chosenRemainingIndex+1:]...)
+	}
+	return cycle
+}
+
+func effectiveShuffleCycle(snapshot SessionSnapshot) []int {
+	cycle := append([]int(nil), snapshot.ShuffleCycle...)
+	if len(cycle) > 0 {
+		return cycle
+	}
+	if snapshot.Context == nil {
+		return nil
+	}
+	return buildAnchoredSmartShuffleCycle(
+		snapshot.Context.Entries,
+		shuffleAnchorIndex(snapshot),
+		rand.New(rand.NewSource(1)),
+	)
+}
+
+func shuffleAnchorIndex(snapshot SessionSnapshot) int {
+	if isValidContextIndex(snapshot, snapshot.CurrentContextIndex) {
+		return snapshot.CurrentContextIndex
+	}
+	if isValidContextIndex(snapshot, snapshot.ResumeContextIndex) {
+		return snapshot.ResumeContextIndex
+	}
+	return -1
 }
 
 func smartShuffleScore(entries []SessionEntry, cycle []int, candidate int) int {
