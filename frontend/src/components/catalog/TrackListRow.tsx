@@ -1,9 +1,52 @@
-import { FolderPlus, Heart, ListPlus, Play, Trash2 } from "lucide-react";
+import { Heart, Trash2 } from "lucide-react";
+import { type MouseEvent, type ReactNode } from "react";
+import { TrackRowContextMenu, type TrackRowRecordingIdentity } from "@/components/catalog/TrackRowContextMenu";
 import {
   availabilityLabel,
   formatDuration,
   isCatalogTrackActionable,
 } from "@/lib/format";
+
+function stopClickPropagation(event: MouseEvent<HTMLButtonElement>) {
+  event.stopPropagation();
+}
+
+function InlineActionButton({
+  children,
+  disabled,
+  label,
+  onClick,
+  title,
+  tone = "default",
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+  title: string;
+  tone?: "danger" | "default";
+}) {
+  return (
+    <button
+      aria-label={label}
+      className={[
+        "rounded-full p-2 transition disabled:pointer-events-none disabled:opacity-45",
+        tone === "danger"
+          ? "text-theme-500 hover:text-red-200"
+          : "text-theme-500 hover:text-theme-100",
+      ].join(" ")}
+      disabled={disabled}
+      onClick={(event) => {
+        stopClickPropagation(event);
+        onClick();
+      }}
+      title={title}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
 
 export function TrackListRow({
   availabilityState,
@@ -12,11 +55,11 @@ export function TrackListRow({
   isLiked = false,
   likeBusy = false,
   mode = "list",
-  onAddToPlaylist,
-  onRemove,
-  onToggleLike,
   onPlay,
   onQueue,
+  onRemove,
+  onToggleLike,
+  recording,
   removeLabel = "Remove track",
   subtitle,
   title,
@@ -27,11 +70,11 @@ export function TrackListRow({
   isLiked?: boolean;
   likeBusy?: boolean;
   mode?: "album" | "list";
-  onAddToPlaylist?: () => void;
-  onRemove?: () => void;
-  onToggleLike?: () => void;
   onPlay: () => void;
   onQueue: () => void;
+  onRemove?: () => void;
+  onToggleLike?: () => void;
+  recording?: TrackRowRecordingIdentity;
   removeLabel?: string;
   subtitle: string;
   title: string;
@@ -40,155 +83,101 @@ export function TrackListRow({
   const secondaryText = actionable
     ? subtitle
     : `${subtitle} • ${availabilityLabel(availabilityState)}`;
-
-  if (mode === "album") {
-    return (
-      <div className="group flex items-center rounded-2xl px-2 py-1">
-        <button
-          className="hover:bg-theme-800 flex min-w-0 flex-1 items-center rounded-2xl px-2 py-3 text-left transition-colors disabled:pointer-events-none disabled:opacity-40"
-          disabled={!actionable}
-          onClick={onPlay}
-          type="button"
-        >
-          <span className="text-theme-500 w-10 shrink-0 text-xs tabular-nums">
-            {indexLabel}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-theme-100 group-hover:text-theme-50 truncate font-medium">
-              {title}
-            </p>
-            <p className="text-theme-500 truncate text-xs">{secondaryText}</p>
-          </div>
-          <span className="text-theme-300 ml-auto w-14 shrink-0 pl-1 text-right text-xs tabular-nums">
-            {formatDuration(durationMs)}
-          </span>
-        </button>
-
-        <button
-          aria-label={`Queue ${title}`}
-          className="text-theme-500 hover:text-theme-200 ml-1 rounded p-2 transition-colors disabled:pointer-events-none disabled:opacity-40"
-          disabled={!actionable}
-          onClick={onQueue}
-          title={actionable ? "Queue track" : `${title} unavailable`}
-          type="button"
-        >
-          <ListPlus className="h-4 w-4" />
-        </button>
-        {onAddToPlaylist ? (
-          <button
-            aria-label={`Add ${title} to playlist`}
-            className="text-theme-500 hover:text-theme-200 ml-1 rounded p-2 transition-colors"
-            onClick={onAddToPlaylist}
-            title="Add to playlist"
-            type="button"
-          >
-            <FolderPlus className="h-4 w-4" />
-          </button>
-        ) : null}
-        {onToggleLike ? (
-          <button
-            aria-label={isLiked ? `Unlike ${title}` : `Like ${title}`}
-            className="text-theme-500 hover:text-theme-200 ml-1 rounded p-2 transition-colors disabled:opacity-50"
-            disabled={likeBusy}
-            onClick={onToggleLike}
-            title={isLiked ? "Unlike track" : "Like track"}
-            type="button"
-          >
-            <Heart
-              className="h-4 w-4"
-              fill={isLiked ? "currentColor" : "none"}
-            />
-          </button>
-        ) : null}
-        {onRemove ? (
-          <button
-            aria-label={removeLabel}
-            className="text-theme-500 ml-1 rounded p-2 transition-colors hover:text-red-200"
-            onClick={onRemove}
-            title={removeLabel}
-            type="button"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        ) : null}
-      </div>
-    );
-  }
+  const compact = mode === "list";
 
   return (
-    <div
-      className={[
-        "flex items-center gap-3 rounded-md px-3 py-2",
-        actionable ? "" : "opacity-33",
-      ].join(" ")}
+    <TrackRowContextMenu
+      actionable={actionable}
+      onQueue={onQueue}
+      recording={recording}
+      title={title}
     >
-      <div className="min-w-0 flex-1">
-        <p className="text-theme-100 truncate text-sm font-medium">{title}</p>
-        <p className="text-theme-500 truncate text-xs">{secondaryText}</p>
-      </div>
-
-      <p className="text-theme-500 w-14 shrink-0 text-right text-xs tabular-nums">
-        {formatDuration(durationMs)}
-      </p>
-
-      <button
-        aria-label={`Queue ${title}`}
-        className="text-theme-500 hover:text-theme-100 rounded p-2 transition-colors disabled:pointer-events-none disabled:opacity-40"
-        disabled={!actionable}
-        onClick={onQueue}
-        title={actionable ? "Queue track" : `${title} unavailable`}
-        type="button"
-      >
-        <ListPlus className="h-4 w-4" />
-      </button>
-
-      {onAddToPlaylist ? (
-        <button
-          aria-label={`Add ${title} to playlist`}
-          className="text-theme-500 hover:text-theme-100 rounded p-2 transition-colors"
-          onClick={onAddToPlaylist}
-          title="Add to playlist"
-          type="button"
+      {({ open }) => (
+        <div
+          className={[
+            "group flex items-center gap-2 transition-colors",
+            compact ? "rounded-xl px-1 py-0.5" : "rounded-2xl px-1.5 py-1",
+            actionable ? "" : "opacity-50",
+          ].join(" ")}
         >
-          <FolderPlus className="h-4 w-4" />
-        </button>
-      ) : null}
+          <button
+          className={[
+              "flex min-w-0 flex-1 items-center text-left transition-colors disabled:pointer-events-none",
+              compact ? "rounded-xl px-3 py-2.5" : "rounded-2xl px-3 py-3",
+              open ? "bg-theme-800" : "hover:bg-theme-800",
+            ].join(" ")}
+            disabled={!actionable}
+            onClick={onPlay}
+            title={actionable ? `Play ${title}` : `${title} unavailable`}
+            type="button"
+          >
+            <span
+              className={[
+                "text-theme-500 shrink-0 tabular-nums",
+                compact ? "w-8 text-[11px]" : "w-10 text-xs",
+              ].join(" ")}
+            >
+              {indexLabel}
+            </span>
 
-      {onToggleLike ? (
-        <button
-          aria-label={isLiked ? `Unlike ${title}` : `Like ${title}`}
-          className="text-theme-500 hover:text-theme-100 rounded p-2 transition-colors disabled:opacity-50"
-          disabled={likeBusy}
-          onClick={onToggleLike}
-          title={isLiked ? "Unlike track" : "Like track"}
-          type="button"
-        >
-          <Heart className="h-4 w-4" fill={isLiked ? "currentColor" : "none"} />
-        </button>
-      ) : null}
+            <div className="min-w-0 flex-1">
+              <p
+              className={[
+                "truncate font-medium",
+                compact
+                  ? "text-theme-100 text-sm"
+                  : "text-theme-100",
+                compact ? "group-hover:text-white" : "group-hover:text-theme-50",
+              ].join(" ")}
+            >
+              {title}
+            </p>
+            <p
+              className={[
+                "text-theme-500 truncate",
+                compact ? "text-[11px]" : "text-xs",
+              ].join(" ")}
+            >
+              {secondaryText}
+            </p>
+          </div>
 
-      <button
-        aria-label={`Play ${title}`}
-        className="text-theme-500 hover:text-theme-100 rounded p-2 transition-colors disabled:pointer-events-none disabled:opacity-40"
-        disabled={!actionable}
-        onClick={onPlay}
-        title={actionable ? "Play track" : `${title} unavailable`}
-        type="button"
-      >
-        <Play className="h-4 w-4" />
-      </button>
+            <span
+              className={[
+                "text-theme-300 ml-3 shrink-0 pl-1 text-right tabular-nums",
+                compact ? "w-12 text-[11px]" : "w-14 text-xs",
+              ].join(" ")}
+            >
+              {formatDuration(durationMs)}
+            </span>
+          </button>
 
-      {onRemove ? (
-        <button
-          aria-label={removeLabel}
-          className="text-theme-500 rounded p-2 transition-colors hover:text-red-200"
-          onClick={onRemove}
-          title={removeLabel}
-          type="button"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      ) : null}
-    </div>
+          {onToggleLike ? (
+            <InlineActionButton
+              disabled={likeBusy}
+              label={isLiked ? `Unlike ${title}` : `Like ${title}`}
+              onClick={onToggleLike}
+              title={isLiked ? "Unlike track" : "Like track"}
+            >
+              <Heart
+                className="h-4 w-4"
+                fill={isLiked ? "currentColor" : "none"}
+              />
+            </InlineActionButton>
+          ) : null}
+
+          {onRemove ? (
+            <InlineActionButton
+              label={removeLabel}
+              onClick={onRemove}
+              title={removeLabel}
+              tone="danger"
+            >
+              <Trash2 className="h-4 w-4" />
+            </InlineActionButton>
+          ) : null}
+        </div>
+      )}
+    </TrackRowContextMenu>
   );
 }
