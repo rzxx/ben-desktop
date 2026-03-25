@@ -32,6 +32,42 @@ import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
 const albumDetailRouteApi = getRouteApi("/albums_/$albumId");
 
+function albumVariantLocationBucket(variant: AlbumVariantItem) {
+  const trackCount = Math.max(0, variant.TrackCount);
+  const localTrackCount = Math.max(0, variant.LocalTrackCount);
+
+  if (trackCount > 0 && localTrackCount >= trackCount) {
+    return "local";
+  }
+  if (localTrackCount > 0) {
+    return "partial";
+  }
+  return "remote";
+}
+
+function albumVariantLocationLabel(
+  variant: AlbumVariantItem,
+  variants: AlbumVariantItem[],
+) {
+  const bucket = albumVariantLocationBucket(variant);
+  const bucketVariants = variants.filter(
+    (candidate) => albumVariantLocationBucket(candidate) === bucket,
+  );
+  const bucketIndex =
+    bucketVariants.findIndex(
+      (candidate) => candidate.AlbumID === variant.AlbumID,
+    ) + 1;
+
+  const baseLabel =
+    bucket === "local"
+      ? "Local variant"
+      : bucket === "partial"
+        ? "Partial local variant"
+        : "Non-local variant";
+
+  return bucketVariants.length > 1 ? `${baseLabel} ${bucketIndex}` : baseLabel;
+}
+
 export function AlbumDetailPage() {
   const { albumId } = albumDetailRouteApi.useParams();
   const [selectedVariantId, setSelectedVariantId] = useState(albumId);
@@ -108,6 +144,7 @@ export function AlbumDetailPage() {
   const activeVariant =
     variants.data?.find((variant) => variant.AlbumID === selectedVariantId) ??
     null;
+  const albumVariants = variants.data ?? [];
   const lowResArtworkUrl = useResolvedUrl(
     selectedVariantId ? `album:${selectedVariantId}:96_jpeg` : "",
     selectedVariantId
@@ -242,50 +279,45 @@ export function AlbumDetailPage() {
               </div>
             </dl>
           </div>
-
-          {variants.data && variants.data.length > 1 ? (
-            <div className="space-y-2">
-              <p className="text-theme-500 text-[11px] tracking-[0.28em] uppercase">
-                Variants
-              </p>
-              <div className="space-y-2">
-                {variants.data.map((variant: AlbumVariantItem) => (
-                  <button
-                    className={[
-                      "block w-full rounded-lg border px-3 py-3 text-left transition",
-                      variant.AlbumID === selectedVariantId
-                        ? "text-theme-100 border-white/18 bg-white/[0.08]"
-                        : "text-theme-300 border-white/8 bg-white/[0.03] hover:border-white/14 hover:bg-white/[0.05]",
-                    ].join(" ")}
-                    key={variant.AlbumID}
-                    onClick={() => {
-                      setSelectedVariantId(variant.AlbumID);
-                    }}
-                    type="button"
-                  >
-                    <span className="block text-sm font-medium">
-                      {variant.Edition || variant.Title}
-                    </span>
-                    <span className="text-theme-500 mt-1 block text-xs">
-                      {[
-                        variant.Year ? String(variant.Year) : null,
-                        formatCount(variant.TrackCount, "track"),
-                        aggregateAvailabilityLabel(
-                          albumAvailabilityByAlbumId[variant.AlbumID]?.data,
-                        ),
-                      ]
-                        .filter(Boolean)
-                        .join(" • ")}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
       </aside>
 
-      <section className="mt-10 flex min-h-0 flex-1 flex-col gap-4 xl:w-3/5">
+      <section className="flex min-h-0 flex-1 flex-col xl:w-3/5">
+        <div className="min-h-10 pr-2">
+          {albumVariants.length > 1 ? (
+            <div className="ben-scrollbar flex min-h-10 items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
+              {albumVariants.map((variant: AlbumVariantItem) => (
+                <button
+                  aria-pressed={variant.AlbumID === selectedVariantId}
+                  className={[
+                    "shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium transition",
+                    variant.AlbumID === selectedVariantId
+                      ? "text-theme-100 border-white/18 bg-white/[0.08]"
+                      : "text-theme-300 border-white/8 bg-white/[0.03] hover:border-white/14 hover:bg-white/[0.05]",
+                  ].join(" ")}
+                  key={variant.AlbumID}
+                  onClick={() => {
+                    setSelectedVariantId(variant.AlbumID);
+                  }}
+                  title={[
+                    variant.Edition || variant.Title,
+                    variant.Year ? String(variant.Year) : null,
+                    formatCount(variant.TrackCount, "track"),
+                    aggregateAvailabilityLabel(
+                      albumAvailabilityByAlbumId[variant.AlbumID]?.data,
+                    ),
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
+                  type="button"
+                >
+                  {albumVariantLocationLabel(variant, albumVariants)}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
         <div className="min-h-0 flex-1">
           <VirtualRows
             className="min-h-0 flex-1"
