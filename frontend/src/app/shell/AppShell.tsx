@@ -9,6 +9,7 @@ import { NavigationSidebar } from "@/components/shell/NavigationSidebar";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { useNotificationsStore } from "@/stores/notifications/store";
 import { usePlaybackStore } from "@/stores/playback/store";
+import { useUIStore } from "@/stores/ui/store";
 
 const PLAYER_SCROLL_BUFFER_REM = 1;
 
@@ -21,6 +22,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const teardownNotifications = useNotificationsStore(
     (state) => state.teardown,
   );
+  const isQueueSidebarOpen = useUIStore((state) => state.isQueueSidebarOpen);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playerBarRef = useRef<HTMLDivElement | null>(null);
   const queueSidebarRef = useRef<HTMLDivElement | null>(null);
@@ -99,7 +101,7 @@ export function AppShell({ children }: PropsWithChildren) {
       shell.style.removeProperty("--shell-player-clearance");
       shell.style.removeProperty("--shell-queue-scroll-clearance");
     };
-  }, []);
+  }, [isQueueSidebarOpen]);
 
   return (
     <div className="text-theme-100 h-screen overflow-hidden" ref={shellRef}>
@@ -111,14 +113,20 @@ export function AppShell({ children }: PropsWithChildren) {
 
       <NavigationSidebar />
 
-      <div
-        className="fixed top-8 right-0 bottom-0 z-20 hidden w-80 max-xl:hidden xl:block"
-        ref={queueSidebarRef}
-      >
-        <QueueSidebar />
-      </div>
+      {isQueueSidebarOpen ? (
+        <div
+          className="fixed top-8 right-0 bottom-0 z-20 w-80"
+          ref={queueSidebarRef}
+        >
+          <QueueSidebar />
+        </div>
+      ) : null}
 
-      <main className="fixed top-8 right-0 bottom-0 left-0 z-10 lg:left-56 xl:right-80">
+      <main
+        className={`fixed top-8 right-0 bottom-0 left-0 z-10 ${
+          isQueueSidebarOpen ? "lg:left-56 right-80" : "lg:left-56"
+        }`}
+      >
         <div className="h-full px-6 pt-4 max-lg:px-4">
           <div className="h-full">{children}</div>
         </div>

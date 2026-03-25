@@ -1,17 +1,30 @@
 import { type MouseEvent, type ReactNode } from "react";
 import { Window } from "@wailsio/runtime";
-import { Bell, BellRing, Bug, Copy, Minus, Square, X } from "lucide-react";
+import {
+  Bell,
+  BellRing,
+  Bug,
+  Copy,
+  Minus,
+  PanelRightClose,
+  PanelRightOpen,
+  Square,
+  X,
+} from "lucide-react";
 import {
   toggleWindowMaximised,
   useWindowMaximised,
 } from "@/hooks/app/useWindowMaximised";
 import { useNotificationsStore } from "@/stores/notifications/store";
+import { useUIStore } from "@/stores/ui/store";
 
 export function TitleBar() {
   const isMaximised = useWindowMaximised();
   const preferences = useNotificationsStore((state) => state.preferences);
   const toggleCenter = useNotificationsStore((state) => state.toggleCenter);
   const setVerbosity = useNotificationsStore((state) => state.setVerbosity);
+  const isQueueSidebarOpen = useUIStore((state) => state.isQueueSidebarOpen);
+  const toggleQueueSidebar = useUIStore((state) => state.toggleQueueSidebar);
   const handleDoubleClick = (event: MouseEvent<HTMLElement>) => {
     if (event.button !== 0) {
       return;
@@ -57,6 +70,28 @@ export function TitleBar() {
             {verbosityLabel(preferences.verbosity)}
           </span>
         </WideControlButton>
+        <ControlButton
+          label={
+            isQueueSidebarOpen ? "Hide playback queue" : "Show playback queue"
+          }
+          onClick={() => {
+            toggleQueueSidebar();
+          }}
+        >
+          {isQueueSidebarOpen ? (
+            <PanelRightClose
+              size={15}
+              strokeWidth={1}
+              absoluteStrokeWidth={true}
+            />
+          ) : (
+            <PanelRightOpen
+              size={15}
+              strokeWidth={1}
+              absoluteStrokeWidth={true}
+            />
+          )}
+        </ControlButton>
         <ControlButton
           label="Minimise"
           onClick={() => {
