@@ -15,10 +15,11 @@ func TestNextPlaylistIndex(t *testing.T) {
 		wantOK        bool
 	}{
 		{name: "empty playlist", playlistPos: -1, playlistCount: 0, wantIndex: 0, wantOK: false},
-		{name: "single current item", playlistPos: 0, playlistCount: 1, wantIndex: 0, wantOK: false},
+		{name: "single current item cannot clear preload", playlistPos: 0, playlistCount: 1, wantIndex: 0, wantOK: false},
 		{name: "current plus preloaded next", playlistPos: 0, playlistCount: 2, wantIndex: 1, wantOK: true},
-		{name: "advanced onto previous preload", playlistPos: 1, playlistCount: 2, wantIndex: 0, wantOK: false},
-		{name: "further queued item", playlistPos: 1, playlistCount: 3, wantIndex: 2, wantOK: true},
+		{name: "advanced onto previous preload never removes current", playlistPos: 1, playlistCount: 2, wantIndex: 0, wantOK: false},
+		{name: "replace preload after advancing targets slot after current", playlistPos: 1, playlistCount: 3, wantIndex: 2, wantOK: true},
+		{name: "no removable slot once playback reaches tail", playlistPos: 2, playlistCount: 3, wantIndex: 0, wantOK: false},
 	}
 
 	for _, tt := range tests {

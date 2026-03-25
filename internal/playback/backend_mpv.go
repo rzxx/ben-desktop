@@ -146,8 +146,18 @@ func (b *mpvBackend) PreloadNext(_ context.Context, uri string) error {
 	b.mu.Unlock()
 
 	if alreadyPreloaded {
-		if err := b.client.Command([]string{"playlist-remove", "1"}); err != nil {
+		index, ok, err := b.preloadedPlaylistIndex()
+		if err != nil {
 			return err
+		}
+		if ok {
+			if err := b.client.Command([]string{"playlist-remove", strconv.FormatInt(index, 10)}); err != nil {
+				return err
+			}
+		} else {
+			b.mu.Lock()
+			b.preloadedURI = ""
+			b.mu.Unlock()
 		}
 	}
 	if err := b.client.Command([]string{"loadfile", uri, "append"}); err != nil {
@@ -160,6 +170,13 @@ func (b *mpvBackend) PreloadNext(_ context.Context, uri string) error {
 }
 
 func (b *mpvBackend) ClearPreloaded(context.Context) error {
+	b.mu.Lock()
+	knownPreloaded := b.preloadedURI != ""
+	b.mu.Unlock()
+	if !knownPreloaded {
+		return nil
+	}
+
 	index, ok, err := b.preloadedPlaylistIndex()
 	b.mu.Lock()
 	b.preloadedURI = ""

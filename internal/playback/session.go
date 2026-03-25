@@ -58,6 +58,10 @@ type Session struct {
 
 	rng *rand.Rand
 
+	historyScope        uint64
+	historyScopes       []uint64
+	suppressHistoryPush bool
+
 	pendingCancel context.CancelFunc
 	pendingWG     sync.WaitGroup
 	pendingEntry  string
@@ -136,6 +140,8 @@ func (s *Session) Start(ctx context.Context) error {
 		s.preloadedID = ""
 		s.preloadedURI = ""
 		s.backendPreloadArmed = false
+		s.historyScopes = make([]uint64, len(s.snapshot.History))
+		s.suppressHistoryPush = false
 		s.mu.Unlock()
 	}
 
@@ -197,17 +203,16 @@ func (s *Session) SetContext(input PlaybackContextInput) (SessionSnapshot, error
 		return state, err
 	}
 
-	needsClearPreload := s.shouldClearBackendPreloadLocked()
+	backend, needsClearPreload := s.invalidateFutureOrderLocked("set context", true)
 	s.snapshot.Context = contextData
 	s.snapshot.QueuedEntries = nil
 	s.snapshot.History = nil
+	s.historyScopes = nil
 	s.snapshot.LastError = ""
 	s.clearLoadingStateLocked()
-	s.snapshot.NextPreparation = nil
 	s.snapshot.ShuffleCycle = nil
 	s.cancelPendingRetryLocked()
-	s.preloadedID = ""
-	s.preloadedURI = ""
+	s.suppressHistoryPush = false
 	s.snapshot.CurrentContextIndex = startIndex
 	s.snapshot.ResumeContextIndex = startIndex
 
@@ -233,7 +238,6 @@ func (s *Session) SetContext(input PlaybackContextInput) (SessionSnapshot, error
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
 	shouldStopBackend := s.snapshot.CurrentEntry == nil
-	backend := s.backend
 	s.mu.Unlock()
 
 	if needsClearPreload {
@@ -256,14 +260,13 @@ func (s *Session) ReplaceContextAndPlay(ctx context.Context, input PlaybackConte
 	}
 
 	current := cloneEntryPtr(s.snapshot.CurrentEntry)
-	needsClearPreload := s.shouldClearBackendPreloadLocked()
+	backend, needsClearPreload := s.invalidateFutureOrderLocked("replace context and play", true)
 
+	s.beginFreshHistoryScopeLocked(current)
 	s.snapshot.Context = contextData
 	s.snapshot.QueuedEntries = nil
-	s.snapshot.History = nil
 	s.snapshot.LastError = ""
 	s.clearLoadingStateLocked()
-	s.clearNextPreparationStateLocked()
 	s.snapshot.ShuffleCycle = nil
 	s.cancelPendingRetryLocked()
 	s.snapshot.CurrentContextIndex = startIndex
@@ -292,13 +295,15 @@ func (s *Session) ReplaceContextAndPlay(ctx context.Context, input PlaybackConte
 	}
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
-	backend := s.backend
 	s.mu.Unlock()
 
 	if needsClearPreload {
 		s.clearBackendPreload(context.Background(), backend)
 	}
 	if !hasTarget {
+		s.mu.Lock()
+		s.suppressHistoryPush = false
+		s.mu.Unlock()
 		s.publishSnapshot(state)
 		return state, errors.New("queue is empty")
 	}
@@ -312,7 +317,7 @@ func (s *Session) QueueItems(items []SessionItem, mode QueueInsertMode) (Session
 	}
 
 	s.mu.Lock()
-	needsClearPreload := s.shouldClearBackendPreloadLocked()
+	backend, needsClearPreload := s.invalidateFutureOrderLocked("queue items", true)
 	s.clearLoadingStateLocked()
 	s.cancelPendingRetryLocked()
 	entries := make([]SessionEntry, 0, len(items))
@@ -335,10 +340,8 @@ func (s *Session) QueueItems(items []SessionItem, mode QueueInsertMode) (Session
 		s.snapshot.QueuedEntries = append(s.snapshot.QueuedEntries, entries...)
 	}
 
-	s.clearNextPreparationStateLocked()
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
-	backend := s.backend
 	s.mu.Unlock()
 
 	if needsClearPreload {
@@ -356,14 +359,12 @@ func (s *Session) RemoveQueuedEntry(entryID string) (SessionSnapshot, error) {
 		s.mu.Unlock()
 		return state, fmt.Errorf("queued entry %s not found", strings.TrimSpace(entryID))
 	}
-	needsClearPreload := s.shouldClearBackendPreloadLocked()
+	backend, needsClearPreload := s.invalidateFutureOrderLocked("remove queued entry", true)
 	s.snapshot.QueuedEntries = append(s.snapshot.QueuedEntries[:index], s.snapshot.QueuedEntries[index+1:]...)
 	s.clearLoadingStateLocked()
 	s.cancelPendingRetryLocked()
-	s.clearNextPreparationStateLocked()
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
-	backend := s.backend
 	s.mu.Unlock()
 
 	if needsClearPreload {
@@ -392,7 +393,7 @@ func (s *Session) MoveQueuedEntry(entryID string, toIndex int) (SessionSnapshot,
 		return state, nil
 	}
 
-	needsClearPreload := s.shouldClearBackendPreloadLocked()
+	backend, needsClearPreload := s.invalidateFutureOrderLocked("move queued entry", true)
 	entry := s.snapshot.QueuedEntries[fromIndex]
 	queue := append([]SessionEntry(nil), s.snapshot.QueuedEntries...)
 	queue = append(queue[:fromIndex], queue[fromIndex+1:]...)
@@ -400,10 +401,8 @@ func (s *Session) MoveQueuedEntry(entryID string, toIndex int) (SessionSnapshot,
 	s.snapshot.QueuedEntries = queue
 	s.clearLoadingStateLocked()
 	s.cancelPendingRetryLocked()
-	s.clearNextPreparationStateLocked()
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
-	backend := s.backend
 	s.mu.Unlock()
 
 	if needsClearPreload {
@@ -445,17 +444,17 @@ func (s *Session) SelectEntry(ctx context.Context, entryID string) (SessionSnaps
 func (s *Session) ClearQueue() (SessionSnapshot, error) {
 	s.mu.Lock()
 	hasCurrent := s.snapshot.CurrentEntry != nil
-	needsClearPreload := s.shouldClearBackendPreloadLocked()
-	backend := s.backend
+	backend, needsClearPreload := s.invalidateFutureOrderLocked("clear queue", true)
 	s.snapshot.Context = nil
 	s.snapshot.QueuedEntries = nil
 	s.snapshot.History = nil
+	s.historyScopes = nil
 	s.snapshot.ShuffleCycle = nil
 	s.snapshot.ResumeContextIndex = -1
 	s.snapshot.LastError = ""
 	s.clearLoadingStateLocked()
-	s.clearNextPreparationStateLocked()
 	s.cancelPendingRetryLocked()
+	s.suppressHistoryPush = false
 	shouldStopBackend := !hasCurrent
 	if !hasCurrent {
 		s.snapshot.PositionMS = 0
@@ -592,19 +591,21 @@ func (s *Session) Previous(ctx context.Context) (SessionSnapshot, error) {
 		s.mu.Unlock()
 		return s.SeekTo(ctx, 0)
 	}
-	if len(s.snapshot.History) == 0 {
-		current := cloneEntryPtr(s.snapshot.CurrentEntry)
+	current := cloneEntryPtr(s.snapshot.CurrentEntry)
+	if entry, ok := s.consumePreviousHistoryEntryLocked(); ok {
 		s.mu.Unlock()
-		if current == nil {
-			return s.Snapshot(), nil
-		}
-		return s.playEntry(ctx, *current, current.Origin, -1, nil, false, true)
+		return s.playEntry(ctx, entry, entry.Origin, -1, nil, false, true)
 	}
-	last := s.snapshot.History[len(s.snapshot.History)-1]
-	s.snapshot.History = s.snapshot.History[:len(s.snapshot.History)-1]
+	if entry, ok := s.previousContextEntryLocked(); ok {
+		s.mu.Unlock()
+		return s.playEntry(ctx, entry, EntryOriginContext, -1, nil, false, true)
+	}
 	s.mu.Unlock()
 
-	return s.playEntry(ctx, last.Entry, last.Entry.Origin, -1, nil, false, true)
+	if current == nil {
+		return s.Snapshot(), nil
+	}
+	return s.playEntry(ctx, *current, current.Origin, -1, nil, false, true)
 }
 
 func (s *Session) SeekTo(ctx context.Context, positionMS int64) (SessionSnapshot, error) {
@@ -663,18 +664,23 @@ func (s *Session) SetRepeatMode(mode string) (SessionSnapshot, error) {
 	}
 
 	s.mu.Lock()
+	backend, needsClearPreload := s.invalidateFutureOrderLocked("set repeat mode", true)
 	s.snapshot.RepeatMode = repeatMode
 	s.recalculateResumeContextIndexLocked()
 	s.touchLocked()
 	state := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
 
+	if needsClearPreload {
+		s.clearBackendPreload(context.Background(), backend)
+	}
 	s.publishSnapshot(state)
 	return state, nil
 }
 
 func (s *Session) SetShuffle(enabled bool) (SessionSnapshot, error) {
 	s.mu.Lock()
+	backend, needsClearPreload := s.invalidateFutureOrderLocked("set shuffle", true)
 	s.snapshot.Shuffle = enabled
 	if enabled {
 		s.rebuildShuffleCycleLocked()
@@ -686,6 +692,9 @@ func (s *Session) SetShuffle(enabled bool) (SessionSnapshot, error) {
 	state := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
 
+	if needsClearPreload {
+		s.clearBackendPreload(context.Background(), backend)
+	}
 	s.publishSnapshot(state)
 	return state, nil
 }
@@ -1057,9 +1066,7 @@ func (s *Session) playEntry(
 		shouldReplaceCurrent := !hasCurrent || !preserveCurrentOnPending
 		s.setLoadingLocked(entry, preparation)
 		if shouldReplaceCurrent {
-			if previous != nil && previous.EntryID != "" && previous.EntryID != entry.EntryID {
-				s.pushHistoryLocked(*previous)
-			}
+			s.maybePushHistoryLocked(previous, entry)
 			s.clearCurrentLocked()
 			s.snapshot.Status = StatusPending
 			s.snapshot.PositionMS = 0
@@ -1312,9 +1319,6 @@ func (s *Session) clearNextPreparationStateLocked() {
 }
 
 func (s *Session) shouldClearBackendPreloadLocked() bool {
-	if s.backend != nil && s.backend.SupportsPreload() {
-		return true
-	}
 	return s.backendPreloadArmed || s.snapshot.NextPreparation != nil || s.preloadedID != "" || s.preloadedURI != ""
 }
 
@@ -1794,6 +1798,42 @@ func normalizeResumeContextIndex(snapshot SessionSnapshot) int {
 	return defaultFirstContextIndex(snapshot)
 }
 
+func previousContextIndexFromAnchor(snapshot SessionSnapshot, anchorIndex int) int {
+	if !isValidContextIndex(snapshot, anchorIndex) {
+		return -1
+	}
+	if !snapshot.Shuffle {
+		previous := anchorIndex - 1
+		if previous >= 0 {
+			return previous
+		}
+		if snapshot.RepeatMode == RepeatAll {
+			return len(snapshot.Context.Entries) - 1
+		}
+		return -1
+	}
+
+	cycle := append([]int(nil), snapshot.ShuffleCycle...)
+	if len(cycle) == 0 {
+		cycle = buildSmartShuffleCycle(snapshot.Context.Entries, rand.New(rand.NewSource(1)))
+	}
+	if len(cycle) == 0 {
+		return -1
+	}
+	position := indexOfInt(cycle, anchorIndex)
+	if position < 0 {
+		return -1
+	}
+	previousPosition := position - 1
+	if previousPosition >= 0 {
+		return cycle[previousPosition]
+	}
+	if snapshot.RepeatMode == RepeatAll {
+		return cycle[len(cycle)-1]
+	}
+	return -1
+}
+
 func (s *Session) resolveEntrySelectionLocked(entryID string) (SessionEntry, EntryOrigin, int, error) {
 	if current := s.snapshot.CurrentEntry; current != nil && current.EntryID == entryID {
 		return *current, current.Origin, -1, nil
@@ -1817,9 +1857,7 @@ func (s *Session) resolveEntrySelectionLocked(entryID string) (SessionEntry, Ent
 }
 
 func (s *Session) switchCurrentLocked(entry SessionEntry, origin EntryOrigin, queueIndex int, previous *SessionEntry, keepPosition bool, restorePosition int64) {
-	if previous != nil && previous.EntryID != "" && previous.EntryID != entry.EntryID {
-		s.pushHistoryLocked(*previous)
-	}
+	s.maybePushHistoryLocked(previous, entry)
 	if origin == EntryOriginQueued && queueIndex >= 0 && queueIndex < len(s.snapshot.QueuedEntries) {
 		s.snapshot.QueuedEntries = append(s.snapshot.QueuedEntries[:queueIndex], s.snapshot.QueuedEntries[queueIndex+1:]...)
 	}
@@ -1877,8 +1915,15 @@ func (s *Session) pushHistoryLocked(entry SessionEntry) {
 		Entry:    entry,
 		PlayedAt: formatTimestamp(time.Now().UTC()),
 	})
+	s.historyScopes = append(s.historyScopes, s.historyScope)
 	if len(s.snapshot.History) > maxHistoryEntries {
 		s.snapshot.History = s.snapshot.History[len(s.snapshot.History)-maxHistoryEntries:]
+		if len(s.historyScopes) > maxHistoryEntries {
+			s.historyScopes = s.historyScopes[len(s.historyScopes)-maxHistoryEntries:]
+		}
+	}
+	if len(s.historyScopes) > len(s.snapshot.History) {
+		s.historyScopes = s.historyScopes[len(s.historyScopes)-len(s.snapshot.History):]
 	}
 }
 
@@ -2025,6 +2070,92 @@ func (s *Session) completePendingPlayback(ctx context.Context, entry SessionEntr
 	s.refreshPosition()
 	s.publishSnapshot(s.Snapshot())
 	return nil
+}
+
+func (s *Session) beginFreshHistoryScopeLocked(previous *SessionEntry) {
+	s.historyScope++
+	s.snapshot.History = nil
+	s.historyScopes = nil
+	s.suppressHistoryPush = previous != nil && previous.EntryID != ""
+}
+
+func (s *Session) invalidateFutureOrderLocked(reason string, forceRecovery bool) (Backend, bool) {
+	backend := s.backend
+	needsClearPreload := s.shouldClearBackendPreloadLocked()
+	if !needsClearPreload && forceRecovery && backend != nil && backend.SupportsPreload() && s.snapshot.CurrentEntry != nil && s.loadedURI != "" {
+		needsClearPreload = true
+	}
+	if needsClearPreload {
+		s.logPrintf("playback: invalidating future order (%s)", reason)
+	}
+	s.clearNextPreparationStateLocked()
+	return backend, needsClearPreload
+}
+
+func (s *Session) maybePushHistoryLocked(previous *SessionEntry, entry SessionEntry) {
+	if previous == nil || previous.EntryID == "" || previous.EntryID == entry.EntryID {
+		return
+	}
+	if s.suppressHistoryPush {
+		s.logPrintf("playback: suppressing history push across context boundary for %s", previous.Item.RecordingID)
+		s.suppressHistoryPush = false
+		return
+	}
+	s.pushHistoryLocked(*previous)
+}
+
+func (s *Session) consumePreviousHistoryEntryLocked() (SessionEntry, bool) {
+	if s.snapshot.CurrentEntry == nil || len(s.snapshot.History) == 0 {
+		return SessionEntry{}, false
+	}
+	for index := len(s.snapshot.History) - 1; index >= 0; index-- {
+		if s.historyScopeAtLocked(index) != s.historyScope {
+			continue
+		}
+		entry := s.snapshot.History[index].Entry
+		if s.snapshot.CurrentOrigin == EntryOriginContext && !s.entryInCurrentContextLocked(entry) {
+			continue
+		}
+		s.snapshot.History = s.snapshot.History[:index]
+		if index <= len(s.historyScopes) {
+			s.historyScopes = s.historyScopes[:index]
+		}
+		return entry, true
+	}
+	return SessionEntry{}, false
+}
+
+func (s *Session) previousContextEntryLocked() (SessionEntry, bool) {
+	if !currentMatchesContext(s.snapshot) {
+		return SessionEntry{}, false
+	}
+	index := previousContextIndexFromAnchor(s.snapshot, s.snapshot.CurrentContextIndex)
+	if index < 0 || s.snapshot.Context == nil || index >= len(s.snapshot.Context.Entries) {
+		return SessionEntry{}, false
+	}
+	return s.snapshot.Context.Entries[index], true
+}
+
+func (s *Session) entryInCurrentContextLocked(entry SessionEntry) bool {
+	if entry.Origin != EntryOriginContext || s.snapshot.Context == nil {
+		return false
+	}
+	if entry.ContextIndex >= 0 && entry.ContextIndex < len(s.snapshot.Context.Entries) {
+		return s.snapshot.Context.Entries[entry.ContextIndex].EntryID == entry.EntryID
+	}
+	for _, contextEntry := range s.snapshot.Context.Entries {
+		if contextEntry.EntryID == entry.EntryID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Session) historyScopeAtLocked(index int) uint64 {
+	if index >= 0 && index < len(s.historyScopes) {
+		return s.historyScopes[index]
+	}
+	return 0
 }
 
 func (s *Session) failPlayback(err error) (SessionSnapshot, error) {
@@ -2542,5 +2673,11 @@ func (s *Session) touchLocked() {
 func (s *Session) logErrorf(format string, args ...any) {
 	if s.logger != nil {
 		s.logger.Errorf(format, args...)
+	}
+}
+
+func (s *Session) logPrintf(format string, args ...any) {
+	if s.logger != nil {
+		s.logger.Printf(format, args...)
 	}
 }

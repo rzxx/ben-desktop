@@ -683,6 +683,348 @@ func TestSessionSetContextPreservesStartIndexBeforeFirstPlay(t *testing.T) {
 	}
 }
 
+func TestSessionReplaceContextAndPlayResetsPreviousToNewContext(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"album-1":    {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/album-1.mp3"},
+			"album-2":    {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/album-2.mp3"},
+			"playlist-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/playlist-1.mp3"},
+			"playlist-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/playlist-2.mp3"},
+			"playlist-3": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/playlist-3.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind:       ContextKindAlbum,
+		ID:         "album",
+		StartIndex: 1,
+		Items: []SessionItem{
+			{RecordingID: "album-1", Title: "Album 1"},
+			{RecordingID: "album-2", Title: "Album 2"},
+		},
+	}); err != nil {
+		t.Fatalf("set album context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play album: %v", err)
+	}
+
+	snapshot, err := session.ReplaceContextAndPlay(context.Background(), PlaybackContextInput{
+		Kind:       ContextKindPlaylist,
+		ID:         "playlist",
+		StartIndex: 1,
+		Items: []SessionItem{
+			{RecordingID: "playlist-1", Title: "Playlist 1"},
+			{RecordingID: "playlist-2", Title: "Playlist 2"},
+			{RecordingID: "playlist-3", Title: "Playlist 3"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("replace context and play: %v", err)
+	}
+	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "playlist-2" {
+		t.Fatalf("expected playlist-2 to become current, got %+v", snapshot.CurrentEntry)
+	}
+	if len(snapshot.History) != 0 {
+		t.Fatalf("expected fresh context playback to start with empty history, got %+v", snapshot.History)
+	}
+
+	previous, err := session.Previous(context.Background())
+	if err != nil {
+		t.Fatalf("previous in new context: %v", err)
+	}
+	if previous.CurrentEntry == nil || previous.CurrentEntry.Item.RecordingID != "playlist-1" {
+		t.Fatalf("expected previous to stay within new context, got %+v", previous.CurrentEntry)
+	}
+}
+
+func TestSessionPendingContextReplacementDoesNotLeakOldContextIntoHistory(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		preparations: map[string][]apitypes.PlaybackPreparationStatus{
+			"album-1": {
+				{RecordingID: "album-1", Phase: apitypes.PlaybackPreparationReady, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/album-1.mp3"},
+			},
+			"album-2": {
+				{RecordingID: "album-2", Phase: apitypes.PlaybackPreparationReady, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/album-2.mp3"},
+			},
+			"playlist-1": {
+				{RecordingID: "playlist-1", Phase: apitypes.PlaybackPreparationReady, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/playlist-1.mp3"},
+			},
+			"playlist-2": {
+				{RecordingID: "playlist-2", Phase: apitypes.PlaybackPreparationPreparingFetch, SourceKind: apitypes.PlaybackSourceRemoteOpt},
+			},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind:       ContextKindAlbum,
+		ID:         "album",
+		StartIndex: 1,
+		Items: []SessionItem{
+			{RecordingID: "album-1", Title: "Album 1"},
+			{RecordingID: "album-2", Title: "Album 2"},
+		},
+	}); err != nil {
+		t.Fatalf("set album context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play album: %v", err)
+	}
+
+	pending, err := session.ReplaceContextAndPlay(context.Background(), PlaybackContextInput{
+		Kind:       ContextKindPlaylist,
+		ID:         "playlist",
+		StartIndex: 1,
+		Items: []SessionItem{
+			{RecordingID: "playlist-1", Title: "Playlist 1"},
+			{RecordingID: "playlist-2", Title: "Playlist 2"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("replace context and play: %v", err)
+	}
+	if pending.CurrentEntry == nil || pending.CurrentEntry.Item.RecordingID != "album-2" {
+		t.Fatalf("expected old track to remain current while pending, got %+v", pending.CurrentEntry)
+	}
+	if pending.LoadingEntry == nil || pending.LoadingEntry.Item.RecordingID != "playlist-2" {
+		t.Fatalf("expected pending playlist-2 entry, got %+v", pending.LoadingEntry)
+	}
+
+	if err := session.completePendingPlayback(context.Background(), *pending.LoadingEntry, apitypes.PlaybackPreparationStatus{
+		RecordingID: "playlist-2",
+		Phase:       apitypes.PlaybackPreparationReady,
+		SourceKind:  apitypes.PlaybackSourceLocalFile,
+		PlayableURI: "file:///tmp/playlist-2.mp3",
+	}); err != nil {
+		t.Fatalf("complete pending playback: %v", err)
+	}
+
+	resolved := session.Snapshot()
+	if resolved.CurrentEntry == nil || resolved.CurrentEntry.Item.RecordingID != "playlist-2" {
+		t.Fatalf("expected playlist-2 after pending completion, got %+v", resolved.CurrentEntry)
+	}
+	if len(resolved.History) != 0 {
+		t.Fatalf("expected old context not to be re-added to history, got %+v", resolved.History)
+	}
+
+	previous, err := session.Previous(context.Background())
+	if err != nil {
+		t.Fatalf("previous after pending replacement: %v", err)
+	}
+	if previous.CurrentEntry == nil || previous.CurrentEntry.Item.RecordingID != "playlist-1" {
+		t.Fatalf("expected previous to resolve inside playlist context, got %+v", previous.CurrentEntry)
+	}
+}
+
+func TestSessionPreviousFallsBackToPreviousShuffledContextEntry(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"rec-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+			"rec-3": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/three.mp3"},
+			"rec-4": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/four.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	session.rng = rand.New(rand.NewSource(7))
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", Subtitle: "Artist A", AlbumID: "album-a"},
+			{RecordingID: "rec-2", Title: "Two", Subtitle: "Artist B", AlbumID: "album-b"},
+			{RecordingID: "rec-3", Title: "Three", Subtitle: "Artist C", AlbumID: "album-c"},
+			{RecordingID: "rec-4", Title: "Four", Subtitle: "Artist D", AlbumID: "album-d"},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+
+	shuffled, err := session.SetShuffle(true)
+	if err != nil {
+		t.Fatalf("set shuffle: %v", err)
+	}
+	if len(shuffled.ShuffleCycle) < 3 {
+		t.Fatalf("expected shuffle cycle with at least 3 items, got %v", shuffled.ShuffleCycle)
+	}
+
+	targetIndex := shuffled.ShuffleCycle[2]
+	target := shuffled.Context.Entries[targetIndex]
+	if _, err := session.playEntry(context.Background(), target, EntryOriginContext, -1, nil, false, true); err != nil {
+		t.Fatalf("play shuffled middle entry: %v", err)
+	}
+
+	previous, err := session.Previous(context.Background())
+	if err != nil {
+		t.Fatalf("previous in shuffled context: %v", err)
+	}
+
+	expectedIndex := shuffled.ShuffleCycle[1]
+	expected := shuffled.Context.Entries[expectedIndex].Item.RecordingID
+	if previous.CurrentEntry == nil || previous.CurrentEntry.Item.RecordingID != expected {
+		t.Fatalf("expected shuffled previous %s, got %+v", expected, previous.CurrentEntry)
+	}
+}
+
+func TestSessionSetShuffleClearsAndRebuildsPreloadWithoutChangingCurrent(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	bridge := &mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"rec-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+			"rec-3": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/three.mp3"},
+			"rec-4": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/four.mp3"},
+		},
+	}
+	session := NewSession(bridge, backend, &memoryStore{}, "desktop", nil)
+	session.rng = rand.New(rand.NewSource(7))
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", Subtitle: "Artist A", DurationMS: duration},
+			{RecordingID: "rec-2", Title: "Two", Subtitle: "Artist B", DurationMS: duration},
+			{RecordingID: "rec-3", Title: "Three", Subtitle: "Artist C", DurationMS: duration},
+			{RecordingID: "rec-4", Title: "Four", Subtitle: "Artist D", DurationMS: duration},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+
+	backend.duration = &duration
+	backend.position = 60000
+	session.refreshPosition()
+	session.preloadNext(context.Background())
+	if backend.preloadedURI != "file:///tmp/two.mp3" {
+		t.Fatalf("expected linear preload for rec-2, got %q", backend.preloadedURI)
+	}
+
+	currentRecording := session.Snapshot().CurrentEntry.Item.RecordingID
+	shuffled, err := session.SetShuffle(true)
+	if err != nil {
+		t.Fatalf("set shuffle: %v", err)
+	}
+	if shuffled.CurrentEntry == nil || shuffled.CurrentEntry.Item.RecordingID != currentRecording {
+		t.Fatalf("expected current track to stay fixed on shuffle toggle, got %+v", shuffled.CurrentEntry)
+	}
+	if backend.preloadedURI != "" {
+		t.Fatalf("expected stale preload cleared on shuffle toggle, got %q", backend.preloadedURI)
+	}
+
+	shuffledUpcoming := buildUpcomingEntries(shuffled)
+	if len(shuffledUpcoming) == 0 {
+		t.Fatalf("expected shuffled upcoming entries")
+	}
+	session.preloadNext(context.Background())
+	expectedShuffled := bridge.results[shuffledUpcoming[0].Item.RecordingID].PlayableURI
+	if backend.preloadedURI != expectedShuffled {
+		t.Fatalf("expected shuffled preload %q, got %q", expectedShuffled, backend.preloadedURI)
+	}
+
+	unshuffled, err := session.SetShuffle(false)
+	if err != nil {
+		t.Fatalf("unset shuffle: %v", err)
+	}
+	if unshuffled.CurrentEntry == nil || unshuffled.CurrentEntry.Item.RecordingID != currentRecording {
+		t.Fatalf("expected current track to stay fixed after disabling shuffle, got %+v", unshuffled.CurrentEntry)
+	}
+	if backend.preloadedURI != "" {
+		t.Fatalf("expected shuffle-off to clear stale preload, got %q", backend.preloadedURI)
+	}
+
+	session.preloadNext(context.Background())
+	if backend.preloadedURI != "file:///tmp/two.mp3" {
+		t.Fatalf("expected linear preload after disabling shuffle, got %q", backend.preloadedURI)
+	}
+}
+
+func TestSessionSetRepeatModeClearsStalePreload(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"rec-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", DurationMS: duration},
+			{RecordingID: "rec-2", Title: "Two", DurationMS: duration},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+
+	backend.duration = &duration
+	backend.position = 60000
+	session.refreshPosition()
+	session.preloadNext(context.Background())
+	if backend.preloadedURI != "file:///tmp/two.mp3" {
+		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloadedURI)
+	}
+
+	snapshot, err := session.SetRepeatMode(string(RepeatOne))
+	if err != nil {
+		t.Fatalf("set repeat mode: %v", err)
+	}
+	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-1" {
+		t.Fatalf("expected current track to remain rec-1, got %+v", snapshot.CurrentEntry)
+	}
+	if backend.preloadedURI != "" {
+		t.Fatalf("expected stale preload cleared on repeat change, got %q", backend.preloadedURI)
+	}
+	if snapshot.NextPreparation != nil {
+		t.Fatalf("expected repeat change to invalidate next preparation, got %+v", snapshot.NextPreparation)
+	}
+}
+
 func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
 	t.Parallel()
 
