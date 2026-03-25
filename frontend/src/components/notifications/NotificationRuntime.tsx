@@ -4,10 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { NotificationSnapshot } from "@/lib/api/models";
 import { NotificationCard } from "@/components/notifications/NotificationCard";
 import {
+  hasNotificationToastBeenShown,
   isNotificationActive,
   notificationDescription,
   notificationHeading,
+  notificationToastHistoryStorageKey,
   notificationTimeout,
+  recordNotificationToastShown,
+  readNotificationToastHistory,
+  serializeNotificationToastHistory,
   shouldToastNotification,
 } from "@/lib/notifications";
 import { useNotificationsStore } from "@/stores/notifications/store";
@@ -22,11 +27,20 @@ export function NotificationRuntime() {
   const notifications = useNotificationsStore((state) => state.notifications);
   const preferences = useNotificationsStore((state) => state.preferences);
   const [dismissedAt, setDismissedAt] = useState<Record<string, number>>({});
+  const [shownAt, setShownAt] = useState<Record<string, number>>(
+    loadNotificationToastHistory,
+  );
   const activeToastIdsRef = useRef<Set<string>>(new Set());
   const activeToastNotificationsRef = useRef<Map<string, NotificationSnapshot>>(
     new Map(),
   );
   const suppressDismissRef = useRef<Set<string>>(new Set());
+  const shownAtRef = useRef<Record<string, number>>(shownAt);
+
+  useEffect(() => {
+    shownAtRef.current = shownAt;
+    persistNotificationToastHistory(shownAt);
+  }, [shownAt]);
 
   const visibleNotifications = useMemo(
     () =>
@@ -45,6 +59,8 @@ export function NotificationRuntime() {
 
   useEffect(() => {
     const visibleIds = new Set(visibleNotifications.map((item) => item.id));
+    let nextShownAt = shownAtRef.current;
+    let shownAtChanged = false;
 
     for (const notification of visibleNotifications) {
       const payload = {
@@ -80,6 +96,17 @@ export function NotificationRuntime() {
         },
       } as const;
 
+      const markShown = () => {
+        const updatedHistory = recordNotificationToastShown(
+          nextShownAt,
+          notification,
+        );
+        if (updatedHistory !== nextShownAt) {
+          nextShownAt = updatedHistory;
+          shownAtChanged = true;
+        }
+      };
+
       if (activeToastIdsRef.current.has(notification.id)) {
         const previous = activeToastNotificationsRef.current.get(
           notification.id,
@@ -95,9 +122,14 @@ export function NotificationRuntime() {
         } else {
           notificationToastManager.update(notification.id, payload);
         }
+        markShown();
       } else {
+        if (hasNotificationToastBeenShown(notification, nextShownAt)) {
+          continue;
+        }
         notificationToastManager.add(payload);
         activeToastIdsRef.current.add(notification.id);
+        markShown();
       }
       activeToastNotificationsRef.current.set(notification.id, notification);
     }
@@ -110,14 +142,15 @@ export function NotificationRuntime() {
       activeToastIdsRef.current.delete(notification.id);
       activeToastNotificationsRef.current.delete(notification.id);
     }
+
+    if (shownAtChanged) {
+      shownAtRef.current = nextShownAt;
+      setShownAt(nextShownAt);
+    }
   }, [notifications, visibleNotifications]);
 
   return (
-    <Toast.Provider
-      limit={4}
-      timeout={0}
-      toastManager={notificationToastManager}
-    >
+    <Toast.Provider limit={4} toastManager={notificationToastManager}>
       <NotificationToastViewport />
     </Toast.Provider>
   );
@@ -135,12 +168,12 @@ function NotificationToastViewport() {
           }
           return (
             <Toast.Root
-              className="pointer-events-auto"
+              className="pointer-events-auto transition-[opacity,transform,height,margin] duration-200 ease-out data-[ending-style]:-translate-x-4 data-[ending-style]:opacity-0 data-[limited]:pointer-events-none data-[limited]:-mt-[calc(var(--toast-height,0px)+0.75rem)] data-[limited]:opacity-0 data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0"
               key={toast.id}
               swipeDirection={["right", "down"]}
               toast={toast}
             >
-              <Toast.Content>
+              <Toast.Content className="transition-[transform,opacity,filter] duration-200 ease-out data-[behind]:-translate-y-3 data-[behind]:scale-[0.97] data-[behind]:opacity-95 data-[expanded]:translate-y-0 data-[expanded]:scale-100 data-[expanded]:opacity-100">
                 <div className="relative">
                   <Toast.Title className="sr-only">{toast.title}</Toast.Title>
                   <Toast.Description className="sr-only">
@@ -168,4 +201,39 @@ function NotificationToastViewport() {
       </Toast.Viewport>
     </Toast.Portal>
   );
+}
+
+function loadNotificationToastHistory() {
+  const storage = getNotificationToastHistoryStorage();
+  return readNotificationToastHistory(
+    storage?.getItem(notificationToastHistoryStorageKey),
+  );
+}
+
+function persistNotificationToastHistory(history: Record<string, number>) {
+  const storage = getNotificationToastHistoryStorage();
+  if (!storage) {
+    return;
+  }
+
+  try {
+    storage.setItem(
+      notificationToastHistoryStorageKey,
+      serializeNotificationToastHistory(history),
+    );
+  } catch {
+    // Ignore storage failures; toast delivery still works for the current session.
+  }
+}
+
+function getNotificationToastHistoryStorage() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
 }

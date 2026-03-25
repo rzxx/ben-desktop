@@ -7,6 +7,11 @@ import type {
 
 export type NotificationFilter = "all" | "user" | "system";
 
+export const notificationToastHistoryStorageKey =
+  "ben.notifications.toast-history";
+
+const notificationToastHistoryLimit = 200;
+
 export function upsertNotificationSnapshots(
   current: NotificationSnapshot[],
   next: NotificationSnapshot,
@@ -228,6 +233,78 @@ export function relativeNotificationTime(value?: Date | string | null) {
   return date.toLocaleString();
 }
 
+export function notificationTimestamp(value?: Date | string | null) {
+  if (!value) {
+    return 0;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  const timestamp = date.getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+export function notificationVersion(notification: NotificationSnapshot) {
+  return Math.max(
+    notificationTimestamp(notification.updatedAt),
+    notificationTimestamp(notification.createdAt),
+  );
+}
+
+export function hasNotificationToastBeenShown(
+  notification: NotificationSnapshot,
+  history: Record<string, number>,
+) {
+  const version = notificationVersion(notification);
+  if (version === 0) {
+    return false;
+  }
+  return (history[notification.id] ?? 0) >= version;
+}
+
+export function recordNotificationToastShown(
+  history: Record<string, number>,
+  notification: NotificationSnapshot,
+) {
+  const version = notificationVersion(notification);
+  if (version === 0 || (history[notification.id] ?? 0) >= version) {
+    return history;
+  }
+  return trimNotificationToastHistory({
+    ...history,
+    [notification.id]: version,
+  });
+}
+
+export function readNotificationToastHistory(raw?: string | null) {
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    const history = Object.fromEntries(
+      Object.entries(parsed).flatMap(([id, value]) =>
+        typeof value === "number" && Number.isFinite(value) && value > 0
+          ? [[id, Math.trunc(value)]]
+          : [],
+      ),
+    );
+
+    return trimNotificationToastHistory(history);
+  } catch {
+    return {};
+  }
+}
+
+export function serializeNotificationToastHistory(
+  history: Record<string, number>,
+) {
+  return JSON.stringify(trimNotificationToastHistory(history));
+}
+
 function audienceLabel(audience?: NotificationAudience | string | null) {
   switch (audience) {
     case "user":
@@ -289,5 +366,21 @@ function notificationSubjectsEqual(
     left.title === right.title &&
     left.subtitle === right.subtitle &&
     left.artworkRef === right.artworkRef
+  );
+}
+
+function trimNotificationToastHistory(history: Record<string, number>) {
+  const entries = Object.entries(history).filter(
+    ([id, value]) => id && Number.isFinite(value) && value > 0,
+  );
+
+  if (entries.length <= notificationToastHistoryLimit) {
+    return Object.fromEntries(entries);
+  }
+
+  return Object.fromEntries(
+    entries
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, notificationToastHistoryLimit),
   );
 }

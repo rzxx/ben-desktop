@@ -2,8 +2,12 @@ import { describe, expect, test } from "vitest";
 import { Types } from "./api/models";
 import {
   applyNotificationSnapshotBatch,
+  hasNotificationToastBeenShown,
   matchesNotificationFilter,
   notificationHeading,
+  readNotificationToastHistory,
+  recordNotificationToastShown,
+  serializeNotificationToastHistory,
   shouldToastNotification,
   upsertNotificationSnapshots,
 } from "./notifications";
@@ -154,6 +158,49 @@ describe("shouldToastNotification", () => {
     );
     expect(shouldToastNotification(preloadSuccess, "everything")).toBe(false);
     expect(shouldToastNotification(preloadFailure, "important")).toBe(true);
+  });
+});
+
+describe("notification toast history", () => {
+  test("tracks the latest shown snapshot per notification id", () => {
+    const queued = makeNotification({
+      id: "scan-1",
+      updatedAt: "2026-03-21T10:00:00.000Z",
+    });
+    const completed = makeNotification({
+      id: "scan-1",
+      phase: Types.NotificationPhase.NotificationPhaseSuccess,
+      updatedAt: "2026-03-21T10:01:00.000Z",
+    });
+
+    const afterQueued = recordNotificationToastShown({}, queued);
+    const afterCompleted = recordNotificationToastShown(afterQueued, completed);
+
+    expect(hasNotificationToastBeenShown(queued, afterQueued)).toBe(true);
+    expect(hasNotificationToastBeenShown(completed, afterQueued)).toBe(false);
+    expect(hasNotificationToastBeenShown(completed, afterCompleted)).toBe(true);
+  });
+
+  test("ignores malformed persisted history", () => {
+    expect(readNotificationToastHistory("not-json")).toEqual({});
+    expect(
+      readNotificationToastHistory(
+        '{"scan-1":"bad","scan-2":0,"scan-3":1700000000000}',
+      ),
+    ).toEqual({
+      "scan-3": 1700000000000,
+    });
+  });
+
+  test("serializes a stable persisted history payload", () => {
+    const history = {
+      "scan-1": 1700000000000,
+      "scan-2": 1700000001000,
+    };
+
+    expect(
+      readNotificationToastHistory(serializeNotificationToastHistory(history)),
+    ).toEqual(history);
   });
 });
 
