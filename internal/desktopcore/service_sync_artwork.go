@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	apitypes "ben/desktop/api/types"
@@ -44,26 +43,11 @@ func (a *App) buildArtworkBlobResponse(ctx context.Context, req ArtworkBlobReque
 	}
 	resp.Auth = auth
 
-	var row ArtworkVariant
-	err = a.storage.WithContext(ctx).
-		Where("library_id = ? AND scope_type = ? AND scope_id = ? AND variant = ?",
-			local.LibraryID,
-			strings.TrimSpace(req.ScopeType),
-			strings.TrimSpace(req.ScopeID),
-			strings.TrimSpace(req.Variant),
-		).
-		Take(&row).Error
+	row, found, err := a.lookupArtworkBlobRecord(ctx, local.LibraryID, strings.TrimSpace(req.ScopeType), strings.TrimSpace(req.ScopeID), strings.TrimSpace(req.Variant))
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return resp, nil
-		}
 		return ArtworkBlobResponse{}, err
 	}
-
-	row.BlobID = strings.TrimSpace(row.BlobID)
-	row.MIME = strings.TrimSpace(row.MIME)
-	row.FileExt = normalizeArtworkFileExt(row.FileExt, row.MIME)
-	if row.BlobID == "" || row.FileExt == "" {
+	if !found || row.BlobID == "" || row.FileExt == "" {
 		return resp, nil
 	}
 	if want := strings.TrimSpace(req.BlobID); want != "" && want != row.BlobID {
@@ -155,54 +139,70 @@ func (a *SyncService) syncMissingArtworkBlobsFromPeer(ctx context.Context, local
 	return fetched, nil
 }
 
-func (a *SyncService) listMissingArtworkVariants(ctx context.Context, libraryID string) ([]ArtworkVariant, error) {
-	var rows []ArtworkVariant
+func (a *SyncService) listMissingArtworkVariants(ctx context.Context, libraryID string) ([]artworkBlobRecord, error) {
+	var variantRows []ArtworkVariant
 	if err := a.storage.WithContext(ctx).
 		Where("library_id = ?", strings.TrimSpace(libraryID)).
 		Order("updated_at DESC, scope_type ASC, scope_id ASC, variant ASC").
-		Find(&rows).Error; err != nil {
+		Find(&variantRows).Error; err != nil {
+		return nil, err
+	}
+	var coverRows []PlaylistCover
+	if err := a.storage.WithContext(ctx).
+		Where("library_id = ?", strings.TrimSpace(libraryID)).
+		Order("updated_at DESC, playlist_id ASC").
+		Find(&coverRows).Error; err != nil {
 		return nil, err
 	}
 
-	out := make([]ArtworkVariant, 0, len(rows))
-	seen := make(map[string]struct{}, len(rows))
-	for _, row := range rows {
-		row.BlobID = strings.TrimSpace(row.BlobID)
-		row.MIME = strings.TrimSpace(row.MIME)
-		row.FileExt = normalizeArtworkFileExt(row.FileExt, row.MIME)
-		if row.BlobID == "" || row.FileExt == "" {
-			continue
+	out := make([]artworkBlobRecord, 0, len(variantRows)+len(coverRows))
+	seen := make(map[string]struct{}, len(variantRows)+len(coverRows))
+	for _, row := range variantRows {
+		record := artworkBlobRecord{
+			ScopeType: strings.TrimSpace(row.ScopeType),
+			ScopeID:   strings.TrimSpace(row.ScopeID),
+			Variant:   strings.TrimSpace(row.Variant),
+			BlobID:    strings.TrimSpace(row.BlobID),
+			MIME:      strings.TrimSpace(row.MIME),
+			FileExt:   normalizeArtworkFileExt(row.FileExt, row.MIME),
+			UpdatedAt: row.UpdatedAt,
 		}
-		key := row.BlobID + "|" + row.FileExt
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		path, ok, err := a.App.blobs.ArtworkFilePath(row.BlobID, row.FileExt)
-		if err != nil {
+		if err := appendMissingArtworkBlobRecord(a.App, &out, seen, record); err != nil {
 			return nil, err
 		}
-		if ok {
-			continue
-		}
-		if strings.TrimSpace(path) == "" {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, row)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
-			if out[i].ScopeType != out[j].ScopeType {
-				return out[i].ScopeType < out[j].ScopeType
-			}
-			if out[i].ScopeID != out[j].ScopeID {
-				return out[i].ScopeID < out[j].ScopeID
-			}
-			return out[i].Variant < out[j].Variant
+	for _, row := range coverRows {
+		if err := appendMissingArtworkBlobRecord(a.App, &out, seen, playlistCoverBlobRecordFromRow(row)); err != nil {
+			return nil, err
 		}
-		return out[i].UpdatedAt.After(out[j].UpdatedAt)
-	})
-	return out, nil
+	}
+	return sortedArtworkBlobRecords(out), nil
+}
+
+func appendMissingArtworkBlobRecord(app *App, out *[]artworkBlobRecord, seen map[string]struct{}, row artworkBlobRecord) error {
+	row.BlobID = strings.TrimSpace(row.BlobID)
+	row.MIME = strings.TrimSpace(row.MIME)
+	row.FileExt = normalizeArtworkFileExt(row.FileExt, row.MIME)
+	if row.BlobID == "" || row.FileExt == "" {
+		return nil
+	}
+	key := row.BlobID + "|" + row.FileExt
+	if _, ok := seen[key]; ok {
+		return nil
+	}
+	path, ok, err := app.blobs.ArtworkFilePath(row.BlobID, row.FileExt)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	seen[key] = struct{}{}
+	*out = append(*out, row)
+	return nil
 }
 
 func (a *SyncService) storeFetchedArtworkBlob(transfer ArtworkBlobTransfer) error {
@@ -229,4 +229,38 @@ func (a *SyncService) storeFetchedArtworkBlob(transfer ArtworkBlobTransfer) erro
 		return fmt.Errorf("remote artwork blob hash mismatch")
 	}
 	return nil
+}
+
+func (a *App) lookupArtworkBlobRecord(ctx context.Context, libraryID, scopeType, scopeID, variant string) (artworkBlobRecord, bool, error) {
+	scopeType = strings.TrimSpace(scopeType)
+	scopeID = strings.TrimSpace(scopeID)
+	variant = strings.TrimSpace(variant)
+
+	if scopeType == "playlist" && (variant == "" || variant == playlistCoverVariantCanonical) {
+		if row, ok, err := a.loadPlaylistCoverRow(ctx, libraryID, scopeID); err != nil {
+			return artworkBlobRecord{}, false, err
+		} else if ok {
+			return playlistCoverBlobRecordFromRow(row), true, nil
+		}
+	}
+
+	var row ArtworkVariant
+	err := a.storage.WithContext(ctx).
+		Where("library_id = ? AND scope_type = ? AND scope_id = ? AND variant = ?", libraryID, scopeType, scopeID, variant).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return artworkBlobRecord{}, false, nil
+		}
+		return artworkBlobRecord{}, false, err
+	}
+	return artworkBlobRecord{
+		ScopeType: strings.TrimSpace(row.ScopeType),
+		ScopeID:   strings.TrimSpace(row.ScopeID),
+		Variant:   strings.TrimSpace(row.Variant),
+		BlobID:    strings.TrimSpace(row.BlobID),
+		MIME:      strings.TrimSpace(row.MIME),
+		FileExt:   normalizeArtworkFileExt(row.FileExt, row.MIME),
+		UpdatedAt: row.UpdatedAt,
+	}, true, nil
 }

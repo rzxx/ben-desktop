@@ -117,3 +117,12 @@ func deleteLocalArtworkSourceScopeTx(tx *gorm.DB, libraryID, scopeType, scopeID 
 		strings.TrimSpace(libraryID), strings.TrimSpace(scopeType), strings.TrimSpace(scopeID)).
 		Delete(&LocalArtworkSourceRef{}).Error
 }
+
+func deleteLocalArtworkSourceScopeVariantTx(tx *gorm.DB, libraryID, scopeType, scopeID, variant string) error {
+	return tx.Where("library_id = ? AND scope_type = ? AND scope_id = ? AND variant = ?",
+		strings.TrimSpace(libraryID),
+		strings.TrimSpace(scopeType),
+		strings.TrimSpace(scopeID),
+		strings.TrimSpace(variant)).
+		Delete(&LocalArtworkSourceRef{}).Error
+}

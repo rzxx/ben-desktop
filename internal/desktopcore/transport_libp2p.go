@@ -20,7 +20,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
+	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	tcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
+	websocket "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -30,6 +33,11 @@ const (
 	desktopPlaybackProtocolID   = protocol.ID("/ben/desktop/playback/1.0.0")
 	desktopArtworkProtocolID    = protocol.ID("/ben/desktop/artwork/1.0.0")
 	desktopMembershipProtocolID = protocol.ID("/ben/desktop/membership-refresh/1.0.0")
+	memberSyncProtocolID        = protocol.ID("/ben/member/sync/1.0.0")
+	memberCheckpointProtocolID  = protocol.ID("/ben/member/checkpoint/1.0.0")
+	memberPlaybackProtocolID    = protocol.ID("/ben/member/playback/1.0.0")
+	memberArtworkProtocolID     = protocol.ID("/ben/member/artwork/1.0.0")
+	memberMembershipProtocolID  = protocol.ID("/ben/member/membership-refresh/1.0.0")
 	transportStreamTimeout      = 20 * time.Second
 	transportConnectTimeout     = 10 * time.Second
 )
@@ -58,6 +66,11 @@ type wireSyncResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type wireMemberSyncResponse struct {
+	MemberSyncResponse
+	Error string `json:"error,omitempty"`
+}
+
 func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
 	local.LibraryID = strings.TrimSpace(local.LibraryID)
 	local.DeviceID = strings.TrimSpace(local.DeviceID)
@@ -76,11 +89,18 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(
 			"/ip4/0.0.0.0/tcp/0",
+			"/ip4/0.0.0.0/tcp/0/ws",
 			"/ip4/127.0.0.1/tcp/0",
+			"/ip4/127.0.0.1/tcp/0/ws",
 			"/ip6/::/tcp/0",
+			"/ip6/::/tcp/0/ws",
 			"/ip6/::1/tcp/0",
+			"/ip6/::1/tcp/0/ws",
 		),
 		libp2p.Transport(tcp.NewTCPTransport),
+		libp2p.Transport(websocket.New),
+		libp2p.Security(noise.ID, noise.New),
+		libp2p.Muxer(yamux.ID, yamux.DefaultTransport),
 		libp2p.NATPortMap(),
 		libp2p.EnableNATService(),
 		libp2p.EnableHolePunching(),
@@ -102,9 +122,17 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 	hostNode.SetStreamHandler(desktopPlaybackProtocolID, transport.handlePlaybackStream)
 	hostNode.SetStreamHandler(desktopArtworkProtocolID, transport.handleArtworkStream)
 	hostNode.SetStreamHandler(desktopMembershipProtocolID, transport.handleMembershipRefreshStream)
+	hostNode.SetStreamHandler(memberSyncProtocolID, transport.handleMemberSyncStream)
+	hostNode.SetStreamHandler(memberCheckpointProtocolID, transport.handleMemberCheckpointStream)
+	hostNode.SetStreamHandler(memberPlaybackProtocolID, transport.handlePlaybackStream)
+	hostNode.SetStreamHandler(memberArtworkProtocolID, transport.handleArtworkStream)
+	hostNode.SetStreamHandler(memberMembershipProtocolID, transport.handleMembershipRefreshStream)
 	hostNode.SetStreamHandler(desktopInviteJoinStartProtocolID, transport.handleInviteJoinStartStream)
 	hostNode.SetStreamHandler(desktopInviteJoinStatusProtocolID, transport.handleInviteJoinStatusStream)
 	hostNode.SetStreamHandler(desktopInviteJoinCancelProtocolID, transport.handleInviteJoinCancelStream)
+	hostNode.SetStreamHandler(memberInviteJoinStartProtocolID, transport.handleInviteJoinStartStream)
+	hostNode.SetStreamHandler(memberInviteJoinStatusProtocolID, transport.handleInviteJoinStatusStream)
+	hostNode.SetStreamHandler(memberInviteJoinCancelProtocolID, transport.handleInviteJoinCancelStream)
 	hostNode.Network().Notify(&desktopNetworkNotifee{transport: transport})
 
 	service := mdns.NewMdnsService(hostNode, serviceTagForLibrary(local.LibraryID), &desktopMDNSNotifee{
@@ -416,6 +444,68 @@ func (t *libp2pSyncTransport) handleCheckpointStream(stream network.Stream) {
 	}
 }
 
+func (t *libp2pSyncTransport) handleMemberSyncStream(stream network.Stream) {
+	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
+	defer cancel()
+
+	var req MemberSyncRequest
+	if err := json.NewDecoder(stream).Decode(&req); err != nil {
+		t.writeMemberSyncError(stream, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if strings.TrimSpace(req.LibraryID) != strings.TrimSpace(t.libraryID) {
+		t.writeMemberSyncError(stream, "library mismatch")
+		return
+	}
+	if _, err := t.app.verifyTransportPeerAuth(ctx, t.libraryID, req.DeviceID, req.PeerID, stream.Conn().RemotePeer().String(), req.Auth); err != nil {
+		t.writeMemberSyncError(stream, err.Error())
+		return
+	}
+
+	resp, err := t.app.memberSync.buildSyncResponse(ctx, req)
+	if err != nil {
+		t.writeMemberSyncError(stream, err.Error())
+		return
+	}
+	if err := json.NewEncoder(stream).Encode(wireMemberSyncResponse{MemberSyncResponse: resp}); err != nil {
+		t.app.logf("desktopcore: write member sync response failed: %v", err)
+	}
+}
+
+func (t *libp2pSyncTransport) handleMemberCheckpointStream(stream network.Stream) {
+	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
+	defer cancel()
+
+	var req MemberCheckpointFetchRequest
+	if err := json.NewDecoder(stream).Decode(&req); err != nil {
+		t.writeMemberCheckpointError(stream, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if strings.TrimSpace(req.LibraryID) != strings.TrimSpace(t.libraryID) {
+		t.writeMemberCheckpointError(stream, "library mismatch")
+		return
+	}
+	if _, err := t.app.verifyTransportPeerAuth(ctx, t.libraryID, req.Auth.Cert.DeviceID, req.Auth.Cert.PeerID, stream.Conn().RemotePeer().String(), req.Auth); err != nil {
+		t.writeMemberCheckpointError(stream, err.Error())
+		return
+	}
+
+	resp, err := t.app.memberSync.buildCheckpointFetchResponse(ctx, req)
+	if err != nil {
+		t.writeMemberCheckpointError(stream, err.Error())
+		return
+	}
+	if err := json.NewEncoder(stream).Encode(resp); err != nil {
+		t.app.logf("desktopcore: write member checkpoint response failed: %v", err)
+	}
+}
+
 func (t *libp2pSyncTransport) handlePlaybackStream(stream network.Stream) {
 	defer stream.Close()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
@@ -583,6 +673,14 @@ func (t *libp2pSyncTransport) writeSyncError(stream network.Stream, message stri
 
 func (t *libp2pSyncTransport) writeCheckpointError(stream network.Stream, message string) {
 	_ = json.NewEncoder(stream).Encode(CheckpointFetchResponse{Error: strings.TrimSpace(message)})
+}
+
+func (t *libp2pSyncTransport) writeMemberSyncError(stream network.Stream, message string) {
+	_ = json.NewEncoder(stream).Encode(wireMemberSyncResponse{Error: strings.TrimSpace(message)})
+}
+
+func (t *libp2pSyncTransport) writeMemberCheckpointError(stream network.Stream, message string) {
+	_ = json.NewEncoder(stream).Encode(MemberCheckpointFetchResponse{Error: strings.TrimSpace(message)})
 }
 
 func (t *libp2pSyncTransport) writePlaybackError(stream network.Stream, message string) {

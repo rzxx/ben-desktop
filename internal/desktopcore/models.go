@@ -324,6 +324,19 @@ type ArtworkVariant struct {
 	UpdatedAt       time.Time `gorm:"not null"`
 }
 
+type PlaylistCover struct {
+	LibraryID    string    `gorm:"primaryKey;size:64;index:idx_playlist_cover_library,priority:1"`
+	PlaylistID   string    `gorm:"primaryKey;size:64;index:idx_playlist_cover_library,priority:2"`
+	BlobID       string    `gorm:"size:128;not null"`
+	MIME         string    `gorm:"size:128;not null"`
+	FileExt      string    `gorm:"size:16;not null;default:''"`
+	W            int       `gorm:"not null"`
+	H            int       `gorm:"not null"`
+	Bytes        int64     `gorm:"not null"`
+	ChosenSource string    `gorm:"size:64;not null"`
+	UpdatedAt    time.Time `gorm:"not null"`
+}
+
 type Playlist struct {
 	LibraryID  string     `gorm:"primaryKey;size:64"`
 	PlaylistID string     `gorm:"primaryKey;size:64"`
@@ -412,4 +425,57 @@ type DeviceCheckpointAck struct {
 	CheckpointID string    `gorm:"size:64;not null;index"`
 	Source       string    `gorm:"size:32;not null"`
 	AckedAt      time.Time `gorm:"not null;index"`
+}
+
+type MemberProjectionMeta struct {
+	LibraryID      string    `gorm:"primaryKey;size:64;index:idx_member_projection_meta,priority:1"`
+	TargetDeviceID string    `gorm:"primaryKey;size:64;index:idx_member_projection_meta,priority:2"`
+	LastVersion    int64     `gorm:"not null;default:0"`
+	UpdatedAt      time.Time `gorm:"not null;index"`
+}
+
+type MemberProjectionState struct {
+	LibraryID      string    `gorm:"primaryKey;size:64;index:idx_member_projection_state,priority:1"`
+	TargetDeviceID string    `gorm:"primaryKey;size:64;index:idx_member_projection_state,priority:2"`
+	EntityType     string    `gorm:"primaryKey;size:64;index:idx_member_projection_state,priority:3"`
+	EntityID       string    `gorm:"primaryKey;size:256;index:idx_member_projection_state,priority:4"`
+	PayloadJSON    string    `gorm:"type:TEXT;not null"`
+	ContentHash    string    `gorm:"size:128;not null"`
+	UpdatedAt      time.Time `gorm:"not null;index"`
+}
+
+type MemberProjectionOp struct {
+	LibraryID      string `gorm:"primaryKey;size:64;uniqueIndex:idx_member_projection_op_version,priority:1;index"`
+	TargetDeviceID string `gorm:"primaryKey;size:64;uniqueIndex:idx_member_projection_op_version,priority:2;index"`
+	Version        int64  `gorm:"primaryKey;uniqueIndex:idx_member_projection_op_version,priority:3"`
+	TSNS           int64  `gorm:"not null;index"`
+	EntityType     string `gorm:"size:64;not null;index"`
+	EntityID       string `gorm:"size:256;not null;index"`
+	OpKind         string `gorm:"size:32;not null"`
+	PayloadJSON    string `gorm:"type:TEXT;not null"`
+	ContentHash    string `gorm:"size:128;not null"`
+}
+
+type MemberCheckpoint struct {
+	LibraryID      string     `gorm:"primaryKey;size:64;index:idx_member_checkpoint_published,priority:1"`
+	TargetDeviceID string     `gorm:"primaryKey;size:64;index:idx_member_checkpoint_published,priority:2"`
+	CheckpointID   string     `gorm:"primaryKey;size:64"`
+	BaseVersion    int64      `gorm:"not null;default:0"`
+	ChunkCount     int        `gorm:"not null"`
+	EntryCount     int        `gorm:"not null"`
+	ContentHash    string     `gorm:"size:128;not null"`
+	Status         string     `gorm:"size:32;not null;index"`
+	CreatedAt      time.Time  `gorm:"not null;index"`
+	UpdatedAt      time.Time  `gorm:"not null;index"`
+	PublishedAt    *time.Time `gorm:"index:idx_member_checkpoint_published,priority:3,sort:desc"`
+}
+
+type MemberCheckpointChunk struct {
+	LibraryID      string `gorm:"primaryKey;size:64"`
+	TargetDeviceID string `gorm:"primaryKey;size:64"`
+	CheckpointID   string `gorm:"primaryKey;size:64"`
+	ChunkIndex     int    `gorm:"primaryKey"`
+	EntryCount     int    `gorm:"not null"`
+	ContentHash    string `gorm:"size:128;not null"`
+	PayloadJSON    string `gorm:"type:TEXT;not null"`
 }

@@ -356,11 +356,11 @@ func TestPlaylistCoverLifecycle(t *testing.T) {
 	if !cover.HasCustomCover {
 		t.Fatalf("expected uploaded cover to be marked custom")
 	}
-	if cover.Thumb.Variant != defaultArtworkVariant320 || cover.Thumb.BlobID == "" {
+	if cover.Thumb.Variant != playlistCoverVariantCanonical || cover.Thumb.BlobID == "" {
 		t.Fatalf("unexpected cover thumb: %+v", cover.Thumb)
 	}
-	if len(cover.Variants) != 3 {
-		t.Fatalf("cover variants = %d, want 3", len(cover.Variants))
+	if len(cover.Variants) != 0 {
+		t.Fatalf("cover variants = %d, want 0", len(cover.Variants))
 	}
 
 	got, found, err := app.GetPlaylistCover(ctx, playlist.PlaylistID)
@@ -381,13 +381,13 @@ func TestPlaylistCoverLifecycle(t *testing.T) {
 
 	var artworkCount int64
 	if err := app.db.WithContext(ctx).
-		Model(&ArtworkVariant{}).
-		Where("library_id = ? AND scope_type = ? AND scope_id = ?", library.LibraryID, "playlist", playlist.PlaylistID).
+		Model(&PlaylistCover{}).
+		Where("library_id = ? AND playlist_id = ?", library.LibraryID, playlist.PlaylistID).
 		Count(&artworkCount).Error; err != nil {
 		t.Fatalf("count playlist artwork: %v", err)
 	}
-	if artworkCount != 3 {
-		t.Fatalf("playlist artwork count = %d, want 3", artworkCount)
+	if artworkCount != 1 {
+		t.Fatalf("playlist cover count = %d, want 1", artworkCount)
 	}
 
 	if !waitForPlaylistEvent(events, playlist.PlaylistID) {
@@ -415,13 +415,13 @@ func TestPlaylistCoverLifecycle(t *testing.T) {
 	}
 
 	if err := app.db.WithContext(ctx).
-		Model(&ArtworkVariant{}).
-		Where("library_id = ? AND scope_type = ? AND scope_id = ?", library.LibraryID, "playlist", playlist.PlaylistID).
+		Model(&PlaylistCover{}).
+		Where("library_id = ? AND playlist_id = ?", library.LibraryID, playlist.PlaylistID).
 		Count(&artworkCount).Error; err != nil {
 		t.Fatalf("count cleared playlist artwork: %v", err)
 	}
 	if artworkCount != 0 {
-		t.Fatalf("cleared playlist artwork count = %d, want 0", artworkCount)
+		t.Fatalf("cleared playlist cover count = %d, want 0", artworkCount)
 	}
 
 	if !waitForPlaylistEvent(events, playlist.PlaylistID) {

@@ -1585,22 +1585,19 @@ func TestConnectPeerAppliesPlaylistArtworkDeletion(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	if err := owner.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return owner.upsertArtworkVariantTx(tx, ownerLocal, ArtworkVariant{
-			ScopeType:       "playlist",
-			ScopeID:         playlist.PlaylistID,
-			Variant:         defaultArtworkVariant320,
-			BlobID:          testBlobID("9"),
-			MIME:            "image/webp",
-			FileExt:         ".webp",
-			W:               320,
-			H:               320,
-			Bytes:           32,
-			ChosenSource:    "manual",
-			ChosenSourceRef: "test",
-			UpdatedAt:       now,
-		})
+		return owner.upsertPlaylistCoverTx(tx, ownerLocal, PlaylistCover{
+			PlaylistID:   playlist.PlaylistID,
+			BlobID:       testBlobID("9"),
+			MIME:         "image/jpeg",
+			FileExt:      ".jpg",
+			W:            1024,
+			H:            1024,
+			Bytes:        32,
+			ChosenSource: "manual",
+			UpdatedAt:    now,
+		}, "test")
 	}); err != nil {
-		t.Fatalf("seed playlist artwork: %v", err)
+		t.Fatalf("seed playlist cover: %v", err)
 	}
 	if err := owner.DeletePlaylist(ctx, playlist.PlaylistID); err != nil {
 		t.Fatalf("delete playlist: %v", err)
@@ -1627,13 +1624,13 @@ func TestConnectPeerAppliesPlaylistArtworkDeletion(t *testing.T) {
 
 	var artworkCount int64
 	if err := joiner.db.WithContext(ctx).
-		Model(&ArtworkVariant{}).
-		Where("library_id = ? AND scope_type = ? AND scope_id = ?", library.LibraryID, "playlist", playlist.PlaylistID).
+		Model(&PlaylistCover{}).
+		Where("library_id = ? AND playlist_id = ?", library.LibraryID, playlist.PlaylistID).
 		Count(&artworkCount).Error; err != nil {
-		t.Fatalf("count synced playlist artwork: %v", err)
+		t.Fatalf("count synced playlist covers: %v", err)
 	}
 	if artworkCount != 0 {
-		t.Fatalf("playlist artwork count = %d, want 0", artworkCount)
+		t.Fatalf("playlist cover count = %d, want 0", artworkCount)
 	}
 }
 

@@ -185,3 +185,69 @@ func (a *App) deleteArtworkScopeTx(tx *gorm.DB, local apitypes.LocalContext, sco
 	}
 	return nil
 }
+
+func (a *App) upsertPlaylistCoverTx(tx *gorm.DB, local apitypes.LocalContext, row PlaylistCover, chosenSourceRef string) error {
+	now := time.Now().UTC()
+	row.LibraryID = strings.TrimSpace(local.LibraryID)
+	row.PlaylistID = strings.TrimSpace(row.PlaylistID)
+	row.BlobID = strings.TrimSpace(row.BlobID)
+	row.MIME = strings.TrimSpace(row.MIME)
+	row.FileExt = normalizeArtworkFileExt(row.FileExt, row.MIME)
+	row.ChosenSource = strings.TrimSpace(row.ChosenSource)
+	chosenSourceRef = strings.TrimSpace(chosenSourceRef)
+	if row.UpdatedAt.IsZero() {
+		row.UpdatedAt = now
+	}
+	if err := upsertLocalArtworkSourceRefTx(tx, row.LibraryID, "playlist", row.PlaylistID, playlistCoverVariantCanonical, row.ChosenSource, chosenSourceRef, row.UpdatedAt); err != nil {
+		return err
+	}
+	if err := tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "library_id"},
+			{Name: "playlist_id"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{"blob_id", "mime", "file_ext", "w", "h", "bytes", "chosen_source", "updated_at"}),
+	}).Create(&row).Error; err != nil {
+		return err
+	}
+	_, err := a.appendLocalOplogTx(tx, local, entityTypePlaylistCover, playlistCoverEntityID(row.PlaylistID), "upsert", playlistCoverOplogPayload{
+		PlaylistID:   row.PlaylistID,
+		BlobID:       row.BlobID,
+		MIME:         row.MIME,
+		FileExt:      row.FileExt,
+		W:            row.W,
+		H:            row.H,
+		Bytes:        row.Bytes,
+		ChosenSource: row.ChosenSource,
+		UpdatedAtNS:  row.UpdatedAt.UTC().UnixNano(),
+	})
+	return err
+}
+
+func (a *App) deletePlaylistCoverTx(tx *gorm.DB, local apitypes.LocalContext, playlistID string) error {
+	playlistID = strings.TrimSpace(playlistID)
+	if playlistID == "" {
+		return nil
+	}
+	var row PlaylistCover
+	err := tx.Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).Take(&row).Error
+	if err == gorm.ErrRecordNotFound {
+		if err := deleteLocalArtworkSourceScopeVariantTx(tx, local.LibraryID, "playlist", playlistID, playlistCoverVariantCanonical); err != nil {
+			return err
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := tx.Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).Delete(&PlaylistCover{}).Error; err != nil {
+		return err
+	}
+	if err := deleteLocalArtworkSourceScopeVariantTx(tx, local.LibraryID, "playlist", playlistID, playlistCoverVariantCanonical); err != nil {
+		return err
+	}
+	_, err = a.appendLocalOplogTx(tx, local, entityTypePlaylistCover, playlistCoverEntityID(playlistID), "delete", playlistCoverDeleteOplogPayload{
+		PlaylistID: playlistID,
+	})
+	return err
+}

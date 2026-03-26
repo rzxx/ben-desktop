@@ -105,6 +105,7 @@ func autoMigrate(db *gorm.DB) error {
 		&OptimizedAssetModel{},
 		&DeviceAssetCacheModel{},
 		&ArtworkVariant{},
+		&PlaylistCover{},
 		&Playlist{},
 		&PlaylistItem{},
 		&OplogEntry{},
@@ -113,6 +114,11 @@ func autoMigrate(db *gorm.DB) error {
 		&LibraryCheckpoint{},
 		&LibraryCheckpointChunk{},
 		&DeviceCheckpointAck{},
+		&MemberProjectionMeta{},
+		&MemberProjectionState{},
+		&MemberProjectionOp{},
+		&MemberCheckpoint{},
+		&MemberCheckpointChunk{},
 	)
 }
 
@@ -242,6 +248,7 @@ func (a *App) runContextIdentityMigration(ctx context.Context) error {
 			&OfflinePin{},
 			&DeviceVariantPreference{},
 			&ArtworkVariant{},
+			&PlaylistCover{},
 			&LocalArtworkSourceRef{},
 			&AlbumTrack{},
 			&AlbumVariantModel{},

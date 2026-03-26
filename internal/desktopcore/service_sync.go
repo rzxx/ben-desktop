@@ -1068,6 +1068,7 @@ func clearCheckpointManagedStateTx(tx *gorm.DB, libraryID string) error {
 		&OptimizedAssetModel{},
 		&DeviceAssetCacheModel{},
 		&ArtworkVariant{},
+		&PlaylistCover{},
 		&PlaylistItem{},
 		&Playlist{},
 		&DeviceClock{},

@@ -1584,15 +1584,7 @@ func preferredInvitePeerAddr(listenAddrs []string) string {
 		if addr == "" {
 			continue
 		}
-		score := 0
-		switch {
-		case strings.Contains(addr, "/ip4/0.0.0.0/") || strings.Contains(addr, "/ip6/::/"):
-			score = 0
-		case strings.Contains(addr, "/ip4/127.0.0.1/") || strings.Contains(addr, "/ip6/::1/"):
-			score = 1
-		default:
-			score = 2
-		}
+		score := listenAddrPriority(addr)
 		if score > bestScore {
 			best = addr
 			bestScore = score

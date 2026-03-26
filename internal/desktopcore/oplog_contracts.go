@@ -13,6 +13,7 @@ const (
 	entityTypeOptimizedAsset          = "optimized_asset"
 	entityTypeDeviceAssetCache        = "device_asset_cache"
 	entityTypeArtworkVariant          = "artwork_variant"
+	entityTypePlaylistCover           = "playlist_cover"
 )
 
 type libraryOplogPayload struct {
@@ -105,6 +106,22 @@ type artworkVariantDeleteOplogPayload struct {
 	Variant   string `json:"variant"`
 }
 
+type playlistCoverOplogPayload struct {
+	PlaylistID   string `json:"playlistId"`
+	BlobID       string `json:"blobId"`
+	MIME         string `json:"mime"`
+	FileExt      string `json:"fileExt"`
+	W            int    `json:"w"`
+	H            int    `json:"h"`
+	Bytes        int64  `json:"bytes"`
+	ChosenSource string `json:"chosenSource"`
+	UpdatedAtNS  int64  `json:"updatedAtNs"`
+}
+
+type playlistCoverDeleteOplogPayload struct {
+	PlaylistID string `json:"playlistId"`
+}
+
 func scanRootsEntityID(deviceID string) string {
 	return strings.TrimSpace(deviceID)
 }
@@ -174,4 +191,8 @@ func artworkVariantEntityID(scopeType, scopeID, variant string) string {
 		return scopeType + ":" + variant
 	}
 	return scopeType + ":" + scopeID + ":" + variant
+}
+
+func playlistCoverEntityID(playlistID string) string {
+	return strings.TrimSpace(playlistID)
 }

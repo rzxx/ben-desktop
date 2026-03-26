@@ -14,7 +14,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
+	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	tcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
+	websocket "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/crypto/nacl/box"
 	"gorm.io/gorm"
@@ -24,6 +27,9 @@ const (
 	desktopInviteJoinStartProtocolID  = protocol.ID("/ben/desktop/invite/start/1.0.0")
 	desktopInviteJoinStatusProtocolID = protocol.ID("/ben/desktop/invite/status/1.0.0")
 	desktopInviteJoinCancelProtocolID = protocol.ID("/ben/desktop/invite/cancel/1.0.0")
+	memberInviteJoinStartProtocolID   = protocol.ID("/ben/member/invite/start/1.0.0")
+	memberInviteJoinStatusProtocolID  = protocol.ID("/ben/member/invite/status/1.0.0")
+	memberInviteJoinCancelProtocolID  = protocol.ID("/ben/member/invite/cancel/1.0.0")
 
 	defaultInviteDiscoverTimeout = 10 * time.Second
 )
@@ -240,11 +246,18 @@ func (a *App) openInviteClientTransport(serviceTag string) (*inviteClientTranspo
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(
 			"/ip4/0.0.0.0/tcp/0",
+			"/ip4/0.0.0.0/tcp/0/ws",
 			"/ip4/127.0.0.1/tcp/0",
+			"/ip4/127.0.0.1/tcp/0/ws",
 			"/ip6/::/tcp/0",
+			"/ip6/::/tcp/0/ws",
 			"/ip6/::1/tcp/0",
+			"/ip6/::1/tcp/0/ws",
 		),
 		libp2p.Transport(tcp.NewTCPTransport),
+		libp2p.Transport(websocket.New),
+		libp2p.Security(noise.ID, noise.New),
+		libp2p.Muxer(yamux.ID, yamux.DefaultTransport),
 		libp2p.NATPortMap(),
 		libp2p.EnableNATService(),
 		libp2p.EnableHolePunching(),

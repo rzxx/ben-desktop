@@ -566,10 +566,10 @@ SELECT
 	p.created_by,
 	p.updated_at,
 	COUNT(DISTINCT pi.item_id) AS item_count,
-	MAX(CASE WHEN aw.scope_id IS NULL THEN 0 ELSE 1 END) AS has_custom_cover
+	MAX(CASE WHEN pc.playlist_id IS NULL THEN 0 ELSE 1 END) AS has_custom_cover
 FROM playlists p
 LEFT JOIN playlist_items pi ON pi.library_id = p.library_id AND pi.playlist_id = p.playlist_id AND pi.deleted_at IS NULL
-LEFT JOIN artwork_variants aw ON aw.library_id = p.library_id AND aw.scope_type = 'playlist' AND aw.scope_id = p.playlist_id
+LEFT JOIN playlist_covers pc ON pc.library_id = p.library_id AND pc.playlist_id = p.playlist_id
 WHERE p.library_id = ? AND p.deleted_at IS NULL
 GROUP BY p.playlist_id, p.name, p.kind, p.created_by, p.updated_at
 ORDER BY CASE WHEN p.kind = ? THEN 0 ELSE 1 END ASC, LOWER(p.name) ASC, p.playlist_id ASC`
@@ -1719,10 +1719,11 @@ func (s *CatalogService) loadAlbumArtworkRef(ctx context.Context, libraryID, alb
 }
 
 func (s *CatalogService) loadPlaylistArtworkRef(ctx context.Context, libraryID, playlistID string) (apitypes.ArtworkRef, bool, error) {
-	ref, err := s.loadArtworkRef(ctx, libraryID, "playlist", playlistID, defaultArtworkVariant320)
-	if err != nil {
+	row, ok, err := s.app.loadPlaylistCoverRow(ctx, libraryID, playlistID)
+	if err != nil || !ok {
 		return apitypes.ArtworkRef{}, false, err
 	}
+	ref := playlistCoverRefFromRow(row)
 	return ref, strings.TrimSpace(ref.BlobID) != "", nil
 }
 

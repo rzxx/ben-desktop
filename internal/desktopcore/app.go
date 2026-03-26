@@ -18,6 +18,7 @@ type App struct {
 	identity   *IdentityMembershipService
 	operator   *OperatorService
 	sync       *SyncService
+	memberSync *MemberSyncService
 	checkpoint *CheckpointService
 	scanner    *ScannerService
 
@@ -89,6 +90,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	app.identity = newIdentityMembershipService(app)
 	app.operator = newOperatorService(app)
 	app.sync = newSyncService(app)
+	app.memberSync = newMemberSyncService(app)
 	app.checkpoint = newCheckpointService(app)
 	app.scanner = newScannerService(app)
 	app.library = &LibraryService{app: app}
@@ -110,6 +112,9 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	}
 	if err := app.runContextIdentityMigration(ctx); err != nil {
 		return nil, fmt.Errorf("run context identity migration: %w", err)
+	}
+	if err := app.runPlaylistCoverMigration(ctx); err != nil {
+		return nil, fmt.Errorf("run playlist cover migration: %w", err)
 	}
 	if err := app.syncActiveRuntimeServices(ctx); err != nil {
 		return nil, fmt.Errorf("configure active runtime services: %w", err)

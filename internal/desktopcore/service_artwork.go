@@ -21,6 +21,12 @@ import (
 
 var ErrNoArtworkFound = errors.New("no cover artwork found")
 
+const (
+	playlistCoverMaxBytes   = int64(20 * 1024 * 1024)
+	playlistCoverMaxDim     = 8192
+	playlistCoverRenderSize = 1024
+)
+
 type ArtworkVariantSpec struct {
 	Name   string
 	Size   int
@@ -41,6 +47,16 @@ type ArtworkBuildResult struct {
 	SourceKind string
 	SourceRef  string
 	Variants   []GeneratedArtworkVariant
+}
+
+type PlaylistCoverBuildResult struct {
+	SourceKind string
+	SourceRef  string
+	MIME       string
+	FileExt    string
+	Bytes      []byte
+	W          int
+	H          int
 }
 
 type ArtworkSourceCandidate struct {
@@ -67,6 +83,10 @@ type ArtworkBuilder interface {
 type artworkEvaluatingBuilder interface {
 	EvaluateForAudio(ctx context.Context, audioPath string) ([]ArtworkSourceCandidate, error)
 	BuildFromSource(ctx context.Context, source ArtworkSourceCandidate) (ArtworkBuildResult, error)
+}
+
+type playlistCoverBuildingBuilder interface {
+	BuildCanonicalFromSource(ctx context.Context, source ArtworkSourceCandidate) (PlaylistCoverBuildResult, error)
 }
 
 type ffmpegArtworkBuilder struct {
@@ -226,6 +246,31 @@ func (b *ffmpegArtworkBuilder) BuildFromSource(ctx context.Context, source Artwo
 		SourceKind: source.SourceKind,
 		SourceRef:  source.SourceRef,
 		Variants:   variants,
+	}, nil
+}
+
+func (b *ffmpegArtworkBuilder) BuildCanonicalFromSource(ctx context.Context, source ArtworkSourceCandidate) (PlaylistCoverBuildResult, error) {
+	if strings.TrimSpace(source.ImagePath) == "" {
+		return PlaylistCoverBuildResult{}, ErrNoArtworkFound
+	}
+	spec := ArtworkVariantSpec{
+		Name:   playlistCoverVariantCanonical,
+		Size:   playlistCoverRenderSize,
+		Format: "jpg",
+		MIME:   "image/jpeg",
+	}
+	data, err := b.renderVariant(ctx, source.ImagePath, spec)
+	if err != nil {
+		return PlaylistCoverBuildResult{}, err
+	}
+	return PlaylistCoverBuildResult{
+		SourceKind: source.SourceKind,
+		SourceRef:  source.SourceRef,
+		MIME:       spec.MIME,
+		FileExt:    ".jpg",
+		Bytes:      data,
+		W:          spec.Size,
+		H:          spec.Size,
 	}, nil
 }
 
@@ -623,10 +668,91 @@ func (s *ArtworkService) buildArtworkFromImagePath(ctx context.Context, imagePat
 	return builder.BuildFromSource(ctx, source)
 }
 
+func (s *ArtworkService) buildCanonicalPlaylistCoverFromImagePath(ctx context.Context, imagePath string) (PlaylistCoverBuildResult, error) {
+	if s == nil || s.builder == nil {
+		return PlaylistCoverBuildResult{}, fmt.Errorf("artwork builder is unavailable")
+	}
+	imagePath = filepath.Clean(strings.TrimSpace(imagePath))
+	if imagePath == "" {
+		return PlaylistCoverBuildResult{}, fmt.Errorf("artwork source path is required")
+	}
+	info, err := os.Stat(imagePath)
+	if err != nil {
+		return PlaylistCoverBuildResult{}, fmt.Errorf("artwork source path is not readable: %w", err)
+	}
+	if info.Size() <= 0 {
+		return PlaylistCoverBuildResult{}, fmt.Errorf("artwork source file is empty")
+	}
+	if info.Size() > playlistCoverMaxBytes {
+		return PlaylistCoverBuildResult{}, fmt.Errorf("artwork source file exceeds the playlist cover limit")
+	}
+	if cfg, err := decodeArtworkConfig(imagePath); err == nil {
+		if cfg.Width <= 0 || cfg.Height <= 0 {
+			return PlaylistCoverBuildResult{}, fmt.Errorf("artwork source dimensions are invalid")
+		}
+		if cfg.Width > playlistCoverMaxDim || cfg.Height > playlistCoverMaxDim {
+			return PlaylistCoverBuildResult{}, fmt.Errorf("artwork source dimensions exceed the playlist cover limit")
+		}
+	}
+
+	source, err := newArtworkSourceCandidate(imagePath, "manual", imagePath, imagePath, nil)
+	if err != nil {
+		return PlaylistCoverBuildResult{}, err
+	}
+	if builder, ok := s.builder.(playlistCoverBuildingBuilder); ok {
+		return builder.BuildCanonicalFromSource(ctx, source)
+	}
+
+	if builder, ok := s.builder.(artworkEvaluatingBuilder); ok {
+		built, err := builder.BuildFromSource(ctx, source)
+		if err != nil {
+			return PlaylistCoverBuildResult{}, err
+		}
+		best, ok := bestGeneratedArtworkVariant(built.Variants)
+		if !ok {
+			return PlaylistCoverBuildResult{}, ErrNoArtworkFound
+		}
+		return PlaylistCoverBuildResult{
+			SourceKind: built.SourceKind,
+			SourceRef:  built.SourceRef,
+			MIME:       best.MIME,
+			FileExt:    best.FileExt,
+			Bytes:      append([]byte(nil), best.Bytes...),
+			W:          best.W,
+			H:          best.H,
+		}, nil
+	}
+	return PlaylistCoverBuildResult{}, fmt.Errorf("artwork builder does not support image uploads")
+}
+
 func closeArtworkSourceCandidates(candidates []ArtworkSourceCandidate) {
 	for _, candidate := range candidates {
 		candidate.Close()
 	}
+}
+
+func bestGeneratedArtworkVariant(variants []GeneratedArtworkVariant) (GeneratedArtworkVariant, bool) {
+	var best GeneratedArtworkVariant
+	hasBest := false
+	for _, variant := range variants {
+		if !hasBest || generatedArtworkVariantBetter(variant, best) {
+			best = variant
+			hasBest = true
+		}
+	}
+	return best, hasBest
+}
+
+func generatedArtworkVariantBetter(left, right GeneratedArtworkVariant) bool {
+	leftArea := int64(left.W) * int64(left.H)
+	rightArea := int64(right.W) * int64(right.H)
+	if leftArea != rightArea {
+		return leftArea > rightArea
+	}
+	if len(left.Bytes) != len(right.Bytes) {
+		return len(left.Bytes) > len(right.Bytes)
+	}
+	return strings.TrimSpace(left.Variant) > strings.TrimSpace(right.Variant)
 }
 
 func bestArtworkSourceCandidate(candidates []ArtworkSourceCandidate) (ArtworkSourceCandidate, bool) {

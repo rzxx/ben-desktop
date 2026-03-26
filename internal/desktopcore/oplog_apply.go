@@ -58,6 +58,8 @@ func applyOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 		return applyDeviceAssetCacheOplogEntryTx(tx, entry)
 	case entityTypeArtworkVariant:
 		return applyArtworkVariantOplogEntryTx(tx, entry)
+	case entityTypePlaylistCover:
+		return applyPlaylistCoverOplogEntryTx(tx, entry)
 	default:
 		return fmt.Errorf("unsupported entity type %q", strings.TrimSpace(entry.EntityType))
 	}
@@ -562,6 +564,58 @@ func applyArtworkVariantOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 			Delete(&ArtworkVariant{}).Error
 	default:
 		return fmt.Errorf("unsupported artwork variant op kind %q", strings.TrimSpace(entry.OpKind))
+	}
+}
+
+func applyPlaylistCoverOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
+	apply, err := shouldApplyLatestMutationTx(tx, entry)
+	if err != nil || !apply {
+		return err
+	}
+
+	switch strings.TrimSpace(entry.OpKind) {
+	case "upsert":
+		var payload playlistCoverOplogPayload
+		if err := json.Unmarshal([]byte(entry.PayloadJSON), &payload); err != nil {
+			return fmt.Errorf("decode playlist cover payload: %w", err)
+		}
+		playlistID := firstNonEmpty(payload.PlaylistID, entry.EntityID)
+		if strings.TrimSpace(playlistID) == "" {
+			return fmt.Errorf("playlist cover playlist id is required")
+		}
+		row := PlaylistCover{
+			LibraryID:    entry.LibraryID,
+			PlaylistID:   playlistID,
+			BlobID:       strings.TrimSpace(payload.BlobID),
+			MIME:         strings.TrimSpace(payload.MIME),
+			FileExt:      normalizeArtworkFileExt(payload.FileExt, payload.MIME),
+			W:            payload.W,
+			H:            payload.H,
+			Bytes:        payload.Bytes,
+			ChosenSource: strings.TrimSpace(payload.ChosenSource),
+			UpdatedAt:    oplogPayloadTime(payload.UpdatedAtNS, entry),
+		}
+		return tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "library_id"},
+				{Name: "playlist_id"},
+			},
+			DoUpdates: clause.AssignmentColumns([]string{"blob_id", "mime", "file_ext", "w", "h", "bytes", "chosen_source", "updated_at"}),
+		}).Create(&row).Error
+	case "delete":
+		var payload playlistCoverDeleteOplogPayload
+		if strings.TrimSpace(entry.PayloadJSON) != "" {
+			if err := json.Unmarshal([]byte(entry.PayloadJSON), &payload); err != nil {
+				return fmt.Errorf("decode playlist cover delete payload: %w", err)
+			}
+		}
+		playlistID := firstNonEmpty(payload.PlaylistID, entry.EntityID)
+		if strings.TrimSpace(playlistID) == "" {
+			return fmt.Errorf("playlist cover playlist id is required")
+		}
+		return tx.Where("library_id = ? AND playlist_id = ?", entry.LibraryID, playlistID).Delete(&PlaylistCover{}).Error
+	default:
+		return fmt.Errorf("unsupported playlist cover op kind %q", strings.TrimSpace(entry.OpKind))
 	}
 }
 

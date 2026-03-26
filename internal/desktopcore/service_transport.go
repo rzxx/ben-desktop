@@ -220,6 +220,11 @@ func (s *TransportService) runCatchupAndCheckpoint(runtime *activeTransportRunti
 	if err := s.app.backgroundCheckpointMaintenance(runtime.ctx, local.LibraryID); err != nil && s.app.cfg.Logger != nil && runtime.ctx.Err() == nil {
 		s.app.cfg.Logger.Errorf("desktopcore: background checkpoint maintenance failed for %s: %v", local.LibraryID, err)
 	}
+	if s.app.memberSync != nil {
+		if err := s.app.memberSync.backgroundCheckpointMaintenance(runtime.ctx, local.LibraryID); err != nil && s.app.cfg.Logger != nil && runtime.ctx.Err() == nil {
+			s.app.cfg.Logger.Errorf("desktopcore: member checkpoint maintenance failed for %s: %v", local.LibraryID, err)
+		}
+	}
 }
 
 func (s *TransportService) runtimeLocalContext(runtime *activeTransportRuntime) (apitypes.LocalContext, bool) {
@@ -636,6 +641,33 @@ func (s *TransportService) memberDeviceIDForPeer(ctx context.Context, libraryID,
 
 func sortedListenAddrs(items []string) []string {
 	out := compactNonEmptyStrings(items)
-	sort.Strings(out)
+	sort.SliceStable(out, func(i, j int) bool {
+		left := listenAddrPriority(out[i])
+		right := listenAddrPriority(out[j])
+		if left != right {
+			return left > right
+		}
+		return out[i] < out[j]
+	})
 	return out
+}
+
+func listenAddrPriority(addr string) int {
+	addr = strings.TrimSpace(strings.ToLower(addr))
+	score := 0
+	if strings.Contains(addr, "/ws") {
+		score += 100
+	}
+	switch {
+	case strings.Contains(addr, "/ip4/127.0.0.1/") || strings.Contains(addr, "/ip6/::1/"):
+		score += 10
+	case strings.Contains(addr, "/ip4/0.0.0.0/") || strings.Contains(addr, "/ip6/::/"):
+		score += 20
+	default:
+		score += 30
+	}
+	if strings.Contains(addr, "/p2p/") {
+		score++
+	}
+	return score
 }

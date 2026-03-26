@@ -238,7 +238,7 @@ func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) er
 			&Membership{}, &ScanRoot{}, &OfflinePin{}, &AdmissionAuthority{}, &MembershipCert{}, &MembershipCertRevocation{},
 			&MembershipRecovery{}, &InviteJoinRequest{}, &InviteTokenRedemption{}, &IssuedInvite{}, &JoinSession{},
 			&Artist{}, &Credit{}, &AlbumVariantModel{}, &TrackVariantModel{}, &AlbumTrack{}, &DeviceVariantPreference{},
-			&SourceFileModel{}, &OptimizedAssetModel{}, &DeviceAssetCacheModel{}, &ArtworkVariant{}, &Playlist{},
+			&SourceFileModel{}, &OptimizedAssetModel{}, &DeviceAssetCacheModel{}, &ArtworkVariant{}, &PlaylistCover{}, &Playlist{},
 			&PlaylistItem{}, &OplogEntry{}, &DeviceClock{}, &PeerSyncState{}, &LibraryCheckpoint{}, &LibraryCheckpointChunk{},
 			&DeviceCheckpointAck{},
 		}
@@ -547,4 +547,3 @@ func (a *App) requireActiveContext(ctx context.Context) (apitypes.LocalContext, 
 		PeerID:    device.PeerID,
 	}, nil
 }
-
