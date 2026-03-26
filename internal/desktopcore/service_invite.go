@@ -1945,6 +1945,56 @@ func (a *App) ensureDevicePeerID(ctx context.Context, deviceID, deviceName strin
 	return peerID, nil
 }
 
+func (a *App) ensureDevicePeerIDTx(tx *gorm.DB, deviceID, deviceName string) (string, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return "", fmt.Errorf("device id is required")
+	}
+
+	expectedPeerID := ""
+	current, currentErr := a.ensureCurrentDeviceTx(tx)
+	if currentErr == nil && strings.TrimSpace(current.DeviceID) == deviceID {
+		if peerID, err := a.transportIdentityPeerID(); err == nil {
+			expectedPeerID = strings.TrimSpace(peerID)
+		}
+	}
+
+	now := time.Now().UTC()
+	var device Device
+	err := tx.Where("device_id = ?", deviceID).Take(&device).Error
+	if err == nil {
+		if strings.TrimSpace(device.PeerID) != "" && (expectedPeerID == "" || strings.TrimSpace(device.PeerID) == expectedPeerID) {
+			return strings.TrimSpace(device.PeerID), nil
+		}
+		peerID := firstNonEmpty(expectedPeerID, pseudoPeerID(deviceID))
+		if err := tx.Model(&Device{}).
+			Where("device_id = ?", deviceID).
+			Updates(map[string]any{
+				"name":         chooseDeviceName(device.Name, deviceName, deviceID),
+				"peer_id":      peerID,
+				"last_seen_at": &now,
+			}).Error; err != nil {
+			return "", err
+		}
+		return peerID, nil
+	}
+	if err != gorm.ErrRecordNotFound {
+		return "", err
+	}
+
+	peerID := firstNonEmpty(expectedPeerID, pseudoPeerID(deviceID))
+	if err := tx.Create(&Device{
+		DeviceID:   deviceID,
+		Name:       chooseDeviceName("", deviceName, deviceID),
+		PeerID:     peerID,
+		JoinedAt:   now,
+		LastSeenAt: &now,
+	}).Error; err != nil {
+		return "", err
+	}
+	return peerID, nil
+}
+
 func pseudoPeerID(deviceID string) string {
 	sum := sha256.Sum256([]byte("peer:" + strings.TrimSpace(deviceID)))
 	return "peer-" + hex.EncodeToString(sum[:10])

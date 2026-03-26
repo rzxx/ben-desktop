@@ -242,7 +242,7 @@ func migrateLegacyPlaylistCoverGroup(ctx context.Context, tx *gorm.DB, app *App,
 		DeviceID:  strings.TrimSpace(current.DeviceID),
 		Device:    strings.TrimSpace(current.Name),
 	}
-	peerID, err := app.ensureDevicePeerID(ctx, local.DeviceID, local.Device)
+	peerID, err := app.ensureDevicePeerIDTx(tx, local.DeviceID, local.Device)
 	if err == nil {
 		local.PeerID = strings.TrimSpace(peerID)
 	}
