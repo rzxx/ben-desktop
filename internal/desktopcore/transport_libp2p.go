@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -178,11 +179,255 @@ func (t *libp2pSyncTransport) ListenAddrs() []string {
 	if t == nil || t.host == nil {
 		return nil
 	}
-	out := make([]string, 0, len(t.host.Addrs()))
-	for _, addr := range t.host.Addrs() {
-		out = append(out, fmt.Sprintf("%s/p2p/%s", addr.String(), t.host.ID().String()))
+	ipScores := localAdvertiseIPv4Scores()
+
+	rawAddrs, err := t.host.Network().InterfaceListenAddresses()
+	if err != nil || len(rawAddrs) == 0 {
+		rawAddrs = t.host.Network().ListenAddresses()
 	}
-	return sortedListenAddrs(out)
+	if len(rawAddrs) == 0 {
+		rawAddrs = t.host.Addrs()
+	}
+
+	out := make([]string, 0, len(rawAddrs))
+	for _, addr := range rawAddrs {
+		out = append(out, advertisedListenAddrStrings(addr.String())...)
+	}
+	deduped := make([]string, 0, len(out))
+	seen := make(map[string]struct{}, len(out))
+	for _, addr := range out {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+		addr = fmt.Sprintf("%s/p2p/%s", addr, t.host.ID().String())
+		if _, ok := seen[addr]; ok {
+			continue
+		}
+		seen[addr] = struct{}{}
+		deduped = append(deduped, addr)
+	}
+	sort.SliceStable(deduped, func(i, j int) bool {
+		left := advertisedListenAddrPriority(deduped[i], ipScores)
+		right := advertisedListenAddrPriority(deduped[j], ipScores)
+		if left != right {
+			return left > right
+		}
+		return deduped[i] < deduped[j]
+	})
+	return deduped
+}
+
+func advertisedListenAddrStrings(addr string) []string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return nil
+	}
+	localIPv4s := concreteAdvertiseIPv4s()
+	if !strings.Contains(addr, "/ip4/0.0.0.0/") {
+		if !shouldAdvertiseIPv4Addr(addr, localIPv4s) {
+			return nil
+		}
+		return []string{addr}
+	}
+
+	if len(localIPv4s) == 0 {
+		return []string{addr}
+	}
+
+	out := make([]string, 0, len(localIPv4s)+1)
+	for _, ip := range localIPv4s {
+		out = append(out, strings.Replace(addr, "/ip4/0.0.0.0/", "/ip4/"+ip+"/", 1))
+	}
+	out = append(out, addr)
+	return out
+}
+
+func shouldAdvertiseIPv4Addr(addr string, localIPv4s []string) bool {
+	const prefix = "/ip4/"
+	if !strings.HasPrefix(addr, prefix) {
+		return true
+	}
+
+	rest := strings.TrimPrefix(addr, prefix)
+	host, _, ok := strings.Cut(rest, "/")
+	if !ok {
+		return true
+	}
+	host = strings.TrimSpace(host)
+	switch host {
+	case "", "0.0.0.0", "127.0.0.1":
+		return true
+	}
+
+	for _, ip := range localIPv4s {
+		if host == ip {
+			return true
+		}
+	}
+
+	return false
+}
+
+func concreteAdvertiseIPv4s() []string {
+	scores := localAdvertiseIPv4Scores()
+	if len(scores) == 0 {
+		return nil
+	}
+
+	type item struct {
+		ip    string
+		score int
+	}
+	items := make([]item, 0, len(scores))
+	for ip, score := range scores {
+		items = append(items, item{ip: ip, score: score})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].score != items[j].score {
+			return items[i].score > items[j].score
+		}
+		return items[i].ip < items[j].ip
+	})
+
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.ip)
+	}
+	return out
+}
+
+func localAdvertiseIPv4Scores() map[string]int {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+
+	out := make(map[string]int)
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		nameScore := interfaceAdvertiseScore(iface.Name, iface.Flags)
+		for _, addr := range addrs {
+			var ip net.IP
+			switch value := addr.(type) {
+			case *net.IPNet:
+				ip = value.IP
+			case *net.IPAddr:
+				ip = value.IP
+			default:
+				continue
+			}
+
+			ip = ip.To4()
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+				continue
+			}
+
+			text := ip.String()
+			score := nameScore + ipAdvertiseScore(ip)
+			if current, ok := out[text]; !ok || score > current {
+				out[text] = score
+			}
+		}
+	}
+
+	return out
+}
+
+func interfaceAdvertiseScore(name string, flags net.Flags) int {
+	score := 0
+	if flags&net.FlagUp != 0 {
+		score += 50
+	}
+	if flags&net.FlagPointToPoint == 0 {
+		score += 10
+	}
+
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case strings.Contains(normalized, "ethernet"):
+		score += 50
+	case strings.Contains(normalized, "wi-fi"),
+		strings.Contains(normalized, "wifi"),
+		strings.Contains(normalized, "wireless"):
+		score += 40
+	}
+
+	for _, token := range []string{
+		"vethernet",
+		"hyper-v",
+		"default switch",
+		"docker",
+		"wsl",
+		"vmware",
+		"virtual",
+		"tap",
+		"tun",
+		"vpn",
+		"outline",
+		"bluetooth",
+	} {
+		if strings.Contains(normalized, token) {
+			score -= 100
+		}
+	}
+
+	return score
+}
+
+func ipAdvertiseScore(ip net.IP) int {
+	if ip == nil {
+		return 0
+	}
+	text := ip.String()
+	switch {
+	case strings.HasPrefix(text, "192.168."):
+		return 30
+	case strings.HasPrefix(text, "10."):
+		return 20
+	case isRFC1918_172(ip):
+		return 25
+	default:
+		return 0
+	}
+}
+
+func isRFC1918_172(ip net.IP) bool {
+	ip = ip.To4()
+	if ip == nil {
+		return false
+	}
+	return ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31
+}
+
+func advertisedListenAddrPriority(addr string, ipScores map[string]int) int {
+	score := listenAddrPriority(addr)
+	host := advertisedIPv4Host(addr)
+	if host == "" {
+		return score
+	}
+	return score + ipScores[host]
+}
+
+func advertisedIPv4Host(addr string) string {
+	const prefix = "/ip4/"
+	if !strings.HasPrefix(addr, prefix) {
+		return ""
+	}
+
+	rest := strings.TrimPrefix(addr, prefix)
+	host, _, ok := strings.Cut(rest, "/")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(host)
 }
 
 func (t *libp2pSyncTransport) ListPeers(ctx context.Context, _ apitypes.LocalContext) ([]SyncPeer, error) {
