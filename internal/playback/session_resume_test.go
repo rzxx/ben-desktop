@@ -14,9 +14,12 @@ func TestSessionPlayRestoresPersistedPositionOnFirstPlay(t *testing.T) {
 	backend := newTestBackend()
 	store := &memoryStore{
 		snapshot: SessionSnapshot{
-			Context: &PlaybackContext{
+			ContextQueue: &ContextQueue{
 				Kind: ContextKindAlbum,
 				ID:   "album-1",
+				StartIndex: 0,
+				CurrentIndex: 0,
+				ResumeIndex: 0,
 				Entries: []SessionEntry{
 					{
 						EntryID:      "ctx-1",
@@ -30,14 +33,12 @@ func TestSessionPlayRestoresPersistedPositionOnFirstPlay(t *testing.T) {
 					},
 				},
 			},
-			CurrentEntryID:      "ctx-1",
-			CurrentEntry:        &SessionEntry{EntryID: "ctx-1", Origin: EntryOriginContext, ContextIndex: 0, Item: SessionItem{RecordingID: "rec-1", Title: "Track 1", DurationMS: duration}},
-			CurrentOrigin:       EntryOriginContext,
-			CurrentContextIndex: 0,
-			Volume:              60,
-			Status:              StatusPaused,
-			PositionMS:          2500,
-			DurationMS:          &duration,
+			CurrentEntryID: "ctx-1",
+			CurrentEntry:   &SessionEntry{EntryID: "ctx-1", Origin: EntryOriginContext, ContextIndex: 0, Item: SessionItem{RecordingID: "rec-1", Title: "Track 1", DurationMS: duration}},
+			Volume:         60,
+			Status:         StatusPaused,
+			PositionMS:     2500,
+			DurationMS:     &duration,
 		},
 	}
 	session := NewSession(&mockBridge{
@@ -68,3 +69,4 @@ func TestSessionPlayRestoresPersistedPositionOnFirstPlay(t *testing.T) {
 		t.Fatalf("status = %q, want %q", snapshot.Status, StatusPlaying)
 	}
 }
+

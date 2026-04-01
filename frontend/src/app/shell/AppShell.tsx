@@ -124,7 +124,7 @@ export function AppShell({ children }: PropsWithChildren) {
 
       <main
         className={`fixed top-8 right-0 bottom-0 left-0 z-10 ${
-          isQueueSidebarOpen ? "lg:left-56 right-80" : "lg:left-56"
+          isQueueSidebarOpen ? "right-80 lg:left-56" : "lg:left-56"
         }`}
       >
         <div className="h-full px-6 pt-4 max-lg:px-4">

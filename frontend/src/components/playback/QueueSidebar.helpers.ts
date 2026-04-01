@@ -11,9 +11,31 @@ export type QueueRow =
       secondaryText: string;
     };
 
+type AvailabilityState =
+  | {
+      State?: string | null;
+    }
+  | null
+  | undefined;
+
+function availabilityStateForEntry(
+  entry: PlaybackModels.SessionEntry,
+  entryAvailabilityByEntryId: Record<string, AvailabilityState>,
+  trackAvailabilityByRecordingId: Record<
+    string,
+    { data?: { State?: string | null } | null }
+  >,
+) {
+  return (
+    entryAvailabilityByEntryId[entry.entryId]?.State ??
+    trackAvailabilityByRecordingId[entry.item.recordingId]?.data?.State
+  );
+}
+
 export function buildQueueRows(
-  queuedEntries: PlaybackModels.SessionEntry[],
-  listEntries: PlaybackModels.SessionEntry[],
+  userQueueEntries: PlaybackModels.SessionEntry[],
+  contextQueueEntries: PlaybackModels.SessionEntry[],
+  entryAvailabilityByEntryId: Record<string, AvailabilityState>,
   trackAvailabilityByRecordingId: Record<
     string,
     { data?: { State?: string | null } | null }
@@ -21,18 +43,21 @@ export function buildQueueRows(
 ): QueueRow[] {
   const rows: QueueRow[] = [];
 
-  if (queuedEntries.length > 0) {
+  if (userQueueEntries.length > 0) {
     rows.push({
       type: "section",
-      id: "section-queued",
-      title: "Queued",
+      id: "section-user-queue",
+      title: "User Queue",
     });
-    queuedEntries.forEach((entry) => {
-      const availabilityState =
-        trackAvailabilityByRecordingId[entry.item.recordingId]?.data?.State;
+    userQueueEntries.forEach((entry) => {
+      const availabilityState = availabilityStateForEntry(
+        entry,
+        entryAvailabilityByEntryId,
+        trackAvailabilityByRecordingId,
+      );
       rows.push({
         type: "entry",
-        id: `queued-${entry.entryId}`,
+        id: `user-${entry.entryId}`,
         entry,
         actionable: isCatalogTrackActionable(availabilityState ?? undefined),
         secondaryText: queueEntrySecondaryText(entry, availabilityState),
@@ -40,15 +65,18 @@ export function buildQueueRows(
     });
   }
 
-  if (listEntries.length > 0) {
+  if (contextQueueEntries.length > 0) {
     rows.push({
       type: "section",
-      id: "section-context",
-      title: "Context",
+      id: "section-context-queue",
+      title: "Context Queue",
     });
-    listEntries.forEach((entry) => {
-      const availabilityState =
-        trackAvailabilityByRecordingId[entry.item.recordingId]?.data?.State;
+    contextQueueEntries.forEach((entry) => {
+      const availabilityState = availabilityStateForEntry(
+        entry,
+        entryAvailabilityByEntryId,
+        trackAvailabilityByRecordingId,
+      );
       rows.push({
         type: "entry",
         id: `context-${entry.entryId}`,

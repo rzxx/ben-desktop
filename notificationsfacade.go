@@ -1447,14 +1447,14 @@ func playbackSubjectFromSnapshot(snapshot playback.SessionSnapshot, entryID stri
 	if snapshot.LoadingEntry != nil && strings.TrimSpace(snapshot.LoadingEntry.EntryID) == entryID {
 		return notificationSubjectFromSessionItem(snapshot.LoadingEntry.Item)
 	}
-	if snapshot.Context != nil {
-		for _, entry := range snapshot.Context.Entries {
+	if snapshot.ContextQueue != nil {
+		for _, entry := range snapshot.ContextQueue.Entries {
 			if strings.TrimSpace(entry.EntryID) == entryID {
 				return notificationSubjectFromSessionItem(entry.Item)
 			}
 		}
 	}
-	for _, entry := range snapshot.QueuedEntries {
+	for _, entry := range snapshot.UserQueue {
 		if strings.TrimSpace(entry.EntryID) == entryID {
 			return notificationSubjectFromSessionItem(entry.Item)
 		}

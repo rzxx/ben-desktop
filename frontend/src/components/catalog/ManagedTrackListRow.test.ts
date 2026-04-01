@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { PlaybackModels } from "@/lib/api/models";
-import { isTrackListRowActive } from "./ManagedTrackListRow";
+import { isTrackListRowActive } from "./ManagedTrackListRow.helpers";
 
 describe("isTrackListRowActive", () => {
   test("matches the visible playback item by library recording id", () => {

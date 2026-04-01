@@ -16,7 +16,6 @@ const (
 	positionPollInterval = 500 * time.Millisecond
 	pendingRetryInterval = time.Second
 	pendingRetryTimeout  = 2 * time.Minute
-	maxHistoryEntries    = 128
 	preloadListenedAfter = 45 * time.Second
 	preloadRemainingLead = 45 * time.Second
 	nextPreparationPoll  = 5 * time.Second
@@ -29,6 +28,7 @@ type Logger interface {
 
 type Session struct {
 	mu sync.Mutex
+	selectMu sync.Mutex
 
 	core             PlaybackCore
 	backend          Backend
@@ -57,10 +57,6 @@ type Session struct {
 	nextPreparationRetryAt      time.Time
 
 	rng *rand.Rand
-
-	historyScope        uint64
-	historyScopes       []uint64
-	suppressHistoryPush bool
 
 	pendingCancel context.CancelFunc
 	pendingWG     sync.WaitGroup
@@ -103,12 +99,10 @@ func NewSession(core PlaybackCore, backend Backend, store SessionStore, preferre
 		preferredProfile: strings.TrimSpace(preferredProfile),
 		logger:           logger,
 		snapshot: SessionSnapshot{
-			CurrentContextIndex: -1,
-			ResumeContextIndex:  -1,
-			RepeatMode:          RepeatOff,
-			Volume:              DefaultVolume,
-			Status:              StatusIdle,
-			NextEntrySeq:        1,
+			RepeatMode:   RepeatOff,
+			Volume:       DefaultVolume,
+			Status:       StatusIdle,
+			NextEntrySeq: 1,
 		},
 		rng: rand.New(rand.NewSource(time.Now().UTC().UnixNano())),
 	}
@@ -140,8 +134,6 @@ func (s *Session) Start(ctx context.Context) error {
 		s.preloadedID = ""
 		s.preloadedURI = ""
 		s.backendPreloadArmed = false
-		s.historyScopes = make([]uint64, len(s.snapshot.History))
-		s.suppressHistoryPush = false
 		s.mu.Unlock()
 	}
 
@@ -204,17 +196,13 @@ func (s *Session) SetContext(input PlaybackContextInput) (SessionSnapshot, error
 	}
 
 	backend, needsClearPreload := s.invalidateFutureOrderLocked("set context", true)
-	s.snapshot.Context = contextData
-	s.snapshot.QueuedEntries = nil
-	s.snapshot.History = nil
-	s.historyScopes = nil
+	s.snapshot.ContextQueue = contextData
+	s.snapshot.UserQueue = nil
 	s.snapshot.LastError = ""
 	s.clearLoadingStateLocked()
-	s.snapshot.ShuffleCycle = nil
 	s.cancelPendingRetryLocked()
-	s.suppressHistoryPush = false
-	s.snapshot.CurrentContextIndex = startIndex
-	s.snapshot.ResumeContextIndex = startIndex
+	s.setCurrentContextIndexLocked(startIndex)
+	s.setResumeContextIndexLocked(startIndex)
 
 	if s.snapshot.CurrentEntry == nil {
 		s.snapshot.PositionMS = 0
@@ -226,13 +214,13 @@ func (s *Session) SetContext(input PlaybackContextInput) (SessionSnapshot, error
 		if len(contextData.Entries) == 0 {
 			s.clearCurrentLocked()
 			s.snapshot.Status = StatusIdle
-			s.snapshot.ResumeContextIndex = -1
+			s.setResumeContextIndexLocked(-1)
 		} else {
 			s.clearCurrentLocked()
 			s.snapshot.Status = StatusPaused
 		}
 	} else if len(contextData.Entries) == 0 {
-		s.snapshot.ResumeContextIndex = -1
+		s.setResumeContextIndexLocked(-1)
 	}
 
 	s.touchLocked()
@@ -262,15 +250,13 @@ func (s *Session) ReplaceContextAndPlay(ctx context.Context, input PlaybackConte
 	current := cloneEntryPtr(s.snapshot.CurrentEntry)
 	backend, needsClearPreload := s.invalidateFutureOrderLocked("replace context and play", true)
 
-	s.beginFreshHistoryScopeLocked(current)
-	s.snapshot.Context = contextData
-	s.snapshot.QueuedEntries = nil
+	s.snapshot.ContextQueue = contextData
+	s.snapshot.UserQueue = nil
 	s.snapshot.LastError = ""
 	s.clearLoadingStateLocked()
-	s.snapshot.ShuffleCycle = nil
 	s.cancelPendingRetryLocked()
-	s.snapshot.CurrentContextIndex = startIndex
-	s.snapshot.ResumeContextIndex = startIndex
+	s.setCurrentContextIndexLocked(startIndex)
+	s.setResumeContextIndexLocked(startIndex)
 
 	if current == nil {
 		s.snapshot.PositionMS = 0
@@ -282,7 +268,7 @@ func (s *Session) ReplaceContextAndPlay(ctx context.Context, input PlaybackConte
 		s.clearCurrentLocked()
 		if len(contextData.Entries) == 0 {
 			s.snapshot.Status = StatusIdle
-			s.snapshot.ResumeContextIndex = -1
+			s.setResumeContextIndexLocked(-1)
 		} else {
 			s.snapshot.Status = StatusPaused
 		}
@@ -301,9 +287,6 @@ func (s *Session) ReplaceContextAndPlay(ctx context.Context, input PlaybackConte
 		s.clearBackendPreload(context.Background(), backend)
 	}
 	if !hasTarget {
-		s.mu.Lock()
-		s.suppressHistoryPush = false
-		s.mu.Unlock()
 		s.publishSnapshot(state)
 		return state, errors.New("queue is empty")
 	}
@@ -335,9 +318,9 @@ func (s *Session) QueueItems(items []SessionItem, mode QueueInsertMode) (Session
 		insertMode = QueueInsertLast
 	}
 	if insertMode == QueueInsertNext {
-		s.snapshot.QueuedEntries = append(entries, s.snapshot.QueuedEntries...)
+		s.snapshot.UserQueue = append(entries, s.snapshot.UserQueue...)
 	} else {
-		s.snapshot.QueuedEntries = append(s.snapshot.QueuedEntries, entries...)
+		s.snapshot.UserQueue = append(s.snapshot.UserQueue, entries...)
 	}
 
 	s.touchLocked()
@@ -353,14 +336,14 @@ func (s *Session) QueueItems(items []SessionItem, mode QueueInsertMode) (Session
 
 func (s *Session) RemoveQueuedEntry(entryID string) (SessionSnapshot, error) {
 	s.mu.Lock()
-	index := indexOfEntryID(s.snapshot.QueuedEntries, entryID)
+	index := indexOfEntryID(s.snapshot.UserQueue, entryID)
 	if index < 0 {
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
 		return state, fmt.Errorf("queued entry %s not found", strings.TrimSpace(entryID))
 	}
 	backend, needsClearPreload := s.invalidateFutureOrderLocked("remove queued entry", true)
-	s.snapshot.QueuedEntries = append(s.snapshot.QueuedEntries[:index], s.snapshot.QueuedEntries[index+1:]...)
+	s.snapshot.UserQueue = append(s.snapshot.UserQueue[:index], s.snapshot.UserQueue[index+1:]...)
 	s.clearLoadingStateLocked()
 	s.cancelPendingRetryLocked()
 	s.touchLocked()
@@ -376,13 +359,13 @@ func (s *Session) RemoveQueuedEntry(entryID string) (SessionSnapshot, error) {
 
 func (s *Session) MoveQueuedEntry(entryID string, toIndex int) (SessionSnapshot, error) {
 	s.mu.Lock()
-	fromIndex := indexOfEntryID(s.snapshot.QueuedEntries, entryID)
+	fromIndex := indexOfEntryID(s.snapshot.UserQueue, entryID)
 	if fromIndex < 0 {
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
 		return state, fmt.Errorf("queued entry %s not found", strings.TrimSpace(entryID))
 	}
-	if toIndex < 0 || toIndex >= len(s.snapshot.QueuedEntries) {
+	if toIndex < 0 || toIndex >= len(s.snapshot.UserQueue) {
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
 		return state, fmt.Errorf("queue index %d out of range", toIndex)
@@ -394,11 +377,11 @@ func (s *Session) MoveQueuedEntry(entryID string, toIndex int) (SessionSnapshot,
 	}
 
 	backend, needsClearPreload := s.invalidateFutureOrderLocked("move queued entry", true)
-	entry := s.snapshot.QueuedEntries[fromIndex]
-	queue := append([]SessionEntry(nil), s.snapshot.QueuedEntries...)
+	entry := s.snapshot.UserQueue[fromIndex]
+	queue := append([]SessionEntry(nil), s.snapshot.UserQueue...)
 	queue = append(queue[:fromIndex], queue[fromIndex+1:]...)
 	queue = append(queue[:toIndex], append([]SessionEntry{entry}, queue[toIndex:]...)...)
-	s.snapshot.QueuedEntries = queue
+	s.snapshot.UserQueue = queue
 	s.clearLoadingStateLocked()
 	s.cancelPendingRetryLocked()
 	s.touchLocked()
@@ -413,6 +396,9 @@ func (s *Session) MoveQueuedEntry(entryID string, toIndex int) (SessionSnapshot,
 }
 
 func (s *Session) SelectEntry(ctx context.Context, entryID string) (SessionSnapshot, error) {
+	s.selectMu.Lock()
+	defer s.selectMu.Unlock()
+
 	s.mu.Lock()
 	entryID = strings.TrimSpace(entryID)
 	if entryID == "" {
@@ -429,13 +415,14 @@ func (s *Session) SelectEntry(ctx context.Context, entryID string) (SessionSnaps
 		return state, err
 	}
 	isCurrentSelection :=
-		current != nil &&
-			current.EntryID == target.EntryID &&
-			s.loadedEntryID == current.EntryID &&
-			s.loadedURI != ""
-	if isCurrentSelection && s.snapshot.Status == StatusPaused {
+		current != nil && current.EntryID == target.EntryID
+	isLoadingSelection :=
+		s.snapshot.LoadingEntry != nil &&
+			s.snapshot.LoadingEntry.EntryID == target.EntryID
+	if isCurrentSelection || isLoadingSelection {
+		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
-		return s.Play(ctx)
+		return state, nil
 	}
 	s.mu.Unlock()
 	return s.playEntry(ctx, target, origin, queueIndex, current, false, true)
@@ -445,16 +432,12 @@ func (s *Session) ClearQueue() (SessionSnapshot, error) {
 	s.mu.Lock()
 	hasCurrent := s.snapshot.CurrentEntry != nil
 	backend, needsClearPreload := s.invalidateFutureOrderLocked("clear queue", true)
-	s.snapshot.Context = nil
-	s.snapshot.QueuedEntries = nil
-	s.snapshot.History = nil
-	s.historyScopes = nil
-	s.snapshot.ShuffleCycle = nil
-	s.snapshot.ResumeContextIndex = -1
+	s.snapshot.ContextQueue = nil
+	s.snapshot.UserQueue = nil
 	s.snapshot.LastError = ""
 	s.clearLoadingStateLocked()
 	s.cancelPendingRetryLocked()
-	s.suppressHistoryPush = false
+	s.setResumeContextIndexLocked(-1)
 	shouldStopBackend := !hasCurrent
 	if !hasCurrent {
 		s.snapshot.PositionMS = 0
@@ -598,10 +581,6 @@ func (s *Session) Previous(ctx context.Context) (SessionSnapshot, error) {
 			return s.playEntry(ctx, entry, EntryOriginContext, -1, nil, false, true)
 		}
 	}
-	if entry, ok := s.consumePreviousHistoryEntryLocked(); ok {
-		s.mu.Unlock()
-		return s.playEntry(ctx, entry, entry.Origin, -1, nil, false, true)
-	}
 	if entry, ok := s.previousContextEntryLocked(); ok {
 		s.mu.Unlock()
 		return s.playEntry(ctx, entry, EntryOriginContext, -1, nil, false, true)
@@ -691,7 +670,7 @@ func (s *Session) SetShuffle(enabled bool) (SessionSnapshot, error) {
 	if enabled {
 		s.rebuildShuffleCycleLocked()
 	} else {
-		s.snapshot.ShuffleCycle = nil
+		setShuffleBagLocked(&s.snapshot, nil)
 	}
 	s.recalculateResumeContextIndexLocked()
 	s.touchLocked()
@@ -720,24 +699,24 @@ func (s *Session) AppendToQueue(items []SessionItem) (SessionSnapshot, error) {
 
 func (s *Session) RemoveQueueItem(index int) (SessionSnapshot, error) {
 	s.mu.Lock()
-	if index < 0 || index >= len(s.snapshot.QueuedEntries) {
+	if index < 0 || index >= len(s.snapshot.UserQueue) {
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
 		return state, fmt.Errorf("queue index %d out of range", index)
 	}
-	entryID := s.snapshot.QueuedEntries[index].EntryID
+	entryID := s.snapshot.UserQueue[index].EntryID
 	s.mu.Unlock()
 	return s.RemoveQueuedEntry(entryID)
 }
 
 func (s *Session) MoveQueueItem(fromIndex int, toIndex int) (SessionSnapshot, error) {
 	s.mu.Lock()
-	if fromIndex < 0 || fromIndex >= len(s.snapshot.QueuedEntries) {
+	if fromIndex < 0 || fromIndex >= len(s.snapshot.UserQueue) {
 		state := snapshotCopyLocked(&s.snapshot)
 		s.mu.Unlock()
 		return state, fmt.Errorf("queue index %d out of range", fromIndex)
 	}
-	entryID := s.snapshot.QueuedEntries[fromIndex].EntryID
+	entryID := s.snapshot.UserQueue[fromIndex].EntryID
 	s.mu.Unlock()
 	return s.MoveQueuedEntry(entryID, toIndex)
 }
@@ -889,6 +868,15 @@ func (s *Session) resolveNextPlayableCandidate(
 		}
 		availabilityByTargetKey[key] = item.Status
 	}
+	s.mu.Lock()
+	for _, candidate := range candidates {
+		status, ok := availabilityByTargetKey[playbackTargetKey(candidate.Entry.Item.Target)]
+		if !ok {
+			continue
+		}
+		s.setEntryAvailabilityLocked(candidate.Entry.EntryID, status)
+	}
+	s.mu.Unlock()
 
 	skipped := make([]skippedPlaybackEntry, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -923,7 +911,7 @@ func (s *Session) upcomingCandidatesLocked(blocked map[string]struct{}) []playba
 		}
 		queueIndex := -1
 		if entry.Origin == EntryOriginQueued {
-			queueIndex = indexOfEntryID(s.snapshot.QueuedEntries, entry.EntryID)
+			queueIndex = indexOfEntryID(s.snapshot.UserQueue, entry.EntryID)
 		}
 		out = append(out, playbackCandidate{
 			Entry:      entry,
@@ -1072,7 +1060,6 @@ func (s *Session) playEntry(
 		shouldReplaceCurrent := !hasCurrent || !preserveCurrentOnPending
 		s.setLoadingLocked(entry, preparation)
 		if shouldReplaceCurrent {
-			s.maybePushHistoryLocked(previous, entry)
 			s.clearCurrentLocked()
 			s.snapshot.Status = StatusPending
 			s.snapshot.PositionMS = 0
@@ -1675,21 +1662,26 @@ func (s *Session) tryPendingPlayback(ctx context.Context, token uint64, entryID 
 	return true
 }
 
-func (s *Session) buildContextLocked(input PlaybackContextInput) (*PlaybackContext, int, error) {
+func (s *Session) buildContextLocked(input PlaybackContextInput) (*ContextQueue, int, error) {
 	items := NormalizeItems(input.Items)
 	if len(items) == 0 {
-		return &PlaybackContext{
-			Kind:  input.Kind,
-			ID:    strings.TrimSpace(input.ID),
-			Title: strings.TrimSpace(input.Title),
+		return &ContextQueue{
+			Kind:         input.Kind,
+			ID:           strings.TrimSpace(input.ID),
+			Title:        strings.TrimSpace(input.Title),
+			CurrentIndex: -1,
+			ResumeIndex:  -1,
 		}, 0, nil
 	}
 
 	startIndex := normalizeCurrentIndex(len(items), input.StartIndex)
-	contextData := &PlaybackContext{
-		Kind:  input.Kind,
-		ID:    strings.TrimSpace(input.ID),
-		Title: strings.TrimSpace(input.Title),
+	contextData := &ContextQueue{
+		Kind:         input.Kind,
+		ID:           strings.TrimSpace(input.ID),
+		Title:        strings.TrimSpace(input.Title),
+		StartIndex:   startIndex,
+		CurrentIndex: startIndex,
+		ResumeIndex:  startIndex,
 	}
 	for index, item := range items {
 		contextData.Entries = append(contextData.Entries, SessionEntry{
@@ -1704,37 +1696,38 @@ func (s *Session) buildContextLocked(input PlaybackContextInput) (*PlaybackConte
 
 func (s *Session) playTargetLocked() (SessionEntry, EntryOrigin, int, bool) {
 	if s.snapshot.CurrentEntry != nil {
-		return *s.snapshot.CurrentEntry, s.snapshot.CurrentOrigin, -1, true
+		return *s.snapshot.CurrentEntry, s.snapshot.CurrentEntry.Origin, -1, true
 	}
-	if len(s.snapshot.QueuedEntries) > 0 {
-		return s.snapshot.QueuedEntries[0], EntryOriginQueued, 0, true
+	if len(s.snapshot.UserQueue) > 0 {
+		return s.snapshot.UserQueue[0], EntryOriginQueued, 0, true
 	}
 	index := s.firstContextIndexLocked()
-	if index < 0 || s.snapshot.Context == nil || index >= len(s.snapshot.Context.Entries) {
+	if index < 0 || s.snapshot.ContextQueue == nil || index >= len(s.snapshot.ContextQueue.Entries) {
 		return SessionEntry{}, "", -1, false
 	}
-	return s.snapshot.Context.Entries[index], EntryOriginContext, -1, true
+	return s.snapshot.ContextQueue.Entries[index], EntryOriginContext, -1, true
 }
 
 func currentMatchesContext(snapshot SessionSnapshot) bool {
-	if snapshot.CurrentEntry == nil || snapshot.Context == nil {
+	if snapshot.CurrentEntry == nil || snapshot.ContextQueue == nil {
 		return false
 	}
-	if snapshot.CurrentOrigin != EntryOriginContext {
+	if snapshot.CurrentEntry.Origin != EntryOriginContext {
 		return false
 	}
-	if snapshot.CurrentContextIndex < 0 || snapshot.CurrentContextIndex >= len(snapshot.Context.Entries) {
+	currentIndex := currentContextIndex(snapshot)
+	if currentIndex < 0 || currentIndex >= len(snapshot.ContextQueue.Entries) {
 		return false
 	}
-	return snapshot.Context.Entries[snapshot.CurrentContextIndex].EntryID == snapshot.CurrentEntry.EntryID
+	return snapshot.ContextQueue.Entries[currentIndex].EntryID == snapshot.CurrentEntry.EntryID
 }
 
 func isValidContextIndex(snapshot SessionSnapshot, index int) bool {
-	return snapshot.Context != nil && index >= 0 && index < len(snapshot.Context.Entries)
+	return snapshot.ContextQueue != nil && index >= 0 && index < len(snapshot.ContextQueue.Entries)
 }
 
 func defaultFirstContextIndex(snapshot SessionSnapshot) int {
-	if snapshot.Context == nil || len(snapshot.Context.Entries) == 0 {
+	if snapshot.ContextQueue == nil || len(snapshot.ContextQueue.Entries) == 0 {
 		return -1
 	}
 	if !snapshot.Shuffle {
@@ -1757,7 +1750,7 @@ func nextContextIndexFromAnchor(snapshot SessionSnapshot, anchorIndex int, ignor
 			return anchorIndex
 		}
 		next := anchorIndex + 1
-		if next < len(snapshot.Context.Entries) {
+		if next < len(snapshot.ContextQueue.Entries) {
 			return next
 		}
 		if snapshot.RepeatMode == RepeatAll {
@@ -1788,20 +1781,20 @@ func nextContextIndexFromAnchor(snapshot SessionSnapshot, anchorIndex int, ignor
 }
 
 func normalizeResumeContextIndex(snapshot SessionSnapshot) int {
-	if snapshot.Context == nil || len(snapshot.Context.Entries) == 0 {
+	if snapshot.ContextQueue == nil || len(snapshot.ContextQueue.Entries) == 0 {
 		return -1
 	}
 	if currentMatchesContext(snapshot) {
-		return nextContextIndexFromAnchor(snapshot, snapshot.CurrentContextIndex, false)
+		return nextContextIndexFromAnchor(snapshot, currentContextIndex(snapshot), false)
 	}
-	if snapshot.CurrentEntry != nil && snapshot.CurrentOrigin != EntryOriginContext && isValidContextIndex(snapshot, snapshot.CurrentContextIndex) {
-		return nextContextIndexFromAnchor(snapshot, snapshot.CurrentContextIndex, false)
+	if snapshot.CurrentEntry != nil && snapshot.CurrentEntry.Origin != EntryOriginContext && isValidContextIndex(snapshot, currentContextIndex(snapshot)) {
+		return nextContextIndexFromAnchor(snapshot, currentContextIndex(snapshot), false)
 	}
-	if isValidContextIndex(snapshot, snapshot.ResumeContextIndex) {
-		return snapshot.ResumeContextIndex
+	if isValidContextIndex(snapshot, resumeContextIndex(snapshot)) {
+		return resumeContextIndex(snapshot)
 	}
-	if snapshot.CurrentEntry == nil && isValidContextIndex(snapshot, snapshot.CurrentContextIndex) {
-		return snapshot.CurrentContextIndex
+	if snapshot.CurrentEntry == nil && isValidContextIndex(snapshot, currentContextIndex(snapshot)) {
+		return currentContextIndex(snapshot)
 	}
 	return defaultFirstContextIndex(snapshot)
 }
@@ -1816,7 +1809,7 @@ func previousContextIndexFromAnchor(snapshot SessionSnapshot, anchorIndex int) i
 			return previous
 		}
 		if snapshot.RepeatMode == RepeatAll {
-			return len(snapshot.Context.Entries) - 1
+			return len(snapshot.ContextQueue.Entries) - 1
 		}
 		return -1
 	}
@@ -1843,28 +1836,22 @@ func (s *Session) resolveEntrySelectionLocked(entryID string) (SessionEntry, Ent
 	if current := s.snapshot.CurrentEntry; current != nil && current.EntryID == entryID {
 		return *current, current.Origin, -1, nil
 	}
-	if index := indexOfEntryID(s.snapshot.QueuedEntries, entryID); index >= 0 {
-		return s.snapshot.QueuedEntries[index], EntryOriginQueued, index, nil
+	if index := indexOfEntryID(s.snapshot.UserQueue, entryID); index >= 0 {
+		return s.snapshot.UserQueue[index], EntryOriginQueued, index, nil
 	}
-	if s.snapshot.Context != nil {
-		for _, entry := range s.snapshot.Context.Entries {
+	if s.snapshot.ContextQueue != nil {
+		for _, entry := range s.snapshot.ContextQueue.Entries {
 			if entry.EntryID == entryID {
 				return entry, EntryOriginContext, -1, nil
 			}
-		}
-	}
-	for _, item := range s.snapshot.History {
-		if item.Entry.EntryID == entryID {
-			return item.Entry, item.Entry.Origin, -1, nil
 		}
 	}
 	return SessionEntry{}, "", -1, fmt.Errorf("entry %s not found", entryID)
 }
 
 func (s *Session) switchCurrentLocked(entry SessionEntry, origin EntryOrigin, queueIndex int, previous *SessionEntry, keepPosition bool, restorePosition int64) {
-	s.maybePushHistoryLocked(previous, entry)
-	if origin == EntryOriginQueued && queueIndex >= 0 && queueIndex < len(s.snapshot.QueuedEntries) {
-		s.snapshot.QueuedEntries = append(s.snapshot.QueuedEntries[:queueIndex], s.snapshot.QueuedEntries[queueIndex+1:]...)
+	if origin == EntryOriginQueued && queueIndex >= 0 && queueIndex < len(s.snapshot.UserQueue) {
+		s.snapshot.UserQueue = append(s.snapshot.UserQueue[:queueIndex], s.snapshot.UserQueue[queueIndex+1:]...)
 	}
 	s.setCurrentLocked(entry, origin)
 	s.recalculateResumeContextIndexLocked()
@@ -1888,12 +1875,11 @@ func (s *Session) setLoadingLocked(entry SessionEntry, preparation apitypes.Play
 func (s *Session) setCurrentLocked(entry SessionEntry, origin EntryOrigin) {
 	entry.Origin = origin
 	s.snapshot.CurrentEntryID = entry.EntryID
-	s.snapshot.CurrentOrigin = origin
 	s.snapshot.CurrentEntry = &entry
 	item := entry.Item
 	s.snapshot.CurrentItem = &item
 	if origin == EntryOriginContext {
-		s.snapshot.CurrentContextIndex = entry.ContextIndex
+		s.setCurrentContextIndexLocked(entry.ContextIndex)
 	}
 }
 
@@ -1901,12 +1887,10 @@ func (s *Session) clearCurrentLocked() {
 	s.snapshot.CurrentEntryID = ""
 	s.snapshot.CurrentEntry = nil
 	s.snapshot.CurrentItem = nil
-	s.snapshot.CurrentOrigin = ""
-	s.snapshot.CurrentContextIndex = -1
 }
 
 func (s *Session) recalculateResumeContextIndexLocked() {
-	s.snapshot.ResumeContextIndex = normalizeResumeContextIndex(s.snapshot)
+	s.setResumeContextIndexLocked(normalizeResumeContextIndex(s.snapshot))
 }
 
 func (s *Session) clearLoadingStateLocked() {
@@ -1915,87 +1899,70 @@ func (s *Session) clearLoadingStateLocked() {
 	s.snapshot.LoadingPreparation = nil
 }
 
-func (s *Session) pushHistoryLocked(entry SessionEntry) {
-	s.snapshot.History = append(s.snapshot.History, HistoryEntry{
-		Entry:    entry,
-		PlayedAt: formatTimestamp(time.Now().UTC()),
-	})
-	s.historyScopes = append(s.historyScopes, s.historyScope)
-	if len(s.snapshot.History) > maxHistoryEntries {
-		s.snapshot.History = s.snapshot.History[len(s.snapshot.History)-maxHistoryEntries:]
-		if len(s.historyScopes) > maxHistoryEntries {
-			s.historyScopes = s.historyScopes[len(s.historyScopes)-maxHistoryEntries:]
-		}
-	}
-	if len(s.historyScopes) > len(s.snapshot.History) {
-		s.historyScopes = s.historyScopes[len(s.historyScopes)-len(s.snapshot.History):]
-	}
-}
-
 func (s *Session) peekNextLocked(ignoreRepeatOne bool) (SessionEntry, EntryOrigin, int, bool) {
 	if s.snapshot.CurrentEntry == nil {
-		if len(s.snapshot.QueuedEntries) > 0 {
-			return s.snapshot.QueuedEntries[0], EntryOriginQueued, 0, true
+		if len(s.snapshot.UserQueue) > 0 {
+			return s.snapshot.UserQueue[0], EntryOriginQueued, 0, true
 		}
 		index := s.firstContextIndexLocked()
-		if index < 0 || s.snapshot.Context == nil || index >= len(s.snapshot.Context.Entries) {
+		if index < 0 || s.snapshot.ContextQueue == nil || index >= len(s.snapshot.ContextQueue.Entries) {
 			return SessionEntry{}, "", -1, false
 		}
-		return s.snapshot.Context.Entries[index], EntryOriginContext, -1, true
+		return s.snapshot.ContextQueue.Entries[index], EntryOriginContext, -1, true
 	}
-	if len(s.snapshot.QueuedEntries) > 0 {
-		return s.snapshot.QueuedEntries[0], EntryOriginQueued, 0, true
+	if len(s.snapshot.UserQueue) > 0 {
+		return s.snapshot.UserQueue[0], EntryOriginQueued, 0, true
 	}
 	index := s.nextContextIndexLocked(ignoreRepeatOne)
-	if index < 0 || s.snapshot.Context == nil || index >= len(s.snapshot.Context.Entries) {
+	if index < 0 || s.snapshot.ContextQueue == nil || index >= len(s.snapshot.ContextQueue.Entries) {
 		return SessionEntry{}, "", -1, false
 	}
-	return s.snapshot.Context.Entries[index], EntryOriginContext, -1, true
+	return s.snapshot.ContextQueue.Entries[index], EntryOriginContext, -1, true
 }
 
 func (s *Session) firstContextIndexLocked() int {
-	if isValidContextIndex(s.snapshot, s.snapshot.ResumeContextIndex) {
+	if isValidContextIndex(s.snapshot, resumeContextIndex(s.snapshot)) {
 		if !s.snapshot.Shuffle {
-			return s.snapshot.ResumeContextIndex
+			return resumeContextIndex(s.snapshot)
 		}
 		s.ensureShuffleCycleLocked()
-		if indexOfInt(s.snapshot.ShuffleCycle, s.snapshot.ResumeContextIndex) >= 0 {
-			return s.snapshot.ResumeContextIndex
+		if indexOfInt(shuffleBag(s.snapshot), resumeContextIndex(s.snapshot)) >= 0 {
+			return resumeContextIndex(s.snapshot)
 		}
 	}
 	return defaultFirstContextIndex(s.snapshot)
 }
 
 func (s *Session) nextContextIndexLocked(ignoreRepeatOne bool) int {
-	if s.snapshot.Context == nil || len(s.snapshot.Context.Entries) == 0 {
+	if s.snapshot.ContextQueue == nil || len(s.snapshot.ContextQueue.Entries) == 0 {
 		return -1
 	}
 	if !currentMatchesContext(s.snapshot) {
 		return s.firstContextIndexLocked()
 	}
-	return nextContextIndexFromAnchor(s.snapshot, s.snapshot.CurrentContextIndex, ignoreRepeatOne)
+	return nextContextIndexFromAnchor(s.snapshot, currentContextIndex(s.snapshot), ignoreRepeatOne)
 }
 
 func (s *Session) ensureShuffleCycleLocked() {
-	if !s.snapshot.Shuffle || s.snapshot.Context == nil {
+	if !s.snapshot.Shuffle || s.snapshot.ContextQueue == nil {
 		return
 	}
-	if len(s.snapshot.ShuffleCycle) == len(s.snapshot.Context.Entries) && len(s.snapshot.ShuffleCycle) > 0 {
+	if len(shuffleBag(s.snapshot)) == len(s.snapshot.ContextQueue.Entries) && len(shuffleBag(s.snapshot)) > 0 {
 		return
 	}
 	s.rebuildShuffleCycleLocked()
 }
 
 func (s *Session) rebuildShuffleCycleLocked() {
-	if !s.snapshot.Shuffle || s.snapshot.Context == nil {
-		s.snapshot.ShuffleCycle = nil
+	if !s.snapshot.Shuffle || s.snapshot.ContextQueue == nil {
+		setShuffleBagLocked(&s.snapshot, nil)
 		return
 	}
-	s.snapshot.ShuffleCycle = buildAnchoredSmartShuffleCycle(
-		s.snapshot.Context.Entries,
+	setShuffleBagLocked(&s.snapshot, buildAnchoredSmartShuffleCycle(
+		s.snapshot.ContextQueue.Entries,
 		shuffleAnchorIndex(s.snapshot),
 		s.rng,
-	)
+	))
 }
 
 func (s *Session) nextEntryIDLocked(prefix string) string {
@@ -2008,21 +1975,21 @@ func (s *Session) nextEntryIDLocked(prefix string) string {
 }
 
 func (s *Session) selectionEntriesLocked() []SessionEntry {
-	size := len(s.snapshot.QueuedEntries)
+	size := len(s.snapshot.UserQueue)
 	if s.snapshot.CurrentEntry != nil {
 		size++
 	}
-	if s.snapshot.Context != nil {
-		size += len(s.snapshot.Context.Entries)
+	if s.snapshot.ContextQueue != nil {
+		size += len(s.snapshot.ContextQueue.Entries)
 	}
 
 	out := make([]SessionEntry, 0, size)
 	if s.snapshot.CurrentEntry != nil {
 		out = append(out, *s.snapshot.CurrentEntry)
 	}
-	out = append(out, s.snapshot.QueuedEntries...)
-	if s.snapshot.Context != nil {
-		out = append(out, s.snapshot.Context.Entries...)
+	out = append(out, s.snapshot.UserQueue...)
+	if s.snapshot.ContextQueue != nil {
+		out = append(out, s.snapshot.ContextQueue.Entries...)
 	}
 	return out
 }
@@ -2058,7 +2025,7 @@ func (s *Session) completePendingPlayback(ctx context.Context, entry SessionEntr
 	previous := cloneEntryPtr(s.snapshot.CurrentEntry)
 	queueIndex := -1
 	if entry.Origin == EntryOriginQueued {
-		queueIndex = indexOfEntryID(s.snapshot.QueuedEntries, entry.EntryID)
+		queueIndex = indexOfEntryID(s.snapshot.UserQueue, entry.EntryID)
 	}
 	s.clearLoadingStateLocked()
 	s.switchCurrentLocked(entry, entry.Origin, queueIndex, previous, false, 0)
@@ -2081,12 +2048,6 @@ func (s *Session) completePendingPlayback(ctx context.Context, entry SessionEntr
 	return nil
 }
 
-func (s *Session) beginFreshHistoryScopeLocked(previous *SessionEntry) {
-	s.snapshot.History = nil
-	s.historyScopes = nil
-	s.suppressHistoryPush = previous != nil && previous.EntryID != ""
-}
-
 func (s *Session) invalidateFutureOrderLocked(reason string, forceRecovery bool) (Backend, bool) {
 	backend := s.backend
 	needsClearPreload := s.shouldClearBackendPreloadLocked()
@@ -2100,54 +2061,37 @@ func (s *Session) invalidateFutureOrderLocked(reason string, forceRecovery bool)
 	return backend, needsClearPreload
 }
 
-func (s *Session) maybePushHistoryLocked(previous *SessionEntry, entry SessionEntry) {
-	s.snapshot.History = nil
-	s.historyScopes = nil
-	s.suppressHistoryPush = false
-}
-
-func (s *Session) consumePreviousHistoryEntryLocked() (SessionEntry, bool) {
-	return SessionEntry{}, false
-}
-
 func (s *Session) previousContextEntryLocked() (SessionEntry, bool) {
 	if !currentMatchesContext(s.snapshot) {
 		return SessionEntry{}, false
 	}
-	index := previousContextIndexFromAnchor(s.snapshot, s.snapshot.CurrentContextIndex)
-	if index < 0 || s.snapshot.Context == nil || index >= len(s.snapshot.Context.Entries) {
+	index := previousContextIndexFromAnchor(s.snapshot, currentContextIndex(s.snapshot))
+	if index < 0 || s.snapshot.ContextQueue == nil || index >= len(s.snapshot.ContextQueue.Entries) {
 		return SessionEntry{}, false
 	}
-	return s.snapshot.Context.Entries[index], true
+	return s.snapshot.ContextQueue.Entries[index], true
 }
 
 func (s *Session) returnContextEntryLocked() (SessionEntry, bool) {
-	if !isValidContextIndex(s.snapshot, s.snapshot.CurrentContextIndex) || s.snapshot.Context == nil {
+	if !isValidContextIndex(s.snapshot, currentContextIndex(s.snapshot)) || s.snapshot.ContextQueue == nil {
 		return SessionEntry{}, false
 	}
-	return s.snapshot.Context.Entries[s.snapshot.CurrentContextIndex], true
+	return s.snapshot.ContextQueue.Entries[currentContextIndex(s.snapshot)], true
 }
 
 func (s *Session) entryInCurrentContextLocked(entry SessionEntry) bool {
-	if entry.Origin != EntryOriginContext || s.snapshot.Context == nil {
+	if entry.Origin != EntryOriginContext || s.snapshot.ContextQueue == nil {
 		return false
 	}
-	if entry.ContextIndex >= 0 && entry.ContextIndex < len(s.snapshot.Context.Entries) {
-		return s.snapshot.Context.Entries[entry.ContextIndex].EntryID == entry.EntryID
+	if entry.ContextIndex >= 0 && entry.ContextIndex < len(s.snapshot.ContextQueue.Entries) {
+		return s.snapshot.ContextQueue.Entries[entry.ContextIndex].EntryID == entry.EntryID
 	}
-	for _, contextEntry := range s.snapshot.Context.Entries {
+	for _, contextEntry := range s.snapshot.ContextQueue.Entries {
 		if contextEntry.EntryID == entry.EntryID {
 			return true
 		}
 	}
 	return false
-}
-
-func (s *Session) historyScopeAtLocked(index int) uint64 {
-	if index >= 0 && index < len(s.historyScopes) {
-		return s.historyScopes[index]
-	}
-	return 0
 }
 
 func (s *Session) consumeSkippedUserEntries(skipped []skippedPlaybackEntry, candidate *playbackCandidate, state SessionSnapshot) SessionSnapshot {
@@ -2166,9 +2110,9 @@ func (s *Session) consumeSkippedUserEntries(skipped []skippedPlaybackEntry, cand
 	}
 
 	s.mu.Lock()
-	nextQueue := make([]SessionEntry, 0, len(s.snapshot.QueuedEntries))
+	nextQueue := make([]SessionEntry, 0, len(s.snapshot.UserQueue))
 	changed := false
-	for _, entry := range s.snapshot.QueuedEntries {
+	for _, entry := range s.snapshot.UserQueue {
 		if _, ok := queuedSkipped[entry.EntryID]; ok {
 			changed = true
 			continue
@@ -2176,7 +2120,7 @@ func (s *Session) consumeSkippedUserEntries(skipped []skippedPlaybackEntry, cand
 		nextQueue = append(nextQueue, entry)
 	}
 	if changed {
-		s.snapshot.QueuedEntries = nextQueue
+		s.snapshot.UserQueue = nextQueue
 		s.touchLocked()
 		state = snapshotCopyLocked(&s.snapshot)
 	}
@@ -2286,30 +2230,38 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 		snapshot.NextEntrySeq = 1
 	}
 
-	if snapshot.Context != nil {
-		contextCopy := *snapshot.Context
+	if snapshot.ContextQueue != nil {
+		contextCopy := *snapshot.ContextQueue
 		contextCopy.Entries = cloneEntries(contextCopy.Entries)
+		contextCopy.ShuffleBag = append([]int(nil), contextCopy.ShuffleBag...)
 		for index := range contextCopy.Entries {
 			contextCopy.Entries[index].Item = normalizeSessionItem(contextCopy.Entries[index].Item)
 			contextCopy.Entries[index].Origin = EntryOriginContext
 			contextCopy.Entries[index].ContextIndex = index
 		}
 		if len(contextCopy.Entries) == 0 {
-			snapshot.Context = nil
+			snapshot.ContextQueue = nil
 		} else {
-			snapshot.Context = &contextCopy
+			if contextCopy.StartIndex < 0 || contextCopy.StartIndex >= len(contextCopy.Entries) {
+				contextCopy.StartIndex = 0
+			}
+			if contextCopy.CurrentIndex < 0 || contextCopy.CurrentIndex >= len(contextCopy.Entries) {
+				contextCopy.CurrentIndex = -1
+			}
+			if contextCopy.ResumeIndex < 0 || contextCopy.ResumeIndex >= len(contextCopy.Entries) {
+				contextCopy.ResumeIndex = -1
+			}
+			snapshot.ContextQueue = &contextCopy
 		}
 	}
 
-	snapshot.QueuedEntries = cloneEntries(snapshot.QueuedEntries)
-	for index := range snapshot.QueuedEntries {
-		snapshot.QueuedEntries[index].Item = normalizeSessionItem(snapshot.QueuedEntries[index].Item)
-		snapshot.QueuedEntries[index].Origin = EntryOriginQueued
-		snapshot.QueuedEntries[index].ContextIndex = -1
+	snapshot.UserQueue = cloneEntries(snapshot.UserQueue)
+	for index := range snapshot.UserQueue {
+		snapshot.UserQueue[index].Item = normalizeSessionItem(snapshot.UserQueue[index].Item)
+		snapshot.UserQueue[index].Origin = EntryOriginQueued
+		snapshot.UserQueue[index].ContextIndex = -1
 	}
-	snapshot.UserQueue = cloneEntries(snapshot.QueuedEntries)
 
-	snapshot.History = nil
 	snapshot.CurrentPreparation = cloneEntryPreparation(snapshot.CurrentPreparation)
 	snapshot.LoadingPreparation = cloneEntryPreparation(snapshot.LoadingPreparation)
 	snapshot.NextPreparation = cloneEntryPreparation(snapshot.NextPreparation)
@@ -2321,19 +2273,14 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 		if snapshot.CurrentEntryID == "" {
 			snapshot.CurrentEntryID = entry.EntryID
 		}
-		if snapshot.CurrentOrigin == "" {
-			snapshot.CurrentOrigin = entry.Origin
-		} else {
-			entry.Origin = snapshot.CurrentOrigin
-		}
 		snapshot.CurrentEntry = &entry
 		item := entry.Item
 		snapshot.CurrentItem = &item
 		if snapshot.DurationMS == nil {
 			snapshot.DurationMS = currentDuration(&item)
 		}
-		if snapshot.CurrentOrigin == EntryOriginContext && entry.ContextIndex >= 0 {
-			snapshot.CurrentContextIndex = entry.ContextIndex
+		if snapshot.ContextQueue != nil && entry.Origin == EntryOriginContext && entry.ContextIndex >= 0 && entry.ContextIndex < len(snapshot.ContextQueue.Entries) {
+			snapshot.ContextQueue.CurrentIndex = entry.ContextIndex
 		}
 	} else {
 		snapshot.CurrentEntryID = ""
@@ -2355,21 +2302,20 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 		snapshot.LoadingPreparation = nil
 	}
 
-	if snapshot.Context == nil {
-		snapshot.ShuffleCycle = nil
-		snapshot.ResumeContextIndex = -1
-		if snapshot.CurrentOrigin == EntryOriginContext && snapshot.CurrentEntry == nil {
-			snapshot.CurrentContextIndex = -1
+	if snapshot.ContextQueue == nil {
+		if snapshot.CurrentEntry == nil {
+			snapshot.CurrentLane = ""
 		}
+	} else {
+		if !snapshot.Shuffle {
+			snapshot.ContextQueue.ShuffleBag = nil
+		}
+		snapshot.ContextQueue.ResumeIndex = normalizeResumeContextIndex(snapshot)
 	}
-	if snapshot.CurrentContextIndex >= 0 && snapshot.Context != nil && snapshot.CurrentContextIndex >= len(snapshot.Context.Entries) {
-		snapshot.CurrentContextIndex = -1
-	}
-	snapshot.ResumeContextIndex = normalizeResumeContextIndex(snapshot)
 	if snapshot.DurationMS != nil && snapshot.PositionMS > *snapshot.DurationMS {
 		snapshot.PositionMS = *snapshot.DurationMS
 	}
-	if snapshot.Context == nil && len(snapshot.QueuedEntries) == 0 && snapshot.CurrentEntry == nil {
+	if snapshot.ContextQueue == nil && len(snapshot.UserQueue) == 0 && snapshot.CurrentEntry == nil {
 		if snapshot.LoadingEntry == nil {
 			snapshot.Status = StatusIdle
 			snapshot.PositionMS = 0
@@ -2383,7 +2329,6 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 	}
 
 	snapshot.UpcomingEntries = buildUpcomingEntries(snapshot)
-	snapshot.ContextQueue = buildContextQueue(snapshot)
 	snapshot.CurrentLane = deriveCurrentLane(snapshot)
 	snapshot.NextPlanned = buildQueuePlan(snapshot.UpcomingEntries)
 	if snapshot.PreloadedPlan == nil && snapshot.NextPreparation != nil {
@@ -2404,14 +2349,7 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 
 func snapshotCopyLocked(snapshot *SessionSnapshot) SessionSnapshot {
 	copyState := normalizeSnapshot(*snapshot)
-	if copyState.Context != nil {
-		contextCopy := *copyState.Context
-		contextCopy.Entries = cloneEntries(contextCopy.Entries)
-		copyState.Context = &contextCopy
-	}
-	copyState.QueuedEntries = cloneEntries(copyState.QueuedEntries)
 	copyState.UserQueue = cloneEntries(copyState.UserQueue)
-	copyState.History = cloneHistory(copyState.History)
 	copyState.UpcomingEntries = cloneEntries(copyState.UpcomingEntries)
 	copyState.ContextQueue = cloneContextQueue(copyState.ContextQueue)
 	copyState.NextPlanned = cloneQueuePlan(copyState.NextPlanned)
@@ -2420,7 +2358,6 @@ func snapshotCopyLocked(snapshot *SessionSnapshot) SessionSnapshot {
 	copyState.LoadingPreparation = cloneEntryPreparation(copyState.LoadingPreparation)
 	copyState.NextPreparation = cloneEntryPreparation(copyState.NextPreparation)
 	copyState.LastSkipEvent = clonePlaybackSkipEvent(copyState.LastSkipEvent)
-	copyState.ShuffleCycle = append([]int(nil), copyState.ShuffleCycle...)
 	copyState.EntryAvailability = cloneAvailabilityMap(copyState.EntryAvailability)
 	if copyState.CurrentEntry != nil {
 		entry := *copyState.CurrentEntry
@@ -2444,12 +2381,12 @@ func snapshotCopyLocked(snapshot *SessionSnapshot) SessionSnapshot {
 
 func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 	contextEntries := 0
-	if snapshot.Context != nil {
-		contextEntries = len(snapshot.Context.Entries)
+	if snapshot.ContextQueue != nil {
+		contextEntries = len(snapshot.ContextQueue.Entries)
 	}
-	out := make([]SessionEntry, 0, len(snapshot.QueuedEntries)+contextEntries)
-	out = append(out, cloneEntries(snapshot.QueuedEntries)...)
-	if snapshot.Context == nil || len(snapshot.Context.Entries) == 0 {
+	out := make([]SessionEntry, 0, len(snapshot.UserQueue)+contextEntries)
+	out = append(out, cloneEntries(snapshot.UserQueue)...)
+	if snapshot.ContextQueue == nil || len(snapshot.ContextQueue.Entries) == 0 {
 		return out
 	}
 
@@ -2457,31 +2394,31 @@ func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 
 	if snapshot.Shuffle {
 		cycle := effectiveShuffleCycle(snapshot)
-		resumeIndex := snapshot.ResumeContextIndex
+		resumeIndex := resumeContextIndex(snapshot)
 		startAdded := false
-		if currentIsInContext && snapshot.CurrentContextIndex >= 0 {
-			position := indexOfInt(cycle, snapshot.CurrentContextIndex)
+		if currentIsInContext && currentContextIndex(snapshot) >= 0 {
+			position := indexOfInt(cycle, currentContextIndex(snapshot))
 			if position >= 0 {
 				for index := position + 1; index < len(cycle); index++ {
-					out = append(out, snapshot.Context.Entries[cycle[index]])
+					out = append(out, snapshot.ContextQueue.Entries[cycle[index]])
 				}
 				if snapshot.RepeatMode == RepeatAll {
 					for index := 0; index < position; index++ {
-						out = append(out, snapshot.Context.Entries[cycle[index]])
+						out = append(out, snapshot.ContextQueue.Entries[cycle[index]])
 					}
 				}
 				startAdded = true
 			}
 		}
-		if !startAdded && resumeIndex >= 0 && resumeIndex < len(snapshot.Context.Entries) {
+		if !startAdded && resumeIndex >= 0 && resumeIndex < len(snapshot.ContextQueue.Entries) {
 			position := indexOfInt(cycle, resumeIndex)
 			if position >= 0 {
 				for index := position; index < len(cycle); index++ {
-					out = append(out, snapshot.Context.Entries[cycle[index]])
+					out = append(out, snapshot.ContextQueue.Entries[cycle[index]])
 				}
 				if snapshot.RepeatMode == RepeatAll {
 					for index := 0; index < position; index++ {
-						out = append(out, snapshot.Context.Entries[cycle[index]])
+						out = append(out, snapshot.ContextQueue.Entries[cycle[index]])
 					}
 				}
 				startAdded = true
@@ -2489,28 +2426,28 @@ func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 		}
 		if !startAdded {
 			for _, index := range cycle {
-				out = append(out, snapshot.Context.Entries[index])
+				out = append(out, snapshot.ContextQueue.Entries[index])
 			}
 		}
 		return out
 	}
 
 	start := 0
-	if currentIsInContext && snapshot.CurrentContextIndex >= 0 {
-		start = snapshot.CurrentContextIndex + 1
-	} else if snapshot.ResumeContextIndex >= 0 && snapshot.ResumeContextIndex < len(snapshot.Context.Entries) {
-		start = snapshot.ResumeContextIndex
+	if currentIsInContext && currentContextIndex(snapshot) >= 0 {
+		start = currentContextIndex(snapshot) + 1
+	} else if resumeContextIndex(snapshot) >= 0 && resumeContextIndex(snapshot) < len(snapshot.ContextQueue.Entries) {
+		start = resumeContextIndex(snapshot)
 	}
-	for index := start; index < len(snapshot.Context.Entries); index++ {
-		out = append(out, snapshot.Context.Entries[index])
+	for index := start; index < len(snapshot.ContextQueue.Entries); index++ {
+		out = append(out, snapshot.ContextQueue.Entries[index])
 	}
-	if snapshot.RepeatMode == RepeatAll && currentIsInContext && snapshot.CurrentContextIndex >= 0 {
-		for index := 0; index < snapshot.CurrentContextIndex; index++ {
-			out = append(out, snapshot.Context.Entries[index])
+	if snapshot.RepeatMode == RepeatAll && currentIsInContext && currentContextIndex(snapshot) >= 0 {
+		for index := 0; index < currentContextIndex(snapshot); index++ {
+			out = append(out, snapshot.ContextQueue.Entries[index])
 		}
 	} else if snapshot.RepeatMode == RepeatAll && !currentIsInContext && start > 0 {
 		for index := 0; index < start; index++ {
-			out = append(out, snapshot.Context.Entries[index])
+			out = append(out, snapshot.ContextQueue.Entries[index])
 		}
 	}
 	return out
@@ -2578,16 +2515,6 @@ func cloneEntries(entries []SessionEntry) []SessionEntry {
 	return out
 }
 
-func cloneHistory(history []HistoryEntry) []HistoryEntry {
-	out := make([]HistoryEntry, 0, len(history))
-	for _, item := range history {
-		entry := item
-		entry.PlayedAt = normalizeTimestamp(entry.PlayedAt)
-		out = append(out, entry)
-	}
-	return out
-}
-
 func cloneEntryPtr(entry *SessionEntry) *SessionEntry {
 	if entry == nil {
 		return nil
@@ -2644,6 +2571,59 @@ func cloneAvailabilityMap(value map[string]apitypes.RecordingPlaybackAvailabilit
 	return out
 }
 
+func currentContextIndex(snapshot SessionSnapshot) int {
+	if snapshot.ContextQueue == nil {
+		return -1
+	}
+	return snapshot.ContextQueue.CurrentIndex
+}
+
+func resumeContextIndex(snapshot SessionSnapshot) int {
+	if snapshot.ContextQueue == nil {
+		return -1
+	}
+	return snapshot.ContextQueue.ResumeIndex
+}
+
+func shuffleBag(snapshot SessionSnapshot) []int {
+	if snapshot.ContextQueue == nil {
+		return nil
+	}
+	return snapshot.ContextQueue.ShuffleBag
+}
+
+func (s *Session) setCurrentContextIndexLocked(index int) {
+	if s.snapshot.ContextQueue == nil {
+		return
+	}
+	s.snapshot.ContextQueue.CurrentIndex = index
+}
+
+func (s *Session) setResumeContextIndexLocked(index int) {
+	if s.snapshot.ContextQueue == nil {
+		return
+	}
+	s.snapshot.ContextQueue.ResumeIndex = index
+}
+
+func setShuffleBagLocked(snapshot *SessionSnapshot, bag []int) {
+	if snapshot == nil || snapshot.ContextQueue == nil {
+		return
+	}
+	snapshot.ContextQueue.ShuffleBag = append([]int(nil), bag...)
+}
+
+func (s *Session) setEntryAvailabilityLocked(entryID string, status apitypes.RecordingPlaybackAvailability) {
+	entryID = strings.TrimSpace(entryID)
+	if entryID == "" {
+		return
+	}
+	if s.snapshot.EntryAvailability == nil {
+		s.snapshot.EntryAvailability = make(map[string]apitypes.RecordingPlaybackAvailability)
+	}
+	s.snapshot.EntryAvailability[entryID] = status
+}
+
 func normalizeSessionItem(item SessionItem) SessionItem {
 	items := NormalizeItems([]SessionItem{item})
 	if len(items) == 0 {
@@ -2686,13 +2666,13 @@ func findEntryByID(snapshot SessionSnapshot, entryID string) (SessionEntry, bool
 	if entryID == "" {
 		return SessionEntry{}, false
 	}
-	for _, entry := range snapshot.QueuedEntries {
+	for _, entry := range snapshot.UserQueue {
 		if entry.EntryID == entryID {
 			return entry, true
 		}
 	}
-	if snapshot.Context != nil {
-		for _, entry := range snapshot.Context.Entries {
+	if snapshot.ContextQueue != nil {
+		for _, entry := range snapshot.ContextQueue.Entries {
 			if entry.EntryID == entryID {
 				return entry, true
 			}
@@ -2702,29 +2682,6 @@ func findEntryByID(snapshot SessionSnapshot, entryID string) (SessionEntry, bool
 		return *snapshot.CurrentEntry, true
 	}
 	return SessionEntry{}, false
-}
-
-func buildContextQueue(snapshot SessionSnapshot) *ContextQueue {
-	if snapshot.Context == nil {
-		return nil
-	}
-	startIndex := 0
-	switch {
-	case isValidContextIndex(snapshot, snapshot.CurrentContextIndex):
-		startIndex = snapshot.CurrentContextIndex
-	case isValidContextIndex(snapshot, snapshot.ResumeContextIndex):
-		startIndex = snapshot.ResumeContextIndex
-	}
-	return &ContextQueue{
-		Kind:         snapshot.Context.Kind,
-		ID:           snapshot.Context.ID,
-		Title:        snapshot.Context.Title,
-		Entries:      cloneEntries(snapshot.Context.Entries),
-		StartIndex:   startIndex,
-		CurrentIndex: snapshot.CurrentContextIndex,
-		ResumeIndex:  snapshot.ResumeContextIndex,
-		ShuffleBag:   append([]int(nil), snapshot.ShuffleCycle...),
-	}
 }
 
 func currentItemFromEntry(entry *SessionEntry) *SessionItem {
@@ -2850,26 +2807,26 @@ func buildAnchoredSmartShuffleCycle(entries []SessionEntry, anchorIndex int, rng
 }
 
 func effectiveShuffleCycle(snapshot SessionSnapshot) []int {
-	cycle := append([]int(nil), snapshot.ShuffleCycle...)
+	cycle := append([]int(nil), shuffleBag(snapshot)...)
 	if len(cycle) > 0 {
 		return cycle
 	}
-	if snapshot.Context == nil {
+	if snapshot.ContextQueue == nil {
 		return nil
 	}
 	return buildAnchoredSmartShuffleCycle(
-		snapshot.Context.Entries,
+		snapshot.ContextQueue.Entries,
 		shuffleAnchorIndex(snapshot),
 		rand.New(rand.NewSource(1)),
 	)
 }
 
 func shuffleAnchorIndex(snapshot SessionSnapshot) int {
-	if isValidContextIndex(snapshot, snapshot.CurrentContextIndex) {
-		return snapshot.CurrentContextIndex
+	if isValidContextIndex(snapshot, currentContextIndex(snapshot)) {
+		return currentContextIndex(snapshot)
 	}
-	if isValidContextIndex(snapshot, snapshot.ResumeContextIndex) {
-		return snapshot.ResumeContextIndex
+	if isValidContextIndex(snapshot, resumeContextIndex(snapshot)) {
+		return resumeContextIndex(snapshot)
 	}
 	return -1
 }
@@ -2906,8 +2863,6 @@ func sameLabel(left string, right string) bool {
 }
 
 func (s *Session) syncAuthorityStateLocked() {
-	s.snapshot.UserQueue = cloneEntries(s.snapshot.QueuedEntries)
-	s.snapshot.ContextQueue = buildContextQueue(s.snapshot)
 	s.snapshot.CurrentLane = deriveCurrentLane(s.snapshot)
 	s.snapshot.NextPlanned = buildQueuePlan(s.snapshot.UpcomingEntries)
 	if s.preloadedID == "" {

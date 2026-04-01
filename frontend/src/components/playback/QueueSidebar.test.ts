@@ -21,19 +21,49 @@ function makeEntry(source: Partial<PlaybackModels.SessionEntry> = {}) {
 
 describe("QueueSidebar queue row state", () => {
   test("marks unavailable rows as non-actionable and appends availability text", () => {
-    const rows = buildQueueRows([makeEntry()], [], {
-      "rec-1": {
-        data: {
-          State: "UNAVAILABLE:NO_PATH",
+    const rows = buildQueueRows(
+      [makeEntry()],
+      [],
+      {},
+      {
+        "rec-1": {
+          data: {
+            State: "UNAVAILABLE:NO_PATH",
+          },
         },
       },
-    });
+    );
 
     expect(rows).toHaveLength(2);
     expect(rows[1]).toMatchObject({
       type: "entry",
       actionable: false,
       secondaryText: "Artist 1 • Unavailable",
+    });
+  });
+
+  test("prefers playback snapshot entry availability over catalog fallback", () => {
+    const rows = buildQueueRows(
+      [makeEntry()],
+      [],
+      {
+        "entry-1": {
+          State: "PLAYABLE:CACHED_OPT",
+        },
+      },
+      {
+        "rec-1": {
+          data: {
+            State: "UNAVAILABLE:NO_PATH",
+          },
+        },
+      },
+    );
+
+    expect(rows[1]).toMatchObject({
+      type: "entry",
+      actionable: true,
+      secondaryText: "Artist 1",
     });
   });
 

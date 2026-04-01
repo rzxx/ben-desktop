@@ -7,8 +7,6 @@ export {
     CurrentLane,
     EntryOrigin,
     EntryPreparation,
-    HistoryEntry,
-    PlaybackContext,
     PlaybackContextInput,
     PlaybackSkipEvent,
     PlaybackTargetRef,

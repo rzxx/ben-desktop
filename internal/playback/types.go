@@ -103,13 +103,6 @@ type SessionEntry struct {
 	Item         SessionItem `json:"item"`
 }
 
-type PlaybackContext struct {
-	Kind    ContextKind    `json:"kind"`
-	ID      string         `json:"id"`
-	Title   string         `json:"title,omitempty"`
-	Entries []SessionEntry `json:"entries"`
-}
-
 type ContextQueue struct {
 	Kind         ContextKind    `json:"kind"`
 	ID           string         `json:"id"`
@@ -127,11 +120,6 @@ type QueuePlan struct {
 	Planned bool          `json:"planned"`
 }
 
-type HistoryEntry struct {
-	Entry    SessionEntry `json:"entry"`
-	PlayedAt string       `json:"playedAt"`
-}
-
 type TargetAvailability struct {
 	Target PlaybackTargetRef                      `json:"target"`
 	Status apitypes.RecordingPlaybackAvailability `json:"status"`
@@ -143,40 +131,33 @@ type TargetAvailabilityRequest struct {
 }
 
 type SessionSnapshot struct {
-	Context             *PlaybackContext                                  `json:"context,omitempty"`
-	QueuedEntries       []SessionEntry                                    `json:"queuedEntries"`
-	ContextQueue        *ContextQueue                                     `json:"contextQueue,omitempty"`
-	UserQueue           []SessionEntry                                    `json:"userQueue"`
-	History             []HistoryEntry                                    `json:"history"`
-	CurrentEntryID      string                                            `json:"currentEntryId,omitempty"`
-	CurrentEntry        *SessionEntry                                     `json:"currentEntry,omitempty"`
-	CurrentItem         *SessionItem                                      `json:"currentItem,omitempty"`
-	LoadingEntry        *SessionEntry                                     `json:"loadingEntry,omitempty"`
-	LoadingItem         *SessionItem                                      `json:"loadingItem,omitempty"`
-	UpcomingEntries     []SessionEntry                                    `json:"upcomingEntries"`
-	CurrentLane         CurrentLane                                       `json:"currentLane,omitempty"`
-	NextPlanned         *QueuePlan                                        `json:"nextPlanned,omitempty"`
-	PreloadedPlan       *QueuePlan                                        `json:"preloadedPlan,omitempty"`
-	CurrentOrigin       EntryOrigin                                       `json:"currentOrigin,omitempty"`
-	CurrentContextIndex int                                               `json:"currentContextIndex"`
-	ResumeContextIndex  int                                               `json:"resumeContextIndex"`
-	ShuffleCycle        []int                                             `json:"shuffleCycle,omitempty"`
-	RepeatMode          RepeatMode                                        `json:"repeatMode"`
-	Shuffle             bool                                              `json:"shuffle"`
-	Volume              int                                               `json:"volume"`
-	Status              Status                                            `json:"status"`
-	PositionMS          int64                                             `json:"positionMs"`
-	DurationMS          *int64                                            `json:"durationMs,omitempty"`
-	UpdatedAt           string                                            `json:"updatedAt"`
-	LastError           string                                            `json:"lastError,omitempty"`
-	CurrentSourceKind   apitypes.PlaybackSourceKind                       `json:"currentSourceKind,omitempty"`
-	CurrentPreparation  *EntryPreparation                                 `json:"currentPreparation,omitempty"`
-	LoadingPreparation  *EntryPreparation                                 `json:"loadingPreparation,omitempty"`
-	NextPreparation     *EntryPreparation                                 `json:"nextPreparation,omitempty"`
-	EntryAvailability   map[string]apitypes.RecordingPlaybackAvailability `json:"entryAvailability,omitempty"`
-	LastSkipEvent       *PlaybackSkipEvent                                `json:"lastSkipEvent,omitempty"`
-	QueueLength         int                                               `json:"queueLength"`
-	NextEntrySeq        int64                                             `json:"nextEntrySeq,omitempty"`
+	ContextQueue       *ContextQueue                                     `json:"contextQueue,omitempty"`
+	UserQueue          []SessionEntry                                    `json:"userQueue"`
+	CurrentEntryID     string                                            `json:"currentEntryId,omitempty"`
+	CurrentEntry       *SessionEntry                                     `json:"currentEntry,omitempty"`
+	CurrentItem        *SessionItem                                      `json:"currentItem,omitempty"`
+	LoadingEntry       *SessionEntry                                     `json:"loadingEntry,omitempty"`
+	LoadingItem        *SessionItem                                      `json:"loadingItem,omitempty"`
+	UpcomingEntries    []SessionEntry                                    `json:"upcomingEntries"`
+	CurrentLane        CurrentLane                                       `json:"currentLane,omitempty"`
+	NextPlanned        *QueuePlan                                        `json:"nextPlanned,omitempty"`
+	PreloadedPlan      *QueuePlan                                        `json:"preloadedPlan,omitempty"`
+	RepeatMode         RepeatMode                                        `json:"repeatMode"`
+	Shuffle            bool                                              `json:"shuffle"`
+	Volume             int                                               `json:"volume"`
+	Status             Status                                            `json:"status"`
+	PositionMS         int64                                             `json:"positionMs"`
+	DurationMS         *int64                                            `json:"durationMs,omitempty"`
+	UpdatedAt          string                                            `json:"updatedAt"`
+	LastError          string                                            `json:"lastError,omitempty"`
+	CurrentSourceKind  apitypes.PlaybackSourceKind                       `json:"currentSourceKind,omitempty"`
+	CurrentPreparation *EntryPreparation                                 `json:"currentPreparation,omitempty"`
+	LoadingPreparation *EntryPreparation                                 `json:"loadingPreparation,omitempty"`
+	NextPreparation    *EntryPreparation                                 `json:"nextPreparation,omitempty"`
+	EntryAvailability  map[string]apitypes.RecordingPlaybackAvailability `json:"entryAvailability,omitempty"`
+	LastSkipEvent      *PlaybackSkipEvent                                `json:"lastSkipEvent,omitempty"`
+	QueueLength        int                                               `json:"queueLength"`
+	NextEntrySeq       int64                                             `json:"nextEntrySeq,omitempty"`
 }
 
 type EntryPreparation struct {

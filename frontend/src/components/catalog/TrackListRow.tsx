@@ -144,8 +144,8 @@ export function TrackListRow({
                   isActive
                     ? ""
                     : compact
-                    ? "group-hover:text-white"
-                    : "group-hover:text-theme-50",
+                      ? "group-hover:text-white"
+                      : "group-hover:text-theme-50",
                 ].join(" ")}
               >
                 {title}

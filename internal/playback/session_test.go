@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -221,10 +222,37 @@ type testBackend struct {
 	supportsPreload bool
 }
 
+type blockingLoadBackend struct {
+	*testBackend
+	blockURI string
+	entered  chan struct{}
+	release  chan struct{}
+	once     sync.Once
+}
+
 func newTestBackend() *testBackend {
 	return &testBackend{
 		events: make(chan BackendEvent, 8),
 	}
+}
+
+func newBlockingLoadBackend(blockURI string) *blockingLoadBackend {
+	return &blockingLoadBackend{
+		testBackend: newTestBackend(),
+		blockURI:    blockURI,
+		entered:     make(chan struct{}),
+		release:     make(chan struct{}),
+	}
+}
+
+func (b *blockingLoadBackend) Load(ctx context.Context, uri string) error {
+	if uri == b.blockURI {
+		b.once.Do(func() {
+			close(b.entered)
+		})
+		<-b.release
+	}
+	return b.testBackend.Load(ctx, uri)
 }
 
 func (b *testBackend) Load(_ context.Context, uri string) error {
@@ -307,9 +335,12 @@ func TestSessionStartRestoresPausedState(t *testing.T) {
 	duration := int64(120000)
 	store := &memoryStore{
 		snapshot: SessionSnapshot{
-			Context: &PlaybackContext{
+			ContextQueue: &ContextQueue{
 				Kind: ContextKindAlbum,
 				ID:   "album-1",
+				StartIndex: 0,
+				CurrentIndex: 0,
+				ResumeIndex: 0,
 				Entries: []SessionEntry{
 					{
 						EntryID:      "ctx-1",
@@ -323,14 +354,12 @@ func TestSessionStartRestoresPausedState(t *testing.T) {
 					},
 				},
 			},
-			CurrentEntryID:      "ctx-1",
-			CurrentEntry:        &SessionEntry{EntryID: "ctx-1", Origin: EntryOriginContext, ContextIndex: 0, Item: SessionItem{RecordingID: "rec-1", Title: "Track 1", DurationMS: duration}},
-			CurrentOrigin:       EntryOriginContext,
-			CurrentContextIndex: 0,
-			Volume:              60,
-			Status:              StatusPlaying,
-			PositionMS:          2500,
-			DurationMS:          &duration,
+			CurrentEntryID: "ctx-1",
+			CurrentEntry:   &SessionEntry{EntryID: "ctx-1", Origin: EntryOriginContext, ContextIndex: 0, Item: SessionItem{RecordingID: "rec-1", Title: "Track 1", DurationMS: duration}},
+			Volume:         60,
+			Status:         StatusPlaying,
+			PositionMS:     2500,
+			DurationMS:     &duration,
 		},
 	}
 	session := NewSession(&mockBridge{}, newTestBackend(), store, "desktop", nil)
@@ -386,6 +415,145 @@ func TestSessionPlayLoadsResolvedURI(t *testing.T) {
 	}
 	if snapshot.Status != StatusPlaying {
 		t.Fatalf("expected playing status, got %q", snapshot.Status)
+	}
+}
+
+func TestSessionSelectEntryIgnoresCurrentEntryWithoutResettingPosition(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {
+				State:       apitypes.AvailabilityPlayableLocalFile,
+				SourceKind:  apitypes.PlaybackSourceLocalFile,
+				PlayableURI: "file:///tmp/test-1.mp3",
+			},
+			"rec-2": {
+				State:       apitypes.AvailabilityPlayableLocalFile,
+				SourceKind:  apitypes.PlaybackSourceLocalFile,
+				PlayableURI: "file:///tmp/test-2.mp3",
+			},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	snapshot, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "Track 1"},
+			{RecordingID: "rec-2", Title: "Track 2"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	snapshot, err = session.Play(context.Background())
+	if err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if _, err := session.SeekTo(context.Background(), 12000); err != nil {
+		t.Fatalf("seek: %v", err)
+	}
+
+	loadCallsBefore := backend.loadCalls
+	selected, err := session.SelectEntry(context.Background(), snapshot.CurrentEntry.EntryID)
+	if err != nil {
+		t.Fatalf("select current entry: %v", err)
+	}
+	if backend.loadCalls != loadCallsBefore {
+		t.Fatalf("expected current entry selection not to reload backend, load calls = %d want %d", backend.loadCalls, loadCallsBefore)
+	}
+	if selected.PositionMS != 12000 {
+		t.Fatalf("expected current entry selection to preserve position, got %d", selected.PositionMS)
+	}
+	if selected.CurrentEntry == nil || selected.CurrentEntry.Item.RecordingID != "rec-1" {
+		t.Fatalf("expected rec-1 to remain current, got %+v", selected.CurrentEntry)
+	}
+}
+
+func TestSessionConcurrentSelectEntryAppliesLatestSelection(t *testing.T) {
+	t.Parallel()
+
+	backend := newBlockingLoadBackend("file:///tmp/test-2.mp3")
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {
+				State:       apitypes.AvailabilityPlayableLocalFile,
+				SourceKind:  apitypes.PlaybackSourceLocalFile,
+				PlayableURI: "file:///tmp/test-1.mp3",
+			},
+			"rec-2": {
+				State:       apitypes.AvailabilityPlayableLocalFile,
+				SourceKind:  apitypes.PlaybackSourceLocalFile,
+				PlayableURI: "file:///tmp/test-2.mp3",
+			},
+			"rec-3": {
+				State:       apitypes.AvailabilityPlayableLocalFile,
+				SourceKind:  apitypes.PlaybackSourceLocalFile,
+				PlayableURI: "file:///tmp/test-3.mp3",
+			},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	snapshot, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "Track 1"},
+			{RecordingID: "rec-2", Title: "Track 2"},
+			{RecordingID: "rec-3", Title: "Track 3"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+
+	entry2ID := snapshot.ContextQueue.Entries[1].EntryID
+	entry3ID := snapshot.ContextQueue.Entries[2].EntryID
+
+	errs := make(chan error, 2)
+	go func() {
+		_, err := session.SelectEntry(context.Background(), entry2ID)
+		errs <- err
+	}()
+
+	select {
+	case <-backend.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first queued selection to reach backend load")
+	}
+
+	go func() {
+		_, err := session.SelectEntry(context.Background(), entry3ID)
+		errs <- err
+	}()
+
+	close(backend.release)
+
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatalf("select entry: %v", err)
+		}
+	}
+
+	final := session.Snapshot()
+	if final.CurrentEntry == nil || final.CurrentEntry.Item.RecordingID != "rec-3" {
+		t.Fatalf("expected latest selected entry rec-3 to win, got %+v", final.CurrentEntry)
+	}
+	if backend.loadedURI != "file:///tmp/test-3.mp3" {
+		t.Fatalf("expected backend to finish on rec-3 URI, got %q", backend.loadedURI)
 	}
 }
 
@@ -475,8 +643,8 @@ func TestQueueEntriesPlayBeforeRemainingContext(t *testing.T) {
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "queued" {
 		t.Fatalf("expected queued item to play next, got %#v", snapshot.CurrentEntry)
 	}
-	if len(snapshot.QueuedEntries) != 0 {
-		t.Fatalf("expected queued entries to be consumed, got %d", len(snapshot.QueuedEntries))
+	if len(snapshot.UserQueue) != 0 {
+		t.Fatalf("expected queued entries to be consumed, got %d", len(snapshot.UserQueue))
 	}
 }
 
@@ -526,8 +694,8 @@ func TestSessionQueuedPlaybackResumesRemainingContext(t *testing.T) {
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "q-1" {
 		t.Fatalf("expected first queued item, got %+v", snapshot.CurrentEntry)
 	}
-	if snapshot.ResumeContextIndex != 1 {
-		t.Fatalf("resume context index = %d, want 1", snapshot.ResumeContextIndex)
+	if snapshot.ContextQueue.ResumeIndex != 1 {
+		t.Fatalf("resume context index = %d, want 1", snapshot.ContextQueue.ResumeIndex)
 	}
 	if len(snapshot.UpcomingEntries) < 3 {
 		t.Fatalf("expected queued and remaining context in upcoming entries, got %+v", snapshot.UpcomingEntries)
@@ -607,8 +775,8 @@ func TestSessionPreviousFromUserQueueReturnsToContextAndKeepsRemovedUserTrackGon
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "ctx-1" {
 		t.Fatalf("expected previous to return to ctx-1, got %+v", snapshot.CurrentEntry)
 	}
-	if len(snapshot.QueuedEntries) != 1 || snapshot.QueuedEntries[0].Item.RecordingID != "q-2" {
-		t.Fatalf("expected only q-2 to remain queued, got %+v", snapshot.QueuedEntries)
+	if len(snapshot.UserQueue) != 1 || snapshot.UserQueue[0].Item.RecordingID != "q-2" {
+		t.Fatalf("expected only q-2 to remain queued, got %+v", snapshot.UserQueue)
 	}
 
 	snapshot, err = session.Next(context.Background())
@@ -659,22 +827,22 @@ func TestSessionSelectingQueuedEntryKeepsContextResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queue items: %v", err)
 	}
-	if len(queuedSnapshot.QueuedEntries) != 2 {
-		t.Fatalf("expected 2 queued entries, got %d", len(queuedSnapshot.QueuedEntries))
+	if len(queuedSnapshot.UserQueue) != 2 {
+		t.Fatalf("expected 2 queued entries, got %d", len(queuedSnapshot.UserQueue))
 	}
 
-	selected, err := session.SelectEntry(context.Background(), queuedSnapshot.QueuedEntries[1].EntryID)
+	selected, err := session.SelectEntry(context.Background(), queuedSnapshot.UserQueue[1].EntryID)
 	if err != nil {
 		t.Fatalf("select second queued entry: %v", err)
 	}
 	if selected.CurrentEntry == nil || selected.CurrentEntry.Item.RecordingID != "q-2" {
 		t.Fatalf("expected q-2 to become current, got %+v", selected.CurrentEntry)
 	}
-	if selected.ResumeContextIndex != 1 {
-		t.Fatalf("resume context index = %d, want 1", selected.ResumeContextIndex)
+	if selected.ContextQueue.ResumeIndex != 1 {
+		t.Fatalf("resume context index = %d, want 1", selected.ContextQueue.ResumeIndex)
 	}
 
-	if _, err := session.RemoveQueuedEntry(queuedSnapshot.QueuedEntries[0].EntryID); err != nil {
+	if _, err := session.RemoveQueuedEntry(queuedSnapshot.UserQueue[0].EntryID); err != nil {
 		t.Fatalf("remove remaining queued entry: %v", err)
 	}
 
@@ -732,21 +900,21 @@ func TestSessionShuffleWhileQueuedResumesUsingNewShuffleOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set shuffle: %v", err)
 	}
-	if len(shuffled.ShuffleCycle) < 2 {
-		t.Fatalf("unexpected shuffle cycle for anchored context: %v", shuffled.ShuffleCycle)
+	if len(shuffled.ContextQueue.ShuffleBag) < 2 {
+		t.Fatalf("unexpected shuffle cycle for anchored context: %v", shuffled.ContextQueue.ShuffleBag)
 	}
-	if shuffled.ShuffleCycle[0] != 0 {
-		t.Fatalf("expected shuffle cycle to anchor last context index 0, got %v", shuffled.ShuffleCycle)
+	if shuffled.ContextQueue.ShuffleBag[0] != 0 {
+		t.Fatalf("expected shuffle cycle to anchor last context index 0, got %v", shuffled.ContextQueue.ShuffleBag)
 	}
-	expectedIndex := shuffled.ShuffleCycle[1]
-	expectedRecordingID := shuffled.Context.Entries[expectedIndex].Item.RecordingID
+	expectedIndex := shuffled.ContextQueue.ShuffleBag[1]
+	expectedRecordingID := shuffled.ContextQueue.Entries[expectedIndex].Item.RecordingID
 
 	snapshot, err := session.Next(context.Background())
 	if err != nil {
 		t.Fatalf("next back to shuffled context: %v", err)
 	}
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != expectedRecordingID {
-		t.Fatalf("expected resume to %s based on shuffle cycle %v, got %+v", expectedRecordingID, shuffled.ShuffleCycle, snapshot.CurrentEntry)
+		t.Fatalf("expected resume to %s based on shuffle cycle %v, got %+v", expectedRecordingID, shuffled.ContextQueue.ShuffleBag, snapshot.CurrentEntry)
 	}
 }
 
@@ -837,10 +1005,6 @@ func TestSessionReplaceContextAndPlayResetsPreviousToNewContext(t *testing.T) {
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "playlist-2" {
 		t.Fatalf("expected playlist-2 to become current, got %+v", snapshot.CurrentEntry)
 	}
-	if len(snapshot.History) != 0 {
-		t.Fatalf("expected fresh context playback to start with empty history, got %+v", snapshot.History)
-	}
-
 	previous, err := session.Previous(context.Background())
 	if err != nil {
 		t.Fatalf("previous in new context: %v", err)
@@ -922,10 +1086,6 @@ func TestSessionPendingContextReplacementDoesNotLeakOldContextIntoHistory(t *tes
 	if resolved.CurrentEntry == nil || resolved.CurrentEntry.Item.RecordingID != "playlist-2" {
 		t.Fatalf("expected playlist-2 after pending completion, got %+v", resolved.CurrentEntry)
 	}
-	if len(resolved.History) != 0 {
-		t.Fatalf("expected old context not to be re-added to history, got %+v", resolved.History)
-	}
-
 	previous, err := session.Previous(context.Background())
 	if err != nil {
 		t.Fatalf("previous after pending replacement: %v", err)
@@ -970,12 +1130,12 @@ func TestSessionPreviousFallsBackToPreviousShuffledContextEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set shuffle: %v", err)
 	}
-	if len(shuffled.ShuffleCycle) < 3 {
-		t.Fatalf("expected shuffle cycle with at least 3 items, got %v", shuffled.ShuffleCycle)
+	if len(shuffled.ContextQueue.ShuffleBag) < 3 {
+		t.Fatalf("expected shuffle cycle with at least 3 items, got %v", shuffled.ContextQueue.ShuffleBag)
 	}
 
-	targetIndex := shuffled.ShuffleCycle[2]
-	target := shuffled.Context.Entries[targetIndex]
+	targetIndex := shuffled.ContextQueue.ShuffleBag[2]
+	target := shuffled.ContextQueue.Entries[targetIndex]
 	if _, err := session.playEntry(context.Background(), target, EntryOriginContext, -1, nil, false, true); err != nil {
 		t.Fatalf("play shuffled middle entry: %v", err)
 	}
@@ -985,8 +1145,8 @@ func TestSessionPreviousFallsBackToPreviousShuffledContextEntry(t *testing.T) {
 		t.Fatalf("previous in shuffled context: %v", err)
 	}
 
-	expectedIndex := shuffled.ShuffleCycle[1]
-	expected := shuffled.Context.Entries[expectedIndex].Item.RecordingID
+	expectedIndex := shuffled.ContextQueue.ShuffleBag[1]
+	expected := shuffled.ContextQueue.Entries[expectedIndex].Item.RecordingID
 	if previous.CurrentEntry == nil || previous.CurrentEntry.Item.RecordingID != expected {
 		t.Fatalf("expected shuffled previous %s, got %+v", expected, previous.CurrentEntry)
 	}
@@ -1031,11 +1191,11 @@ func TestSessionPreviousDoesNotStepBeforeShuffleAnchor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set shuffle: %v", err)
 	}
-	if len(shuffled.ShuffleCycle) == 0 {
+	if len(shuffled.ContextQueue.ShuffleBag) == 0 {
 		t.Fatalf("expected non-empty shuffle cycle")
 	}
-	if shuffled.ShuffleCycle[0] != 1 {
-		t.Fatalf("expected shuffle cycle to anchor current index 1, got %v", shuffled.ShuffleCycle)
+	if shuffled.ContextQueue.ShuffleBag[0] != 1 {
+		t.Fatalf("expected shuffle cycle to anchor current index 1, got %v", shuffled.ContextQueue.ShuffleBag)
 	}
 
 	previous, err := session.Previous(context.Background())
@@ -1498,8 +1658,8 @@ func TestSessionNextSkipsUnavailableQueuedEntriesAndRemovesPlayedSkips(t *testin
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-3" {
 		t.Fatalf("expected current entry rec-3, got %+v", snapshot.CurrentEntry)
 	}
-	if len(snapshot.QueuedEntries) != 0 {
-		t.Fatalf("expected skipped queued entry rec-2 to be removed after later queued playback, got %+v", snapshot.QueuedEntries)
+	if len(snapshot.UserQueue) != 0 {
+		t.Fatalf("expected skipped queued entry rec-2 to be removed after later queued playback, got %+v", snapshot.UserQueue)
 	}
 	if snapshot.LastSkipEvent == nil || snapshot.LastSkipEvent.Count != 1 {
 		t.Fatalf("expected one skipped item event, got %+v", snapshot.LastSkipEvent)
@@ -1552,8 +1712,8 @@ func TestSessionNextKeepsUnavailableUserQueueWhenNoQueuedFallbackExists(t *testi
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-3" {
 		t.Fatalf("expected context to continue to rec-3, got %+v", snapshot.CurrentEntry)
 	}
-	if len(snapshot.QueuedEntries) != 1 || snapshot.QueuedEntries[0].Item.RecordingID != "rec-2" {
-		t.Fatalf("expected unavailable queued entry rec-2 to remain queued, got %+v", snapshot.QueuedEntries)
+	if len(snapshot.UserQueue) != 1 || snapshot.UserQueue[0].Item.RecordingID != "rec-2" {
+		t.Fatalf("expected unavailable queued entry rec-2 to remain queued, got %+v", snapshot.UserQueue)
 	}
 }
 
@@ -2392,12 +2552,12 @@ func TestSmartShuffleSpreadsAdjacentArtists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set shuffle: %v", err)
 	}
-	if len(snapshot.ShuffleCycle) != 4 {
-		t.Fatalf("expected shuffle cycle of 4, got %v", snapshot.ShuffleCycle)
+	if len(snapshot.ContextQueue.ShuffleBag) != 4 {
+		t.Fatalf("expected shuffle cycle of 4, got %v", snapshot.ContextQueue.ShuffleBag)
 	}
 
-	cycle := snapshot.ShuffleCycle
-	entries := snapshot.Context.Entries
+	cycle := snapshot.ContextQueue.ShuffleBag
+	entries := snapshot.ContextQueue.Entries
 	for index := 1; index < len(cycle); index++ {
 		left := entries[cycle[index-1]].Item
 		right := entries[cycle[index]].Item
@@ -2453,8 +2613,8 @@ func TestSessionShuffleKeepsQueuedEntriesOutsideShuffleCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set shuffle: %v", err)
 	}
-	if len(shuffled.ShuffleCycle) != len(shuffled.Context.Entries) {
-		t.Fatalf("expected shuffle cycle to cover only context entries, got cycle %v for %d context entries", shuffled.ShuffleCycle, len(shuffled.Context.Entries))
+	if len(shuffled.ContextQueue.ShuffleBag) != len(shuffled.ContextQueue.Entries) {
+		t.Fatalf("expected shuffle cycle to cover only context entries, got cycle %v for %d context entries", shuffled.ContextQueue.ShuffleBag, len(shuffled.ContextQueue.Entries))
 	}
 	if len(shuffled.UpcomingEntries) < 3 {
 		t.Fatalf("expected queued entries plus shuffled context in upcoming list, got %+v", shuffled.UpcomingEntries)
@@ -2462,7 +2622,7 @@ func TestSessionShuffleKeepsQueuedEntriesOutsideShuffleCycle(t *testing.T) {
 	if shuffled.UpcomingEntries[0].Item.RecordingID != "q-1" || shuffled.UpcomingEntries[1].Item.RecordingID != "q-2" {
 		t.Fatalf("expected queued entries to stay ahead of shuffle order, got %+v", shuffled.UpcomingEntries)
 	}
-	expectedContext := shuffled.Context.Entries[shuffled.ShuffleCycle[1]].Item.RecordingID
+	expectedContext := shuffled.ContextQueue.Entries[shuffled.ContextQueue.ShuffleBag[1]].Item.RecordingID
 	if shuffled.UpcomingEntries[2].Item.RecordingID != expectedContext {
 		t.Fatalf("expected first shuffled context entry %s after queued items, got %+v", expectedContext, shuffled.UpcomingEntries)
 	}
@@ -2672,11 +2832,11 @@ func TestSessionClearQueuePreservesCurrentPlayback(t *testing.T) {
 	if snapshot.Status != StatusPlaying {
 		t.Fatalf("status = %q, want playing", snapshot.Status)
 	}
-	if snapshot.Context != nil {
-		t.Fatalf("expected context to be cleared, got %+v", snapshot.Context)
+	if snapshot.ContextQueue != nil {
+		t.Fatalf("expected context to be cleared, got %+v", snapshot.ContextQueue)
 	}
-	if len(snapshot.QueuedEntries) != 0 {
-		t.Fatalf("expected queued entries to be cleared, got %d", len(snapshot.QueuedEntries))
+	if len(snapshot.UserQueue) != 0 {
+		t.Fatalf("expected queued entries to be cleared, got %d", len(snapshot.UserQueue))
 	}
 	if len(snapshot.UpcomingEntries) != 0 {
 		t.Fatalf("expected upcoming entries to be cleared, got %d", len(snapshot.UpcomingEntries))
@@ -2786,3 +2946,4 @@ func TestSessionEOFAtEndPreservesContextAndReloadsOnPlay(t *testing.T) {
 
 	t.Fatalf("expected session to settle into paused state after eof, got %+v", session.Snapshot())
 }
+

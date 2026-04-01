@@ -21,40 +21,50 @@ export function QueueSidebar() {
 
   const activeEntryId =
     snapshot?.currentEntry?.entryId ?? snapshot?.loadingEntry?.entryId ?? "";
-  const recordingIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const entry of snapshot?.queuedEntries ?? []) {
-      if (entry.item.recordingId) {
-        ids.add(entry.item.recordingId);
+  const missingRecordingIds = useMemo(() => {
+    const playbackAvailabilityByEntryId = snapshot?.entryAvailability ?? {};
+    const missing = new Set<string>();
+    for (const entry of snapshot?.userQueue ?? []) {
+      if (
+        !playbackAvailabilityByEntryId[entry.entryId]?.State &&
+        entry.item.recordingId
+      ) {
+        missing.add(entry.item.recordingId);
       }
     }
-    for (const entry of snapshot?.context?.entries ?? []) {
-      if (entry.item.recordingId) {
-        ids.add(entry.item.recordingId);
+    for (const entry of snapshot?.contextQueue?.entries ?? []) {
+      if (
+        !playbackAvailabilityByEntryId[entry.entryId]?.State &&
+        entry.item.recordingId
+      ) {
+        missing.add(entry.item.recordingId);
       }
     }
-    return Array.from(ids);
-  }, [snapshot?.context?.entries, snapshot?.queuedEntries]);
+    return Array.from(missing);
+  }, [
+    snapshot?.contextQueue?.entries,
+    snapshot?.entryAvailability,
+    snapshot?.userQueue,
+  ]);
 
   useEffect(() => {
-    if (recordingIds.length === 0) {
+    if (missingRecordingIds.length === 0) {
       return;
     }
-    void ensureTrackAvailability(recordingIds);
-  }, [recordingIds]);
+    void ensureTrackAvailability(missingRecordingIds);
+  }, [missingRecordingIds]);
 
   const rows = useMemo(() => {
-    const queuedEntries = snapshot?.queuedEntries ?? [];
-    const contextEntries = snapshot?.context?.entries ?? [];
-
     return buildQueueRows(
-      queuedEntries,
-      contextEntries,
+      snapshot?.userQueue ?? [],
+      snapshot?.contextQueue?.entries ?? [],
+      snapshot?.entryAvailability ?? {},
       trackAvailabilityByRecordingId,
     );
   }, [
-    snapshot?.context?.entries,
-    snapshot?.queuedEntries,
+    snapshot?.contextQueue?.entries,
+    snapshot?.entryAvailability,
+    snapshot?.userQueue,
     trackAvailabilityByRecordingId,
   ]);
   const parentRef = useRef<HTMLDivElement | null>(null);
@@ -127,6 +137,9 @@ export function QueueSidebar() {
                         actionable={row.actionable}
                         entry={row.entry}
                         isActive={row.entry.entryId === activeEntryId}
+                        selectable={
+                          row.actionable && row.entry.entryId !== activeEntryId
+                        }
                         secondaryText={row.secondaryText}
                         onRemove={
                           row.entry.origin === "queued"
@@ -136,7 +149,7 @@ export function QueueSidebar() {
                             : undefined
                         }
                         onSelect={
-                          row.actionable
+                          row.actionable && row.entry.entryId !== activeEntryId
                             ? () => {
                                 void selectEntry(row.entry.entryId);
                               }
@@ -171,6 +184,7 @@ type QueueEntryRowProps = {
   entry: PlaybackModels.SessionEntry;
   isActive: boolean;
   actionable: boolean;
+  selectable: boolean;
   secondaryText: string;
   onSelect?: () => void;
   onRemove?: () => void;
@@ -181,13 +195,13 @@ function QueueEntryRow(props: QueueEntryRowProps) {
     <div
       className={[
         "group flex min-w-0 items-center gap-2 rounded-md p-2 transition-colors",
-        props.isActive || !props.actionable ? "" : "hover:bg-theme-800",
+        props.isActive || !props.selectable ? "" : "hover:bg-theme-800",
         props.actionable ? "" : "opacity-40",
       ].join(" ")}
     >
       <button
         className="wails-no-drag min-w-0 flex-1 text-left disabled:pointer-events-none"
-        disabled={!props.actionable}
+        disabled={!props.selectable}
         onClick={props.onSelect}
         type="button"
       >

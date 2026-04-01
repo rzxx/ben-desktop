@@ -122,69 +122,6 @@ export class EntryPreparation {
     }
 }
 
-export class HistoryEntry {
-    "entry": SessionEntry;
-    "playedAt": string;
-
-    /** Creates a new HistoryEntry instance. */
-    constructor($$source: Partial<HistoryEntry> = {}) {
-        if (!("entry" in $$source)) {
-            this["entry"] = (new SessionEntry());
-        }
-        if (!("playedAt" in $$source)) {
-            this["playedAt"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new HistoryEntry instance from a string or object.
-     */
-    static createFrom($$source: any = {}): HistoryEntry {
-        const $$createField0_0 = $$createType0;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("entry" in $$parsedSource) {
-            $$parsedSource["entry"] = $$createField0_0($$parsedSource["entry"]);
-        }
-        return new HistoryEntry($$parsedSource as Partial<HistoryEntry>);
-    }
-}
-
-export class PlaybackContext {
-    "kind": ContextKind;
-    "id": string;
-    "title"?: string;
-    "entries": SessionEntry[];
-
-    /** Creates a new PlaybackContext instance. */
-    constructor($$source: Partial<PlaybackContext> = {}) {
-        if (!("kind" in $$source)) {
-            this["kind"] = ContextKind.$zero;
-        }
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("entries" in $$source)) {
-            this["entries"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new PlaybackContext instance from a string or object.
-     */
-    static createFrom($$source: any = {}): PlaybackContext {
-        const $$createField3_0 = $$createType1;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("entries" in $$parsedSource) {
-            $$parsedSource["entries"] = $$createField3_0($$parsedSource["entries"]);
-        }
-        return new PlaybackContext($$parsedSource as Partial<PlaybackContext>);
-    }
-}
-
 export class PlaybackContextInput {
     "Kind": ContextKind;
     "ID": string;
@@ -440,11 +377,8 @@ export class SessionItem {
 }
 
 export class SessionSnapshot {
-    "context"?: PlaybackContext | null;
-    "queuedEntries": SessionEntry[];
     "contextQueue"?: ContextQueue | null;
     "userQueue": SessionEntry[];
-    "history": HistoryEntry[];
     "currentEntryId"?: string;
     "currentEntry"?: SessionEntry | null;
     "currentItem"?: SessionItem | null;
@@ -454,10 +388,6 @@ export class SessionSnapshot {
     "currentLane"?: CurrentLane;
     "nextPlanned"?: QueuePlan | null;
     "preloadedPlan"?: QueuePlan | null;
-    "currentOrigin"?: EntryOrigin;
-    "currentContextIndex": number;
-    "resumeContextIndex": number;
-    "shuffleCycle"?: number[];
     "repeatMode": RepeatMode;
     "shuffle": boolean;
     "volume": number;
@@ -477,23 +407,11 @@ export class SessionSnapshot {
 
     /** Creates a new SessionSnapshot instance. */
     constructor($$source: Partial<SessionSnapshot> = {}) {
-        if (!("queuedEntries" in $$source)) {
-            this["queuedEntries"] = [];
-        }
         if (!("userQueue" in $$source)) {
             this["userQueue"] = [];
         }
-        if (!("history" in $$source)) {
-            this["history"] = [];
-        }
         if (!("upcomingEntries" in $$source)) {
             this["upcomingEntries"] = [];
-        }
-        if (!("currentContextIndex" in $$source)) {
-            this["currentContextIndex"] = 0;
-        }
-        if (!("resumeContextIndex" in $$source)) {
-            this["resumeContextIndex"] = 0;
         }
         if (!("repeatMode" in $$source)) {
             this["repeatMode"] = RepeatMode.$zero;
@@ -526,76 +444,60 @@ export class SessionSnapshot {
     static createFrom($$source: any = {}): SessionSnapshot {
         const $$createField0_0 = $$createType9;
         const $$createField1_0 = $$createType1;
-        const $$createField2_0 = $$createType11;
-        const $$createField3_0 = $$createType1;
-        const $$createField4_0 = $$createType13;
-        const $$createField6_0 = $$createType6;
-        const $$createField7_0 = $$createType14;
-        const $$createField8_0 = $$createType6;
-        const $$createField9_0 = $$createType14;
-        const $$createField10_0 = $$createType1;
-        const $$createField12_0 = $$createType16;
-        const $$createField13_0 = $$createType16;
-        const $$createField17_0 = $$createType2;
-        const $$createField27_0 = $$createType18;
-        const $$createField28_0 = $$createType18;
-        const $$createField29_0 = $$createType18;
-        const $$createField30_0 = $$createType20;
-        const $$createField31_0 = $$createType22;
+        const $$createField3_0 = $$createType6;
+        const $$createField4_0 = $$createType10;
+        const $$createField5_0 = $$createType6;
+        const $$createField6_0 = $$createType10;
+        const $$createField7_0 = $$createType1;
+        const $$createField9_0 = $$createType12;
+        const $$createField10_0 = $$createType12;
+        const $$createField20_0 = $$createType14;
+        const $$createField21_0 = $$createType14;
+        const $$createField22_0 = $$createType14;
+        const $$createField23_0 = $$createType16;
+        const $$createField24_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("context" in $$parsedSource) {
-            $$parsedSource["context"] = $$createField0_0($$parsedSource["context"]);
-        }
-        if ("queuedEntries" in $$parsedSource) {
-            $$parsedSource["queuedEntries"] = $$createField1_0($$parsedSource["queuedEntries"]);
-        }
         if ("contextQueue" in $$parsedSource) {
-            $$parsedSource["contextQueue"] = $$createField2_0($$parsedSource["contextQueue"]);
+            $$parsedSource["contextQueue"] = $$createField0_0($$parsedSource["contextQueue"]);
         }
         if ("userQueue" in $$parsedSource) {
-            $$parsedSource["userQueue"] = $$createField3_0($$parsedSource["userQueue"]);
-        }
-        if ("history" in $$parsedSource) {
-            $$parsedSource["history"] = $$createField4_0($$parsedSource["history"]);
+            $$parsedSource["userQueue"] = $$createField1_0($$parsedSource["userQueue"]);
         }
         if ("currentEntry" in $$parsedSource) {
-            $$parsedSource["currentEntry"] = $$createField6_0($$parsedSource["currentEntry"]);
+            $$parsedSource["currentEntry"] = $$createField3_0($$parsedSource["currentEntry"]);
         }
         if ("currentItem" in $$parsedSource) {
-            $$parsedSource["currentItem"] = $$createField7_0($$parsedSource["currentItem"]);
+            $$parsedSource["currentItem"] = $$createField4_0($$parsedSource["currentItem"]);
         }
         if ("loadingEntry" in $$parsedSource) {
-            $$parsedSource["loadingEntry"] = $$createField8_0($$parsedSource["loadingEntry"]);
+            $$parsedSource["loadingEntry"] = $$createField5_0($$parsedSource["loadingEntry"]);
         }
         if ("loadingItem" in $$parsedSource) {
-            $$parsedSource["loadingItem"] = $$createField9_0($$parsedSource["loadingItem"]);
+            $$parsedSource["loadingItem"] = $$createField6_0($$parsedSource["loadingItem"]);
         }
         if ("upcomingEntries" in $$parsedSource) {
-            $$parsedSource["upcomingEntries"] = $$createField10_0($$parsedSource["upcomingEntries"]);
+            $$parsedSource["upcomingEntries"] = $$createField7_0($$parsedSource["upcomingEntries"]);
         }
         if ("nextPlanned" in $$parsedSource) {
-            $$parsedSource["nextPlanned"] = $$createField12_0($$parsedSource["nextPlanned"]);
+            $$parsedSource["nextPlanned"] = $$createField9_0($$parsedSource["nextPlanned"]);
         }
         if ("preloadedPlan" in $$parsedSource) {
-            $$parsedSource["preloadedPlan"] = $$createField13_0($$parsedSource["preloadedPlan"]);
-        }
-        if ("shuffleCycle" in $$parsedSource) {
-            $$parsedSource["shuffleCycle"] = $$createField17_0($$parsedSource["shuffleCycle"]);
+            $$parsedSource["preloadedPlan"] = $$createField10_0($$parsedSource["preloadedPlan"]);
         }
         if ("currentPreparation" in $$parsedSource) {
-            $$parsedSource["currentPreparation"] = $$createField27_0($$parsedSource["currentPreparation"]);
+            $$parsedSource["currentPreparation"] = $$createField20_0($$parsedSource["currentPreparation"]);
         }
         if ("loadingPreparation" in $$parsedSource) {
-            $$parsedSource["loadingPreparation"] = $$createField28_0($$parsedSource["loadingPreparation"]);
+            $$parsedSource["loadingPreparation"] = $$createField21_0($$parsedSource["loadingPreparation"]);
         }
         if ("nextPreparation" in $$parsedSource) {
-            $$parsedSource["nextPreparation"] = $$createField29_0($$parsedSource["nextPreparation"]);
+            $$parsedSource["nextPreparation"] = $$createField22_0($$parsedSource["nextPreparation"]);
         }
         if ("entryAvailability" in $$parsedSource) {
-            $$parsedSource["entryAvailability"] = $$createField30_0($$parsedSource["entryAvailability"]);
+            $$parsedSource["entryAvailability"] = $$createField23_0($$parsedSource["entryAvailability"]);
         }
         if ("lastSkipEvent" in $$parsedSource) {
-            $$parsedSource["lastSkipEvent"] = $$createField31_0($$parsedSource["lastSkipEvent"]);
+            $$parsedSource["lastSkipEvent"] = $$createField24_0($$parsedSource["lastSkipEvent"]);
         }
         return new SessionSnapshot($$parsedSource as Partial<SessionSnapshot>);
     }
@@ -622,18 +524,14 @@ const $$createType4 = SessionItem.createFrom;
 const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = $Create.Nullable($$createType0);
 const $$createType7 = PlaybackTargetRef.createFrom;
-const $$createType8 = PlaybackContext.createFrom;
+const $$createType8 = ContextQueue.createFrom;
 const $$createType9 = $Create.Nullable($$createType8);
-const $$createType10 = ContextQueue.createFrom;
-const $$createType11 = $Create.Nullable($$createType10);
-const $$createType12 = HistoryEntry.createFrom;
-const $$createType13 = $Create.Array($$createType12);
-const $$createType14 = $Create.Nullable($$createType4);
-const $$createType15 = QueuePlan.createFrom;
-const $$createType16 = $Create.Nullable($$createType15);
-const $$createType17 = EntryPreparation.createFrom;
+const $$createType10 = $Create.Nullable($$createType4);
+const $$createType11 = QueuePlan.createFrom;
+const $$createType12 = $Create.Nullable($$createType11);
+const $$createType13 = EntryPreparation.createFrom;
+const $$createType14 = $Create.Nullable($$createType13);
+const $$createType15 = apitypes$0.RecordingPlaybackAvailability.createFrom;
+const $$createType16 = $Create.Map($Create.Any, $$createType15);
+const $$createType17 = PlaybackSkipEvent.createFrom;
 const $$createType18 = $Create.Nullable($$createType17);
-const $$createType19 = apitypes$0.RecordingPlaybackAvailability.createFrom;
-const $$createType20 = $Create.Map($Create.Any, $$createType19);
-const $$createType21 = PlaybackSkipEvent.createFrom;
-const $$createType22 = $Create.Nullable($$createType21);

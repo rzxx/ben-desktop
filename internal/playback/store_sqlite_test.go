@@ -19,9 +19,13 @@ func TestSQLiteStoreRestoresPlayingAsPaused(t *testing.T) {
 
 	duration := int64(180000)
 	err = store.Save(context.Background(), SessionSnapshot{
-		Context: &PlaybackContext{
+		ContextQueue: &ContextQueue{
 			Kind: ContextKindAlbum,
 			ID:   "album-1",
+			StartIndex: 0,
+			CurrentIndex: 0,
+			ResumeIndex: 0,
+			ShuffleBag: []int{0},
 			Entries: []SessionEntry{
 				{
 					EntryID:      "ctx-1",
@@ -35,19 +39,16 @@ func TestSQLiteStoreRestoresPlayingAsPaused(t *testing.T) {
 				},
 			},
 		},
-		CurrentEntryID:      "ctx-1",
-		CurrentEntry:        &SessionEntry{EntryID: "ctx-1", Origin: EntryOriginContext, ContextIndex: 0, Item: SessionItem{RecordingID: "rec-1", Title: "Track 1", DurationMS: duration}},
-		CurrentOrigin:       EntryOriginContext,
-		CurrentContextIndex: 0,
-		RepeatMode:          RepeatAll,
-		Shuffle:             true,
-		ShuffleCycle:        []int{0},
-		Volume:              42,
-		Status:              StatusPlaying,
-		PositionMS:          1500,
-		DurationMS:          &duration,
-		UpdatedAt:           formatTimestamp(time.Now().UTC()),
-		LastError:           "seed",
+		CurrentEntryID: "ctx-1",
+		CurrentEntry:   &SessionEntry{EntryID: "ctx-1", Origin: EntryOriginContext, ContextIndex: 0, Item: SessionItem{RecordingID: "rec-1", Title: "Track 1", DurationMS: duration}},
+		RepeatMode:     RepeatAll,
+		Shuffle:        true,
+		Volume:         42,
+		Status:         StatusPlaying,
+		PositionMS:     1500,
+		DurationMS:     &duration,
+		UpdatedAt:      formatTimestamp(time.Now().UTC()),
+		LastError:      "seed",
 	})
 	if err != nil {
 		t.Fatalf("save snapshot: %v", err)
@@ -130,3 +131,4 @@ VALUES
 		t.Fatalf("expected empty queue after reset, got %d", snapshot.QueueLength)
 	}
 }
+

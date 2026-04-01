@@ -19,6 +19,7 @@ import {
 import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
 import { usePlaybackStore } from "@/stores/playback/store";
 import { selectValueQuery } from "@/stores/catalog/query-state";
+import { likedPlaybackRecordingId } from "./-playback-id";
 
 export function LikedPlaylistPage() {
   const playLiked = usePlaybackStore((state) => state.playLiked);
@@ -118,10 +119,10 @@ export function LikedPlaylistPage() {
               libraryRecordingId={track.LibraryRecordingID}
               mode="list"
               onPlay={() => {
-                void playLikedTrack(track.RecordingID);
+                void playLikedTrack(likedPlaybackRecordingId(track));
               }}
               onQueue={() => {
-                void queueRecording(track.RecordingID);
+                void queueRecording(likedPlaybackRecordingId(track));
               }}
               recordingId={track.RecordingID}
               subtitle={`${joinArtists(track.Artists)} • added ${formatRelativeDate(track.AddedAt)}`}
