@@ -35,6 +35,22 @@ func ItemFromRecording(recording apitypes.RecordingListItem) SessionItem {
 	}
 }
 
+func ItemFromRecordingRequest(recording apitypes.RecordingListItem, requestedRecordingID string) SessionItem {
+	item := ItemFromRecording(recording)
+	requestedRecordingID = strings.TrimSpace(requestedRecordingID)
+	if requestedRecordingID == "" || requestedRecordingID == item.Target.LogicalRecordingID {
+		return item
+	}
+
+	// Preserve an explicitly requested variant so queued single-track playback
+	// follows the same exact variant the user picked from album details.
+	item.VariantRecordingID = requestedRecordingID
+	item.ArtworkRef = firstNonEmpty(requestedRecordingID, item.ArtworkRef)
+	item.Target.ExactVariantRecordingID = requestedRecordingID
+	item.Target.ResolutionPolicy = PlaybackTargetResolutionExact
+	return item
+}
+
 func ItemsFromAlbumTracks(albumID string, tracks []apitypes.AlbumTrackItem) []SessionItem {
 	items := make([]SessionItem, 0, len(tracks))
 	for _, track := range tracks {

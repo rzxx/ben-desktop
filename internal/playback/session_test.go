@@ -2743,6 +2743,103 @@ func TestCatalogLoaderLoadLikedTrackContextStartsAtSelectedTrack(t *testing.T) {
 	}
 }
 
+func TestCatalogLoaderLoadRecordingContextPreservesRequestedVariantTarget(t *testing.T) {
+	t.Parallel()
+
+	loader := NewCatalogLoader(&mockBridge{
+		recording: map[string]apitypes.RecordingListItem{
+			"variant-2": {
+				LibraryRecordingID:          "cluster-1",
+				PreferredVariantRecordingID: "variant-1",
+				RecordingID:                 "cluster-1",
+				Title:                       "Track",
+				Artists:                     []string{"Artist"},
+				DurationMS:                  1000,
+			},
+		},
+	})
+
+	contextInput, err := loader.LoadRecordingContext(context.Background(), "variant-2")
+	if err != nil {
+		t.Fatalf("load recording context: %v", err)
+	}
+	if len(contextInput.Items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(contextInput.Items))
+	}
+	item := contextInput.Items[0]
+	if item.RecordingID != "cluster-1" {
+		t.Fatalf("recording id = %q, want cluster-1", item.RecordingID)
+	}
+	if item.VariantRecordingID != "variant-2" {
+		t.Fatalf("variant recording id = %q, want variant-2", item.VariantRecordingID)
+	}
+	if item.Target.LogicalRecordingID != "cluster-1" {
+		t.Fatalf("logical target = %q, want cluster-1", item.Target.LogicalRecordingID)
+	}
+	if item.Target.ExactVariantRecordingID != "variant-2" {
+		t.Fatalf("exact target = %q, want variant-2", item.Target.ExactVariantRecordingID)
+	}
+	if item.Target.ResolutionPolicy != PlaybackTargetResolutionExact {
+		t.Fatalf("resolution policy = %q, want %q", item.Target.ResolutionPolicy, PlaybackTargetResolutionExact)
+	}
+}
+
+func TestSessionQueuedRecordingContextUsesRequestedVariantTarget(t *testing.T) {
+	t.Parallel()
+
+	loader := NewCatalogLoader(&mockBridge{
+		recording: map[string]apitypes.RecordingListItem{
+			"variant-2": {
+				LibraryRecordingID:          "cluster-1",
+				PreferredVariantRecordingID: "variant-1",
+				RecordingID:                 "cluster-1",
+				Title:                       "Track",
+				Artists:                     []string{"Artist"},
+				DurationMS:                  1000,
+			},
+		},
+	})
+
+	contextInput, err := loader.LoadRecordingContext(context.Background(), "variant-2")
+	if err != nil {
+		t.Fatalf("load recording context: %v", err)
+	}
+
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		preparations: map[string][]apitypes.PlaybackPreparationStatus{
+			"variant-2": {{
+				RecordingID:      "variant-2",
+				PreferredProfile: "desktop",
+				Phase:            apitypes.PlaybackPreparationPreparingFetch,
+				SourceKind:       apitypes.PlaybackSourceRemoteOpt,
+			}},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.QueueItems(contextInput.Items, QueueInsertLast); err != nil {
+		t.Fatalf("queue items: %v", err)
+	}
+
+	snapshot, err := session.Play(context.Background())
+	if err != nil {
+		t.Fatalf("play queued recording: %v", err)
+	}
+	if snapshot.LoadingEntry == nil {
+		t.Fatalf("expected loading entry, got %+v", snapshot.LoadingEntry)
+	}
+	if snapshot.LoadingEntry.Item.Target.ExactVariantRecordingID != "variant-2" {
+		t.Fatalf("loading exact target = %q, want variant-2", snapshot.LoadingEntry.Item.Target.ExactVariantRecordingID)
+	}
+	if snapshot.LoadingPreparation == nil || snapshot.LoadingPreparation.Status.RecordingID != "variant-2" {
+		t.Fatalf("loading preparation = %+v, want recording variant-2", snapshot.LoadingPreparation)
+	}
+}
+
 func TestSessionNextAtEndWithRepeatOffIsNoOp(t *testing.T) {
 	t.Parallel()
 

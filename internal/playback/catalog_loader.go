@@ -169,7 +169,7 @@ func (l *CatalogLoader) LoadRecordingContext(ctx context.Context, recordingID st
 		return PlaybackContextInput{}, err
 	}
 
-	item := ItemFromRecording(recording)
+	item := ItemFromRecordingRequest(recording, recordingID)
 	return PlaybackContextInput{
 		Kind:  ContextKindRecording,
 		ID:    recordingID,
