@@ -99,11 +99,11 @@ func ItemsFromPlaylistTracks(playlistID string, tracks []apitypes.PlaylistTrackI
 			SourceKind:         SourceKindPlaylist,
 			SourceID:           strings.TrimSpace(playlistID),
 			SourceItemID:       strings.TrimSpace(track.ItemID),
-			ResolutionMode:     ResolutionModeLibrary,
+			ResolutionMode:     ResolutionModeExplicit,
 			Target: PlaybackTargetRef{
 				LogicalRecordingID:      recordingID,
 				ExactVariantRecordingID: variantRecordingID,
-				ResolutionPolicy:        PlaybackTargetResolutionPreferred,
+				ResolutionPolicy:        PlaybackTargetResolutionExact,
 			},
 		})
 	}
@@ -128,11 +128,11 @@ func ItemsFromLikedRecordings(recordings []apitypes.LikedRecordingItem) []Sessio
 			DurationMS:         recording.DurationMS,
 			ArtworkRef:         firstNonEmpty(variantRecordingID, recordingID),
 			SourceKind:         SourceKindLiked,
-			ResolutionMode:     ResolutionModeLibrary,
+			ResolutionMode:     ResolutionModeExplicit,
 			Target: PlaybackTargetRef{
 				LogicalRecordingID:      recordingID,
 				ExactVariantRecordingID: variantRecordingID,
-				ResolutionPolicy:        PlaybackTargetResolutionPreferred,
+				ResolutionPolicy:        PlaybackTargetResolutionExact,
 			},
 		})
 	}

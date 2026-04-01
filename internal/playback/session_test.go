@@ -2684,7 +2684,7 @@ func TestCatalogLoaderLoadPlaylistTrackContextStartsAtSelectedItem(t *testing.T)
 	}
 }
 
-func TestItemsFromPlaylistTracksUsePreferredResolutionTarget(t *testing.T) {
+func TestItemsFromPlaylistTracksUseExactResolutionTarget(t *testing.T) {
 	t.Parallel()
 
 	items := ItemsFromPlaylistTracks("playlist-1", []apitypes.PlaylistTrackItem{
@@ -2710,11 +2710,14 @@ func TestItemsFromPlaylistTracksUsePreferredResolutionTarget(t *testing.T) {
 	if items[0].RecordingID != "cluster-1" {
 		t.Fatalf("recording id = %q, want cluster-1", items[0].RecordingID)
 	}
-	if items[0].ResolutionMode != ResolutionModeLibrary {
-		t.Fatalf("resolution mode = %q, want %q", items[0].ResolutionMode, ResolutionModeLibrary)
+	if items[0].ResolutionMode != ResolutionModeExplicit {
+		t.Fatalf("resolution mode = %q, want %q", items[0].ResolutionMode, ResolutionModeExplicit)
 	}
-	if items[0].Target.ResolutionPolicy != PlaybackTargetResolutionPreferred {
-		t.Fatalf("resolution policy = %q, want %q", items[0].Target.ResolutionPolicy, PlaybackTargetResolutionPreferred)
+	if items[0].Target.ExactVariantRecordingID != "variant-2" {
+		t.Fatalf("exact variant id = %q, want variant-2", items[0].Target.ExactVariantRecordingID)
+	}
+	if items[0].Target.ResolutionPolicy != PlaybackTargetResolutionExact {
+		t.Fatalf("resolution policy = %q, want %q", items[0].Target.ResolutionPolicy, PlaybackTargetResolutionExact)
 	}
 }
 
@@ -2723,12 +2726,12 @@ func TestCatalogLoaderLoadLikedTrackContextStartsAtSelectedTrack(t *testing.T) {
 
 	loader := NewCatalogLoader(&mockBridge{
 		likedRecordings: []apitypes.LikedRecordingItem{
-			{RecordingID: "rec-1", Title: "One", Artists: []string{"Artist"}, DurationMS: 1000},
-			{RecordingID: "rec-2", Title: "Two", Artists: []string{"Artist"}, DurationMS: 1000},
+			{LibraryRecordingID: "cluster-1", RecordingID: "variant-1", Title: "One", Artists: []string{"Artist"}, DurationMS: 1000},
+			{LibraryRecordingID: "cluster-2", RecordingID: "variant-2", Title: "Two", Artists: []string{"Artist"}, DurationMS: 1000},
 		},
 	})
 
-	contextInput, err := loader.LoadLikedTrackContext(context.Background(), "rec-2")
+	contextInput, err := loader.LoadLikedTrackContext(context.Background(), "cluster-2")
 	if err != nil {
 		t.Fatalf("load liked track context: %v", err)
 	}
@@ -2738,8 +2741,41 @@ func TestCatalogLoaderLoadLikedTrackContextStartsAtSelectedTrack(t *testing.T) {
 	if contextInput.StartIndex != 1 {
 		t.Fatalf("start index = %d, want 1", contextInput.StartIndex)
 	}
-	if len(contextInput.Items) != 2 || contextInput.Items[1].RecordingID != "rec-2" {
+	if len(contextInput.Items) != 2 || contextInput.Items[1].RecordingID != "cluster-2" {
 		t.Fatalf("unexpected items: %+v", contextInput.Items)
+	}
+	if contextInput.Items[1].Target.ExactVariantRecordingID != "variant-2" {
+		t.Fatalf("exact variant target = %q, want variant-2", contextInput.Items[1].Target.ExactVariantRecordingID)
+	}
+	if contextInput.Items[1].Target.ResolutionPolicy != PlaybackTargetResolutionExact {
+		t.Fatalf("resolution policy = %q, want %q", contextInput.Items[1].Target.ResolutionPolicy, PlaybackTargetResolutionExact)
+	}
+}
+
+func TestItemsFromLikedRecordingsUseExactResolutionTarget(t *testing.T) {
+	t.Parallel()
+
+	items := ItemsFromLikedRecordings([]apitypes.LikedRecordingItem{
+		{
+			LibraryRecordingID: "cluster-1",
+			RecordingID:        "variant-2",
+			Title:              "Track",
+			DurationMS:         1000,
+			Artists:            []string{"Artist"},
+		},
+	})
+
+	if len(items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(items))
+	}
+	if items[0].RecordingID != "cluster-1" {
+		t.Fatalf("recording id = %q, want cluster-1", items[0].RecordingID)
+	}
+	if items[0].Target.ExactVariantRecordingID != "variant-2" {
+		t.Fatalf("exact variant id = %q, want variant-2", items[0].Target.ExactVariantRecordingID)
+	}
+	if items[0].Target.ResolutionPolicy != PlaybackTargetResolutionExact {
+		t.Fatalf("resolution policy = %q, want %q", items[0].Target.ResolutionPolicy, PlaybackTargetResolutionExact)
 	}
 }
 

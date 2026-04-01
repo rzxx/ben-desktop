@@ -122,7 +122,7 @@ export function LikedPlaylistPage() {
                 void playLikedTrack(likedPlaybackRecordingId(track));
               }}
               onQueue={() => {
-                void queueRecording(likedPlaybackRecordingId(track));
+                void queueRecording(track.RecordingID);
               }}
               recordingId={track.RecordingID}
               subtitle={`${joinArtists(track.Artists)} • added ${formatRelativeDate(track.AddedAt)}`}
