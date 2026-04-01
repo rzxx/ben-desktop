@@ -10,6 +10,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+	playbackcore "ben/desktop/internal/playback"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -513,6 +514,10 @@ func (s *PlaybackService) PreparePlaybackRecording(ctx context.Context, recordin
 	return s.preparePlaybackRecordingForLocalContext(ctx, local, recordingID, preferredProfile, purpose)
 }
 
+func (s *PlaybackService) PreparePlaybackTarget(ctx context.Context, target playbackcore.PlaybackTargetRef, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+	return s.PreparePlaybackRecording(ctx, playbackTargetInputID(target), preferredProfile, purpose)
+}
+
 func (s *PlaybackService) StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (JobSnapshot, error) {
 	local, err := s.app.requireActiveContext(ctx)
 	if err != nil {
@@ -717,6 +722,10 @@ func (s *PlaybackService) GetPlaybackPreparation(ctx context.Context, recordingI
 		return status, nil
 	}
 	return s.InspectPlaybackRecording(ctx, recordingID, preferredProfile)
+}
+
+func (s *PlaybackService) GetPlaybackTargetPreparation(ctx context.Context, target playbackcore.PlaybackTargetRef, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+	return s.GetPlaybackPreparation(ctx, playbackTargetInputID(target), preferredProfile)
 }
 
 func (s *PlaybackService) storePreparation(status apitypes.PlaybackPreparationStatus) {
@@ -1042,6 +1051,10 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 	return out, nil
 }
 
+func (s *PlaybackService) GetPlaybackTargetAvailability(ctx context.Context, target playbackcore.PlaybackTargetRef, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
+	return s.GetRecordingAvailability(ctx, playbackTargetInputID(target), preferredProfile)
+}
+
 func (s *PlaybackService) ListRecordingPlaybackAvailability(ctx context.Context, req apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error) {
 	local, err := s.app.requireActiveContext(ctx)
 	if err != nil {
@@ -1052,6 +1065,42 @@ func (s *PlaybackService) ListRecordingPlaybackAvailability(ctx context.Context,
 		return []apitypes.RecordingPlaybackAvailability{}, nil
 	}
 	return s.batchRecordingPlaybackAvailability(ctx, local, recordingIDs, req.PreferredProfile)
+}
+
+func (s *PlaybackService) ListPlaybackTargetAvailability(ctx context.Context, req playbackcore.TargetAvailabilityRequest) ([]playbackcore.TargetAvailability, error) {
+	recordingIDs := make([]string, 0, len(req.Targets))
+	seen := make(map[string]struct{}, len(req.Targets))
+	for _, target := range req.Targets {
+		recordingID := playbackTargetInputID(target)
+		if recordingID == "" {
+			continue
+		}
+		if _, ok := seen[recordingID]; ok {
+			continue
+		}
+		seen[recordingID] = struct{}{}
+		recordingIDs = append(recordingIDs, recordingID)
+	}
+	items, err := s.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
+		RecordingIDs:     recordingIDs,
+		PreferredProfile: req.PreferredProfile,
+	})
+	if err != nil {
+		return nil, err
+	}
+	statusByRecordingID := make(map[string]apitypes.RecordingPlaybackAvailability, len(items))
+	for _, item := range items {
+		statusByRecordingID[strings.TrimSpace(item.RecordingID)] = item
+	}
+	out := make([]playbackcore.TargetAvailability, 0, len(req.Targets))
+	for _, target := range req.Targets {
+		recordingID := playbackTargetInputID(target)
+		out = append(out, playbackcore.TargetAvailability{
+			Target: target,
+			Status: statusByRecordingID[recordingID],
+		})
+	}
+	return out, nil
 }
 
 func (s *PlaybackService) ListAlbumAvailabilitySummaries(ctx context.Context, req apitypes.AlbumAvailabilitySummaryListRequest) ([]apitypes.AlbumAvailabilitySummaryItem, error) {
@@ -1477,6 +1526,31 @@ func (s *PlaybackService) resolvePlaybackProfile(preferredProfile string) string
 		return preferredProfile
 	}
 	return strings.TrimSpace(s.app.cfg.TranscodeProfile)
+}
+
+func playbackTargetInputID(target playbackcore.PlaybackTargetRef) string {
+	switch target.ResolutionPolicy {
+	case playbackcore.PlaybackTargetResolutionExact:
+		return firstNonEmptyString(
+			target.ExactVariantRecordingID,
+			target.LogicalRecordingID,
+		)
+	default:
+		return firstNonEmptyString(
+			target.LogicalRecordingID,
+			target.ExactVariantRecordingID,
+		)
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 type recordingBatchResolution struct {

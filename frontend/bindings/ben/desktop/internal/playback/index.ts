@@ -3,12 +3,17 @@
 
 export {
     ContextKind,
+    ContextQueue,
+    CurrentLane,
     EntryOrigin,
     EntryPreparation,
     HistoryEntry,
     PlaybackContext,
     PlaybackContextInput,
     PlaybackSkipEvent,
+    PlaybackTargetRef,
+    PlaybackTargetResolution,
+    QueuePlan,
     RepeatMode,
     ResolutionMode,
     SessionEntry,

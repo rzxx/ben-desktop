@@ -20,7 +20,7 @@ import (
 
 const (
 	playbackSessionStateRowID    = 1
-	playbackSessionSchemaVersion = 2
+	playbackSessionSchemaVersion = 3
 )
 
 type SQLiteStore struct {

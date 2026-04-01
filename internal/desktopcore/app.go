@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	apitypes "ben/desktop/api/types"
+	playbackcore "ben/desktop/internal/playback"
 	"gorm.io/gorm"
 )
 
@@ -715,12 +716,20 @@ func (a *App) PreparePlaybackRecording(ctx context.Context, recordingID, preferr
 	return a.playback.PreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
 }
 
+func (a *App) PreparePlaybackTarget(ctx context.Context, target playbackcore.PlaybackTargetRef, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+	return a.playback.PreparePlaybackTarget(ctx, target, preferredProfile, purpose)
+}
+
 func (a *App) StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (JobSnapshot, error) {
 	return a.playback.StartPreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
 }
 
 func (a *App) GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
 	return a.playback.GetPlaybackPreparation(ctx, recordingID, preferredProfile)
+}
+
+func (a *App) GetPlaybackTargetPreparation(ctx context.Context, target playbackcore.PlaybackTargetRef, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+	return a.playback.GetPlaybackTargetPreparation(ctx, target, preferredProfile)
 }
 
 func (a *App) ResolvePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error) {
@@ -787,8 +796,16 @@ func (a *App) GetRecordingAvailability(ctx context.Context, recordingID, preferr
 	return a.playback.GetRecordingAvailability(ctx, recordingID, preferredProfile)
 }
 
+func (a *App) GetPlaybackTargetAvailability(ctx context.Context, target playbackcore.PlaybackTargetRef, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
+	return a.playback.GetPlaybackTargetAvailability(ctx, target, preferredProfile)
+}
+
 func (a *App) ListRecordingPlaybackAvailability(ctx context.Context, req apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error) {
 	return a.playback.ListRecordingPlaybackAvailability(ctx, req)
+}
+
+func (a *App) ListPlaybackTargetAvailability(ctx context.Context, req playbackcore.TargetAvailabilityRequest) ([]playbackcore.TargetAvailability, error) {
+	return a.playback.ListPlaybackTargetAvailability(ctx, req)
 }
 
 func (a *App) ListAlbumAvailabilitySummaries(ctx context.Context, req apitypes.AlbumAvailabilitySummaryListRequest) ([]apitypes.AlbumAvailabilitySummaryItem, error) {

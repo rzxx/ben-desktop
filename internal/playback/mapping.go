@@ -14,36 +14,50 @@ const (
 )
 
 func ItemFromRecording(recording apitypes.RecordingListItem) SessionItem {
+	logicalRecordingID := firstNonEmpty(recording.LibraryRecordingID, recording.RecordingID)
+	exactVariantID := strings.TrimSpace(recording.PreferredVariantRecordingID)
 	return SessionItem{
 		LibraryRecordingID: recording.LibraryRecordingID,
-		VariantRecordingID: recording.PreferredVariantRecordingID,
-		RecordingID:        firstNonEmpty(recording.LibraryRecordingID, recording.RecordingID),
+		VariantRecordingID: exactVariantID,
+		RecordingID:        logicalRecordingID,
 		Title:              recording.Title,
 		Subtitle:           joinArtists(recording.Artists),
 		DurationMS:         recording.DurationMS,
-		ArtworkRef:         firstNonEmpty(recording.LibraryRecordingID, recording.RecordingID),
+		ArtworkRef:         firstNonEmpty(exactVariantID, logicalRecordingID),
 		SourceKind:         SourceKindRecording,
-		SourceID:           firstNonEmpty(recording.LibraryRecordingID, recording.RecordingID),
+		SourceID:           logicalRecordingID,
 		ResolutionMode:     ResolutionModeLibrary,
+		Target: PlaybackTargetRef{
+			LogicalRecordingID:      logicalRecordingID,
+			ExactVariantRecordingID: exactVariantID,
+			ResolutionPolicy:        PlaybackTargetResolutionPreferred,
+		},
 	}
 }
 
 func ItemsFromAlbumTracks(albumID string, tracks []apitypes.AlbumTrackItem) []SessionItem {
 	items := make([]SessionItem, 0, len(tracks))
 	for _, track := range tracks {
+		logicalRecordingID := firstNonEmpty(track.LibraryRecordingID, track.RecordingID, track.VariantRecordingID)
+		exactVariantID := firstNonEmpty(track.VariantRecordingID, track.RecordingID, track.LibraryRecordingID)
 		items = append(items, SessionItem{
 			LibraryRecordingID: track.LibraryRecordingID,
-			VariantRecordingID: firstNonEmpty(track.VariantRecordingID, track.RecordingID),
-			RecordingID:        firstNonEmpty(track.VariantRecordingID, track.RecordingID),
+			VariantRecordingID: exactVariantID,
+			RecordingID:        exactVariantID,
 			Title:              track.Title,
 			Subtitle:           joinArtists(track.Artists),
 			DurationMS:         track.DurationMS,
-			ArtworkRef:         firstNonEmpty(track.VariantRecordingID, track.RecordingID),
+			ArtworkRef:         exactVariantID,
 			SourceKind:         SourceKindAlbum,
 			SourceID:           strings.TrimSpace(albumID),
 			AlbumID:            strings.TrimSpace(albumID),
 			VariantAlbumID:     strings.TrimSpace(albumID),
 			ResolutionMode:     ResolutionModeExplicit,
+			Target: PlaybackTargetRef{
+				LogicalRecordingID:      logicalRecordingID,
+				ExactVariantRecordingID: exactVariantID,
+				ResolutionPolicy:        PlaybackTargetResolutionExact,
+			},
 		})
 	}
 	return items
@@ -54,18 +68,27 @@ func ItemsFromPlaylistTracks(playlistID string, tracks []apitypes.PlaylistTrackI
 	for _, track := range tracks {
 		libraryRecordingID := firstNonEmpty(track.LibraryRecordingID, track.RecordingID)
 		variantRecordingID := firstNonEmpty(track.RecordingID, track.LibraryRecordingID)
+		recordingID := libraryRecordingID
+		if recordingID == "" {
+			recordingID = variantRecordingID
+		}
 		items = append(items, SessionItem{
 			LibraryRecordingID: libraryRecordingID,
 			VariantRecordingID: variantRecordingID,
-			RecordingID:        variantRecordingID,
+			RecordingID:        recordingID,
 			Title:              track.Title,
 			Subtitle:           joinArtists(track.Artists),
 			DurationMS:         track.DurationMS,
-			ArtworkRef:         variantRecordingID,
+			ArtworkRef:         firstNonEmpty(variantRecordingID, recordingID),
 			SourceKind:         SourceKindPlaylist,
 			SourceID:           strings.TrimSpace(playlistID),
 			SourceItemID:       strings.TrimSpace(track.ItemID),
-			ResolutionMode:     ResolutionModeExplicit,
+			ResolutionMode:     ResolutionModeLibrary,
+			Target: PlaybackTargetRef{
+				LogicalRecordingID:      recordingID,
+				ExactVariantRecordingID: variantRecordingID,
+				ResolutionPolicy:        PlaybackTargetResolutionPreferred,
+			},
 		})
 	}
 	return items
@@ -76,16 +99,25 @@ func ItemsFromLikedRecordings(recordings []apitypes.LikedRecordingItem) []Sessio
 	for _, recording := range recordings {
 		libraryRecordingID := firstNonEmpty(recording.LibraryRecordingID, recording.RecordingID)
 		variantRecordingID := firstNonEmpty(recording.RecordingID, recording.LibraryRecordingID)
+		recordingID := libraryRecordingID
+		if recordingID == "" {
+			recordingID = variantRecordingID
+		}
 		items = append(items, SessionItem{
 			LibraryRecordingID: libraryRecordingID,
 			VariantRecordingID: variantRecordingID,
-			RecordingID:        variantRecordingID,
+			RecordingID:        recordingID,
 			Title:              recording.Title,
 			Subtitle:           joinArtists(recording.Artists),
 			DurationMS:         recording.DurationMS,
-			ArtworkRef:         variantRecordingID,
+			ArtworkRef:         firstNonEmpty(variantRecordingID, recordingID),
 			SourceKind:         SourceKindLiked,
-			ResolutionMode:     ResolutionModeExplicit,
+			ResolutionMode:     ResolutionModeLibrary,
+			Target: PlaybackTargetRef{
+				LogicalRecordingID:      recordingID,
+				ExactVariantRecordingID: variantRecordingID,
+				ResolutionPolicy:        PlaybackTargetResolutionPreferred,
+			},
 		})
 	}
 	return items
@@ -105,6 +137,8 @@ func NormalizeItems(items []SessionItem) []SessionItem {
 		item.SourceItemID = strings.TrimSpace(item.SourceItemID)
 		item.AlbumID = strings.TrimSpace(item.AlbumID)
 		item.VariantAlbumID = strings.TrimSpace(item.VariantAlbumID)
+		item.Target.LogicalRecordingID = strings.TrimSpace(item.Target.LogicalRecordingID)
+		item.Target.ExactVariantRecordingID = strings.TrimSpace(item.Target.ExactVariantRecordingID)
 		if item.RecordingID == "" {
 			item.RecordingID = firstNonEmpty(item.LibraryRecordingID, item.VariantRecordingID)
 		}
@@ -116,6 +150,20 @@ func NormalizeItems(items []SessionItem) []SessionItem {
 		}
 		if item.ArtworkRef == "" {
 			item.ArtworkRef = item.RecordingID
+		}
+		if item.Target.ResolutionPolicy == "" {
+			switch item.ResolutionMode {
+			case ResolutionModeExplicit:
+				item.Target.ResolutionPolicy = PlaybackTargetResolutionExact
+			default:
+				item.Target.ResolutionPolicy = PlaybackTargetResolutionPreferred
+			}
+		}
+		if item.Target.LogicalRecordingID == "" {
+			item.Target.LogicalRecordingID = firstNonEmpty(item.LibraryRecordingID, item.RecordingID, item.VariantRecordingID)
+		}
+		if item.Target.ExactVariantRecordingID == "" {
+			item.Target.ExactVariantRecordingID = firstNonEmpty(item.VariantRecordingID, item.RecordingID)
 		}
 		out = append(out, item)
 	}

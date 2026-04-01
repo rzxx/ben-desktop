@@ -592,6 +592,12 @@ func (s *Session) Previous(ctx context.Context) (SessionSnapshot, error) {
 		return s.SeekTo(ctx, 0)
 	}
 	current := cloneEntryPtr(s.snapshot.CurrentEntry)
+	if current != nil && current.Origin == EntryOriginQueued {
+		if entry, ok := s.returnContextEntryLocked(); ok {
+			s.mu.Unlock()
+			return s.playEntry(ctx, entry, EntryOriginContext, -1, nil, false, true)
+		}
+	}
 	if entry, ok := s.consumePreviousHistoryEntryLocked(); ok {
 		s.mu.Unlock()
 		return s.playEntry(ctx, entry, entry.Origin, -1, nil, false, true)
@@ -811,6 +817,7 @@ func (s *Session) playNextAvailable(
 			preserveCurrentOnPending,
 		)
 		if err == nil {
+			state = s.consumeSkippedUserEntries(skipped, candidate, state)
 			if len(skipped) > 0 {
 				state = s.applySkipEvent(skipped, false)
 			}
@@ -847,26 +854,26 @@ func (s *Session) resolveNextPlayableCandidate(
 		return &candidate, nil, nil
 	}
 
-	recordingIDs := make([]string, 0, len(candidates))
-	seenRecordingIDs := make(map[string]struct{}, len(candidates))
+	targets := make([]PlaybackTargetRef, 0, len(candidates))
+	seenTargets := make(map[string]struct{}, len(candidates))
 	for _, candidate := range candidates {
-		recordingID := strings.TrimSpace(candidate.Entry.Item.RecordingID)
-		if recordingID == "" {
+		key := playbackTargetKey(candidate.Entry.Item.Target)
+		if key == "" {
 			continue
 		}
-		if _, ok := seenRecordingIDs[recordingID]; ok {
+		if _, ok := seenTargets[key]; ok {
 			continue
 		}
-		seenRecordingIDs[recordingID] = struct{}{}
-		recordingIDs = append(recordingIDs, recordingID)
+		seenTargets[key] = struct{}{}
+		targets = append(targets, candidate.Entry.Item.Target)
 	}
-	if len(recordingIDs) == 0 {
+	if len(targets) == 0 {
 		candidate := candidates[0]
 		return &candidate, nil, nil
 	}
 
-	items, err := core.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
-		RecordingIDs:     recordingIDs,
+	items, err := core.ListPlaybackTargetAvailability(ctx, TargetAvailabilityRequest{
+		Targets:          targets,
 		PreferredProfile: s.preferredProfile,
 	})
 	if err != nil {
@@ -874,19 +881,18 @@ func (s *Session) resolveNextPlayableCandidate(
 		return &candidate, nil, nil
 	}
 
-	availabilityByRecordingID := make(map[string]apitypes.RecordingPlaybackAvailability, len(items))
+	availabilityByTargetKey := make(map[string]apitypes.RecordingPlaybackAvailability, len(items))
 	for _, item := range items {
-		recordingID := strings.TrimSpace(item.RecordingID)
-		if recordingID == "" {
+		key := playbackTargetKey(item.Target)
+		if key == "" {
 			continue
 		}
-		availabilityByRecordingID[recordingID] = item
+		availabilityByTargetKey[key] = item.Status
 	}
 
 	skipped := make([]skippedPlaybackEntry, 0, len(candidates))
 	for _, candidate := range candidates {
-		recordingID := strings.TrimSpace(candidate.Entry.Item.RecordingID)
-		availability, ok := availabilityByRecordingID[recordingID]
+		availability, ok := availabilityByTargetKey[playbackTargetKey(candidate.Entry.Item.Target)]
 		if !ok || !isAvailabilityDefinitivelyUnavailable(availability.State) {
 			next := candidate
 			return &next, skipped, nil
@@ -1055,7 +1061,7 @@ func (s *Session) playEntry(
 		s.clearBackendPreload(ctx, backend)
 	}
 
-	preparation, err := core.PreparePlaybackRecording(ctx, entry.Item.RecordingID, s.preferredProfile, apitypes.PlaybackPreparationPlayNow)
+	preparation, err := core.PreparePlaybackTarget(ctx, entry.Item.Target, s.preferredProfile, apitypes.PlaybackPreparationPlayNow)
 	if err != nil {
 		return s.Snapshot(), err
 	}
@@ -1247,7 +1253,7 @@ func (s *Session) preloadNext(ctx context.Context) {
 	}
 
 	if useCachedStatus {
-		status, err := core.GetPlaybackPreparation(ctx, nextEntry.Item.RecordingID, s.preferredProfile)
+		status, err := core.GetPlaybackTargetPreparation(ctx, nextEntry.Item.Target, s.preferredProfile)
 		if err != nil {
 			return
 		}
@@ -1255,7 +1261,7 @@ func (s *Session) preloadNext(ctx context.Context) {
 		return
 	}
 
-	status, err := core.PreparePlaybackRecording(ctx, nextEntry.Item.RecordingID, s.preferredProfile, apitypes.PlaybackPreparationPreloadNext)
+	status, err := core.PreparePlaybackTarget(ctx, nextEntry.Item.Target, s.preferredProfile, apitypes.PlaybackPreparationPreloadNext)
 	if err != nil {
 		return
 	}
@@ -1376,7 +1382,7 @@ func (s *Session) handleBackendEvent(event BackendEvent) {
 		if event.Reason != TrackEndReasonEOF {
 			return
 		}
-		s.handleTrackEOF()
+		s.handleTrackEOF(event)
 	case BackendEventShutdown:
 		s.mu.Lock()
 		s.snapshot.Status = StatusPaused
@@ -1391,15 +1397,20 @@ func (s *Session) handleBackendEvent(event BackendEvent) {
 	}
 }
 
-func (s *Session) handleTrackEOF() {
+func (s *Session) handleTrackEOF(event BackendEvent) {
 	s.mu.Lock()
 	playing := s.snapshot.Status == StatusPlaying
 	backend := s.backend
 	supportsPreload := backend != nil && backend.SupportsPreload()
 	hasLoading := s.snapshot.LoadingEntry != nil
 	current := cloneEntryPtr(s.snapshot.CurrentEntry)
+	loadedURI := s.loadedURI
+	expectedPreloadedURI := s.preloadedURI
 	s.mu.Unlock()
 	if !playing {
+		return
+	}
+	if event.EndedURI != "" && loadedURI != "" && event.EndedURI != loadedURI {
 		return
 	}
 
@@ -1457,7 +1468,10 @@ func (s *Session) handleTrackEOF() {
 	nextEntry := nextCandidate.Entry
 	origin := nextCandidate.Origin
 	queueIndex := nextCandidate.QueueIndex
-	preloadedMatches := supportsPreload && s.preloadedID != "" && s.preloadedID == nextEntry.EntryID
+	preloadedMatches := supportsPreload &&
+		s.preloadedID != "" &&
+		s.preloadedID == nextEntry.EntryID &&
+		(event.ActiveURI == "" || event.ActiveURI == expectedPreloadedURI)
 
 	if preloadedMatches {
 		s.mu.Lock()
@@ -1610,7 +1624,7 @@ func (s *Session) tryPendingPlayback(ctx context.Context, token uint64, entryID 
 		return true
 	}
 
-	status, err := core.GetPlaybackPreparation(ctx, entry.Item.RecordingID, s.preferredProfile)
+	status, err := core.GetPlaybackTargetPreparation(ctx, entry.Item.Target, s.preferredProfile)
 	if err != nil {
 		return false
 	}
@@ -1692,11 +1706,11 @@ func (s *Session) playTargetLocked() (SessionEntry, EntryOrigin, int, bool) {
 	if s.snapshot.CurrentEntry != nil {
 		return *s.snapshot.CurrentEntry, s.snapshot.CurrentOrigin, -1, true
 	}
+	if len(s.snapshot.QueuedEntries) > 0 {
+		return s.snapshot.QueuedEntries[0], EntryOriginQueued, 0, true
+	}
 	index := s.firstContextIndexLocked()
 	if index < 0 || s.snapshot.Context == nil || index >= len(s.snapshot.Context.Entries) {
-		if len(s.snapshot.QueuedEntries) > 0 {
-			return s.snapshot.QueuedEntries[0], EntryOriginQueued, 0, true
-		}
 		return SessionEntry{}, "", -1, false
 	}
 	return s.snapshot.Context.Entries[index], EntryOriginContext, -1, true
@@ -2068,7 +2082,6 @@ func (s *Session) completePendingPlayback(ctx context.Context, entry SessionEntr
 }
 
 func (s *Session) beginFreshHistoryScopeLocked(previous *SessionEntry) {
-	s.historyScope++
 	s.snapshot.History = nil
 	s.historyScopes = nil
 	s.suppressHistoryPush = previous != nil && previous.EntryID != ""
@@ -2088,35 +2101,12 @@ func (s *Session) invalidateFutureOrderLocked(reason string, forceRecovery bool)
 }
 
 func (s *Session) maybePushHistoryLocked(previous *SessionEntry, entry SessionEntry) {
-	if previous == nil || previous.EntryID == "" || previous.EntryID == entry.EntryID {
-		return
-	}
-	if s.suppressHistoryPush {
-		s.logPrintf("playback: suppressing history push across context boundary for %s", previous.Item.RecordingID)
-		s.suppressHistoryPush = false
-		return
-	}
-	s.pushHistoryLocked(*previous)
+	s.snapshot.History = nil
+	s.historyScopes = nil
+	s.suppressHistoryPush = false
 }
 
 func (s *Session) consumePreviousHistoryEntryLocked() (SessionEntry, bool) {
-	if s.snapshot.CurrentEntry == nil || len(s.snapshot.History) == 0 {
-		return SessionEntry{}, false
-	}
-	for index := len(s.snapshot.History) - 1; index >= 0; index-- {
-		if s.historyScopeAtLocked(index) != s.historyScope {
-			continue
-		}
-		entry := s.snapshot.History[index].Entry
-		if s.snapshot.CurrentOrigin == EntryOriginContext && !s.entryInCurrentContextLocked(entry) {
-			continue
-		}
-		s.snapshot.History = s.snapshot.History[:index]
-		if index <= len(s.historyScopes) {
-			s.historyScopes = s.historyScopes[:index]
-		}
-		return entry, true
-	}
 	return SessionEntry{}, false
 }
 
@@ -2129,6 +2119,13 @@ func (s *Session) previousContextEntryLocked() (SessionEntry, bool) {
 		return SessionEntry{}, false
 	}
 	return s.snapshot.Context.Entries[index], true
+}
+
+func (s *Session) returnContextEntryLocked() (SessionEntry, bool) {
+	if !isValidContextIndex(s.snapshot, s.snapshot.CurrentContextIndex) || s.snapshot.Context == nil {
+		return SessionEntry{}, false
+	}
+	return s.snapshot.Context.Entries[s.snapshot.CurrentContextIndex], true
 }
 
 func (s *Session) entryInCurrentContextLocked(entry SessionEntry) bool {
@@ -2151,6 +2148,43 @@ func (s *Session) historyScopeAtLocked(index int) uint64 {
 		return s.historyScopes[index]
 	}
 	return 0
+}
+
+func (s *Session) consumeSkippedUserEntries(skipped []skippedPlaybackEntry, candidate *playbackCandidate, state SessionSnapshot) SessionSnapshot {
+	if candidate == nil || candidate.Origin != EntryOriginQueued || len(skipped) == 0 {
+		return state
+	}
+	queuedSkipped := make(map[string]struct{}, len(skipped))
+	for _, item := range skipped {
+		if item.Entry.Origin != EntryOriginQueued {
+			continue
+		}
+		queuedSkipped[item.Entry.EntryID] = struct{}{}
+	}
+	if len(queuedSkipped) == 0 {
+		return state
+	}
+
+	s.mu.Lock()
+	nextQueue := make([]SessionEntry, 0, len(s.snapshot.QueuedEntries))
+	changed := false
+	for _, entry := range s.snapshot.QueuedEntries {
+		if _, ok := queuedSkipped[entry.EntryID]; ok {
+			changed = true
+			continue
+		}
+		nextQueue = append(nextQueue, entry)
+	}
+	if changed {
+		s.snapshot.QueuedEntries = nextQueue
+		s.touchLocked()
+		state = snapshotCopyLocked(&s.snapshot)
+	}
+	s.mu.Unlock()
+	if changed {
+		s.publishSnapshot(state)
+	}
+	return state
 }
 
 func (s *Session) failPlayback(err error) (SessionSnapshot, error) {
@@ -2256,6 +2290,7 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 		contextCopy := *snapshot.Context
 		contextCopy.Entries = cloneEntries(contextCopy.Entries)
 		for index := range contextCopy.Entries {
+			contextCopy.Entries[index].Item = normalizeSessionItem(contextCopy.Entries[index].Item)
 			contextCopy.Entries[index].Origin = EntryOriginContext
 			contextCopy.Entries[index].ContextIndex = index
 		}
@@ -2268,11 +2303,13 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 
 	snapshot.QueuedEntries = cloneEntries(snapshot.QueuedEntries)
 	for index := range snapshot.QueuedEntries {
+		snapshot.QueuedEntries[index].Item = normalizeSessionItem(snapshot.QueuedEntries[index].Item)
 		snapshot.QueuedEntries[index].Origin = EntryOriginQueued
 		snapshot.QueuedEntries[index].ContextIndex = -1
 	}
+	snapshot.UserQueue = cloneEntries(snapshot.QueuedEntries)
 
-	snapshot.History = cloneHistory(snapshot.History)
+	snapshot.History = nil
 	snapshot.CurrentPreparation = cloneEntryPreparation(snapshot.CurrentPreparation)
 	snapshot.LoadingPreparation = cloneEntryPreparation(snapshot.LoadingPreparation)
 	snapshot.NextPreparation = cloneEntryPreparation(snapshot.NextPreparation)
@@ -2280,6 +2317,7 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 
 	if snapshot.CurrentEntry != nil {
 		entry := *snapshot.CurrentEntry
+		entry.Item = normalizeSessionItem(entry.Item)
 		if snapshot.CurrentEntryID == "" {
 			snapshot.CurrentEntryID = entry.EntryID
 		}
@@ -2308,6 +2346,7 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 
 	if snapshot.LoadingEntry != nil {
 		entry := *snapshot.LoadingEntry
+		entry.Item = normalizeSessionItem(entry.Item)
 		snapshot.LoadingEntry = &entry
 		item := entry.Item
 		snapshot.LoadingItem = &item
@@ -2344,6 +2383,18 @@ func normalizeSnapshot(snapshot SessionSnapshot) SessionSnapshot {
 	}
 
 	snapshot.UpcomingEntries = buildUpcomingEntries(snapshot)
+	snapshot.ContextQueue = buildContextQueue(snapshot)
+	snapshot.CurrentLane = deriveCurrentLane(snapshot)
+	snapshot.NextPlanned = buildQueuePlan(snapshot.UpcomingEntries)
+	if snapshot.PreloadedPlan == nil && snapshot.NextPreparation != nil {
+		if entry, ok := findEntryByID(snapshot, snapshot.NextPreparation.EntryID); ok {
+			snapshot.PreloadedPlan = &QueuePlan{
+				Entry:   cloneEntryPtr(&entry),
+				Lane:    laneFromOrigin(entry.Origin),
+				Planned: true,
+			}
+		}
+	}
 	snapshot.QueueLength = len(snapshot.UpcomingEntries)
 	if snapshot.CurrentEntry != nil {
 		snapshot.QueueLength++
@@ -2359,13 +2410,18 @@ func snapshotCopyLocked(snapshot *SessionSnapshot) SessionSnapshot {
 		copyState.Context = &contextCopy
 	}
 	copyState.QueuedEntries = cloneEntries(copyState.QueuedEntries)
+	copyState.UserQueue = cloneEntries(copyState.UserQueue)
 	copyState.History = cloneHistory(copyState.History)
 	copyState.UpcomingEntries = cloneEntries(copyState.UpcomingEntries)
+	copyState.ContextQueue = cloneContextQueue(copyState.ContextQueue)
+	copyState.NextPlanned = cloneQueuePlan(copyState.NextPlanned)
+	copyState.PreloadedPlan = cloneQueuePlan(copyState.PreloadedPlan)
 	copyState.CurrentPreparation = cloneEntryPreparation(copyState.CurrentPreparation)
 	copyState.LoadingPreparation = cloneEntryPreparation(copyState.LoadingPreparation)
 	copyState.NextPreparation = cloneEntryPreparation(copyState.NextPreparation)
 	copyState.LastSkipEvent = clonePlaybackSkipEvent(copyState.LastSkipEvent)
 	copyState.ShuffleCycle = append([]int(nil), copyState.ShuffleCycle...)
+	copyState.EntryAvailability = cloneAvailabilityMap(copyState.EntryAvailability)
 	if copyState.CurrentEntry != nil {
 		entry := *copyState.CurrentEntry
 		copyState.CurrentEntry = &entry
@@ -2558,6 +2614,119 @@ func clonePlaybackSkipEvent(value *PlaybackSkipEvent) *PlaybackSkipEvent {
 	return &copyValue
 }
 
+func cloneQueuePlan(value *QueuePlan) *QueuePlan {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	copyValue.Entry = cloneEntryPtr(copyValue.Entry)
+	return &copyValue
+}
+
+func cloneContextQueue(value *ContextQueue) *ContextQueue {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	copyValue.Entries = cloneEntries(copyValue.Entries)
+	copyValue.ShuffleBag = append([]int(nil), copyValue.ShuffleBag...)
+	return &copyValue
+}
+
+func cloneAvailabilityMap(value map[string]apitypes.RecordingPlaybackAvailability) map[string]apitypes.RecordingPlaybackAvailability {
+	if len(value) == 0 {
+		return nil
+	}
+	out := make(map[string]apitypes.RecordingPlaybackAvailability, len(value))
+	for key, item := range value {
+		out[key] = item
+	}
+	return out
+}
+
+func normalizeSessionItem(item SessionItem) SessionItem {
+	items := NormalizeItems([]SessionItem{item})
+	if len(items) == 0 {
+		return item
+	}
+	return items[0]
+}
+
+func laneFromOrigin(origin EntryOrigin) CurrentLane {
+	if origin == EntryOriginQueued {
+		return CurrentLaneUser
+	}
+	return CurrentLaneContext
+}
+
+func deriveCurrentLane(snapshot SessionSnapshot) CurrentLane {
+	if snapshot.CurrentEntry != nil {
+		return laneFromOrigin(snapshot.CurrentEntry.Origin)
+	}
+	if snapshot.LoadingEntry != nil {
+		return laneFromOrigin(snapshot.LoadingEntry.Origin)
+	}
+	return ""
+}
+
+func buildQueuePlan(upcoming []SessionEntry) *QueuePlan {
+	if len(upcoming) == 0 {
+		return nil
+	}
+	entry := upcoming[0]
+	return &QueuePlan{
+		Entry:   cloneEntryPtr(&entry),
+		Lane:    laneFromOrigin(entry.Origin),
+		Planned: true,
+	}
+}
+
+func findEntryByID(snapshot SessionSnapshot, entryID string) (SessionEntry, bool) {
+	entryID = strings.TrimSpace(entryID)
+	if entryID == "" {
+		return SessionEntry{}, false
+	}
+	for _, entry := range snapshot.QueuedEntries {
+		if entry.EntryID == entryID {
+			return entry, true
+		}
+	}
+	if snapshot.Context != nil {
+		for _, entry := range snapshot.Context.Entries {
+			if entry.EntryID == entryID {
+				return entry, true
+			}
+		}
+	}
+	if snapshot.CurrentEntry != nil && snapshot.CurrentEntry.EntryID == entryID {
+		return *snapshot.CurrentEntry, true
+	}
+	return SessionEntry{}, false
+}
+
+func buildContextQueue(snapshot SessionSnapshot) *ContextQueue {
+	if snapshot.Context == nil {
+		return nil
+	}
+	startIndex := 0
+	switch {
+	case isValidContextIndex(snapshot, snapshot.CurrentContextIndex):
+		startIndex = snapshot.CurrentContextIndex
+	case isValidContextIndex(snapshot, snapshot.ResumeContextIndex):
+		startIndex = snapshot.ResumeContextIndex
+	}
+	return &ContextQueue{
+		Kind:         snapshot.Context.Kind,
+		ID:           snapshot.Context.ID,
+		Title:        snapshot.Context.Title,
+		Entries:      cloneEntries(snapshot.Context.Entries),
+		StartIndex:   startIndex,
+		CurrentIndex: snapshot.CurrentContextIndex,
+		ResumeIndex:  snapshot.ResumeContextIndex,
+		ShuffleBag:   append([]int(nil), snapshot.ShuffleCycle...),
+	}
+}
+
 func currentItemFromEntry(entry *SessionEntry) *SessionItem {
 	if entry == nil {
 		return nil
@@ -2583,6 +2752,15 @@ func indexOfEntryID(entries []SessionEntry, entryID string) int {
 		}
 	}
 	return -1
+}
+
+func playbackTargetKey(target PlaybackTargetRef) string {
+	logical := strings.TrimSpace(target.LogicalRecordingID)
+	exact := strings.TrimSpace(target.ExactVariantRecordingID)
+	if logical == "" && exact == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%s", target.ResolutionPolicy, logical, exact)
 }
 
 func buildSmartShuffleCycle(entries []SessionEntry, rng *rand.Rand) []int {
@@ -2727,8 +2905,30 @@ func sameLabel(left string, right string) bool {
 	return left != "" && strings.EqualFold(left, right)
 }
 
+func (s *Session) syncAuthorityStateLocked() {
+	s.snapshot.UserQueue = cloneEntries(s.snapshot.QueuedEntries)
+	s.snapshot.ContextQueue = buildContextQueue(s.snapshot)
+	s.snapshot.CurrentLane = deriveCurrentLane(s.snapshot)
+	s.snapshot.NextPlanned = buildQueuePlan(s.snapshot.UpcomingEntries)
+	if s.preloadedID == "" {
+		s.snapshot.PreloadedPlan = nil
+		return
+	}
+	entry, ok := findEntryByID(s.snapshot, s.preloadedID)
+	if !ok {
+		s.snapshot.PreloadedPlan = nil
+		return
+	}
+	s.snapshot.PreloadedPlan = &QueuePlan{
+		Entry:   cloneEntryPtr(&entry),
+		Lane:    laneFromOrigin(entry.Origin),
+		Planned: true,
+	}
+}
+
 func (s *Session) touchLocked() {
 	s.snapshot = normalizeSnapshot(s.snapshot)
+	s.syncAuthorityStateLocked()
 	s.snapshot.UpdatedAt = formatTimestamp(time.Now().UTC())
 }
 

@@ -59,20 +59,41 @@ const (
 	ResolutionModeExplicit ResolutionMode = "explicit"
 )
 
+type PlaybackTargetResolution string
+
+const (
+	PlaybackTargetResolutionPreferred PlaybackTargetResolution = "preferred"
+	PlaybackTargetResolutionExact     PlaybackTargetResolution = "exact"
+)
+
+type CurrentLane string
+
+const (
+	CurrentLaneContext CurrentLane = "context"
+	CurrentLaneUser    CurrentLane = "user"
+)
+
+type PlaybackTargetRef struct {
+	LogicalRecordingID      string                   `json:"logicalRecordingId,omitempty"`
+	ExactVariantRecordingID string                   `json:"exactVariantRecordingId,omitempty"`
+	ResolutionPolicy        PlaybackTargetResolution `json:"resolutionPolicy,omitempty"`
+}
+
 type SessionItem struct {
-	LibraryRecordingID string         `json:"libraryRecordingId,omitempty"`
-	VariantRecordingID string         `json:"variantRecordingId,omitempty"`
-	RecordingID        string         `json:"recordingId"`
-	Title              string         `json:"title"`
-	Subtitle           string         `json:"subtitle"`
-	DurationMS         int64          `json:"durationMs"`
-	ArtworkRef         string         `json:"artworkRef"`
-	SourceKind         string         `json:"sourceKind"`
-	SourceID           string         `json:"sourceId"`
-	SourceItemID       string         `json:"sourceItemId"`
-	AlbumID            string         `json:"albumId,omitempty"`
-	VariantAlbumID     string         `json:"variantAlbumId,omitempty"`
-	ResolutionMode     ResolutionMode `json:"resolutionMode,omitempty"`
+	LibraryRecordingID string            `json:"libraryRecordingId,omitempty"`
+	VariantRecordingID string            `json:"variantRecordingId,omitempty"`
+	RecordingID        string            `json:"recordingId"`
+	Title              string            `json:"title"`
+	Subtitle           string            `json:"subtitle"`
+	DurationMS         int64             `json:"durationMs"`
+	ArtworkRef         string            `json:"artworkRef"`
+	SourceKind         string            `json:"sourceKind"`
+	SourceID           string            `json:"sourceId"`
+	SourceItemID       string            `json:"sourceItemId"`
+	AlbumID            string            `json:"albumId,omitempty"`
+	VariantAlbumID     string            `json:"variantAlbumId,omitempty"`
+	ResolutionMode     ResolutionMode    `json:"resolutionMode,omitempty"`
+	Target             PlaybackTargetRef `json:"target,omitempty"`
 }
 
 type SessionEntry struct {
@@ -89,40 +110,73 @@ type PlaybackContext struct {
 	Entries []SessionEntry `json:"entries"`
 }
 
+type ContextQueue struct {
+	Kind         ContextKind    `json:"kind"`
+	ID           string         `json:"id"`
+	Title        string         `json:"title,omitempty"`
+	Entries      []SessionEntry `json:"entries"`
+	StartIndex   int            `json:"startIndex"`
+	CurrentIndex int            `json:"currentIndex"`
+	ResumeIndex  int            `json:"resumeIndex"`
+	ShuffleBag   []int          `json:"shuffleBag,omitempty"`
+}
+
+type QueuePlan struct {
+	Entry   *SessionEntry `json:"entry,omitempty"`
+	Lane    CurrentLane   `json:"lane,omitempty"`
+	Planned bool          `json:"planned"`
+}
+
 type HistoryEntry struct {
 	Entry    SessionEntry `json:"entry"`
 	PlayedAt string       `json:"playedAt"`
 }
 
+type TargetAvailability struct {
+	Target PlaybackTargetRef                      `json:"target"`
+	Status apitypes.RecordingPlaybackAvailability `json:"status"`
+}
+
+type TargetAvailabilityRequest struct {
+	Targets          []PlaybackTargetRef `json:"targets"`
+	PreferredProfile string              `json:"preferredProfile"`
+}
+
 type SessionSnapshot struct {
-	Context             *PlaybackContext            `json:"context,omitempty"`
-	QueuedEntries       []SessionEntry              `json:"queuedEntries"`
-	History             []HistoryEntry              `json:"history"`
-	CurrentEntryID      string                      `json:"currentEntryId,omitempty"`
-	CurrentEntry        *SessionEntry               `json:"currentEntry,omitempty"`
-	CurrentItem         *SessionItem                `json:"currentItem,omitempty"`
-	LoadingEntry        *SessionEntry               `json:"loadingEntry,omitempty"`
-	LoadingItem         *SessionItem                `json:"loadingItem,omitempty"`
-	UpcomingEntries     []SessionEntry              `json:"upcomingEntries"`
-	CurrentOrigin       EntryOrigin                 `json:"currentOrigin,omitempty"`
-	CurrentContextIndex int                         `json:"currentContextIndex"`
-	ResumeContextIndex  int                         `json:"resumeContextIndex"`
-	ShuffleCycle        []int                       `json:"shuffleCycle,omitempty"`
-	RepeatMode          RepeatMode                  `json:"repeatMode"`
-	Shuffle             bool                        `json:"shuffle"`
-	Volume              int                         `json:"volume"`
-	Status              Status                      `json:"status"`
-	PositionMS          int64                       `json:"positionMs"`
-	DurationMS          *int64                      `json:"durationMs,omitempty"`
-	UpdatedAt           string                      `json:"updatedAt"`
-	LastError           string                      `json:"lastError,omitempty"`
-	CurrentSourceKind   apitypes.PlaybackSourceKind `json:"currentSourceKind,omitempty"`
-	CurrentPreparation  *EntryPreparation           `json:"currentPreparation,omitempty"`
-	LoadingPreparation  *EntryPreparation           `json:"loadingPreparation,omitempty"`
-	NextPreparation     *EntryPreparation           `json:"nextPreparation,omitempty"`
-	LastSkipEvent       *PlaybackSkipEvent          `json:"lastSkipEvent,omitempty"`
-	QueueLength         int                         `json:"queueLength"`
-	NextEntrySeq        int64                       `json:"nextEntrySeq,omitempty"`
+	Context             *PlaybackContext                                  `json:"context,omitempty"`
+	QueuedEntries       []SessionEntry                                    `json:"queuedEntries"`
+	ContextQueue        *ContextQueue                                     `json:"contextQueue,omitempty"`
+	UserQueue           []SessionEntry                                    `json:"userQueue"`
+	History             []HistoryEntry                                    `json:"history"`
+	CurrentEntryID      string                                            `json:"currentEntryId,omitempty"`
+	CurrentEntry        *SessionEntry                                     `json:"currentEntry,omitempty"`
+	CurrentItem         *SessionItem                                      `json:"currentItem,omitempty"`
+	LoadingEntry        *SessionEntry                                     `json:"loadingEntry,omitempty"`
+	LoadingItem         *SessionItem                                      `json:"loadingItem,omitempty"`
+	UpcomingEntries     []SessionEntry                                    `json:"upcomingEntries"`
+	CurrentLane         CurrentLane                                       `json:"currentLane,omitempty"`
+	NextPlanned         *QueuePlan                                        `json:"nextPlanned,omitempty"`
+	PreloadedPlan       *QueuePlan                                        `json:"preloadedPlan,omitempty"`
+	CurrentOrigin       EntryOrigin                                       `json:"currentOrigin,omitempty"`
+	CurrentContextIndex int                                               `json:"currentContextIndex"`
+	ResumeContextIndex  int                                               `json:"resumeContextIndex"`
+	ShuffleCycle        []int                                             `json:"shuffleCycle,omitempty"`
+	RepeatMode          RepeatMode                                        `json:"repeatMode"`
+	Shuffle             bool                                              `json:"shuffle"`
+	Volume              int                                               `json:"volume"`
+	Status              Status                                            `json:"status"`
+	PositionMS          int64                                             `json:"positionMs"`
+	DurationMS          *int64                                            `json:"durationMs,omitempty"`
+	UpdatedAt           string                                            `json:"updatedAt"`
+	LastError           string                                            `json:"lastError,omitempty"`
+	CurrentSourceKind   apitypes.PlaybackSourceKind                       `json:"currentSourceKind,omitempty"`
+	CurrentPreparation  *EntryPreparation                                 `json:"currentPreparation,omitempty"`
+	LoadingPreparation  *EntryPreparation                                 `json:"loadingPreparation,omitempty"`
+	NextPreparation     *EntryPreparation                                 `json:"nextPreparation,omitempty"`
+	EntryAvailability   map[string]apitypes.RecordingPlaybackAvailability `json:"entryAvailability,omitempty"`
+	LastSkipEvent       *PlaybackSkipEvent                                `json:"lastSkipEvent,omitempty"`
+	QueueLength         int                                               `json:"queueLength"`
+	NextEntrySeq        int64                                             `json:"nextEntrySeq,omitempty"`
 }
 
 type EntryPreparation struct {
@@ -150,6 +204,10 @@ type PlaybackCore interface {
 	PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error)
 	GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error)
 	ResolvePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error)
+	PreparePlaybackTarget(ctx context.Context, target PlaybackTargetRef, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error)
+	GetPlaybackTargetPreparation(ctx context.Context, target PlaybackTargetRef, preferredProfile string) (apitypes.PlaybackPreparationStatus, error)
+	GetPlaybackTargetAvailability(ctx context.Context, target PlaybackTargetRef, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error)
+	ListPlaybackTargetAvailability(ctx context.Context, req TargetAvailabilityRequest) ([]TargetAvailability, error)
 	ResolveArtworkRef(ctx context.Context, artwork apitypes.ArtworkRef) (apitypes.ArtworkResolveResult, error)
 	ResolveAlbumArtwork(ctx context.Context, albumID, variant string) (apitypes.RecordingArtworkResult, error)
 	ResolveRecordingArtwork(ctx context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error)
@@ -202,9 +260,11 @@ const (
 )
 
 type BackendEvent struct {
-	Type   BackendEventType
-	Reason string
-	Err    error
+	Type      BackendEventType
+	Reason    string
+	Err       error
+	EndedURI  string
+	ActiveURI string
 }
 
 type PlaybackContextInput struct {

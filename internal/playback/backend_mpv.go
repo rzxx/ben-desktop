@@ -247,13 +247,17 @@ func (b *mpvBackend) runEvents() {
 			}
 		case mpv.EventEnd:
 			end := ev.EndFile()
+			endedURI := ""
+			activeURI := ""
 			if end.Reason == mpv.EndFileEOF {
 				b.mu.Lock()
+				endedURI = b.currentURI
 				b.loading = false
 				b.pendingSeek = 0
 				b.hasSeek = false
 				if b.preloadedURI != "" {
 					b.currentURI = b.preloadedURI
+					activeURI = b.currentURI
 					b.preloadedURI = ""
 				} else {
 					b.currentURI = ""
@@ -261,9 +265,11 @@ func (b *mpvBackend) runEvents() {
 				b.mu.Unlock()
 			}
 			b.pushEvent(BackendEvent{
-				Type:   BackendEventTrackEnd,
-				Reason: mapEndReason(end.Reason),
-				Err:    end.Error,
+				Type:      BackendEventTrackEnd,
+				Reason:    mapEndReason(end.Reason),
+				Err:       end.Error,
+				EndedURI:  endedURI,
+				ActiveURI: activeURI,
 			})
 		case mpv.EventShutdown:
 			b.pushEvent(BackendEvent{Type: BackendEventShutdown})
