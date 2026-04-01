@@ -73,6 +73,10 @@ export function ManagedTrackListRow({
         likeState.hasIdentity
           ? {
               libraryRecordingId,
+              pinRecordingId:
+                mode === "album"
+                  ? recordingId
+                  : (libraryRecordingId ?? recordingId),
               recordingId,
             }
           : undefined

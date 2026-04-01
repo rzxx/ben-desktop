@@ -30,6 +30,7 @@ import { formatCount } from "@/lib/format";
 
 export type TrackRowRecordingIdentity = {
   libraryRecordingId?: string | null;
+  pinRecordingId?: string | null;
   recordingId?: string | null;
 };
 
@@ -77,6 +78,7 @@ export function TrackRowContextMenu({
   const loadedPlaylistsRef = useRef(false);
   const canAddToPlaylist = hasPlaylistIdentity(recording);
   const pinTargetId =
+    recording?.pinRecordingId?.trim() ||
     recording?.libraryRecordingId?.trim() ||
     recording?.recordingId?.trim() ||
     "";

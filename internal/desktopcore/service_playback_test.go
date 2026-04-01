@@ -90,6 +90,120 @@ func TestPinRecordingOfflinePersistsAndUnpinsCachedAsset(t *testing.T) {
 	}
 }
 
+func TestPinRecordingOfflineSeparatesExactAndLogicalTrackScopes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("pin-track-scope")}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "pin-track-scope")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	const (
+		clusterID = "cluster-pin-scope"
+		variantA  = "rec-pin-scope-a"
+		variantB  = "rec-pin-scope-b"
+	)
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    variantA,
+		TrackClusterID: clusterID,
+		AlbumID:        "album-pin-scope-a",
+		AlbumClusterID: "album-pin-scope-a",
+		SourceFileID:   "src-pin-scope-a",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-pin-scope-a", []byte("variant-a"))
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    variantB,
+		TrackClusterID: clusterID,
+		AlbumID:        "album-pin-scope-b",
+		AlbumClusterID: "album-pin-scope-b",
+		SourceFileID:   "src-pin-scope-b",
+		QualityRank:    120,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-pin-scope-b", []byte("variant-b"))
+
+	if err := app.catalog.SetPreferredRecordingVariant(ctx, clusterID, variantB); err != nil {
+		t.Fatalf("set preferred recording variant: %v", err)
+	}
+
+	if _, err := app.PinRecordingOffline(ctx, clusterID, "desktop"); err != nil {
+		t.Fatalf("pin logical recording offline: %v", err)
+	}
+
+	var logicalPin OfflinePin
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "recording", clusterID).
+		Take(&logicalPin).Error; err != nil {
+		t.Fatalf("load logical recording pin: %v", err)
+	}
+
+	clusterAvailability, err := app.GetRecordingAvailability(ctx, clusterID, "desktop")
+	if err != nil {
+		t.Fatalf("get logical availability: %v", err)
+	}
+	if !clusterAvailability.Pinned {
+		t.Fatalf("expected collapsed track to report pinned")
+	}
+	preferredAvailability, err := app.GetRecordingAvailability(ctx, variantB, "desktop")
+	if err != nil {
+		t.Fatalf("get preferred variant availability: %v", err)
+	}
+	if !preferredAvailability.Pinned {
+		t.Fatalf("expected preferred exact variant to inherit logical pin state")
+	}
+	otherAvailability, err := app.GetRecordingAvailability(ctx, variantA, "desktop")
+	if err != nil {
+		t.Fatalf("get non-preferred variant availability: %v", err)
+	}
+	if otherAvailability.Pinned {
+		t.Fatalf("expected non-preferred exact variant to remain unpinned for logical scope")
+	}
+
+	if err := app.UnpinRecordingOffline(ctx, clusterID); err != nil {
+		t.Fatalf("unpin logical recording offline: %v", err)
+	}
+	if _, err := app.PinRecordingOffline(ctx, variantA, "desktop"); err != nil {
+		t.Fatalf("pin exact recording offline: %v", err)
+	}
+
+	var exactPin OfflinePin
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "recording", variantA).
+		Take(&exactPin).Error; err != nil {
+		t.Fatalf("load exact recording pin: %v", err)
+	}
+
+	exactAvailability, err := app.GetRecordingAvailability(ctx, variantA, "desktop")
+	if err != nil {
+		t.Fatalf("get exact pinned availability: %v", err)
+	}
+	if !exactAvailability.Pinned {
+		t.Fatalf("expected exact variant to report pinned")
+	}
+	clusterAvailability, err = app.GetRecordingAvailability(ctx, clusterID, "desktop")
+	if err != nil {
+		t.Fatalf("get collapsed availability after exact pin: %v", err)
+	}
+	if clusterAvailability.Pinned {
+		t.Fatalf("expected collapsed track to remain unpinned when only a non-preferred exact variant is pinned")
+	}
+	preferredAvailability, err = app.GetRecordingAvailability(ctx, variantB, "desktop")
+	if err != nil {
+		t.Fatalf("get preferred variant availability after exact pin: %v", err)
+	}
+	if preferredAvailability.Pinned {
+		t.Fatalf("expected preferred variant to remain unpinned when another exact variant is pinned")
+	}
+}
+
 func TestResolveArtworkRefReturnsTypedArtworkPathOnly(t *testing.T) {
 	t.Parallel()
 
@@ -758,6 +872,160 @@ func TestPinnedPlaylistAutoRefreshFetchesNewTrack(t *testing.T) {
 		t.Fatalf("post-refresh cached encoding lookup: %v", err)
 	} else if !ok {
 		t.Fatalf("expected auto-refresh to cache the new playlist track")
+	}
+}
+
+func TestPinnedPlaylistProtectsResolvedPreferredVariant(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	var buildIndex atomic.Int32
+	builder := &fakeAACBuilder{}
+	builder.before = func() {
+		builder.result = []byte(fmt.Sprintf("playlist-preferred-%d", buildIndex.Add(1)))
+	}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "playlist-preferred")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	playlist, err := app.CreatePlaylist(ctx, "Preferred playlist", string(apitypes.PlaylistKindNormal))
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+
+	const (
+		clusterID = "cluster-playlist-preferred"
+		variantA  = "rec-playlist-preferred-a"
+		variantB  = "rec-playlist-preferred-b"
+	)
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    variantA,
+		TrackClusterID: clusterID,
+		AlbumID:        "album-playlist-preferred-a",
+		AlbumClusterID: "album-playlist-preferred-a",
+		SourceFileID:   "src-playlist-preferred-a",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-playlist-preferred-a", []byte("playlist-a"))
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    variantB,
+		TrackClusterID: clusterID,
+		AlbumID:        "album-playlist-preferred-b",
+		AlbumClusterID: "album-playlist-preferred-b",
+		SourceFileID:   "src-playlist-preferred-b",
+		QualityRank:    120,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-playlist-preferred-b", []byte("playlist-b"))
+
+	if err := app.catalog.SetPreferredRecordingVariant(ctx, clusterID, variantB); err != nil {
+		t.Fatalf("set preferred recording variant: %v", err)
+	}
+	if _, err := app.EnsureRecordingEncoding(ctx, variantA, "desktop"); err != nil {
+		t.Fatalf("ensure non-preferred variant encoding: %v", err)
+	}
+	if _, err := app.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{
+		PlaylistID:  playlist.PlaylistID,
+		RecordingID: clusterID,
+	}); err != nil {
+		t.Fatalf("add playlist item: %v", err)
+	}
+	if _, err := app.PinPlaylistOffline(ctx, playlist.PlaylistID, "desktop"); err != nil {
+		t.Fatalf("pin playlist offline: %v", err)
+	}
+
+	blobA, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, variantA, "desktop")
+	if err != nil || !ok {
+		t.Fatalf("cached encoding for non-preferred variant = %v, %v", ok, err)
+	}
+	blobB, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, variantB, "desktop")
+	if err != nil || !ok {
+		t.Fatalf("cached encoding for preferred variant = %v, %v", ok, err)
+	}
+
+	var pin OfflinePin
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "playlist", playlist.PlaylistID).
+		Take(&pin).Error; err != nil {
+		t.Fatalf("load playlist pin: %v", err)
+	}
+	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
+	if err != nil {
+		t.Fatalf("offline pin blob ids: %v", err)
+	}
+	if !slicesContains(protectedBlobIDs, blobB) {
+		t.Fatalf("expected preferred variant blob %q to stay protected, got %v", blobB, protectedBlobIDs)
+	}
+	if slicesContains(protectedBlobIDs, blobA) {
+		t.Fatalf("expected non-preferred variant blob %q to remain unprotected, got %v", blobA, protectedBlobIDs)
+	}
+}
+
+func TestPinnedLikedAutoRefreshFetchesNewTrack(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("liked-refresh")}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "liked-refresh")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-liked-refresh-a",
+		TrackClusterID: "rec-liked-refresh-a",
+		AlbumID:        "album-liked-refresh",
+		AlbumClusterID: "album-liked-refresh",
+		SourceFileID:   "src-liked-refresh-a",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-liked-refresh-a", []byte("liked-a"))
+	if err := app.LikeRecording(ctx, "rec-liked-refresh-a"); err != nil {
+		t.Fatalf("like recording a: %v", err)
+	}
+
+	likedPlaylistID := likedPlaylistIDForLibrary(local.LibraryID)
+	if _, err := app.PinLikedOffline(ctx, "desktop"); err != nil {
+		t.Fatalf("pin liked offline: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-liked-refresh-b",
+		TrackClusterID: "rec-liked-refresh-b",
+		AlbumID:        "album-liked-refresh",
+		AlbumClusterID: "album-liked-refresh",
+		SourceFileID:   "src-liked-refresh-b",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-liked-refresh-b", []byte("liked-b"))
+	if _, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, "rec-liked-refresh-b", "desktop"); err != nil {
+		t.Fatalf("pre-refresh cached encoding lookup: %v", err)
+	} else if ok {
+		t.Fatalf("expected new liked track to start uncached")
+	}
+	if err := app.LikeRecording(ctx, "rec-liked-refresh-b"); err != nil {
+		t.Fatalf("like recording b: %v", err)
+	}
+
+	final := waitForJobPhase(t, ctx, app, playbackRefreshPinnedScopeJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
+	if final.Kind != jobKindRefreshPinnedPlaylist {
+		t.Fatalf("refresh job kind = %q, want %q", final.Kind, jobKindRefreshPinnedPlaylist)
+	}
+	if _, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, "rec-liked-refresh-b", "desktop"); err != nil {
+		t.Fatalf("post-refresh cached encoding lookup: %v", err)
+	} else if !ok {
+		t.Fatalf("expected liked auto-refresh to cache the new liked track")
 	}
 }
 

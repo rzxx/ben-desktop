@@ -431,55 +431,57 @@ func (s *CacheService) offlinePinBlobIDs(ctx context.Context, libraryID, deviceI
 	scope := strings.TrimSpace(pin.Scope)
 	scopeID := strings.TrimSpace(pin.ScopeID)
 	profile := strings.TrimSpace(pin.Profile)
-	aliasProfile := normalizedPlaybackProfileAlias(profile)
 	if scope == "" || scopeID == "" {
+		return nil, nil
+	}
+	local := apitypes.LocalContext{
+		LibraryID: libraryID,
+		DeviceID:  deviceID,
+	}
+
+	recordingIDs := []string{}
+	switch scope {
+	case "recording":
+		target, err := s.app.playback.resolveRecordingPinTarget(ctx, local, scopeID, profile)
+		if err != nil {
+			return nil, err
+		}
+		recordingIDs = append(recordingIDs, target.resolvedRecordingID)
+	case "album", "playlist":
+		_, scopeRecordingIDs, resolvedProfile, err := s.app.playback.resolveOfflinePinScope(ctx, local, scope, scopeID, profile)
+		if err != nil {
+			return nil, err
+		}
+		resolution, err := s.app.playback.resolvePlaybackVariantsBatch(ctx, local, scopeRecordingIDs, resolvedProfile)
+		if err != nil {
+			return nil, err
+		}
+		recordingIDs = append(recordingIDs, resolution.resolvedRecordingIDs...)
+	default:
+		return nil, nil
+	}
+
+	return s.cachedBlobIDsForResolvedRecordings(ctx, libraryID, deviceID, recordingIDs, profile)
+}
+
+func (s *CacheService) cachedBlobIDsForResolvedRecordings(ctx context.Context, libraryID, deviceID string, recordingIDs []string, profile string) ([]string, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
 		return nil, nil
 	}
 
 	type row struct {
 		BlobID string
 	}
-	var (
-		query string
-		args  []any
-		rows  []row
-	)
-
-	switch scope {
-	case "recording":
-		query = `
+	var rows []row
+	aliasProfile := normalizedPlaybackProfileAlias(profile)
+	query := `
 SELECT DISTINCT oa.blob_id
 FROM device_asset_caches dac
 JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
-JOIN track_variants tv ON tv.library_id = oa.library_id AND tv.track_variant_id = oa.track_variant_id
-WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND (oa.track_variant_id = ? OR tv.track_cluster_id = ?) AND (? = '' OR oa.profile = ? OR oa.profile = ?)
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND oa.track_variant_id IN ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
 ORDER BY oa.blob_id ASC`
-		args = []any{libraryID, deviceID, scopeID, scopeID, profile, profile, aliasProfile}
-	case "album":
-		query = `
-SELECT DISTINCT oa.blob_id
-FROM device_asset_caches dac
-JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
-JOIN album_tracks at ON at.library_id = oa.library_id AND at.track_variant_id = oa.track_variant_id
-JOIN album_variants av ON av.library_id = at.library_id AND av.album_variant_id = at.album_variant_id
-WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND (at.album_variant_id = ? OR av.album_cluster_id = ?) AND (? = '' OR oa.profile = ? OR oa.profile = ?)
-ORDER BY oa.blob_id ASC`
-		args = []any{libraryID, deviceID, scopeID, scopeID, profile, profile, aliasProfile}
-	case "playlist":
-		query = `
-SELECT DISTINCT oa.blob_id
-FROM device_asset_caches dac
-JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
-JOIN playlist_items pi ON pi.library_id = oa.library_id AND pi.track_variant_id = oa.track_variant_id
-JOIN playlists p ON p.library_id = pi.library_id AND p.playlist_id = pi.playlist_id
-WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.deleted_at IS NULL AND (? = '' OR oa.profile = ? OR oa.profile = ?)
-ORDER BY oa.blob_id ASC`
-		args = []any{libraryID, deviceID, scopeID, profile, profile, aliasProfile}
-	default:
-		return nil, nil
-	}
-
-	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, deviceID, recordingIDs, profile, profile, aliasProfile).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
