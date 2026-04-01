@@ -1029,6 +1029,79 @@ func TestPinnedLikedAutoRefreshFetchesNewTrack(t *testing.T) {
 	}
 }
 
+func TestStartPinLikedOfflineKeepsPinWhenTrackIsInitiallyUnavailable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("liked-pending")}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "liked-pending")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	const recordingID = "rec-liked-pending"
+	seedAlbumTrackWithoutSources(t, app, library.LibraryID, "album-liked-pending", recordingID)
+	if err := app.LikeRecording(ctx, recordingID); err != nil {
+		t.Fatalf("like unavailable recording: %v", err)
+	}
+
+	likedPlaylistID := likedPlaylistIDForLibrary(local.LibraryID)
+	job, err := app.StartPinPlaylistOffline(ctx, likedPlaylistID, "desktop")
+	if err != nil {
+		t.Fatalf("start pin liked offline: %v", err)
+	}
+	if job.Kind != jobKindPinPlaylistOffline {
+		t.Fatalf("job kind = %q, want %q", job.Kind, jobKindPinPlaylistOffline)
+	}
+
+	final := waitForJobPhase(t, ctx, app, playbackPinOfflineJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
+	if final.Kind != jobKindPinPlaylistOffline {
+		t.Fatalf("final job kind = %q, want %q", final.Kind, jobKindPinPlaylistOffline)
+	}
+
+	var pin OfflinePin
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "playlist", likedPlaylistID).
+		Take(&pin).Error; err != nil {
+		t.Fatalf("load liked pin: %v", err)
+	}
+	if _, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, "desktop"); err != nil {
+		t.Fatalf("initial cached encoding lookup: %v", err)
+	} else if ok {
+		t.Fatalf("expected unavailable liked track to start uncached")
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    recordingID,
+		TrackClusterID: recordingID,
+		AlbumID:        "album-liked-pending",
+		AlbumClusterID: "album-liked-pending",
+		SourceFileID:   "src-liked-pending",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-liked-pending", []byte("liked-pending"))
+
+	app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:          apitypes.CatalogChangeInvalidateBase,
+		InvalidateAll: true,
+	})
+
+	refresh := waitForJobPhase(t, ctx, app, playbackRefreshPinnedScopeJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
+	if refresh.Kind != jobKindRefreshPinnedPlaylist {
+		t.Fatalf("refresh job kind = %q, want %q", refresh.Kind, jobKindRefreshPinnedPlaylist)
+	}
+	if _, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, "desktop"); err != nil {
+		t.Fatalf("post-refresh cached encoding lookup: %v", err)
+	} else if !ok {
+		t.Fatalf("expected pinned liked track to cache once a source appears")
+	}
+}
+
 func TestPinnedAlbumAutoRefreshReconcilesReplacementTrackSet(t *testing.T) {
 	t.Parallel()
 
