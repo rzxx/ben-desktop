@@ -1,6 +1,7 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
 import {
   ChevronRight,
+  Download,
   FolderPlus,
   ListPlus,
   LoaderCircle,
@@ -14,12 +15,17 @@ import {
   useState,
 } from "react";
 import { PlaylistNameDialog } from "@/components/catalog/PlaylistDialogs";
+import { isJobActive, useJobSnapshot } from "@/hooks/jobs/useJobSnapshot";
 import {
   addPlaylistItem,
   createPlaylist,
   listPlaylistsPage,
 } from "@/lib/api/catalog";
-import type { PlaylistListItem } from "@/lib/api/models";
+import type { JobSnapshot, PlaylistListItem } from "@/lib/api/models";
+import {
+  startPinRecordingOffline,
+  unpinRecordingOffline,
+} from "@/lib/api/playback";
 import { formatCount } from "@/lib/format";
 
 export type TrackRowRecordingIdentity = {
@@ -47,12 +53,14 @@ export function TrackRowContextMenu({
   actionable,
   children,
   onQueue,
+  pinned = false,
   recording,
   title,
 }: {
   actionable: boolean;
   children: ReactNode | ((state: { open: boolean }) => ReactNode);
   onQueue: () => void;
+  pinned?: boolean;
   recording?: TrackRowRecordingIdentity;
   title: string;
 }) {
@@ -61,10 +69,19 @@ export function TrackRowContextMenu({
   const [menuError, setMenuError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingPlaylistId, setPendingPlaylistId] = useState("");
+  const [pinActionBusy, setPinActionBusy] = useState(false);
+  const [pinError, setPinError] = useState("");
+  const [pinJob, setPinJob] = useState<JobSnapshot | null>(null);
   const [playlists, setPlaylists] = useState<PlaylistListItem[]>([]);
   const attemptedLoadRef = useRef(false);
   const loadedPlaylistsRef = useRef(false);
   const canAddToPlaylist = hasPlaylistIdentity(recording);
+  const pinTargetId =
+    recording?.libraryRecordingId?.trim() ||
+    recording?.recordingId?.trim() ||
+    "";
+  const trackedPinJob = useJobSnapshot(pinJob);
+  const pinBusy = pinActionBusy || isJobActive(trackedPinJob);
 
   const ensurePlaylistsLoaded = useCallback(async () => {
     if (
@@ -117,6 +134,11 @@ export function TrackRowContextMenu({
   );
 
   useEffect(() => {
+    setPinError("");
+    setPinJob(null);
+  }, [pinTargetId]);
+
+  useEffect(() => {
     if (!menuOpen) {
       attemptedLoadRef.current = false;
       return;
@@ -133,6 +155,29 @@ export function TrackRowContextMenu({
 
     void ensurePlaylistsLoaded();
   }, [canAddToPlaylist, ensurePlaylistsLoaded, loading, menuOpen]);
+
+  const toggleOfflinePin = useCallback(async () => {
+    if (!pinTargetId) {
+      return;
+    }
+
+    setPinActionBusy(true);
+    setPinError("");
+
+    try {
+      if (pinned) {
+        await unpinRecordingOffline(pinTargetId);
+        setPinJob(null);
+      } else {
+        const job = await startPinRecordingOffline(pinTargetId);
+        setPinJob(job);
+      }
+    } catch (error) {
+      setPinError(toErrorMessage(error));
+    } finally {
+      setPinActionBusy(false);
+    }
+  }, [pinTargetId, pinned]);
 
   return (
     <>
@@ -163,6 +208,29 @@ export function TrackRowContextMenu({
                 <ListPlus className="h-4 w-4 shrink-0 text-white/70" />
                 <span className="min-w-0 flex-1 truncate">Add to queue</span>
               </ContextMenu.Item>
+
+              {pinTargetId ? (
+                <>
+                  <ContextMenu.Separator className={menuSeparatorClass} />
+                  <ContextMenu.Item
+                    className={menuItemClass}
+                    closeOnClick={false}
+                    disabled={pinBusy}
+                    onClick={() => {
+                      void toggleOfflinePin();
+                    }}
+                  >
+                    {pinBusy ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin text-white/60" />
+                    ) : (
+                      <Download className="h-4 w-4 shrink-0 text-white/70" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">
+                      {pinned ? "Unpin track" : "Pin track"}
+                    </span>
+                  </ContextMenu.Item>
+                </>
+              ) : null}
 
               {canAddToPlaylist ? (
                 <>
@@ -267,6 +335,15 @@ export function TrackRowContextMenu({
                       </ContextMenu.Positioner>
                     </ContextMenu.Portal>
                   </ContextMenu.SubmenuRoot>
+                </>
+              ) : null}
+
+              {pinError ? (
+                <>
+                  <ContextMenu.Separator className={menuSeparatorClass} />
+                  <ContextMenu.Item className={menuItemClass} disabled>
+                    <span className="text-red-200">{pinError}</span>
+                  </ContextMenu.Item>
                 </>
               ) : null}
             </ContextMenu.Popup>

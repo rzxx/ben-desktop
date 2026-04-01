@@ -63,6 +63,7 @@ export function TrackListRow({
   onQueue,
   onRemove,
   onToggleLike,
+  pinned = false,
   recording,
   removeLabel = "Remove track",
   subtitle,
@@ -79,6 +80,7 @@ export function TrackListRow({
   onQueue: () => void;
   onRemove?: () => void;
   onToggleLike?: () => void;
+  pinned?: boolean;
   recording?: TrackRowRecordingIdentity;
   removeLabel?: string;
   subtitle: string;
@@ -97,6 +99,7 @@ export function TrackListRow({
     <TrackRowContextMenu
       actionable={actionable}
       onQueue={onQueue}
+      pinned={pinned}
       recording={recording}
       title={title}
     >

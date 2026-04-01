@@ -173,6 +173,7 @@ type PlaylistListItem struct {
 	Name           string
 	Kind           PlaylistKind
 	IsReserved     bool
+	ScopePinned    bool
 	Thumb          ArtworkRef
 	HasCustomCover bool
 	CreatedBy      string

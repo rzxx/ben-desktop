@@ -13,6 +13,7 @@ export function ManagedTrackListRow({
   onPlay,
   onQueue,
   onRemove,
+  pinned = false,
   recordingId,
   removeLabel,
   subtitle,
@@ -27,6 +28,7 @@ export function ManagedTrackListRow({
   onPlay: () => void;
   onQueue: () => void;
   onRemove?: () => void;
+  pinned?: boolean;
   recordingId?: string;
   removeLabel?: string;
   subtitle: string;
@@ -65,6 +67,7 @@ export function ManagedTrackListRow({
             }
           : undefined
       }
+      pinned={pinned}
       removeLabel={removeLabel}
       recording={
         likeState.hasIdentity

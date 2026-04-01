@@ -179,6 +179,30 @@ function handleAvailabilityInvalidation(
   event: InstanceType<typeof Types.CatalogChangeEvent>,
 ) {
   const store = useCatalogStore.getState();
+  if (
+    event.Entity === Types.CatalogChangeEntity.CatalogChangeEntityPlaylistTracks
+  ) {
+    store.invalidateIdQuery("playlists", { dropAfterOffset: 0 });
+    if (hasLoadedIdQuery("playlists")) {
+      void catalogLoaderClient.refetchPlaylists();
+    }
+    if (event.EntityID) {
+      store.invalidateDetail("playlistSummary", event.EntityID);
+      const detail = getDetailRecord(
+        useCatalogStore.getState().playlistSummaries,
+        event.EntityID,
+      );
+      if (detail.data !== null) {
+        void catalogLoaderClient.refetchPlaylist(event.EntityID);
+      }
+    }
+  }
+  if (event.Entity === Types.CatalogChangeEntity.CatalogChangeEntityLiked) {
+    store.invalidateIdQuery("playlists", { dropAfterOffset: 0 });
+    if (hasLoadedIdQuery("playlists")) {
+      void catalogLoaderClient.refetchPlaylists();
+    }
+  }
   const recordingIDs = event.InvalidateAll
     ? loadedTrackAvailabilityIDs()
     : (event.RecordingIDs ?? []);

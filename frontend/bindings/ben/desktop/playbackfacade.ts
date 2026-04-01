@@ -138,6 +138,24 @@ export function StartEnsureRecordingEncoding(recordingID: string, preferredProfi
     });
 }
 
+export function StartPinAlbumOffline(albumID: string, preferredProfile: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(1209482508, albumID, preferredProfile).then(($result: any) => {
+        return $$createType12($result);
+    });
+}
+
+export function StartPinPlaylistOffline(playlistID: string, preferredProfile: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(1984663315, playlistID, preferredProfile).then(($result: any) => {
+        return $$createType12($result);
+    });
+}
+
+export function StartPinRecordingOffline(recordingID: string, preferredProfile: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(3679741964, recordingID, preferredProfile).then(($result: any) => {
+        return $$createType12($result);
+    });
+}
+
 export function StartPreparePlaybackRecording(recordingID: string, preferredProfile: string, purpose: apitypes$0.PlaybackPreparationPurpose): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(1507550790, recordingID, preferredProfile, purpose).then(($result: any) => {
         return $$createType12($result);

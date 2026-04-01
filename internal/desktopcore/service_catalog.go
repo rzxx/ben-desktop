@@ -557,7 +557,10 @@ func (s *CatalogService) ListPlaylists(ctx context.Context, req apitypes.Playlis
 		UpdatedAt      time.Time
 		ItemCount      int64
 		HasCustomCover int
+		ScopePinned    int
 	}
+	profile := strings.TrimSpace(s.app.cfg.TranscodeProfile)
+	aliasProfile := normalizedPlaybackProfileAlias(profile)
 	query := `
 SELECT
 	p.playlist_id,
@@ -566,15 +569,17 @@ SELECT
 	p.created_by,
 	p.updated_at,
 	COUNT(DISTINCT pi.item_id) AS item_count,
-	MAX(CASE WHEN aw.scope_id IS NULL THEN 0 ELSE 1 END) AS has_custom_cover
+	MAX(CASE WHEN aw.scope_id IS NULL THEN 0 ELSE 1 END) AS has_custom_cover,
+	MAX(CASE WHEN op.scope_id IS NULL THEN 0 ELSE 1 END) AS scope_pinned
 FROM playlists p
 LEFT JOIN playlist_items pi ON pi.library_id = p.library_id AND pi.playlist_id = p.playlist_id AND pi.deleted_at IS NULL
 LEFT JOIN artwork_variants aw ON aw.library_id = p.library_id AND aw.scope_type = 'playlist' AND aw.scope_id = p.playlist_id
+LEFT JOIN offline_pins op ON op.library_id = p.library_id AND op.device_id = ? AND op.scope = 'playlist' AND op.scope_id = p.playlist_id AND (op.profile = ? OR op.profile = ?)
 WHERE p.library_id = ? AND p.deleted_at IS NULL
 GROUP BY p.playlist_id, p.name, p.kind, p.created_by, p.updated_at
 ORDER BY CASE WHEN p.kind = ? THEN 0 ELSE 1 END ASC, LOWER(p.name) ASC, p.playlist_id ASC`
 	var rows []row
-	if err := s.app.storage.WithContext(ctx).Raw(query, local.LibraryID, playlistKindLiked).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.WithContext(ctx).Raw(query, local.DeviceID, profile, aliasProfile, local.LibraryID, playlistKindLiked).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.PlaylistListItem]{}, err
 	}
 	out := make([]apitypes.PlaylistListItem, 0, len(rows))
@@ -588,6 +593,7 @@ ORDER BY CASE WHEN p.kind = ? THEN 0 ELSE 1 END ASC, LOWER(p.name) ASC, p.playli
 			Name:           row.Name,
 			Kind:           apitypes.PlaylistKind(row.Kind),
 			IsReserved:     strings.EqualFold(strings.TrimSpace(row.Kind), playlistKindLiked),
+			ScopePinned:    row.ScopePinned > 0,
 			Thumb:          thumb,
 			HasCustomCover: row.HasCustomCover > 0,
 			CreatedBy:      row.CreatedBy,

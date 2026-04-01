@@ -883,8 +883,8 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	}
 	oldAlbumID := initialAlbums.Items[0].LibraryAlbumID
 	oldVariantAlbumID := initialAlbums.Items[0].PreferredVariantAlbumID
-	if _, err := owner.PinAlbumOffline(ctx, oldAlbumID, "desktop"); err != nil {
-		t.Fatalf("pin owner album offline: %v", err)
+	if err := owner.playback.upsertOfflinePin(ctx, ownerLocal, "album", oldVariantAlbumID, "desktop"); err != nil {
+		t.Fatalf("upsert owner album pin: %v", err)
 	}
 
 	registry := newMemorySyncRegistry()
@@ -1022,7 +1022,7 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if staleAlbumCount != 0 {
 		t.Fatalf("stale joiner album row count = %d, want 0", staleAlbumCount)
 	}
-	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 1)
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newVariantAlbumID, 1)
 }
 
 func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
@@ -1100,8 +1100,8 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	}
 	oldAlbumID := initialAlbums.Items[0].LibraryAlbumID
 	oldVariantAlbumID := initialAlbums.Items[0].PreferredVariantAlbumID
-	if _, err := owner.PinAlbumOffline(ctx, oldAlbumID, "desktop"); err != nil {
-		t.Fatalf("pin owner album offline: %v", err)
+	if err := owner.playback.upsertOfflinePin(ctx, ownerLocal, "album", oldVariantAlbumID, "desktop"); err != nil {
+		t.Fatalf("upsert owner album pin: %v", err)
 	}
 
 	for _, path := range []string{oldA, oldB} {
@@ -1231,7 +1231,7 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if staleAlbumCount != 0 {
 		t.Fatalf("stale checkpoint joiner album row count = %d, want 0", staleAlbumCount)
 	}
-	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newAlbumID, 1)
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newVariantAlbumID, 1)
 }
 
 func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *testing.T) {

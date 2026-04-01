@@ -58,6 +58,26 @@ func TestNotificationFromJobMapsClassificationAndPhase(t *testing.T) {
 	}
 }
 
+func TestNotificationFromJobClassifiesManualAndAutoPinJobs(t *testing.T) {
+	manual := notificationFromJob(desktopcore.JobSnapshot{
+		JobID: "pin-1",
+		Kind:  "pin-album-offline",
+		Phase: desktopcore.JobPhaseQueued,
+	})
+	if manual.Audience != apitypes.NotificationAudienceUser || manual.Importance != apitypes.NotificationImportanceNormal {
+		t.Fatalf("manual pin classification = %q/%q, want %q/%q", manual.Audience, manual.Importance, apitypes.NotificationAudienceUser, apitypes.NotificationImportanceNormal)
+	}
+
+	auto := notificationFromJob(desktopcore.JobSnapshot{
+		JobID: "refresh-1",
+		Kind:  "refresh-pinned-playlist",
+		Phase: desktopcore.JobPhaseQueued,
+	})
+	if auto.Audience != apitypes.NotificationAudienceSystem || auto.Importance != apitypes.NotificationImportanceDebug {
+		t.Fatalf("auto refresh classification = %q/%q, want %q/%q", auto.Audience, auto.Importance, apitypes.NotificationAudienceSystem, apitypes.NotificationImportanceDebug)
+	}
+}
+
 func TestNormalizeNotificationSnapshotPreservesFinishedFailures(t *testing.T) {
 	notification := normalizeNotificationSnapshot(apitypes.NotificationSnapshot{
 		ID:    "scan:1",

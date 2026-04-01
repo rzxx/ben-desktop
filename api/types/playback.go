@@ -139,6 +139,7 @@ type RecordingPlaybackAvailability struct {
 	VariantRecordingID string
 	RecordingID        string
 	PreferredProfile   string
+	Pinned             bool
 	State              RecordingAvailabilityState
 	SourceKind         PlaybackSourceKind
 	LocalPath          string
@@ -194,6 +195,7 @@ type AggregateAvailabilitySummary struct {
 	TrackCount             int64
 	IsLocal                bool
 	HasRemote              bool
+	ScopePinned            bool
 	LocalTrackCount        int64
 	LocalSourceTrackCount  int64
 	PinnedTrackCount       int64

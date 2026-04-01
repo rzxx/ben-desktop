@@ -77,6 +77,9 @@ export function TracksPage() {
               onQueue={() => {
                 void queueRecording(track.RecordingID);
               }}
+              pinned={
+                trackAvailabilityByRecordingId[track.RecordingID]?.data?.Pinned
+              }
               recordingId={track.RecordingID}
               subtitle={joinArtists(track.Artists)}
               title={track.Title}

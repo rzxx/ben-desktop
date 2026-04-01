@@ -2,10 +2,12 @@ package desktopcore
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -78,6 +80,13 @@ func TestPinRecordingOfflinePersistsAndUnpinsCachedAsset(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("recording pin count = %d, want 0", count)
+	}
+	blobPath, err := app.blobs.Path(blobID)
+	if err != nil {
+		t.Fatalf("resolve cached blob path: %v", err)
+	}
+	if _, err := os.Stat(blobPath); err != nil {
+		t.Fatalf("expected cached blob to remain after unpin: %v", err)
 	}
 }
 
@@ -462,6 +471,397 @@ func TestStartPreparePlaybackRecordingQueuesAsyncJob(t *testing.T) {
 	}
 }
 
+func TestStartPinRecordingOfflineReusesActiveJobAndMarksPinnedImmediately(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	release := make(chan struct{})
+	builder := &fakeAACBuilder{result: []byte("pin-recording-job"), waitFor: release}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "pin-recording-job")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-pin-job",
+		TrackClusterID: "rec-pin-job",
+		AlbumID:        "album-pin-job",
+		AlbumClusterID: "album-pin-job",
+		SourceFileID:   "src-pin-job",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-pin-job", []byte("lossless"))
+
+	first, err := app.StartPinRecordingOffline(ctx, "rec-pin-job", "desktop")
+	if err != nil {
+		t.Fatalf("start pin recording offline: %v", err)
+	}
+	if first.Kind != jobKindPinRecordingOffline || first.Phase != JobPhaseQueued {
+		t.Fatalf("unexpected first pin job: %+v", first)
+	}
+
+	second, err := app.StartPinRecordingOffline(ctx, "rec-pin-job", "desktop")
+	if err != nil {
+		t.Fatalf("start pin recording offline again: %v", err)
+	}
+	if second.JobID != first.JobID {
+		t.Fatalf("second job id = %q, want %q", second.JobID, first.JobID)
+	}
+
+	var pin OfflinePin
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "recording", "rec-pin-job").
+		Take(&pin).Error; err != nil {
+		t.Fatalf("load recording pin: %v", err)
+	}
+
+	availability, err := app.GetRecordingAvailability(ctx, "rec-pin-job", "desktop")
+	if err != nil {
+		t.Fatalf("get recording availability: %v", err)
+	}
+	if !availability.Pinned {
+		t.Fatalf("expected recording availability to report pinned while job is active")
+	}
+
+	close(release)
+
+	final := waitForJobPhase(t, ctx, app, playbackPinOfflineJobID(local.LibraryID, "recording", "rec-pin-job", "desktop"), JobPhaseCompleted)
+	if final.Kind != jobKindPinRecordingOffline {
+		t.Fatalf("final job kind = %q, want %q", final.Kind, jobKindPinRecordingOffline)
+	}
+	if strings.TrimSpace(final.Message) == "" {
+		t.Fatalf("expected final pin job message")
+	}
+}
+
+func TestStartPinAlbumOfflineProtectsCachedBlobsImmediately(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	release := make(chan struct{})
+	builder := &fakeAACBuilder{result: []byte("pin-album-job"), waitFor: release}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "pin-album-job")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-pin-album-remote", time.Now().UTC())
+
+	const albumID = "album-pin-async"
+	blobID := testBlobID("a")
+	seedRemoteCachedRecording(t, app, library.LibraryID, remoteDeviceID, local.DeviceID, cacheSeedInput{
+		RecordingID:    "rec-pin-album-a",
+		AlbumID:        albumID,
+		SourceFileID:   "src-pin-album-a",
+		EncodingID:     "enc-pin-album-a",
+		BlobID:         blobID,
+		Profile:        "desktop",
+		LastVerifiedAt: time.Now().UTC(),
+	})
+	writeCacheBlob(t, app, blobID, 96)
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-pin-album-b",
+		TrackClusterID: "rec-pin-album-b",
+		AlbumID:        albumID,
+		AlbumClusterID: albumID,
+		SourceFileID:   "src-pin-album-b",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-pin-album-b", []byte("lossless"))
+
+	first, err := app.StartPinAlbumOffline(ctx, albumID, "desktop")
+	if err != nil {
+		t.Fatalf("start pin album offline: %v", err)
+	}
+	second, err := app.StartPinAlbumOffline(ctx, albumID, "desktop")
+	if err != nil {
+		t.Fatalf("start pin album offline again: %v", err)
+	}
+	if second.JobID != first.JobID {
+		t.Fatalf("second job id = %q, want %q", second.JobID, first.JobID)
+	}
+
+	var pin OfflinePin
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "album", albumID).
+		Take(&pin).Error; err != nil {
+		t.Fatalf("load album pin: %v", err)
+	}
+
+	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
+	if err != nil {
+		t.Fatalf("offline pin blob ids: %v", err)
+	}
+	if !reflect.DeepEqual(protectedBlobIDs, []string{blobID}) {
+		t.Fatalf("protected blob ids = %v, want [%s]", protectedBlobIDs, blobID)
+	}
+
+	summary := mustAlbumAvailabilitySummary(t, app, ctx, albumID)
+	if !summary.ScopePinned {
+		t.Fatalf("expected album availability summary to report scope pinned while job is active")
+	}
+
+	close(release)
+
+	final := waitForJobPhase(t, ctx, app, playbackPinOfflineJobID(local.LibraryID, "album", albumID, "desktop"), JobPhaseCompleted)
+	if final.Kind != jobKindPinAlbumOffline {
+		t.Fatalf("final job kind = %q, want %q", final.Kind, jobKindPinAlbumOffline)
+	}
+}
+
+func TestPinnedAvailabilityFieldsReflectDirectScopePinState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("pinned-fields")}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "pin-fields")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-pin-fields-remote", time.Now().UTC())
+
+	const albumID = "album-pin-fields"
+	seedRemoteCachedRecording(t, app, library.LibraryID, remoteDeviceID, local.DeviceID, cacheSeedInput{
+		RecordingID:    "rec-pin-fields-a",
+		AlbumID:        albumID,
+		SourceFileID:   "src-pin-fields-a",
+		EncodingID:     "enc-pin-fields-a",
+		BlobID:         testBlobID("c"),
+		Profile:        "desktop",
+		LastVerifiedAt: time.Now().UTC(),
+	})
+	seedRemoteCachedRecording(t, app, library.LibraryID, remoteDeviceID, local.DeviceID, cacheSeedInput{
+		RecordingID:    "rec-pin-fields-b",
+		AlbumID:        albumID,
+		SourceFileID:   "src-pin-fields-b",
+		EncodingID:     "enc-pin-fields-b",
+		BlobID:         testBlobID("d"),
+		Profile:        "desktop",
+		LastVerifiedAt: time.Now().UTC(),
+	})
+
+	if _, err := app.PinAlbumOffline(ctx, albumID, "desktop"); err != nil {
+		t.Fatalf("pin album offline: %v", err)
+	}
+
+	trackAvailability, err := app.GetRecordingAvailability(ctx, "rec-pin-fields-a", "desktop")
+	if err != nil {
+		t.Fatalf("get recording availability: %v", err)
+	}
+	if trackAvailability.Pinned {
+		t.Fatalf("expected recording pinned flag to remain false for album-only pin")
+	}
+
+	summary := mustAlbumAvailabilitySummary(t, app, ctx, albumID)
+	if !summary.ScopePinned {
+		t.Fatalf("expected album summary scope pinned")
+	}
+
+	if _, err := app.PinRecordingOffline(ctx, "rec-pin-fields-a", "desktop"); err != nil {
+		t.Fatalf("pin recording offline: %v", err)
+	}
+
+	items, err := app.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
+		RecordingIDs:     []string{"rec-pin-fields-a", "rec-pin-fields-b"},
+		PreferredProfile: "desktop",
+	})
+	if err != nil {
+		t.Fatalf("list recording playback availability: %v", err)
+	}
+	if !items[0].Pinned {
+		t.Fatalf("expected first recording to report pinned")
+	}
+	if items[1].Pinned {
+		t.Fatalf("expected second recording to remain unpinned")
+	}
+}
+
+func TestPinnedPlaylistAutoRefreshFetchesNewTrack(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("playlist-refresh")}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "playlist-refresh")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	playlist, err := app.CreatePlaylist(ctx, "Refresh playlist", string(apitypes.PlaylistKindNormal))
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-refresh-a",
+		TrackClusterID: "rec-refresh-a",
+		AlbumID:        "album-refresh",
+		AlbumClusterID: "album-refresh",
+		SourceFileID:   "src-refresh-a",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-refresh-a", []byte("refresh-a"))
+	if _, err := app.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{
+		PlaylistID:  playlist.PlaylistID,
+		RecordingID: "rec-refresh-a",
+	}); err != nil {
+		t.Fatalf("add playlist item a: %v", err)
+	}
+	if _, err := app.PinPlaylistOffline(ctx, playlist.PlaylistID, "desktop"); err != nil {
+		t.Fatalf("pin playlist offline: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-refresh-b",
+		TrackClusterID: "rec-refresh-b",
+		AlbumID:        "album-refresh",
+		AlbumClusterID: "album-refresh",
+		SourceFileID:   "src-refresh-b",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-refresh-b", []byte("refresh-b"))
+	if _, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, "rec-refresh-b", "desktop"); err != nil {
+		t.Fatalf("pre-refresh cached encoding lookup: %v", err)
+	} else if ok {
+		t.Fatalf("expected new playlist track to start uncached")
+	}
+	if _, err := app.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{
+		PlaylistID:  playlist.PlaylistID,
+		RecordingID: "rec-refresh-b",
+	}); err != nil {
+		t.Fatalf("add playlist item b: %v", err)
+	}
+
+	final := waitForJobPhase(t, ctx, app, playbackRefreshPinnedScopeJobID(local.LibraryID, "playlist", playlist.PlaylistID, "desktop"), JobPhaseCompleted)
+	if final.Kind != jobKindRefreshPinnedPlaylist {
+		t.Fatalf("refresh job kind = %q, want %q", final.Kind, jobKindRefreshPinnedPlaylist)
+	}
+	if _, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, "rec-refresh-b", "desktop"); err != nil {
+		t.Fatalf("post-refresh cached encoding lookup: %v", err)
+	} else if !ok {
+		t.Fatalf("expected auto-refresh to cache the new playlist track")
+	}
+}
+
+func TestPinnedAlbumAutoRefreshReconcilesReplacementTrackSet(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	var buildIndex atomic.Int32
+	builder := &fakeAACBuilder{}
+	builder.before = func() {
+		builder.result = []byte(fmt.Sprintf("album-refresh-%d", buildIndex.Add(1)))
+	}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "album-refresh")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-album-refresh-remote", time.Now().UTC())
+
+	const albumID = "album-refresh"
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-album-refresh-a",
+		TrackClusterID: "rec-album-refresh-a",
+		AlbumID:        albumID,
+		AlbumClusterID: albumID,
+		SourceFileID:   "src-album-refresh-a",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-album-refresh-a", []byte("album-a"))
+	seedRemoteCachedRecording(t, app, library.LibraryID, remoteDeviceID, local.DeviceID, cacheSeedInput{
+		RecordingID:    "rec-album-refresh-b",
+		AlbumID:        albumID,
+		SourceFileID:   "src-album-refresh-b",
+		EncodingID:     "enc-album-refresh-b",
+		BlobID:         testBlobID("b"),
+		Profile:        "desktop",
+		LastVerifiedAt: time.Now().UTC(),
+	})
+
+	if _, err := app.PinAlbumOffline(ctx, albumID, "desktop"); err != nil {
+		t.Fatalf("pin album offline: %v", err)
+	}
+	blobA, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, "rec-album-refresh-a", "desktop")
+	if err != nil || !ok {
+		t.Fatalf("cached encoding for track a = %v, %v", ok, err)
+	}
+	blobB, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, "rec-album-refresh-b", "desktop")
+	if err != nil || !ok {
+		t.Fatalf("cached encoding for track b = %v, %v", ok, err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-album-refresh-c",
+		TrackClusterID: "rec-album-refresh-c",
+		AlbumID:        albumID,
+		AlbumClusterID: albumID,
+		SourceFileID:   "src-album-refresh-c",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-album-refresh-c", []byte("album-c"))
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND album_variant_id = ? AND track_variant_id = ?", library.LibraryID, albumID, "rec-album-refresh-b").
+		Delete(&AlbumTrack{}).Error; err != nil {
+		t.Fatalf("delete replaced album track: %v", err)
+	}
+
+	app.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:     apitypes.CatalogChangeInvalidateBase,
+		Entity:   apitypes.CatalogChangeEntityAlbum,
+		EntityID: albumID,
+		AlbumIDs: []string{albumID},
+	})
+
+	final := waitForJobPhase(t, ctx, app, playbackRefreshPinnedScopeJobID(local.LibraryID, "album", albumID, "desktop"), JobPhaseCompleted)
+	if final.Kind != jobKindRefreshPinnedAlbum {
+		t.Fatalf("refresh job kind = %q, want %q", final.Kind, jobKindRefreshPinnedAlbum)
+	}
+	blobC, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, "rec-album-refresh-c", "desktop")
+	if err != nil || !ok {
+		t.Fatalf("cached encoding for replacement track = %v, %v", ok, err)
+	}
+
+	var pin OfflinePin
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "album", albumID).
+		Take(&pin).Error; err != nil {
+		t.Fatalf("load album pin: %v", err)
+	}
+	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
+	if err != nil {
+		t.Fatalf("offline pin blob ids: %v", err)
+	}
+	if slicesContains(protectedBlobIDs, blobB) {
+		t.Fatalf("expected removed track blob %q to stop being protected, got %v", blobB, protectedBlobIDs)
+	}
+	if !slicesContains(protectedBlobIDs, blobA) || !slicesContains(protectedBlobIDs, blobC) {
+		t.Fatalf("expected active album blobs %q and %q to be protected, got %v", blobA, blobC, protectedBlobIDs)
+	}
+}
+
 func TestPinAlbumOfflineAggregatesCachedTracks(t *testing.T) {
 	t.Parallel()
 
@@ -475,8 +875,9 @@ func TestPinAlbumOfflineAggregatesCachedTracks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("active context: %v", err)
 	}
+	remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-pin-album-batch-remote", time.Now().UTC())
 
-	seedCacheRecording(t, app, library.LibraryID, local.DeviceID, cacheSeedInput{
+	seedRemoteCachedRecording(t, app, library.LibraryID, remoteDeviceID, local.DeviceID, cacheSeedInput{
 		RecordingID:    "rec-a",
 		AlbumID:        "album-batch",
 		SourceFileID:   "src-a",
@@ -485,7 +886,7 @@ func TestPinAlbumOfflineAggregatesCachedTracks(t *testing.T) {
 		Profile:        "desktop",
 		LastVerifiedAt: time.Now().UTC(),
 	})
-	seedCachedRecordingForExistingAlbum(t, app, library.LibraryID, local.DeviceID, cacheSeedInput{
+	seedRemoteCachedRecording(t, app, library.LibraryID, remoteDeviceID, local.DeviceID, cacheSeedInput{
 		RecordingID:    "rec-b",
 		AlbumID:        "album-batch",
 		SourceFileID:   "src-b",
@@ -494,8 +895,6 @@ func TestPinAlbumOfflineAggregatesCachedTracks(t *testing.T) {
 		Profile:        "desktop",
 		LastVerifiedAt: time.Now().UTC(),
 	})
-	writeCacheBlob(t, app, testBlobID("2"), 64)
-	writeCacheBlob(t, app, testBlobID("3"), 96)
 
 	result, err := app.PinAlbumOffline(ctx, "album-batch", "desktop")
 	if err != nil {
@@ -504,8 +903,8 @@ func TestPinAlbumOfflineAggregatesCachedTracks(t *testing.T) {
 	if result.Tracks != 2 {
 		t.Fatalf("tracks = %d, want 2", result.Tracks)
 	}
-	if result.TotalBytes != 160 {
-		t.Fatalf("total bytes = %d, want 160", result.TotalBytes)
+	if result.TotalBytes != 128 {
+		t.Fatalf("total bytes = %d, want 128", result.TotalBytes)
 	}
 	if result.LocalHits != 2 {
 		t.Fatalf("local hits = %d, want 2", result.LocalHits)
@@ -519,6 +918,121 @@ func TestPinAlbumOfflineAggregatesCachedTracks(t *testing.T) {
 	}
 	if pin.Profile != "desktop" {
 		t.Fatalf("album pin profile = %q, want desktop", pin.Profile)
+	}
+}
+
+func TestPinAlbumOfflineUsesExactVariantScope(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "pin-album-variant")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-pin-album-variant-remote", time.Now().UTC())
+
+	seedRemoteCachedRecording(t, app, library.LibraryID, remoteDeviceID, local.DeviceID, cacheSeedInput{
+		RecordingID:    "rec-variant-a",
+		AlbumID:        "album-variant-a",
+		SourceFileID:   "src-variant-a",
+		EncodingID:     "enc-variant-a",
+		BlobID:         testBlobID("e"),
+		Profile:        "desktop",
+		LastVerifiedAt: time.Now().UTC(),
+	})
+	seedRemoteCachedRecording(t, app, library.LibraryID, remoteDeviceID, local.DeviceID, cacheSeedInput{
+		RecordingID:    "rec-variant-b",
+		AlbumID:        "album-variant-b",
+		SourceFileID:   "src-variant-b",
+		EncodingID:     "enc-variant-b",
+		BlobID:         testBlobID("f"),
+		Profile:        "desktop",
+		LastVerifiedAt: time.Now().UTC(),
+	})
+	if err := app.db.WithContext(ctx).
+		Model(&AlbumVariantModel{}).
+		Where("library_id = ? AND album_variant_id IN ?", library.LibraryID, []string{"album-variant-a", "album-variant-b"}).
+		Update("album_cluster_id", "album-cluster-variants").Error; err != nil {
+		t.Fatalf("update album cluster ids: %v", err)
+	}
+
+	if _, err := app.PinAlbumOffline(ctx, "album-variant-b", "desktop"); err != nil {
+		t.Fatalf("pin album variant offline: %v", err)
+	}
+
+	var pin OfflinePin
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "album", "album-variant-b").
+		Take(&pin).Error; err != nil {
+		t.Fatalf("load pinned album variant: %v", err)
+	}
+
+	summaryA := mustAlbumAvailabilitySummary(t, app, ctx, "album-variant-a")
+	if summaryA.ScopePinned {
+		t.Fatalf("expected first variant to remain unpinned")
+	}
+	summaryB := mustAlbumAvailabilitySummary(t, app, ctx, "album-variant-b")
+	if !summaryB.ScopePinned {
+		t.Fatalf("expected selected variant to report scope pinned")
+	}
+
+	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
+	if err != nil {
+		t.Fatalf("offline pin blob ids: %v", err)
+	}
+	if slicesContains(protectedBlobIDs, testBlobID("e")) {
+		t.Fatalf("expected exact variant pin not to protect other variant blobs: %v", protectedBlobIDs)
+	}
+	if !slicesContains(protectedBlobIDs, testBlobID("f")) {
+		t.Fatalf("expected exact variant pin to protect selected variant blob: %v", protectedBlobIDs)
+	}
+}
+
+func TestPinAlbumOfflineRejectsFullyLocalAlbum(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, &fakeAACBuilder{result: []byte("local-album")})
+	library, err := app.CreateLibrary(ctx, "pin-local-album")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "rec-local-album-a",
+		TrackClusterID: "rec-local-album-a",
+		AlbumID:        "album-local-only",
+		AlbumClusterID: "album-local-only",
+		SourceFileID:   "src-local-album-a",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-local-album-a", []byte("local-a"))
+
+	if _, err := app.PinAlbumOffline(ctx, "album-local-only", "desktop"); err == nil || !strings.Contains(err.Error(), "local albums do not need offline pinning") {
+		t.Fatalf("expected local album pin rejection, got %v", err)
+	}
+	if _, err := app.StartPinAlbumOffline(ctx, "album-local-only", "desktop"); err == nil || !strings.Contains(err.Error(), "local albums do not need offline pinning") {
+		t.Fatalf("expected async local album pin rejection, got %v", err)
+	}
+
+	var count int64
+	if err := app.db.WithContext(ctx).
+		Model(&OfflinePin{}).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "album", "album-local-only").
+		Count(&count).Error; err != nil {
+		t.Fatalf("count local album pins: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("local album pin count = %d, want 0", count)
 	}
 }
 
@@ -1157,6 +1671,15 @@ func seedRemoteLibraryMember(t *testing.T, app *App, libraryID, deviceID string,
 		t.Fatalf("create remote membership %s: %v", deviceID, err)
 	}
 	return deviceID
+}
+
+func slicesContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func seedAlbumTrackWithoutSources(t *testing.T, app *App, libraryID, albumID, recordingID string) {

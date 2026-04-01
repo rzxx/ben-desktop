@@ -1,7 +1,15 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { ImageUp, Pencil, Play, Plus, Trash2 } from "lucide-react";
-import type { PlaylistTrackItem } from "@/lib/api/models";
+import { useEffect, useState } from "react";
+import {
+  Download,
+  ImageUp,
+  LoaderCircle,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import type { JobSnapshot, PlaylistTrackItem } from "@/lib/api/models";
 import {
   ConfirmPlaylistDeleteDialog,
   PlaylistNameDialog,
@@ -13,6 +21,11 @@ import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
 import { VirtualRows } from "@/components/ui/VirtualRows";
+import {
+  isJobActive,
+  isJobFailed,
+  useJobSnapshot,
+} from "@/hooks/jobs/useJobSnapshot";
 import {
   useStoreInfiniteQuery,
   useStoreQuery,
@@ -27,6 +40,10 @@ import {
   renamePlaylist,
   setPlaylistCover,
 } from "@/lib/api/catalog";
+import {
+  startPinPlaylistOffline,
+  unpinPlaylistOffline,
+} from "@/lib/api/playback";
 import {
   formatCount,
   formatRelativeDate,
@@ -50,6 +67,9 @@ export function PlaylistDetailPage() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [coverError, setCoverError] = useState("");
   const [coverBusy, setCoverBusy] = useState(false);
+  const [pinActionBusy, setPinActionBusy] = useState(false);
+  const [pinError, setPinError] = useState("");
+  const [pinJob, setPinJob] = useState<JobSnapshot | null>(null);
   const { playlistId } = playlistDetailRouteApi.useParams();
   const playPlaylist = usePlaybackStore((state) => state.playPlaylist);
   const queuePlaylist = usePlaybackStore((state) => state.queuePlaylist);
@@ -60,6 +80,7 @@ export function PlaylistDetailPage() {
   const trackAvailabilityByRecordingId = useCatalogStore(
     (state) => state.trackAvailabilityByRecordingId,
   );
+  const trackedPinJob = useJobSnapshot(pinJob);
   const detail = useStoreQuery(
     (state) =>
       selectDetail(getDetailRecord(state.playlistSummaries, playlistId)),
@@ -110,6 +131,40 @@ export function PlaylistDetailPage() {
     fullyLoaded: playlistTracksFullyLoaded,
     hasPlayableLoadedTrack,
   });
+  const scopePinned = Boolean(detail.data?.ScopePinned);
+  const pinBusy = pinActionBusy || isJobActive(trackedPinJob);
+  const pinFeedback = isJobActive(trackedPinJob)
+    ? trackedPinJob?.message?.trim() || "Pinning playlist..."
+    : isJobFailed(trackedPinJob)
+      ? trackedPinJob?.error?.trim() ||
+        trackedPinJob?.message?.trim() ||
+        "Playlist pin failed."
+      : "";
+
+  useEffect(() => {
+    setPinActionBusy(false);
+    setPinError("");
+    setPinJob(null);
+  }, [playlistId]);
+
+  async function handlePlaylistPinToggle() {
+    setPinActionBusy(true);
+    setPinError("");
+
+    try {
+      if (scopePinned) {
+        await unpinPlaylistOffline(playlistId);
+        setPinJob(null);
+      } else {
+        const job = await startPinPlaylistOffline(playlistId);
+        setPinJob(job);
+      }
+    } catch (error) {
+      setPinError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPinActionBusy(false);
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -236,7 +291,33 @@ export function PlaylistDetailPage() {
             >
               Queue playlist
             </Button>
+            <Button
+              disabled={pinBusy}
+              icon={
+                pinBusy ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )
+              }
+              onClick={() => {
+                void handlePlaylistPinToggle();
+              }}
+              tone={scopePinned ? "quiet" : "default"}
+            >
+              {pinBusy
+                ? "Pinning playlist..."
+                : scopePinned
+                  ? "Unpin playlist"
+                  : "Pin playlist"}
+            </Button>
           </div>
+          {pinFeedback ? (
+            <p className="text-theme-500 text-xs">{pinFeedback}</p>
+          ) : null}
+          {!pinFeedback && pinError ? (
+            <p className="text-xs text-red-300">{pinError}</p>
+          ) : null}
           {coverError ? (
             <p className="text-sm text-red-300">{coverError}</p>
           ) : null}
@@ -281,6 +362,9 @@ export function PlaylistDetailPage() {
                   () => {},
                 );
               }}
+              pinned={
+                trackAvailabilityByRecordingId[track.RecordingID]?.data?.Pinned
+              }
               recordingId={track.RecordingID}
               removeLabel={`Remove ${track.Title} from playlist`}
               subtitle={`${joinArtists(track.Artists)} • added ${formatRelativeDate(track.AddedAt)}`}

@@ -908,6 +908,9 @@ func classifyJob(kind string) (apitypes.NotificationAudience, apitypes.Notificat
 		"connect-peer",
 		"join-session",
 		"finalize-join-session",
+		"pin-recording-offline",
+		"pin-album-offline",
+		"pin-playlist-offline",
 		"ensure-recording-encoding",
 		"ensure-album-encodings",
 		"ensure-playlist-encodings",
@@ -915,6 +918,8 @@ func classifyJob(kind string) (apitypes.NotificationAudience, apitypes.Notificat
 		"compact-checkpoint":
 		return apitypes.NotificationAudienceUser, apitypes.NotificationImportanceNormal
 	case "install-checkpoint",
+		"refresh-pinned-album",
+		"refresh-pinned-playlist",
 		"watch-scan":
 		return apitypes.NotificationAudienceSystem, apitypes.NotificationImportanceDebug
 	default:

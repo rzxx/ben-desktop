@@ -288,6 +288,10 @@ func (c *UnavailableCore) PinRecordingOffline(context.Context, string, string) (
 	return apitypes.PlaybackRecordingResult{}, c.err
 }
 
+func (c *UnavailableCore) StartPinRecordingOffline(context.Context, string, string) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
 func (c *UnavailableCore) EnsurePlaybackAlbum(context.Context, string, string) (apitypes.PlaybackBatchResult, error) {
 	return apitypes.PlaybackBatchResult{}, c.err
 }
@@ -304,12 +308,20 @@ func (c *UnavailableCore) PinAlbumOffline(context.Context, string, string) (apit
 	return apitypes.PlaybackBatchResult{}, c.err
 }
 
+func (c *UnavailableCore) StartPinAlbumOffline(context.Context, string, string) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
 func (c *UnavailableCore) UnpinAlbumOffline(context.Context, string) error {
 	return c.err
 }
 
 func (c *UnavailableCore) PinPlaylistOffline(context.Context, string, string) (apitypes.PlaybackBatchResult, error) {
 	return apitypes.PlaybackBatchResult{}, c.err
+}
+
+func (c *UnavailableCore) StartPinPlaylistOffline(context.Context, string, string) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
 }
 
 func (c *UnavailableCore) UnpinPlaylistOffline(context.Context, string) error {

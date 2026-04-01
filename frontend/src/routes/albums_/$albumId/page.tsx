@@ -1,12 +1,21 @@
 import { getRouteApi, useLocation, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Play } from "lucide-react";
+import { ArrowLeft, Download, LoaderCircle, Play } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { AlbumTrackItem, AlbumVariantItem } from "@/lib/api/models";
+import type {
+  AlbumTrackItem,
+  AlbumVariantItem,
+  JobSnapshot,
+} from "@/lib/api/models";
 import { Button } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { AlbumTracksEmptyState } from "@/components/catalog/EmptyState";
 import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
 import { VirtualRows } from "@/components/ui/VirtualRows";
+import {
+  isJobActive,
+  isJobFailed,
+  useJobSnapshot,
+} from "@/hooks/jobs/useJobSnapshot";
 import {
   useStoreInfiniteQuery,
   useStoreQuery,
@@ -20,7 +29,11 @@ import {
   isAggregateAvailabilityPlayable,
   joinArtists,
 } from "@/lib/format";
-import { resolveAlbumArtworkURL } from "@/lib/api/playback";
+import {
+  resolveAlbumArtworkURL,
+  startPinAlbumOffline,
+  unpinAlbumOffline,
+} from "@/lib/api/playback";
 import { router } from "@/app/router/router-instance";
 import {
   getDetailRecord,
@@ -71,6 +84,9 @@ function albumVariantLocationLabel(
 export function AlbumDetailPage() {
   const { albumId } = albumDetailRouteApi.useParams();
   const [selectedVariantId, setSelectedVariantId] = useState(albumId);
+  const [pinActionBusy, setPinActionBusy] = useState(false);
+  const [pinError, setPinError] = useState("");
+  const [pinJob, setPinJob] = useState<JobSnapshot | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const playAlbum = usePlaybackStore((state) => state.playAlbum);
@@ -82,6 +98,7 @@ export function AlbumDetailPage() {
   const trackAvailabilityByRecordingId = useCatalogStore(
     (state) => state.trackAvailabilityByRecordingId,
   );
+  const trackedPinJob = useJobSnapshot(pinJob);
 
   const detail = useStoreQuery(
     (state) => selectDetail(getDetailRecord(state.albumDetails, albumId)),
@@ -119,6 +136,9 @@ export function AlbumDetailPage() {
 
   useEffect(() => {
     setSelectedVariantId(albumId);
+    setPinActionBusy(false);
+    setPinError("");
+    setPinJob(null);
   }, [albumId]);
 
   useEffect(() => {
@@ -165,6 +185,17 @@ export function AlbumDetailPage() {
       ? albumAvailabilityByAlbumId[detail.data.AlbumID]?.data
       : undefined);
   const canPlayAlbum = isAggregateAvailabilityPlayable(heroAvailability);
+  const albumScopePinned = Boolean(heroAvailability?.ScopePinned);
+  const canShowAlbumPinAction =
+    albumScopePinned || heroAvailability?.State !== "LOCAL";
+  const pinBusy = pinActionBusy || isJobActive(trackedPinJob);
+  const pinFeedback = isJobActive(trackedPinJob)
+    ? trackedPinJob?.message?.trim() || "Pinning album..."
+    : isJobFailed(trackedPinJob)
+      ? trackedPinJob?.error?.trim() ||
+        trackedPinJob?.message?.trim() ||
+        "Album pin failed."
+      : "";
   const trackCount = activeVariant?.TrackCount ?? detail.data?.TrackCount ?? 0;
   const totalDurationMs = trackQuery.items.reduce(
     (total, track) => total + track.DurationMS,
@@ -200,6 +231,29 @@ export function AlbumDetailPage() {
     void navigate({ to: "/albums" });
   }
 
+  async function handleAlbumPinToggle() {
+    if (!selectedVariantId) {
+      return;
+    }
+
+    setPinActionBusy(true);
+    setPinError("");
+
+    try {
+      if (albumScopePinned) {
+        await unpinAlbumOffline(selectedVariantId);
+        setPinJob(null);
+      } else {
+        const job = await startPinAlbumOffline(selectedVariantId);
+        setPinJob(job);
+      }
+    } catch (error) {
+      setPinError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPinActionBusy(false);
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 gap-8 max-xl:flex-col">
       <aside className="max-xl:w-full xl:sticky xl:top-4 xl:h-fit xl:w-2/5 xl:shrink-0">
@@ -231,7 +285,7 @@ export function AlbumDetailPage() {
               </p>
             </div>
 
-            <div>
+            <div className="flex flex-wrap gap-2">
               <Button
                 disabled={!canPlayAlbum}
                 icon={<Play className="h-4 w-4" />}
@@ -242,7 +296,35 @@ export function AlbumDetailPage() {
               >
                 Play all tracks
               </Button>
+              {canShowAlbumPinAction ? (
+                <Button
+                  disabled={pinBusy || !selectedVariantId}
+                  icon={
+                    pinBusy ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )
+                  }
+                  onClick={() => {
+                    void handleAlbumPinToggle();
+                  }}
+                  tone={albumScopePinned ? "quiet" : "default"}
+                >
+                  {pinBusy
+                    ? "Pinning album..."
+                    : albumScopePinned
+                      ? "Unpin album"
+                      : "Pin album"}
+                </Button>
+              ) : null}
             </div>
+            {pinFeedback ? (
+              <p className="text-theme-500 text-xs">{pinFeedback}</p>
+            ) : null}
+            {!pinFeedback && pinError ? (
+              <p className="text-xs text-red-300">{pinError}</p>
+            ) : null}
 
             <dl className="grid grid-cols-2 gap-3 rounded-xl">
               <div>
@@ -350,6 +432,10 @@ export function AlbumDetailPage() {
                 onQueue={() => {
                   void queueRecording(track.RecordingID);
                 }}
+                pinned={
+                  trackAvailabilityByRecordingId[track.RecordingID]?.data
+                    ?.Pinned
+                }
                 recordingId={track.RecordingID}
                 subtitle={joinArtists(track.Artists)}
                 title={track.Title}

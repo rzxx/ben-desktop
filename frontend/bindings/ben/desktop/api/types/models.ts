@@ -74,6 +74,7 @@ export class AggregateAvailabilitySummary {
     "TrackCount": number;
     "IsLocal": boolean;
     "HasRemote": boolean;
+    "ScopePinned": boolean;
     "LocalTrackCount": number;
     "LocalSourceTrackCount": number;
     "PinnedTrackCount": number;
@@ -97,6 +98,9 @@ export class AggregateAvailabilitySummary {
         }
         if (!("HasRemote" in $$source)) {
             this["HasRemote"] = false;
+        }
+        if (!("ScopePinned" in $$source)) {
+            this["ScopePinned"] = false;
         }
         if (!("LocalTrackCount" in $$source)) {
             this["LocalTrackCount"] = 0;
@@ -2887,6 +2891,7 @@ export class PlaylistListItem {
     "Name": string;
     "Kind": PlaylistKind;
     "IsReserved": boolean;
+    "ScopePinned": boolean;
     "Thumb": ArtworkRef;
     "HasCustomCover": boolean;
     "CreatedBy": string;
@@ -2906,6 +2911,9 @@ export class PlaylistListItem {
         }
         if (!("IsReserved" in $$source)) {
             this["IsReserved"] = false;
+        }
+        if (!("ScopePinned" in $$source)) {
+            this["ScopePinned"] = false;
         }
         if (!("Thumb" in $$source)) {
             this["Thumb"] = (new ArtworkRef());
@@ -2930,10 +2938,10 @@ export class PlaylistListItem {
      * Creates a new PlaylistListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): PlaylistListItem {
-        const $$createField4_0 = $$createType10;
+        const $$createField5_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Thumb" in $$parsedSource) {
-            $$parsedSource["Thumb"] = $$createField4_0($$parsedSource["Thumb"]);
+            $$parsedSource["Thumb"] = $$createField5_0($$parsedSource["Thumb"]);
         }
         return new PlaylistListItem($$parsedSource as Partial<PlaylistListItem>);
     }
@@ -3353,6 +3361,7 @@ export class RecordingPlaybackAvailability {
     "VariantRecordingID": string;
     "RecordingID": string;
     "PreferredProfile": string;
+    "Pinned": boolean;
     "State": RecordingAvailabilityState;
     "SourceKind": PlaybackSourceKind;
     "LocalPath": string;
@@ -3371,6 +3380,9 @@ export class RecordingPlaybackAvailability {
         }
         if (!("PreferredProfile" in $$source)) {
             this["PreferredProfile"] = "";
+        }
+        if (!("Pinned" in $$source)) {
+            this["Pinned"] = false;
         }
         if (!("State" in $$source)) {
             this["State"] = RecordingAvailabilityState.$zero;

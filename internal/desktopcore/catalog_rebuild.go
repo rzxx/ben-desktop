@@ -332,10 +332,13 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 			continue
 		}
 
+		destinationID := ""
+		ok := false
+		var err error
 		if _, ok := after.albumClusterIDs[clusterID]; !ok {
 			familyKey := strings.TrimSpace(before.albumFamilyByCluster[clusterID])
 			candidateClusters := after.clusterIDsByFamily[familyKey]
-			destinationID := chooseMigratedAlbumPinClusterID(candidateClusters, after.variantsByCluster)
+			destinationID = chooseMigratedAlbumPinClusterID(candidateClusters, after.variantsByCluster)
 			if destinationID == "" {
 				if err := deleteAlbumOfflinePinTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
 					return err
@@ -344,13 +347,22 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 			}
 			clusterID = destinationID
 		}
-		destinationID := clusterID
+		destinationID, ok, err = chooseMigratedAlbumPinVariantIDTx(tx, pin.LibraryID, pin.DeviceID, clusterID, after.variantsByCluster[clusterID])
+		if err != nil {
+			return err
+		}
+		if !ok || strings.TrimSpace(destinationID) == "" {
+			if err := deleteAlbumOfflinePinTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
+				return err
+			}
+			continue
+		}
 		if destinationID == albumID {
 			continue
 		}
 
 		var existing OfflinePin
-		err := tx.Where(
+		err = tx.Where(
 			"library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?",
 			pin.LibraryID,
 			pin.DeviceID,

@@ -566,6 +566,10 @@ func (s *PlaybackFacade) PinRecordingOffline(ctx context.Context, recordingID, p
 	return s.playback().PinRecordingOffline(ctx, recordingID, preferredProfile)
 }
 
+func (s *PlaybackFacade) StartPinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+	return s.playback().StartPinRecordingOffline(ctx, recordingID, preferredProfile)
+}
+
 func (s *PlaybackFacade) EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
 	return s.playback().EnsurePlaybackAlbum(ctx, albumID, preferredProfile)
 }
@@ -582,12 +586,20 @@ func (s *PlaybackFacade) PinAlbumOffline(ctx context.Context, albumID, preferred
 	return s.playback().PinAlbumOffline(ctx, albumID, preferredProfile)
 }
 
+func (s *PlaybackFacade) StartPinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+	return s.playback().StartPinAlbumOffline(ctx, albumID, preferredProfile)
+}
+
 func (s *PlaybackFacade) UnpinAlbumOffline(ctx context.Context, albumID string) error {
 	return s.playback().UnpinAlbumOffline(ctx, albumID)
 }
 
 func (s *PlaybackFacade) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
 	return s.playback().PinPlaylistOffline(ctx, playlistID, preferredProfile)
+}
+
+func (s *PlaybackFacade) StartPinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (desktopcore.JobSnapshot, error) {
+	return s.playback().StartPinPlaylistOffline(ctx, playlistID, preferredProfile)
 }
 
 func (s *PlaybackFacade) UnpinPlaylistOffline(ctx context.Context, playlistID string) error {

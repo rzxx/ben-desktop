@@ -20,6 +20,14 @@ const (
 	jobKindEnsureAlbumEncodings    = "ensure-album-encodings"
 	jobKindEnsurePlaylistEncodings = "ensure-playlist-encodings"
 	jobKindPreparePlayback         = "prepare-playback"
+	jobKindPinRecordingOffline     = "pin-recording-offline"
+	jobKindPinAlbumOffline         = "pin-album-offline"
+	jobKindPinPlaylistOffline      = "pin-playlist-offline"
+	jobKindRefreshPinnedAlbum      = "refresh-pinned-album"
+	jobKindRefreshPinnedPlaylist   = "refresh-pinned-playlist"
+
+	pinnedScopeWorkerCount  = 3
+	pinnedScopeDebounceWait = time.Second
 )
 
 type PlaybackService struct {
@@ -27,13 +35,21 @@ type PlaybackService struct {
 
 	mu           sync.Mutex
 	preparations map[string]apitypes.PlaybackPreparationStatus
+
+	reconcileMu     sync.Mutex
+	reconcileTimers map[string]*time.Timer
 }
 
 func newPlaybackService(app *App) *PlaybackService {
-	return &PlaybackService{
-		app:          app,
-		preparations: make(map[string]apitypes.PlaybackPreparationStatus),
+	service := &PlaybackService{
+		app:             app,
+		preparations:    make(map[string]apitypes.PlaybackPreparationStatus),
+		reconcileTimers: make(map[string]*time.Timer),
 	}
+	if app != nil {
+		app.SubscribeCatalogChanges(service.handlePinnedScopeCatalogChange)
+	}
+	return service
 }
 
 func (s *PlaybackService) EnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (bool, error) {
@@ -976,6 +992,10 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 	if err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
 	}
+	libraryRecordingID := strings.TrimSpace(recordingID)
+	if resolvedLibraryRecordingID, ok, resolveErr := s.app.catalog.trackClusterIDForVariant(ctx, local.LibraryID, recordingID); resolveErr == nil && ok && strings.TrimSpace(resolvedLibraryRecordingID) != "" {
+		libraryRecordingID = strings.TrimSpace(resolvedLibraryRecordingID)
+	}
 	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
 	if err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
@@ -983,6 +1003,11 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 	out := apitypes.RecordingPlaybackAvailability{
 		RecordingID:      strings.TrimSpace(recordingID),
 		PreferredProfile: profile,
+	}
+	if pinned, pinErr := s.recordingScopePinned(ctx, local.LibraryID, local.DeviceID, libraryRecordingID, profile); pinErr != nil {
+		return apitypes.RecordingPlaybackAvailability{}, pinErr
+	} else {
+		out.Pinned = pinned
 	}
 	if localPath, ok, err := s.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID); err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
@@ -1065,6 +1090,93 @@ func (s *PlaybackService) ListRecordingPlaybackAvailability(ctx context.Context,
 		return []apitypes.RecordingPlaybackAvailability{}, nil
 	}
 	return s.batchRecordingPlaybackAvailability(ctx, local, recordingIDs, req.PreferredProfile)
+}
+
+func (s *PlaybackService) StartPinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (JobSnapshot, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+
+	libraryRecordingID, resolvedRecordingID, profile, err := s.resolveRecordingPinTarget(ctx, local, recordingID, preferredProfile)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+	if err := s.upsertOfflinePin(ctx, local, "recording", libraryRecordingID, profile); err != nil {
+		return JobSnapshot{}, err
+	}
+	s.emitOfflinePinAvailabilityInvalidation(local, "recording", libraryRecordingID, []string{libraryRecordingID})
+	jobID := playbackPinOfflineJobID(local.LibraryID, "recording", libraryRecordingID, profile)
+	return s.app.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindPinRecordingOffline,
+		local.LibraryID,
+		"queued track pin",
+		"track pin canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			s.runRecordingPinOfflineJob(runCtx, local, libraryRecordingID, resolvedRecordingID, profile)
+		},
+	)
+}
+
+func (s *PlaybackService) StartPinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (JobSnapshot, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+
+	scopeID, recordingIDs, profile, err := s.resolveOfflinePinScope(ctx, local, "album", albumID, preferredProfile)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+	if err := s.ensureAlbumPinEligible(ctx, local, recordingIDs, profile); err != nil {
+		return JobSnapshot{}, err
+	}
+	if err := s.upsertOfflinePin(ctx, local, "album", scopeID, profile); err != nil {
+		return JobSnapshot{}, err
+	}
+	s.emitOfflinePinAvailabilityInvalidation(local, "album", scopeID, recordingIDs)
+	jobID := playbackPinOfflineJobID(local.LibraryID, "album", scopeID, profile)
+	return s.app.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindPinAlbumOffline,
+		local.LibraryID,
+		"queued album pin",
+		"album pin canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			s.runScopePinOfflineJob(runCtx, local, "album", scopeID, profile, recordingIDs, jobKindPinAlbumOffline, "album pin")
+		},
+	)
+}
+
+func (s *PlaybackService) StartPinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (JobSnapshot, error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+
+	scopeID, recordingIDs, profile, err := s.resolveOfflinePinScope(ctx, local, "playlist", playlistID, preferredProfile)
+	if err != nil {
+		return JobSnapshot{}, err
+	}
+	if err := s.upsertOfflinePin(ctx, local, "playlist", scopeID, profile); err != nil {
+		return JobSnapshot{}, err
+	}
+	s.emitOfflinePinAvailabilityInvalidation(local, "playlist", scopeID, recordingIDs)
+	jobID := playbackPinOfflineJobID(local.LibraryID, "playlist", scopeID, profile)
+	return s.app.startActiveLibraryJob(
+		ctx,
+		jobID,
+		jobKindPinPlaylistOffline,
+		local.LibraryID,
+		"queued playlist pin",
+		"playlist pin canceled because the library is no longer active",
+		func(runCtx context.Context) {
+			s.runScopePinOfflineJob(runCtx, local, "playlist", scopeID, profile, recordingIDs, jobKindPinPlaylistOffline, "playlist pin")
+		},
+	)
 }
 
 func (s *PlaybackService) ListPlaybackTargetAvailability(ctx context.Context, req playbackcore.TargetAvailabilityRequest) ([]playbackcore.TargetAvailability, error) {
@@ -1161,12 +1273,18 @@ func (s *PlaybackService) batchRecordingPlaybackAvailability(ctx context.Context
 		return nil, err
 	}
 
+	trackPins, err := s.batchTrackPins(ctx, local.LibraryID, local.DeviceID, recordingIDs, resolution.profile, normalizedPlaybackProfileAlias(resolution.profile))
+	if err != nil {
+		return nil, err
+	}
+
 	out := make([]apitypes.RecordingPlaybackAvailability, 0, len(recordingIDs))
 	for _, recordingID := range recordingIDs {
 		resolvedRecordingID := resolution.resolvedByRecording[recordingID]
 		item := apitypes.RecordingPlaybackAvailability{
 			RecordingID:      recordingID,
 			PreferredProfile: resolution.profile,
+			Pinned:           trackPins[recordingID],
 		}
 
 		if localPath := localPaths[resolvedRecordingID]; localPath != "" {
@@ -1218,14 +1336,7 @@ func (s *PlaybackService) PinRecordingOffline(ctx context.Context, recordingID, 
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
-	libraryRecordingID, ok, err := s.app.catalog.trackClusterIDForVariant(ctx, local.LibraryID, recordingID)
-	if err != nil {
-		return apitypes.PlaybackRecordingResult{}, err
-	}
-	if !ok {
-		return apitypes.PlaybackRecordingResult{}, fmt.Errorf("recording %s not found", strings.TrimSpace(recordingID))
-	}
-	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
+	libraryRecordingID, resolvedRecordingID, profile, err := s.resolveRecordingPinTarget(ctx, local, recordingID, preferredProfile)
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
@@ -1236,11 +1347,7 @@ func (s *PlaybackService) PinRecordingOffline(ctx context.Context, recordingID, 
 	if err := s.upsertOfflinePin(ctx, local, "recording", libraryRecordingID, profile); err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
-	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
-		Kind:         apitypes.CatalogChangeInvalidateAvailability,
-		Entity:       apitypes.CatalogChangeEntityTracks,
-		RecordingIDs: []string{libraryRecordingID},
-	})
+	s.emitOfflinePinAvailabilityInvalidation(local, "recording", libraryRecordingID, []string{libraryRecordingID})
 	return result, nil
 }
 
@@ -1268,35 +1375,18 @@ func (s *PlaybackService) PinAlbumOffline(ctx context.Context, albumID, preferre
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
-	albumID = strings.TrimSpace(albumID)
-	if albumID == "" {
-		return apitypes.PlaybackBatchResult{}, fmt.Errorf("album id is required")
-	}
-	libraryAlbumID, ok, err := s.app.catalog.albumClusterIDForVariant(ctx, local.LibraryID, albumID)
+	scopeID, recordingIDs, profile, err := s.resolveOfflinePinScope(ctx, local, "album", albumID, preferredProfile)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
-	if !ok {
-		return apitypes.PlaybackBatchResult{}, fmt.Errorf("album %s not found", albumID)
+	if err := s.ensureAlbumPinEligible(ctx, local, recordingIDs, profile); err != nil {
+		return apitypes.PlaybackBatchResult{}, err
 	}
-	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, local.DeviceID, albumID)
+	result, err := s.pinOfflineScope(ctx, local, "album", scopeID, recordingIDs, profile)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
-	if len(recordingIDs) == 0 {
-		return apitypes.PlaybackBatchResult{}, fmt.Errorf("no recordings found for album %s", albumID)
-	}
-	result, err := s.pinOfflineScope(ctx, local, "album", libraryAlbumID, recordingIDs, preferredProfile)
-	if err != nil {
-		return apitypes.PlaybackBatchResult{}, err
-	}
-	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
-		Kind:         apitypes.CatalogChangeInvalidateAvailability,
-		Entity:       apitypes.CatalogChangeEntityAlbum,
-		EntityID:     libraryAlbumID,
-		AlbumIDs:     []string{libraryAlbumID},
-		RecordingIDs: recordingIDs,
-	})
+	s.emitOfflinePinAvailabilityInvalidation(local, "album", scopeID, recordingIDs)
 	return result, nil
 }
 
@@ -1305,7 +1395,7 @@ func (s *PlaybackService) UnpinAlbumOffline(ctx context.Context, albumID string)
 	if err != nil {
 		return err
 	}
-	if resolvedAlbumID, ok, resolveErr := s.app.catalog.albumClusterIDForVariant(ctx, local.LibraryID, albumID); resolveErr == nil && ok && strings.TrimSpace(resolvedAlbumID) != "" {
+	if resolvedAlbumID, ok, resolveErr := s.app.catalog.explicitAlbumVariantID(ctx, local.LibraryID, local.DeviceID, albumID); resolveErr == nil && ok && strings.TrimSpace(resolvedAlbumID) != "" {
 		albumID = resolvedAlbumID
 	}
 	if err := s.deleteOfflinePin(ctx, local, "album", albumID); err != nil {
@@ -1325,28 +1415,15 @@ func (s *PlaybackService) PinPlaylistOffline(ctx context.Context, playlistID, pr
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
-	playlistID = strings.TrimSpace(playlistID)
-	if playlistID == "" {
-		return apitypes.PlaybackBatchResult{}, fmt.Errorf("playlist id is required")
-	}
-	recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
+	scopeID, recordingIDs, profile, err := s.resolveOfflinePinScope(ctx, local, "playlist", playlistID, preferredProfile)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
-	if len(recordingIDs) == 0 {
-		return apitypes.PlaybackBatchResult{}, fmt.Errorf("no recordings found for playlist %s", playlistID)
-	}
-	result, err := s.pinOfflineScope(ctx, local, "playlist", playlistID, recordingIDs, preferredProfile)
+	result, err := s.pinOfflineScope(ctx, local, "playlist", scopeID, recordingIDs, profile)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
-	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
-		Kind:         apitypes.CatalogChangeInvalidateAvailability,
-		Entity:       apitypes.CatalogChangeEntityPlaylistTracks,
-		EntityID:     playlistID,
-		QueryKey:     "playlistTracks:" + playlistID,
-		RecordingIDs: recordingIDs,
-	})
+	s.emitOfflinePinAvailabilityInvalidation(local, "playlist", scopeID, recordingIDs)
 	return result, nil
 }
 
@@ -1377,30 +1454,11 @@ func (s *PlaybackService) PinLikedOffline(ctx context.Context, preferredProfile 
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
-	if len(recordingIDs) == 0 {
-		profile := s.resolvePlaybackProfile(preferredProfile)
-		if err := s.upsertOfflinePin(ctx, local, "playlist", playlistID, profile); err != nil {
-			return apitypes.PlaybackBatchResult{}, err
-		}
-		s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
-			Kind:     apitypes.CatalogChangeInvalidateAvailability,
-			Entity:   apitypes.CatalogChangeEntityLiked,
-			EntityID: playlistID,
-			QueryKey: "liked",
-		})
-		return apitypes.PlaybackBatchResult{}, nil
-	}
 	result, err := s.pinOfflineScope(ctx, local, "playlist", playlistID, recordingIDs, preferredProfile)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
-	s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
-		Kind:         apitypes.CatalogChangeInvalidateAvailability,
-		Entity:       apitypes.CatalogChangeEntityLiked,
-		EntityID:     playlistID,
-		QueryKey:     "liked",
-		RecordingIDs: recordingIDs,
-	})
+	s.emitOfflinePinAvailabilityInvalidation(local, "playlist", playlistID, recordingIDs)
 	return result, nil
 }
 
@@ -2012,10 +2070,193 @@ func (s *PlaybackService) fileURIForBlob(blobID string) (string, error) {
 	return fileURIFromPath(path)
 }
 
+func (s *PlaybackService) resolveRecordingPinTarget(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (string, string, string, error) {
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return "", "", "", fmt.Errorf("recording id is required")
+	}
+	libraryRecordingID, ok, err := s.app.catalog.trackClusterIDForVariant(ctx, local.LibraryID, recordingID)
+	if err != nil {
+		return "", "", "", err
+	}
+	if !ok {
+		return "", "", "", fmt.Errorf("recording %s not found", recordingID)
+	}
+	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
+	if err != nil {
+		return "", "", "", err
+	}
+	return strings.TrimSpace(libraryRecordingID), resolvedRecordingID, profile, nil
+}
+
+func (s *PlaybackService) resolveOfflinePinScope(ctx context.Context, local apitypes.LocalContext, scope, scopeID, preferredProfile string) (string, []string, string, error) {
+	scope = strings.TrimSpace(scope)
+	scopeID = strings.TrimSpace(scopeID)
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	switch scope {
+	case "album":
+		resolvedAlbumID, recordingIDs, err := s.resolveAlbumOfflineScope(ctx, local, scopeID)
+		if err != nil {
+			return "", nil, "", err
+		}
+		return resolvedAlbumID, recordingIDs, profile, nil
+	case "playlist":
+		if scopeID == "" {
+			return "", nil, "", fmt.Errorf("playlist id is required")
+		}
+		recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, scopeID)
+		if err != nil {
+			return "", nil, "", err
+		}
+		return scopeID, recordingIDs, profile, nil
+	default:
+		return "", nil, "", fmt.Errorf("unsupported offline pin scope %q", scope)
+	}
+}
+
+func (s *PlaybackService) resolveAlbumOfflineScope(ctx context.Context, local apitypes.LocalContext, albumID string) (string, []string, error) {
+	albumID = strings.TrimSpace(albumID)
+	if albumID == "" {
+		return "", nil, fmt.Errorf("album id is required")
+	}
+
+	resolvedAlbumID, ok, err := s.app.catalog.explicitAlbumVariantID(ctx, local.LibraryID, local.DeviceID, albumID)
+	if err != nil {
+		return "", nil, err
+	}
+	if !ok || strings.TrimSpace(resolvedAlbumID) == "" {
+		return "", nil, fmt.Errorf("album %s not found", albumID)
+	}
+
+	recordingIDs, err := s.recordingIDsForAlbum(ctx, local.LibraryID, local.DeviceID, strings.TrimSpace(resolvedAlbumID))
+	if err != nil {
+		return "", nil, err
+	}
+	return strings.TrimSpace(resolvedAlbumID), recordingIDs, nil
+}
+
+func (s *PlaybackService) ensureAlbumPinEligible(ctx context.Context, local apitypes.LocalContext, recordingIDs []string, preferredProfile string) error {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
+		return nil
+	}
+
+	resolution, err := s.resolvePlaybackVariantsBatch(ctx, local, recordingIDs, preferredProfile)
+	if err != nil {
+		return err
+	}
+	facts, err := s.batchRecordingPlaybackFacts(
+		ctx,
+		local.LibraryID,
+		local.DeviceID,
+		resolution.resolvedRecordingIDs,
+		resolution.profile,
+		normalizedPlaybackProfileAlias(resolution.profile),
+		time.Now().UTC().Add(-availabilityOnlineWindow),
+	)
+	if err != nil {
+		return err
+	}
+	for _, recordingID := range resolution.resolvedRecordingIDs {
+		if !facts[strings.TrimSpace(recordingID)].hasLocalSource {
+			return nil
+		}
+	}
+	return fmt.Errorf("local albums do not need offline pinning")
+}
+
+func (s *PlaybackService) emitOfflinePinAvailabilityInvalidation(local apitypes.LocalContext, scope, scopeID string, recordingIDs []string) {
+	scope = strings.TrimSpace(scope)
+	scopeID = strings.TrimSpace(scopeID)
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	switch scope {
+	case "recording":
+		s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+			Kind:         apitypes.CatalogChangeInvalidateAvailability,
+			Entity:       apitypes.CatalogChangeEntityTracks,
+			RecordingIDs: recordingIDs,
+		})
+	case "album":
+		s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+			Kind:         apitypes.CatalogChangeInvalidateAvailability,
+			Entity:       apitypes.CatalogChangeEntityAlbum,
+			EntityID:     scopeID,
+			AlbumIDs:     []string{scopeID},
+			RecordingIDs: recordingIDs,
+		})
+	case "playlist":
+		if scopeID == likedPlaylistIDForLibrary(local.LibraryID) {
+			s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+				Kind:         apitypes.CatalogChangeInvalidateAvailability,
+				Entity:       apitypes.CatalogChangeEntityLiked,
+				EntityID:     scopeID,
+				QueryKey:     "liked",
+				RecordingIDs: recordingIDs,
+			})
+			return
+		}
+		s.app.emitCatalogChange(apitypes.CatalogChangeEvent{
+			Kind:         apitypes.CatalogChangeInvalidateAvailability,
+			Entity:       apitypes.CatalogChangeEntityPlaylistTracks,
+			EntityID:     scopeID,
+			QueryKey:     "playlistTracks:" + scopeID,
+			RecordingIDs: recordingIDs,
+		})
+	}
+}
+
+func (s *PlaybackService) runRecordingPinOfflineJob(ctx context.Context, local apitypes.LocalContext, libraryRecordingID, resolvedRecordingID, profile string) {
+	jobID := playbackPinOfflineJobID(local.LibraryID, "recording", libraryRecordingID, profile)
+	job := s.app.jobs.Track(jobID, jobKindPinRecordingOffline, local.LibraryID)
+	if job == nil {
+		return
+	}
+	job.Queued(0, "queued track pin")
+	job.Running(0.1, "Cached 0/1 tracks")
+	if _, err := s.prepareRecordingOfflineResult(ctx, local, resolvedRecordingID, profile); err != nil {
+		if errors.Is(err, context.Canceled) {
+			job.Fail(0, "track pin canceled", nil)
+			return
+		}
+		job.Fail(0, "track pin failed", err)
+		return
+	}
+	job.Complete(1, "Track pinned for offline playback")
+	s.emitOfflinePinAvailabilityInvalidation(local, "recording", libraryRecordingID, []string{libraryRecordingID})
+}
+
+func (s *PlaybackService) runScopePinOfflineJob(ctx context.Context, local apitypes.LocalContext, scope, scopeID, profile string, recordingIDs []string, kind, label string) {
+	jobID := playbackPinOfflineJobID(local.LibraryID, scope, scopeID, profile)
+	job := s.app.jobs.Track(jobID, kind, local.LibraryID)
+	if job == nil {
+		return
+	}
+	job.Queued(0, "queued "+label)
+	result, err := s.pinOfflineScopeWithJob(ctx, local, scope, scopeID, recordingIDs, profile, job)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			job.Fail(0, label+" canceled", nil)
+			return
+		}
+		job.Fail(pinJobProgress(result.Tracks, len(compactNonEmptyStrings(recordingIDs))), label+" failed", err)
+		return
+	}
+	if result.Tracks == 1 {
+		job.Complete(1, "Pinned 1 track offline")
+	} else {
+		job.Complete(1, fmt.Sprintf("Pinned %d tracks offline", result.Tracks))
+	}
+	s.emitOfflinePinAvailabilityInvalidation(local, scope, scopeID, recordingIDs)
+}
+
 func (s *PlaybackService) pinOfflineScope(ctx context.Context, local apitypes.LocalContext, scope, scopeID string, recordingIDs []string, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
 	profile := s.resolvePlaybackProfile(preferredProfile)
+	return s.pinOfflineScopeWithJob(ctx, local, scope, scopeID, recordingIDs, profile, nil)
+}
+
+func (s *PlaybackService) pinOfflineScopeWithJob(ctx context.Context, local apitypes.LocalContext, scope, scopeID string, recordingIDs []string, profile string, job *JobTracker) (apitypes.PlaybackBatchResult, error) {
 	seenRecordings := make(map[string]struct{}, len(recordingIDs))
-	out := apitypes.PlaybackBatchResult{}
+	uniqueRecordings := make([]string, 0, len(recordingIDs))
 	for _, recordingID := range recordingIDs {
 		recordingID = strings.TrimSpace(recordingID)
 		if recordingID == "" {
@@ -2025,24 +2266,99 @@ func (s *PlaybackService) pinOfflineScope(ctx context.Context, local apitypes.Lo
 			continue
 		}
 		seenRecordings[recordingID] = struct{}{}
-		resolvedRecordingID, _, err := s.resolvePlaybackVariant(ctx, local, recordingID, profile)
-		if err != nil {
-			return apitypes.PlaybackBatchResult{}, err
+		uniqueRecordings = append(uniqueRecordings, recordingID)
+	}
+	if err := s.upsertOfflinePin(ctx, local, scope, scopeID, profile); err != nil {
+		return apitypes.PlaybackBatchResult{}, err
+	}
+	if job != nil {
+		job.Running(0.05, fmt.Sprintf("Cached 0/%d tracks", len(uniqueRecordings)))
+	}
+	if len(uniqueRecordings) == 0 {
+		return apitypes.PlaybackBatchResult{}, nil
+	}
+
+	type resultItem struct {
+		result apitypes.PlaybackRecordingResult
+		err    error
+	}
+
+	workerCount := 1
+	if job != nil {
+		workerCount = pinnedScopeWorkerCount
+	}
+	if len(uniqueRecordings) < workerCount {
+		workerCount = len(uniqueRecordings)
+	}
+	workCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	workCh := make(chan string)
+	resultCh := make(chan resultItem, len(uniqueRecordings))
+	var workers sync.WaitGroup
+	for workerIndex := 0; workerIndex < workerCount; workerIndex++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for recordingID := range workCh {
+				resolvedRecordingID, _, err := s.resolvePlaybackVariant(workCtx, local, recordingID, profile)
+				if err != nil {
+					resultCh <- resultItem{err: err}
+					cancel()
+					continue
+				}
+				result, err := s.prepareRecordingOfflineResult(workCtx, local, resolvedRecordingID, profile)
+				if err != nil {
+					resultCh <- resultItem{err: err}
+					cancel()
+					continue
+				}
+				resultCh <- resultItem{result: result}
+			}
+		}()
+	}
+
+	go func() {
+		stopped := false
+		for _, recordingID := range uniqueRecordings {
+			if stopped {
+				break
+			}
+			select {
+			case <-workCtx.Done():
+				stopped = true
+			case workCh <- recordingID:
+			}
 		}
-		result, err := s.prepareRecordingOfflineResult(ctx, local, resolvedRecordingID, profile)
-		if err != nil {
-			return apitypes.PlaybackBatchResult{}, err
+		close(workCh)
+		workers.Wait()
+		close(resultCh)
+	}()
+
+	out := apitypes.PlaybackBatchResult{}
+	completed := 0
+	var firstErr error
+	for item := range resultCh {
+		if item.err != nil && firstErr == nil {
+			firstErr = item.err
 		}
+		if item.err != nil {
+			continue
+		}
+		completed++
 		out.Tracks++
-		out.TotalBytes += int64(result.Bytes)
-		if result.FromLocal {
+		out.TotalBytes += int64(item.result.Bytes)
+		if item.result.FromLocal {
 			out.LocalHits++
 		} else {
 			out.RemoteFetches++
 		}
+		if job != nil {
+			job.Running(pinJobProgress(completed, len(uniqueRecordings)), fmt.Sprintf("Cached %d/%d tracks", completed, len(uniqueRecordings)))
+		}
 	}
-	if err := s.upsertOfflinePin(ctx, local, scope, scopeID, profile); err != nil {
-		return apitypes.PlaybackBatchResult{}, err
+	if firstErr != nil {
+		return out, firstErr
 	}
 	return out, nil
 }
@@ -2283,23 +2599,24 @@ func (s *PlaybackService) albumAvailabilitySummaries(ctx context.Context, local 
 	}
 
 	grouped := make(map[string][]string, len(albumIDs))
-	libraryAlbumByRequested := make(map[string]string, len(albumIDs))
-	libraryAlbumIDs := make([]string, 0, len(albumIDs))
-	libraryAlbumSeen := make(map[string]struct{}, len(albumIDs))
+	pinScopeByRequested := make(map[string]string, len(albumIDs))
+	pinScopeIDs := make([]string, 0, len(albumIDs))
+	pinScopeSeen := make(map[string]struct{}, len(albumIDs))
 	recordingIDs := make([]string, 0, len(albumIDs)*8)
 	recordingSeen := make(map[string]struct{}, len(albumIDs)*8)
 	for _, albumID := range albumIDs {
 		trimmedAlbumID := strings.TrimSpace(albumID)
-		libraryAlbumID := trimmedAlbumID
-		if resolvedAlbumID, ok, err := s.app.catalog.albumClusterIDForVariant(ctx, local.LibraryID, trimmedAlbumID); err != nil {
+		pinScopeID, ok, err := s.app.catalog.explicitAlbumVariantID(ctx, local.LibraryID, local.DeviceID, trimmedAlbumID)
+		if err != nil {
 			return nil, err
-		} else if ok && strings.TrimSpace(resolvedAlbumID) != "" {
-			libraryAlbumID = strings.TrimSpace(resolvedAlbumID)
 		}
-		libraryAlbumByRequested[trimmedAlbumID] = libraryAlbumID
-		if _, ok := libraryAlbumSeen[libraryAlbumID]; !ok {
-			libraryAlbumSeen[libraryAlbumID] = struct{}{}
-			libraryAlbumIDs = append(libraryAlbumIDs, libraryAlbumID)
+		if !ok || strings.TrimSpace(pinScopeID) == "" {
+			pinScopeID = trimmedAlbumID
+		}
+		pinScopeByRequested[trimmedAlbumID] = strings.TrimSpace(pinScopeID)
+		if _, ok := pinScopeSeen[strings.TrimSpace(pinScopeID)]; !ok {
+			pinScopeSeen[strings.TrimSpace(pinScopeID)] = struct{}{}
+			pinScopeIDs = append(pinScopeIDs, strings.TrimSpace(pinScopeID))
 		}
 
 		recordings, err := s.recordingIDsForAlbum(ctx, local.LibraryID, local.DeviceID, trimmedAlbumID)
@@ -2331,7 +2648,7 @@ func (s *PlaybackService) albumAvailabilitySummaries(ctx context.Context, local 
 	if err != nil {
 		return nil, err
 	}
-	albumPins, err := s.batchAlbumPins(ctx, local.LibraryID, local.DeviceID, libraryAlbumIDs, profile, aliasProfile)
+	albumPins, err := s.batchAlbumPins(ctx, local.LibraryID, local.DeviceID, pinScopeIDs, profile, aliasProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -2347,7 +2664,8 @@ func (s *PlaybackService) albumAvailabilitySummaries(ctx context.Context, local 
 		summary := apitypes.AggregateAvailabilitySummary{
 			TrackCount: int64(len(recordings)),
 		}
-		albumPinned := albumPins[libraryAlbumByRequested[trimmedAlbumID]]
+		albumPinned := albumPins[pinScopeByRequested[trimmedAlbumID]]
+		summary.ScopePinned = albumPinned
 		for _, recordingID := range recordings {
 			fact := facts[resolution.resolvedByRecording[recordingID]]
 			if fact.isLocal {
@@ -2379,7 +2697,7 @@ func (s *PlaybackService) albumAvailabilitySummaries(ctx context.Context, local 
 		if albumPinned {
 			summary.PinnedTrackCount = summary.TrackCount
 		}
-		summary.State = deriveAggregateAvailabilityState(summary, albumPinned)
+		summary.State = deriveAggregateAvailabilityState(summary)
 		out[trimmedAlbumID] = summary
 	}
 	return out, nil
@@ -2593,14 +2911,45 @@ WHERE library_id = ? AND device_id = ? AND scope = 'recording' AND scope_id IN ?
 	return out, nil
 }
 
-func deriveAggregateAvailabilityState(summary apitypes.AggregateAvailabilitySummary, albumPinned bool) apitypes.AggregateAvailabilityState {
+func (s *PlaybackService) recordingScopePinned(ctx context.Context, libraryID, localDeviceID, recordingID, profile string) (bool, error) {
+	pins, err := s.batchTrackPins(ctx, libraryID, localDeviceID, []string{recordingID}, profile, normalizedPlaybackProfileAlias(profile))
+	if err != nil {
+		return false, err
+	}
+	return pins[strings.TrimSpace(recordingID)], nil
+}
+
+func (s *PlaybackService) batchPlaylistPins(ctx context.Context, libraryID, localDeviceID string, playlistIDs []string, profile, aliasProfile string) (map[string]bool, error) {
+	playlistIDs = compactNonEmptyStrings(playlistIDs)
+	if len(playlistIDs) == 0 {
+		return map[string]bool{}, nil
+	}
+
+	type row struct{ ScopeID string }
+	var rows []row
+	query := `
+SELECT scope_id
+FROM offline_pins
+WHERE library_id = ? AND device_id = ? AND scope = 'playlist' AND scope_id IN ? AND (profile = ? OR profile = ?)`
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, localDeviceID, playlistIDs, profile, aliasProfile).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		out[strings.TrimSpace(row.ScopeID)] = true
+	}
+	return out, nil
+}
+
+func deriveAggregateAvailabilityState(summary apitypes.AggregateAvailabilitySummary) apitypes.AggregateAvailabilityState {
 	if summary.TrackCount == 0 {
 		return apitypes.AggregateAvailabilityStateUnavailable
 	}
 	switch {
 	case summary.LocalSourceTrackCount == summary.TrackCount:
 		return apitypes.AggregateAvailabilityStateLocal
-	case albumPinned || summary.PinnedTrackCount == summary.TrackCount:
+	case summary.ScopePinned || summary.PinnedTrackCount == summary.TrackCount:
 		return apitypes.AggregateAvailabilityStatePinned
 	case summary.CachedTrackCount == summary.TrackCount:
 		return apitypes.AggregateAvailabilityStateCached
@@ -2692,6 +3041,396 @@ func aggregateAvailabilitySummaries(items []apitypes.TrackAvailabilitySummary) a
 		}
 	}
 	return out
+}
+
+func (s *PlaybackService) handlePinnedScopeCatalogChange(event apitypes.CatalogChangeEvent) {
+	if s == nil || s.app == nil || event.Kind != apitypes.CatalogChangeInvalidateBase {
+		return
+	}
+	if !pinnedScopeCatalogChangeRelevant(event) {
+		return
+	}
+
+	local, err := s.app.EnsureLocalContext(context.Background())
+	if err != nil || strings.TrimSpace(local.LibraryID) == "" {
+		return
+	}
+
+	ctx := context.Background()
+	if albumIDs, playlistIDs, targeted, err := s.affectedPinnedScopesForEvent(ctx, local, event); err == nil {
+		if targeted {
+			for _, pin := range albumIDs {
+				s.schedulePinnedScopeRefresh(local.LibraryID, pin.Scope, pin.ScopeID, pin.Profile)
+			}
+			for _, pin := range playlistIDs {
+				s.schedulePinnedScopeRefresh(local.LibraryID, pin.Scope, pin.ScopeID, pin.Profile)
+			}
+			return
+		}
+	}
+
+	if !event.InvalidateAll {
+		return
+	}
+	pins, err := s.listPinnedCollectionScopes(ctx, local.LibraryID, local.DeviceID, nil)
+	if err != nil {
+		return
+	}
+	for _, pin := range pins {
+		s.schedulePinnedScopeRefresh(local.LibraryID, pin.Scope, pin.ScopeID, pin.Profile)
+	}
+}
+
+func pinnedScopeCatalogChangeRelevant(event apitypes.CatalogChangeEvent) bool {
+	if len(compactNonEmptyStrings(event.AlbumIDs)) > 0 || len(compactNonEmptyStrings(event.RecordingIDs)) > 0 {
+		return true
+	}
+	switch event.Entity {
+	case apitypes.CatalogChangeEntityAlbum,
+		apitypes.CatalogChangeEntityAlbums,
+		apitypes.CatalogChangeEntityTracks,
+		apitypes.CatalogChangeEntityAlbumTracks,
+		apitypes.CatalogChangeEntityPlaylistTracks,
+		apitypes.CatalogChangeEntityLiked:
+		return true
+	}
+	return event.InvalidateAll && event.Entity == ""
+}
+
+func (s *PlaybackService) affectedPinnedScopesForEvent(ctx context.Context, local apitypes.LocalContext, event apitypes.CatalogChangeEvent) ([]OfflinePin, []OfflinePin, bool, error) {
+	albumIDs := compactNonEmptyStrings(event.AlbumIDs)
+	recordingIDs := compactNonEmptyStrings(event.RecordingIDs)
+	playlistIDs := []string{}
+
+	switch event.Entity {
+	case apitypes.CatalogChangeEntityAlbum:
+		if entityID := strings.TrimSpace(event.EntityID); entityID != "" {
+			albumIDs = append(albumIDs, entityID)
+		}
+	case apitypes.CatalogChangeEntityPlaylistTracks, apitypes.CatalogChangeEntityLiked:
+		if entityID := strings.TrimSpace(event.EntityID); entityID != "" {
+			playlistIDs = append(playlistIDs, entityID)
+		}
+	}
+
+	if len(recordingIDs) > 0 {
+		recordingAlbumIDs, err := s.albumIDsForRecordings(ctx, local.LibraryID, recordingIDs)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		recordingPlaylistIDs, err := s.playlistIDsForRecordings(ctx, local.LibraryID, recordingIDs)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		albumIDs = append(albumIDs, recordingAlbumIDs...)
+		playlistIDs = append(playlistIDs, recordingPlaylistIDs...)
+	}
+
+	albumClusterIDs, err := s.albumClusterIDs(ctx, local.LibraryID, albumIDs)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	playlistIDs = compactNonEmptyStrings(playlistIDs)
+	if len(albumClusterIDs) == 0 && len(playlistIDs) == 0 {
+		return nil, nil, false, nil
+	}
+
+	albumPins, err := s.listPinnedAlbumScopesForClusters(ctx, local.LibraryID, local.DeviceID, albumClusterIDs)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	playlistPins, err := s.listPinnedCollectionScopes(ctx, local.LibraryID, local.DeviceID, map[string][]string{"playlist": playlistIDs})
+	if err != nil {
+		return nil, nil, false, err
+	}
+	return albumPins, playlistPins, true, nil
+}
+
+func (s *PlaybackService) albumClusterIDs(ctx context.Context, libraryID string, albumIDs []string) ([]string, error) {
+	albumIDs = compactNonEmptyStrings(albumIDs)
+	if len(albumIDs) == 0 {
+		return nil, nil
+	}
+
+	out := make([]string, 0, len(albumIDs))
+	seen := make(map[string]struct{}, len(albumIDs))
+	for _, albumID := range albumIDs {
+		clusterID := strings.TrimSpace(albumID)
+		if resolvedClusterID, ok, err := s.app.catalog.albumClusterIDForVariant(ctx, libraryID, albumID); err != nil {
+			return nil, err
+		} else if ok && strings.TrimSpace(resolvedClusterID) != "" {
+			clusterID = strings.TrimSpace(resolvedClusterID)
+		}
+		if clusterID == "" {
+			continue
+		}
+		if _, ok := seen[clusterID]; ok {
+			continue
+		}
+		seen[clusterID] = struct{}{}
+		out = append(out, clusterID)
+	}
+	return out, nil
+}
+
+func (s *PlaybackService) albumIDsForRecordings(ctx context.Context, libraryID string, recordingIDs []string) ([]string, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
+		return nil, nil
+	}
+
+	type row struct{ AlbumID string }
+	var rows []row
+	query := `
+SELECT DISTINCT av.album_cluster_id AS album_id
+FROM album_tracks at
+JOIN album_variants av ON av.library_id = at.library_id AND av.album_variant_id = at.album_variant_id
+JOIN track_variants tv ON tv.library_id = at.library_id AND tv.track_variant_id = at.track_variant_id
+WHERE at.library_id = ? AND (tv.track_variant_id IN ? OR tv.track_cluster_id IN ?)`
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, recordingIDs, recordingIDs).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, strings.TrimSpace(row.AlbumID))
+	}
+	return compactNonEmptyStrings(out), nil
+}
+
+func (s *PlaybackService) playlistIDsForRecordings(ctx context.Context, libraryID string, recordingIDs []string) ([]string, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
+		return nil, nil
+	}
+
+	type variantRow struct {
+		TrackVariantID string
+		TrackClusterID string
+	}
+	var variants []variantRow
+	if err := s.app.storage.WithContext(ctx).
+		Model(&TrackVariantModel{}).
+		Select("track_variant_id, track_cluster_id").
+		Where("library_id = ? AND (track_variant_id IN ? OR track_cluster_id IN ?)", libraryID, recordingIDs, recordingIDs).
+		Scan(&variants).Error; err != nil {
+		return nil, err
+	}
+	clusterIDs := make([]string, 0, len(variants))
+	seen := make(map[string]struct{}, len(variants))
+	for _, row := range variants {
+		clusterID := strings.TrimSpace(row.TrackClusterID)
+		if clusterID == "" {
+			continue
+		}
+		if _, ok := seen[clusterID]; ok {
+			continue
+		}
+		seen[clusterID] = struct{}{}
+		clusterIDs = append(clusterIDs, clusterID)
+	}
+	if len(clusterIDs) == 0 {
+		return nil, nil
+	}
+
+	type row struct{ PlaylistID string }
+	var rows []row
+	query := `
+SELECT DISTINCT playlist_id
+FROM playlist_items
+WHERE library_id = ? AND deleted_at IS NULL AND track_variant_id IN ?`
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, clusterIDs).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, strings.TrimSpace(row.PlaylistID))
+	}
+	return compactNonEmptyStrings(out), nil
+}
+
+func (s *PlaybackService) listPinnedCollectionScopes(ctx context.Context, libraryID, deviceID string, byScope map[string][]string) ([]OfflinePin, error) {
+	var pins []OfflinePin
+	query := s.app.storage.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope IN ?", libraryID, deviceID, []string{"album", "playlist"})
+	if byScope != nil {
+		albumIDs := compactNonEmptyStrings(byScope["album"])
+		playlistIDs := compactNonEmptyStrings(byScope["playlist"])
+		switch {
+		case len(albumIDs) == 0 && len(playlistIDs) == 0:
+			return []OfflinePin{}, nil
+		case len(albumIDs) == 0:
+			query = query.Where("scope = ? AND scope_id IN ?", "playlist", playlistIDs)
+		case len(playlistIDs) == 0:
+			query = query.Where("scope = ? AND scope_id IN ?", "album", albumIDs)
+		default:
+			query = query.Where("(scope = ? AND scope_id IN ?) OR (scope = ? AND scope_id IN ?)", "album", albumIDs, "playlist", playlistIDs)
+		}
+	}
+	if err := query.Find(&pins).Error; err != nil {
+		return nil, err
+	}
+	return pins, nil
+}
+
+func (s *PlaybackService) listPinnedAlbumScopesForClusters(ctx context.Context, libraryID, deviceID string, clusterIDs []string) ([]OfflinePin, error) {
+	clusterIDs = compactNonEmptyStrings(clusterIDs)
+	if len(clusterIDs) == 0 {
+		return []OfflinePin{}, nil
+	}
+
+	var pins []OfflinePin
+	query := `
+SELECT op.library_id, op.device_id, op.scope, op.scope_id, op.profile, op.created_at, op.updated_at
+FROM offline_pins op
+JOIN album_variants av ON av.library_id = op.library_id AND av.album_variant_id = op.scope_id
+WHERE op.library_id = ? AND op.device_id = ? AND op.scope = 'album' AND av.album_cluster_id IN ?`
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, deviceID, clusterIDs).Scan(&pins).Error; err != nil {
+		return nil, err
+	}
+	return pins, nil
+}
+
+func (s *PlaybackService) schedulePinnedScopeRefresh(libraryID, scope, scopeID, profile string) {
+	libraryID = strings.TrimSpace(libraryID)
+	scope = strings.TrimSpace(scope)
+	scopeID = strings.TrimSpace(scopeID)
+	profile = strings.TrimSpace(profile)
+	if libraryID == "" || scope == "" || scopeID == "" || profile == "" {
+		return
+	}
+
+	jobID := playbackRefreshPinnedScopeJobID(libraryID, scope, scopeID, profile)
+	s.reconcileMu.Lock()
+	if timer, ok := s.reconcileTimers[jobID]; ok {
+		timer.Reset(pinnedScopeDebounceWait)
+		s.reconcileMu.Unlock()
+		return
+	}
+	s.reconcileTimers[jobID] = time.AfterFunc(pinnedScopeDebounceWait, func() {
+		s.reconcileMu.Lock()
+		delete(s.reconcileTimers, jobID)
+		s.reconcileMu.Unlock()
+
+		_, _ = s.app.startActiveLibraryJob(
+			context.Background(),
+			jobID,
+			refreshPinnedScopeJobKind(scope),
+			libraryID,
+			"queued pinned scope refresh",
+			"pinned scope refresh canceled because the library is no longer active",
+			func(runCtx context.Context) {
+				s.runPinnedScopeRefreshJob(runCtx, libraryID, scope, scopeID, profile)
+			},
+		)
+	})
+	s.reconcileMu.Unlock()
+}
+
+func (s *PlaybackService) runPinnedScopeRefreshJob(ctx context.Context, libraryID, scope, scopeID, profile string) {
+	kind := refreshPinnedScopeJobKind(scope)
+	job := s.app.jobs.Track(playbackRefreshPinnedScopeJobID(libraryID, scope, scopeID, profile), kind, libraryID)
+	if job == nil {
+		return
+	}
+	job.Queued(0, "queued pinned scope refresh")
+
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		job.Fail(0, "pinned scope refresh failed", err)
+		return
+	}
+	if strings.TrimSpace(local.LibraryID) != strings.TrimSpace(libraryID) {
+		job.Fail(0, "pinned scope refresh canceled because the library is no longer active", nil)
+		return
+	}
+
+	var pin OfflinePin
+	if err := s.app.storage.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, scope, scopeID).
+		Take(&pin).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			job.Complete(1, "Pinned scope no longer active")
+			return
+		}
+		job.Fail(0, "pinned scope refresh failed", err)
+		return
+	}
+
+	resolvedScopeID, recordingIDs, _, err := s.resolveOfflinePinScope(ctx, local, scope, scopeID, profile)
+	if err != nil {
+		job.Fail(0, "pinned scope refresh failed", err)
+		return
+	}
+	pendingIDs, err := s.filterRecordingsNeedingOfflineFetch(ctx, local, recordingIDs, profile)
+	if err != nil {
+		job.Fail(0, "pinned scope refresh failed", err)
+		return
+	}
+	if len(pendingIDs) == 0 {
+		job.Complete(1, "Pinned scope already up to date")
+		return
+	}
+
+	result, err := s.pinOfflineScopeWithJob(ctx, local, scope, resolvedScopeID, pendingIDs, profile, job)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			job.Fail(pinJobProgress(result.Tracks, len(pendingIDs)), "pinned scope refresh canceled", nil)
+			return
+		}
+		job.Fail(pinJobProgress(result.Tracks, len(pendingIDs)), "pinned scope refresh failed", err)
+		return
+	}
+	job.Complete(1, "Pinned scope refreshed")
+	s.emitOfflinePinAvailabilityInvalidation(local, scope, resolvedScopeID, recordingIDs)
+}
+
+func (s *PlaybackService) filterRecordingsNeedingOfflineFetch(ctx context.Context, local apitypes.LocalContext, recordingIDs []string, preferredProfile string) ([]string, error) {
+	recordingIDs = compactNonEmptyStrings(recordingIDs)
+	if len(recordingIDs) == 0 {
+		return nil, nil
+	}
+	resolution, err := s.resolvePlaybackVariantsBatch(ctx, local, recordingIDs, preferredProfile)
+	if err != nil {
+		return nil, err
+	}
+	cachedRecordings, err := s.batchBestCachedRecordingIDs(ctx, local.LibraryID, local.DeviceID, resolution.resolvedRecordingIDs, resolution.profile)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, len(recordingIDs))
+	for _, recordingID := range recordingIDs {
+		resolvedRecordingID := resolution.resolvedByRecording[recordingID]
+		if cachedRecordings[resolvedRecordingID] {
+			continue
+		}
+		out = append(out, recordingID)
+	}
+	return out, nil
+}
+
+func playbackPinOfflineJobID(libraryID, scope, scopeID, profile string) string {
+	return "playback:pin-offline:" + strings.TrimSpace(libraryID) + ":" + strings.TrimSpace(scope) + ":" + strings.TrimSpace(scopeID) + ":" + strings.TrimSpace(profile)
+}
+
+func playbackRefreshPinnedScopeJobID(libraryID, scope, scopeID, profile string) string {
+	return "playback:refresh-pinned-scope:" + strings.TrimSpace(libraryID) + ":" + strings.TrimSpace(scope) + ":" + strings.TrimSpace(scopeID) + ":" + strings.TrimSpace(profile)
+}
+
+func refreshPinnedScopeJobKind(scope string) string {
+	switch strings.TrimSpace(scope) {
+	case "album":
+		return jobKindRefreshPinnedAlbum
+	default:
+		return jobKindRefreshPinnedPlaylist
+	}
+}
+
+func pinJobProgress(done, total int) float64 {
+	if total <= 0 {
+		return 1
+	}
+	return clampJobProgress(0.1 + (0.85 * (float64(done) / float64(total))))
 }
 
 func normalizedPlaybackProfileAlias(profile string) string {

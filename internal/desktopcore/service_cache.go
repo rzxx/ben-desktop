@@ -431,6 +431,7 @@ func (s *CacheService) offlinePinBlobIDs(ctx context.Context, libraryID, deviceI
 	scope := strings.TrimSpace(pin.Scope)
 	scopeID := strings.TrimSpace(pin.ScopeID)
 	profile := strings.TrimSpace(pin.Profile)
+	aliasProfile := normalizedPlaybackProfileAlias(profile)
 	if scope == "" || scopeID == "" {
 		return nil, nil
 	}
@@ -451,9 +452,9 @@ SELECT DISTINCT oa.blob_id
 FROM device_asset_caches dac
 JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
 JOIN track_variants tv ON tv.library_id = oa.library_id AND tv.track_variant_id = oa.track_variant_id
-WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND (oa.track_variant_id = ? OR tv.track_cluster_id = ?) AND (? = '' OR oa.profile = ?)
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND (oa.track_variant_id = ? OR tv.track_cluster_id = ?) AND (? = '' OR oa.profile = ? OR oa.profile = ?)
 ORDER BY oa.blob_id ASC`
-		args = []any{libraryID, deviceID, scopeID, scopeID, profile, profile}
+		args = []any{libraryID, deviceID, scopeID, scopeID, profile, profile, aliasProfile}
 	case "album":
 		query = `
 SELECT DISTINCT oa.blob_id
@@ -461,9 +462,9 @@ FROM device_asset_caches dac
 JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
 JOIN album_tracks at ON at.library_id = oa.library_id AND at.track_variant_id = oa.track_variant_id
 JOIN album_variants av ON av.library_id = at.library_id AND av.album_variant_id = at.album_variant_id
-WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND (at.album_variant_id = ? OR av.album_cluster_id = ?) AND (? = '' OR oa.profile = ?)
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND (at.album_variant_id = ? OR av.album_cluster_id = ?) AND (? = '' OR oa.profile = ? OR oa.profile = ?)
 ORDER BY oa.blob_id ASC`
-		args = []any{libraryID, deviceID, scopeID, scopeID, profile, profile}
+		args = []any{libraryID, deviceID, scopeID, scopeID, profile, profile, aliasProfile}
 	case "playlist":
 		query = `
 SELECT DISTINCT oa.blob_id
@@ -471,9 +472,9 @@ FROM device_asset_caches dac
 JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
 JOIN playlist_items pi ON pi.library_id = oa.library_id AND pi.track_variant_id = oa.track_variant_id
 JOIN playlists p ON p.library_id = pi.library_id AND p.playlist_id = pi.playlist_id
-WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.deleted_at IS NULL AND (? = '' OR oa.profile = ?)
+WHERE dac.library_id = ? AND dac.device_id = ? AND dac.is_cached = 1 AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.deleted_at IS NULL AND (? = '' OR oa.profile = ? OR oa.profile = ?)
 ORDER BY oa.blob_id ASC`
-		args = []any{libraryID, deviceID, scopeID, profile, profile}
+		args = []any{libraryID, deviceID, scopeID, profile, profile, aliasProfile}
 	default:
 		return nil, nil
 	}
