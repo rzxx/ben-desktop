@@ -336,11 +336,11 @@ func TestSessionStartRestoresPausedState(t *testing.T) {
 	store := &memoryStore{
 		snapshot: SessionSnapshot{
 			ContextQueue: &ContextQueue{
-				Kind: ContextKindAlbum,
-				ID:   "album-1",
-				StartIndex: 0,
+				Kind:         ContextKindAlbum,
+				ID:           "album-1",
+				StartIndex:   0,
 				CurrentIndex: 0,
-				ResumeIndex: 0,
+				ResumeIndex:  0,
 				Entries: []SessionEntry{
 					{
 						EntryID:      "ctx-1",
@@ -3029,6 +3029,93 @@ func TestSessionNextWithRepeatOneRestartsTrack(t *testing.T) {
 	}
 }
 
+func TestHasNextActionMatchesRepeatOneAndQueueState(t *testing.T) {
+	t.Parallel()
+
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+		},
+	}, newTestBackend(), &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind:  ContextKindCustom,
+		ID:    "custom",
+		Items: []SessionItem{{RecordingID: "rec-1", Title: "One"}},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+
+	if HasNextAction(session.Snapshot()) {
+		t.Fatalf("expected no next action for a single-track session without repeat")
+	}
+
+	if _, err := session.SetRepeatMode(string(RepeatOne)); err != nil {
+		t.Fatalf("set repeat mode: %v", err)
+	}
+
+	if !HasNextAction(session.Snapshot()) {
+		t.Fatalf("expected repeat-one to expose a next action for the current track")
+	}
+}
+
+func TestSessionEOFWithRepeatOneRestartsCurrentTrack(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"rec-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One"},
+			{RecordingID: "rec-2", Title: "Two"},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if _, err := session.SetRepeatMode(string(RepeatOne)); err != nil {
+		t.Fatalf("set repeat mode: %v", err)
+	}
+
+	loadCallsBeforeEOF := backend.loadCalls
+	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := session.Snapshot()
+		if snapshot.CurrentEntry != nil &&
+			snapshot.CurrentEntry.Item.RecordingID == "rec-1" &&
+			snapshot.Status == StatusPlaying &&
+			backend.loadCalls > loadCallsBeforeEOF {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("expected repeat-one EOF to restart rec-1, got %+v", session.Snapshot())
+}
+
 func TestSessionEOFAtEndPreservesContextAndReloadsOnPlay(t *testing.T) {
 	t.Parallel()
 
@@ -3079,4 +3166,3 @@ func TestSessionEOFAtEndPreservesContextAndReloadsOnPlay(t *testing.T) {
 
 	t.Fatalf("expected session to settle into paused state after eof, got %+v", session.Snapshot())
 }
-

@@ -209,11 +209,11 @@ func newSMTCRuntimeState(session *playback.Session, core playback.PlaybackCore, 
 	}
 
 	state.controls.Put_IsEnabled(true)
-	state.controls.Put_IsPlayEnabled(true)
-	state.controls.Put_IsPauseEnabled(true)
+	state.controls.Put_IsPlayEnabled(false)
+	state.controls.Put_IsPauseEnabled(false)
 	state.controls.Put_IsStopEnabled(false)
-	state.controls.Put_IsNextEnabled(true)
-	state.controls.Put_IsPreviousEnabled(true)
+	state.controls.Put_IsNextEnabled(false)
+	state.controls.Put_IsPreviousEnabled(false)
 
 	state.updater = state.controls.Get_DisplayUpdater()
 	if state.updater != nil {
@@ -265,11 +265,12 @@ func (s *smtcRuntimeState) apply(snapshot playback.SessionSnapshot) {
 	s.controls.Put_PlaybackStatus(mapPlaybackStatus(snapshot.Status))
 
 	hasQueue := snapshot.QueueLength > 0
+	hasNext := playback.HasNextAction(snapshot)
 	hasTrack := snapshot.CurrentItem != nil
 	s.controls.Put_IsPlayEnabled(hasQueue)
 	s.controls.Put_IsPauseEnabled(hasTrack)
 	s.controls.Put_IsStopEnabled(false)
-	s.controls.Put_IsNextEnabled(hasQueue)
+	s.controls.Put_IsNextEnabled(hasNext)
 	s.controls.Put_IsPreviousEnabled(hasTrack)
 
 	if !hasTrack {

@@ -27,7 +27,7 @@ type Logger interface {
 }
 
 type Session struct {
-	mu sync.Mutex
+	mu       sync.Mutex
 	selectMu sync.Mutex
 
 	core             PlaybackCore
@@ -903,7 +903,7 @@ func (s *Session) resolveNextPlayableCandidate(
 }
 
 func (s *Session) upcomingCandidatesLocked(blocked map[string]struct{}) []playbackCandidate {
-	upcoming := buildUpcomingEntries(s.snapshot)
+	upcoming := buildNextActionEntries(s.snapshot)
 	out := make([]playbackCandidate, 0, len(upcoming))
 	for _, entry := range upcoming {
 		if _, ok := blocked[entry.EntryID]; ok {
@@ -2451,6 +2451,22 @@ func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 		}
 	}
 	return out
+}
+
+func buildNextActionEntries(snapshot SessionSnapshot) []SessionEntry {
+	upcoming := buildUpcomingEntries(snapshot)
+	if snapshot.RepeatMode != RepeatOne || snapshot.CurrentEntry == nil {
+		return upcoming
+	}
+
+	out := make([]SessionEntry, 0, len(upcoming)+1)
+	out = append(out, *cloneEntryPtr(snapshot.CurrentEntry))
+	out = append(out, upcoming...)
+	return out
+}
+
+func HasNextAction(snapshot SessionSnapshot) bool {
+	return len(buildNextActionEntries(snapshot)) > 0
 }
 
 func currentDuration(item *SessionItem) *int64 {

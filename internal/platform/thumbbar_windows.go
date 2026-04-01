@@ -49,6 +49,7 @@ type thumbbarService struct {
 
 	lastIsPlaying bool
 	lastHasQueue  bool
+	lastHasNext   bool
 	lastHasTrack  bool
 }
 
@@ -181,10 +182,24 @@ func (s *thumbbarService) addButtons() error {
 	playIcon, _ := win32.LoadIcon(0, win32.IDI_APPLICATION)
 	nextIcon, _ := win32.LoadIcon(0, win32.IDI_INFORMATION)
 
+	s.mu.Lock()
+	hasState := s.hasLastState
+	state := s.lastState
+	s.mu.Unlock()
+
+	hasQueue := false
+	hasNext := false
+	hasTrack := false
+	if hasState {
+		hasQueue = state.QueueLength > 0
+		hasNext = playback.HasNextAction(state)
+		hasTrack = state.CurrentItem != nil
+	}
+
 	buttons := []win32.THUMBBUTTON{
-		newThumbButton(thumbButtonPrevID, prevIcon, "Previous", true),
-		newThumbButton(thumbButtonPlayPauseID, playIcon, "Play", true),
-		newThumbButton(thumbButtonNextID, nextIcon, "Next", true),
+		newThumbButton(thumbButtonPrevID, prevIcon, "Previous", hasTrack),
+		newThumbButton(thumbButtonPlayPauseID, playIcon, "Play", hasQueue),
+		newThumbButton(thumbButtonNextID, nextIcon, "Next", hasNext),
 	}
 
 	hr := taskbar.ThumbBarAddButtons(hwnd, uint32(len(buttons)), &buttons[0])
@@ -205,14 +220,16 @@ func (s *thumbbarService) applyState(snapshot playback.SessionSnapshot) {
 	}
 
 	hasQueue := snapshot.QueueLength > 0
+	hasNext := playback.HasNextAction(snapshot)
 	hasTrack := snapshot.CurrentItem != nil
 	isPlaying := snapshot.Status == playback.StatusPlaying
 
 	s.mu.Lock()
-	changed := isPlaying != s.lastIsPlaying || hasQueue != s.lastHasQueue || hasTrack != s.lastHasTrack
+	changed := isPlaying != s.lastIsPlaying || hasQueue != s.lastHasQueue || hasNext != s.lastHasNext || hasTrack != s.lastHasTrack
 	if changed {
 		s.lastIsPlaying = isPlaying
 		s.lastHasQueue = hasQueue
+		s.lastHasNext = hasNext
 		s.lastHasTrack = hasTrack
 	}
 	s.mu.Unlock()
@@ -236,7 +253,7 @@ func (s *thumbbarService) applyState(snapshot playback.SessionSnapshot) {
 	buttons := []win32.THUMBBUTTON{
 		newThumbButton(thumbButtonPrevID, prevIcon, "Previous", hasTrack),
 		newThumbButton(thumbButtonPlayPauseID, playPauseIcon, playPauseTip, hasQueue),
-		newThumbButton(thumbButtonNextID, nextIcon, "Next", hasQueue),
+		newThumbButton(thumbButtonNextID, nextIcon, "Next", hasNext),
 	}
 
 	hr := taskbar.ThumbBarUpdateButtons(hwnd, uint32(len(buttons)), &buttons[0])
