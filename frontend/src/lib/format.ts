@@ -270,3 +270,23 @@ export function availabilityTone(
       return "danger";
   }
 }
+
+export function pinStateLabel(
+  pinState?: {
+    Pinned?: boolean | null;
+    Direct?: boolean | null;
+    Covered?: boolean | null;
+    Pending?: boolean | null;
+  } | null,
+) {
+  if (!pinState?.Pinned) {
+    return "";
+  }
+  if (pinState.Direct) {
+    return pinState.Pending ? "Pinned • syncing" : "Pinned";
+  }
+  if (pinState.Covered) {
+    return pinState.Pending ? "Covered • syncing" : "Covered";
+  }
+  return pinState.Pending ? "Pinned • syncing" : "Pinned";
+}

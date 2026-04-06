@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Pencil, Play, Plus, Trash2 } from "lucide-react";
-import type { PlaylistListItem } from "@/lib/api/models";
+import type { PinState, PlaylistListItem } from "@/lib/api/models";
 import {
   ConfirmPlaylistDeleteDialog,
   PlaylistNameDialog,
@@ -10,6 +10,7 @@ import {
   formatCount,
   formatRelativeDate,
   isTrackCollectionPlayable,
+  pinStateLabel,
 } from "@/lib/format";
 import { deletePlaylist, renamePlaylist } from "@/lib/api/catalog";
 import { useThumbnailUrl } from "@/hooks/media/useThumbnailUrl";
@@ -17,7 +18,13 @@ import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { IconButton } from "@/components/ui/Button";
 import { usePlaybackStore } from "@/stores/playback/store";
 
-export function PlaylistRow({ playlist }: { playlist: PlaylistListItem }) {
+export function PlaylistRow({
+  pinState,
+  playlist,
+}: {
+  pinState?: PinState | null;
+  playlist: PlaylistListItem;
+}) {
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const artworkUrl = useThumbnailUrl(playlist.Thumb);
@@ -40,6 +47,7 @@ export function PlaylistRow({ playlist }: { playlist: PlaylistListItem }) {
       <p className="text-theme-500 mt-1 truncate text-xs">
         {formatCount(playlist.ItemCount, "track")} • Updated{" "}
         {formatRelativeDate(playlist.UpdatedAt)}
+        {pinStateLabel(pinState) ? ` • ${pinStateLabel(pinState)}` : ""}
       </p>
     </>
   );

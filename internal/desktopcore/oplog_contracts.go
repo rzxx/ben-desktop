@@ -9,7 +9,6 @@ const (
 	entityTypePlaylist                = "playlist"
 	entityTypePlaylistItem            = "playlist_item"
 	entityTypeDeviceVariantPreference = "device_variant_preference"
-	entityTypeOfflinePin              = "offline_pin"
 	entityTypeOptimizedAsset          = "optimized_asset"
 	entityTypeDeviceAssetCache        = "device_asset_cache"
 	entityTypeArtworkVariant          = "artwork_variant"
@@ -18,11 +17,6 @@ const (
 type libraryOplogPayload struct {
 	LibraryID string `json:"libraryId"`
 	Name      string `json:"name"`
-}
-
-type scanRootsOplogPayload struct {
-	DeviceID string   `json:"deviceId"`
-	Roots    []string `json:"roots"`
 }
 
 type sourceFileOplogPayload struct {
@@ -45,14 +39,6 @@ type deviceVariantPreferenceOplogPayload struct {
 	ClusterID       string `json:"clusterId"`
 	ChosenVariantID string `json:"chosenVariantId"`
 	UpdatedAtNS     int64  `json:"updatedAtNs"`
-}
-
-type offlinePinOplogPayload struct {
-	DeviceID    string `json:"deviceId"`
-	Scope       string `json:"scope"`
-	ScopeID     string `json:"scopeId"`
-	Profile     string `json:"profile"`
-	UpdatedAtNS int64  `json:"updatedAtNs"`
 }
 
 type optimizedAssetOplogPayload struct {
@@ -105,10 +91,6 @@ type artworkVariantDeleteOplogPayload struct {
 	Variant   string `json:"variant"`
 }
 
-func scanRootsEntityID(deviceID string) string {
-	return strings.TrimSpace(deviceID)
-}
-
 func sourceFileEntityID(deviceID, sourceFileID string) string {
 	deviceID = strings.TrimSpace(deviceID)
 	sourceFileID = strings.TrimSpace(sourceFileID)
@@ -132,19 +114,6 @@ func deviceVariantPreferenceEntityID(deviceID, scopeType, clusterID string) stri
 		return deviceID + ":" + clusterID
 	}
 	return deviceID + ":" + scopeType + ":" + clusterID
-}
-
-func offlinePinEntityID(deviceID, scope, scopeID string) string {
-	deviceID = strings.TrimSpace(deviceID)
-	scope = strings.TrimSpace(scope)
-	scopeID = strings.TrimSpace(scopeID)
-	if deviceID == "" {
-		return scope + ":" + scopeID
-	}
-	if scope == "" {
-		return deviceID + ":" + scopeID
-	}
-	return deviceID + ":" + scope + ":" + scopeID
 }
 
 func optimizedAssetEntityID(optimizedAssetID string) string {

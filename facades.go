@@ -42,6 +42,13 @@ func (f facadeBase) catalog() desktopcore.CatalogRuntime {
 	return f.host.CatalogRuntime()
 }
 
+func (f facadeBase) pin() desktopcore.PinRuntime {
+	if f.host == nil {
+		return nil
+	}
+	return f.host.PinRuntime()
+}
+
 func (f facadeBase) invite() desktopcore.InviteRuntime {
 	if f.host == nil {
 		return nil
@@ -460,6 +467,73 @@ func (s *InviteFacade) RejectJoinRequest(ctx context.Context, requestID, reason 
 	return s.invite().RejectJoinRequest(ctx, requestID, reason)
 }
 
+type PinFacade struct {
+	facadeBase
+
+	mu            sync.Mutex
+	stopListening func()
+}
+
+func NewPinFacade(host *coreHost) *PinFacade {
+	return &PinFacade{facadeBase: facadeBase{host: host}}
+}
+
+func (s *PinFacade) ServiceName() string { return "PinFacade" }
+
+func (s *PinFacade) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	if s.host == nil {
+		return nil
+	}
+	if err := s.host.Start(ctx); err != nil {
+		return err
+	}
+
+	app := application.Get()
+	if app == nil || app.Event == nil {
+		return nil
+	}
+
+	stopListening := s.pin().SubscribePinChanges(func(event apitypes.PinChangeEvent) {
+		app.Event.Emit(desktopcore.EventPinChanged, event)
+	})
+
+	s.mu.Lock()
+	s.stopListening = stopListening
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *PinFacade) ServiceShutdown() error {
+	s.mu.Lock()
+	stopListening := s.stopListening
+	s.stopListening = nil
+	s.mu.Unlock()
+	if stopListening != nil {
+		stopListening()
+	}
+	return nil
+}
+
+func (s *PinFacade) StartPin(ctx context.Context, req apitypes.PinIntentRequest) (desktopcore.JobSnapshot, error) {
+	return s.pin().StartPin(ctx, req)
+}
+
+func (s *PinFacade) Unpin(ctx context.Context, req apitypes.PinIntentRequest) error {
+	return s.pin().Unpin(ctx, req)
+}
+
+func (s *PinFacade) ListPinStates(ctx context.Context, req apitypes.PinStateListRequest) ([]apitypes.PinState, error) {
+	return s.pin().ListPinStates(ctx, req)
+}
+
+func (s *PinFacade) GetPinState(ctx context.Context, req apitypes.PinStateRequest) (apitypes.PinState, error) {
+	return s.pin().GetPinState(ctx, req)
+}
+
+func (s *PinFacade) SubscribePinEvents() string {
+	return desktopcore.EventPinChanged
+}
+
 type CacheFacade struct {
 	facadeBase
 }
@@ -562,56 +636,12 @@ func (s *PlaybackFacade) ResolveRecordingArtworkURL(ctx context.Context, recordi
 	return artworkAssetURL(result.Artwork), nil
 }
 
-func (s *PlaybackFacade) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
-	return s.playback().PinRecordingOffline(ctx, recordingID, preferredProfile)
-}
-
-func (s *PlaybackFacade) StartPinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (desktopcore.JobSnapshot, error) {
-	return s.playback().StartPinRecordingOffline(ctx, recordingID, preferredProfile)
-}
-
 func (s *PlaybackFacade) EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
 	return s.playback().EnsurePlaybackAlbum(ctx, albumID, preferredProfile)
 }
 
 func (s *PlaybackFacade) EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
 	return s.playback().EnsurePlaybackPlaylist(ctx, playlistID, preferredProfile)
-}
-
-func (s *PlaybackFacade) UnpinRecordingOffline(ctx context.Context, recordingID string) error {
-	return s.playback().UnpinRecordingOffline(ctx, recordingID)
-}
-
-func (s *PlaybackFacade) PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return s.playback().PinAlbumOffline(ctx, albumID, preferredProfile)
-}
-
-func (s *PlaybackFacade) StartPinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (desktopcore.JobSnapshot, error) {
-	return s.playback().StartPinAlbumOffline(ctx, albumID, preferredProfile)
-}
-
-func (s *PlaybackFacade) UnpinAlbumOffline(ctx context.Context, albumID string) error {
-	return s.playback().UnpinAlbumOffline(ctx, albumID)
-}
-
-func (s *PlaybackFacade) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return s.playback().PinPlaylistOffline(ctx, playlistID, preferredProfile)
-}
-
-func (s *PlaybackFacade) StartPinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (desktopcore.JobSnapshot, error) {
-	return s.playback().StartPinPlaylistOffline(ctx, playlistID, preferredProfile)
-}
-
-func (s *PlaybackFacade) UnpinPlaylistOffline(ctx context.Context, playlistID string) error {
-	return s.playback().UnpinPlaylistOffline(ctx, playlistID)
-}
-
-func (s *PlaybackFacade) PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return s.playback().PinLikedOffline(ctx, preferredProfile)
-}
-
-func (s *PlaybackFacade) UnpinLikedOffline(ctx context.Context) error {
-	return s.playback().UnpinLikedOffline(ctx)
 }
 
 func (s *PlaybackFacade) ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {

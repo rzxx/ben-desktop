@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -421,7 +422,7 @@ func issueMembershipCertTx(tx *gorm.DB, libraryID, deviceID, peerID, role string
 				return membershipCertEnvelope{}, err
 			}
 		}
-	case err != nil && err != gorm.ErrRecordNotFound:
+	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return membershipCertEnvelope{}, err
 	}
 
@@ -549,7 +550,6 @@ func (a *IdentityMembershipService) ensureLocalTransportMembershipAuth(ctx conte
 				return transportPeerAuth{}, fmt.Errorf("refresh local membership certificate: %w", refreshErr)
 			}
 			cert = refreshed.Cert
-			chain = append([]admissionAuthorityEnvelope(nil), refreshed.AuthorityChain...)
 		}
 		rows, err = a.loadAdmissionAuthorityChain(ctx, local.LibraryID)
 		if err != nil {
@@ -583,7 +583,6 @@ func (a *IdentityMembershipService) ensureLocalTransportMembershipAuth(ctx conte
 				return transportPeerAuth{}, fmt.Errorf("refresh local membership certificate: %w", err)
 			}
 			cert = refreshed.Cert
-			chain = append([]admissionAuthorityEnvelope(nil), refreshed.AuthorityChain...)
 		}
 		rows, err = a.loadAdmissionAuthorityChain(ctx, local.LibraryID)
 		if err != nil {
@@ -677,4 +676,3 @@ func (a *IdentityMembershipService) verifyTransportPeerAuth(ctx context.Context,
 	}
 	return auth.Cert, nil
 }
-

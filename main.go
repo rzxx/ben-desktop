@@ -21,6 +21,7 @@ var assets embed.FS
 func init() {
 	application.RegisterEvent[desktopcore.JobSnapshot](desktopcore.EventJobSnapshotChanged)
 	application.RegisterEvent[apitypes.CatalogChangeEvent](desktopcore.EventCatalogChanged)
+	application.RegisterEvent[apitypes.PinChangeEvent](desktopcore.EventPinChanged)
 	application.RegisterEvent[apitypes.NotificationSnapshot](EventNotificationChanged)
 	application.RegisterEvent[playback.SessionSnapshot](playback.EventSnapshotChanged)
 }
@@ -43,6 +44,7 @@ func main() {
 			application.NewService(NewNetworkFacade(host)),
 			application.NewService(NewJobsFacade(host)),
 			application.NewService(NewCatalogFacade(host)),
+			application.NewService(NewPinFacade(host)),
 			application.NewService(NewInviteFacade(host)),
 			application.NewService(NewPlaybackFacade(host)),
 			application.NewService(NewThemeFacade(host)),

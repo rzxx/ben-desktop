@@ -12,6 +12,7 @@ type Surface interface {
 	IngestSurface
 	CatalogSurface
 	CacheSurface
+	PinSurface
 	PlaylistSurface
 	InviteJoinSurface
 	PlaybackSurface

@@ -1,5 +1,6 @@
 import { TrackListRow } from "@/components/catalog/TrackListRow";
 import { isTrackListRowActive } from "@/components/catalog/ManagedTrackListRow.helpers";
+import { Types, type PinState } from "@/lib/api/models";
 import { useRecordingLikeState } from "@/hooks/catalog/useRecordingLikeState";
 import { usePlaybackStore } from "@/stores/playback/store";
 
@@ -13,7 +14,7 @@ export function ManagedTrackListRow({
   onPlay,
   onQueue,
   onRemove,
-  pinned = false,
+  pinState,
   recordingId,
   removeLabel,
   subtitle,
@@ -28,7 +29,7 @@ export function ManagedTrackListRow({
   onPlay: () => void;
   onQueue: () => void;
   onRemove?: () => void;
-  pinned?: boolean;
+  pinState?: PinState | null;
   recordingId?: string;
   removeLabel?: string;
   subtitle: string;
@@ -67,7 +68,7 @@ export function ManagedTrackListRow({
             }
           : undefined
       }
-      pinned={pinned}
+      pinState={pinState}
       removeLabel={removeLabel}
       recording={
         likeState.hasIdentity
@@ -77,6 +78,10 @@ export function ManagedTrackListRow({
                 mode === "album"
                   ? recordingId
                   : (libraryRecordingId ?? recordingId),
+              pinSubjectKind:
+                mode === "album"
+                  ? Types.PinSubjectKind.PinSubjectRecordingVariant
+                  : Types.PinSubjectKind.PinSubjectRecordingCluster,
               recordingId,
             }
           : undefined

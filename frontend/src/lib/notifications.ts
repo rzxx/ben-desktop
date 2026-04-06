@@ -147,11 +147,11 @@ export function notificationHeading(notification: NotificationSnapshot) {
       return "Album encodings";
     case "ensure-playlist-encodings":
       return "Playlist encodings";
-    case "pin-recording-offline":
+    case "pin-recording":
       return "Track pin";
-    case "pin-album-offline":
+    case "pin-album":
       return "Album pin";
-    case "pin-playlist-offline":
+    case "pin-playlist":
       return "Playlist pin";
     case "refresh-pinned-album":
       return "Pinned album refresh";

@@ -21,7 +21,8 @@ function configure() {
         "catalog:changed": $$createType0,
         "jobs:snapshot": $$createType1,
         "notifications:snapshot": $$createType2,
-        "playback:snapshot": $$createType3,
+        "pin:changed": $$createType3,
+        "playback:snapshot": $$createType4,
     }));
 }
 
@@ -29,6 +30,7 @@ function configure() {
 const $$createType0 = apitypes$0.CatalogChangeEvent.createFrom;
 const $$createType1 = desktopcore$0.JobSnapshot.createFrom;
 const $$createType2 = apitypes$0.NotificationSnapshot.createFrom;
-const $$createType3 = playback$0.SessionSnapshot.createFrom;
+const $$createType3 = apitypes$0.PinChangeEvent.createFrom;
+const $$createType4 = playback$0.SessionSnapshot.createFrom;
 
 configure();

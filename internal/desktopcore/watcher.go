@@ -84,8 +84,11 @@ func (w *activeScanWatcher) sameConfig(libraryID, deviceID string, roots []strin
 }
 
 func (w *activeScanWatcher) run() {
+	if w == nil {
+		return
+	}
 	defer close(w.done)
-	if w == nil || len(w.roots) == 0 {
+	if len(w.roots) == 0 {
 		return
 	}
 

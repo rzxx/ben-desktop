@@ -76,6 +76,14 @@ type CatalogRuntime interface {
 	SubscribeCatalogChanges(listener func(apitypes.CatalogChangeEvent)) func()
 }
 
+type PinRuntime interface {
+	StartPin(ctx context.Context, req apitypes.PinIntentRequest) (JobSnapshot, error)
+	Unpin(ctx context.Context, req apitypes.PinIntentRequest) error
+	ListPinStates(ctx context.Context, req apitypes.PinStateListRequest) ([]apitypes.PinState, error)
+	GetPinState(ctx context.Context, req apitypes.PinStateRequest) (apitypes.PinState, error)
+	SubscribePinChanges(listener func(apitypes.PinChangeEvent)) func()
+}
+
 type InviteRuntime interface {
 	CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error)
 	ListIssuedInvites(ctx context.Context, status string) ([]apitypes.IssuedInviteRecord, error)
@@ -99,9 +107,6 @@ type PlaybackRuntime interface {
 	StartEnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (JobSnapshot, error)
 	StartEnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (JobSnapshot, error)
 	StartEnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (JobSnapshot, error)
-	StartPinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (JobSnapshot, error)
-	StartPinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (JobSnapshot, error)
-	StartPinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (JobSnapshot, error)
 	EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error)
 	InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error)
 	StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (JobSnapshot, error)
@@ -112,14 +117,6 @@ type PlaybackRuntime interface {
 	ResolveRecordingArtwork(ctx context.Context, recordingID, variant string) (apitypes.RecordingArtworkResult, error)
 	EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error)
 	EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error)
-	PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error)
-	UnpinRecordingOffline(ctx context.Context, recordingID string) error
-	PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error)
-	UnpinAlbumOffline(ctx context.Context, albumID string) error
-	PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error)
-	UnpinPlaylistOffline(ctx context.Context, playlistID string) error
-	PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error)
-	UnpinLikedOffline(ctx context.Context) error
 	ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error)
 	GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error)
 	ListRecordingPlaybackAvailability(ctx context.Context, req apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error)

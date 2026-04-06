@@ -8,9 +8,11 @@ import { PlaylistEmptyState } from "@/components/catalog/EmptyState";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { Button } from "@/components/ui/Button";
 import { VirtualRows } from "@/components/ui/VirtualRows";
+import { pinSubjectKey, usePinStates } from "@/hooks/pins/usePinStates";
 import { createPlaylist } from "@/lib/api/catalog";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
+import { Types } from "@/lib/api/models";
 import { formatCount } from "@/lib/format";
 import { getIdQuery, useCatalogStore } from "@/stores/catalog/store";
 import { selectEntityQuery } from "@/stores/catalog/query-state";
@@ -35,6 +37,18 @@ export function PlaylistsPage() {
       },
       refetch: () => catalogLoaderClient.refetchPlaylists(),
     },
+  );
+  const playlistPinStates = usePinStates(
+    query.items.map(
+      (playlist) =>
+        new Types.PinSubjectRef({
+          ID: playlist.PlaylistID,
+          Kind:
+            playlist.Kind === "liked"
+              ? Types.PinSubjectKind.PinSubjectLikedPlaylist
+              : Types.PinSubjectKind.PinSubjectPlaylist,
+        }),
+    ),
   );
 
   return (
@@ -75,7 +89,22 @@ export function PlaylistsPage() {
           onEndReached={() => {
             void query.fetchNextPage();
           }}
-          renderRow={(playlist) => <PlaylistRow playlist={playlist} />}
+          renderRow={(playlist) => (
+            <PlaylistRow
+              pinState={
+                playlistPinStates[
+                  pinSubjectKey({
+                    ID: playlist.PlaylistID,
+                    Kind:
+                      playlist.Kind === "liked"
+                        ? Types.PinSubjectKind.PinSubjectLikedPlaylist
+                        : Types.PinSubjectKind.PinSubjectPlaylist,
+                  })
+                ] ?? null
+              }
+              playlist={playlist}
+            />
+          )}
           scrollRestorationId="playlists-list"
           viewportClassName="pr-2"
         />

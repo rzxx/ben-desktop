@@ -255,14 +255,6 @@ type PlaybackSurface interface {
 	ResolveRecordingArtwork(ctx context.Context, recordingID, variant string) (RecordingArtworkResult, error)
 	EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (PlaybackBatchResult, error)
 	EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (PlaybackBatchResult, error)
-	PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (PlaybackBatchResult, error)
-	PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (PlaybackBatchResult, error)
-	PinLikedOffline(ctx context.Context, preferredProfile string) (PlaybackBatchResult, error)
-	UnpinPlaylistOffline(ctx context.Context, playlistID string) error
-	PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (PlaybackRecordingResult, error)
-	UnpinRecordingOffline(ctx context.Context, recordingID string) error
-	UnpinAlbumOffline(ctx context.Context, albumID string) error
-	UnpinLikedOffline(ctx context.Context) error
 	ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]RecordingAvailabilityItem, error)
 	GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (RecordingPlaybackAvailability, error)
 	ListRecordingPlaybackAvailability(ctx context.Context, req RecordingPlaybackAvailabilityListRequest) ([]RecordingPlaybackAvailability, error)

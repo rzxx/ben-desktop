@@ -80,7 +80,7 @@ func (a *App) prepareCatalogRebuildTx(tx *gorm.DB, libraryID string, local *apit
 	if err != nil {
 		return nil, err
 	}
-	if err := migrateAlbumOfflinePinsTx(tx, libraryID, before, after); err != nil {
+	if err := migrateAlbumPinRootsTx(tx, libraryID, before, after); err != nil {
 		return nil, err
 	}
 
@@ -204,7 +204,7 @@ func rebuildCatalogMaterializationTx(tx *gorm.DB, libraryID string) error {
 		collectArtistsAndCredits(libraryID, trackVariantID, albumVariantID, tags, artists, credits)
 	}
 
-	assignStrictAlbumClusterIDs(albums, albumTracks, tracks, albumGroupKeys)
+	assignStrictAlbumClusterIDs(albums, albumGroupKeys)
 
 	for _, model := range []any{
 		&Credit{},
@@ -293,7 +293,7 @@ func pruneDanglingVariantPreferencesTx(tx *gorm.DB, libraryID string) error {
 	return nil
 }
 
-func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after catalogRebuildSnapshot) error {
+func migrateAlbumPinRootsTx(tx *gorm.DB, libraryID string, before, after catalogRebuildSnapshot) error {
 	type pinRow struct {
 		LibraryID string
 		DeviceID  string
@@ -305,7 +305,7 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 	}
 
 	var pins []pinRow
-	if err := tx.Model(&OfflinePin{}).
+	if err := tx.Model(&PinRoot{}).
 		Select("library_id, device_id, scope, scope_id, profile, created_at, updated_at").
 		Where("library_id = ? AND scope = ?", strings.TrimSpace(libraryID), "album").
 		Scan(&pins).Error; err != nil {
@@ -326,7 +326,7 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 			clusterID = strings.TrimSpace(before.albumClusterByVariant[albumID])
 		}
 		if clusterID == "" {
-			if err := deleteAlbumOfflinePinTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
+			if err := deleteAlbumPinRootTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
 				return err
 			}
 			continue
@@ -340,7 +340,7 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 			candidateClusters := after.clusterIDsByFamily[familyKey]
 			destinationID = chooseMigratedAlbumPinClusterID(candidateClusters, after.variantsByCluster)
 			if destinationID == "" {
-				if err := deleteAlbumOfflinePinTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
+				if err := deleteAlbumPinRootTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
 					return err
 				}
 				continue
@@ -352,7 +352,7 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 			return err
 		}
 		if !ok || strings.TrimSpace(destinationID) == "" {
-			if err := deleteAlbumOfflinePinTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
+			if err := deleteAlbumPinRootTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
 				return err
 			}
 			continue
@@ -361,7 +361,7 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 			continue
 		}
 
-		var existing OfflinePin
+		var existing PinRoot
 		err = tx.Where(
 			"library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?",
 			pin.LibraryID,
@@ -373,13 +373,13 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 			return err
 		}
 		if err == nil {
-			if err := deleteAlbumOfflinePinTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
+			if err := deleteAlbumPinRootTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
 				return err
 			}
 			continue
 		}
 
-		if err := tx.Create(&OfflinePin{
+		if err := tx.Create(&PinRoot{
 			LibraryID: pin.LibraryID,
 			DeviceID:  pin.DeviceID,
 			Scope:     "album",
@@ -390,7 +390,7 @@ func migrateAlbumOfflinePinsTx(tx *gorm.DB, libraryID string, before, after cata
 		}).Error; err != nil {
 			return err
 		}
-		if err := deleteAlbumOfflinePinTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
+		if err := deleteAlbumPinRootTx(tx, pin.LibraryID, pin.DeviceID, albumID); err != nil {
 			return err
 		}
 	}
@@ -494,14 +494,32 @@ func loadAlbumLocalTrackCountsTx(tx *gorm.DB, libraryID, deviceID string, candid
 	return counts, nil
 }
 
-func deleteAlbumOfflinePinTx(tx *gorm.DB, libraryID, deviceID, albumID string) error {
+func deleteAlbumPinRootTx(tx *gorm.DB, libraryID, deviceID, albumID string) error {
+	if err := tx.Where(
+		"library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?",
+		strings.TrimSpace(libraryID),
+		strings.TrimSpace(deviceID),
+		"album",
+		strings.TrimSpace(albumID),
+	).Delete(&PinBlobRef{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where(
+		"library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?",
+		strings.TrimSpace(libraryID),
+		strings.TrimSpace(deviceID),
+		"album",
+		strings.TrimSpace(albumID),
+	).Delete(&PinMember{}).Error; err != nil {
+		return err
+	}
 	return tx.Where(
 		"library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?",
 		strings.TrimSpace(libraryID),
 		strings.TrimSpace(deviceID),
 		"album",
 		strings.TrimSpace(albumID),
-	).Delete(&OfflinePin{}).Error
+	).Delete(&PinRoot{}).Error
 }
 
 func chooseMigratedAlbumPinClusterID(clusterIDs []string, variantsByCluster map[string][]catalogAlbumVariantSnapshot) string {
@@ -885,7 +903,7 @@ func createAlbumTracksTx(tx *gorm.DB, albumTracks map[string]AlbumTrack) error {
 	return tx.CreateInBatches(rows, 400).Error
 }
 
-func assignStrictAlbumClusterIDs(albums map[string]AlbumVariantModel, albumTracks map[string]AlbumTrack, tracks map[string]TrackVariantModel, albumGroupKeys map[string]string) {
+func assignStrictAlbumClusterIDs(albums map[string]AlbumVariantModel, albumGroupKeys map[string]string) {
 	if len(albums) == 0 {
 		return
 	}

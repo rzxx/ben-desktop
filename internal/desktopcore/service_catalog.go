@@ -2,7 +2,6 @@ package desktopcore
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -574,7 +573,7 @@ SELECT
 FROM playlists p
 LEFT JOIN playlist_items pi ON pi.library_id = p.library_id AND pi.playlist_id = p.playlist_id AND pi.deleted_at IS NULL
 LEFT JOIN artwork_variants aw ON aw.library_id = p.library_id AND aw.scope_type = 'playlist' AND aw.scope_id = p.playlist_id
-LEFT JOIN offline_pins op ON op.library_id = p.library_id AND op.device_id = ? AND op.scope = 'playlist' AND op.scope_id = p.playlist_id AND (op.profile = ? OR op.profile = ?)
+LEFT JOIN pin_roots op ON op.library_id = p.library_id AND op.device_id = ? AND op.scope = 'playlist' AND op.scope_id = p.playlist_id AND (op.profile = ? OR op.profile = ?)
 WHERE p.library_id = ? AND p.deleted_at IS NULL
 GROUP BY p.playlist_id, p.name, p.kind, p.created_by, p.updated_at
 ORDER BY CASE WHEN p.kind = ? THEN 0 ELSE 1 END ASC, LOWER(p.name) ASC, p.playlist_id ASC`
@@ -1394,194 +1393,6 @@ GROUP BY a.album_variant_id, a.album_cluster_id, a.title, a.year, a.edition`
 	return out, nil
 }
 
-func (s *CatalogService) catalogAvailabilityHintsForClusters(ctx context.Context, libraryID, localDeviceID string, clusterIDs []string) (map[string]apitypes.CatalogTrackAvailabilityHint, error) {
-	clusterIDs = compactNonEmptyStrings(clusterIDs)
-	if len(clusterIDs) == 0 {
-		return map[string]apitypes.CatalogTrackAvailabilityHint{}, nil
-	}
-	type row struct {
-		TrackClusterID string
-		DeviceID       string
-		Role           string
-		LastSeenAt     sql.NullTime
-	}
-	type cachedRow struct {
-		TrackClusterID string
-	}
-	query := `
-SELECT
-	tv.track_cluster_id AS track_cluster_id,
-	sf.device_id,
-	COALESCE(m.role, '') AS role,
-	d.last_seen_at
-FROM track_variants tv
-JOIN source_files sf ON sf.library_id = tv.library_id AND sf.track_variant_id = tv.track_variant_id AND sf.is_present = 1
-LEFT JOIN memberships m ON m.library_id = sf.library_id AND m.device_id = sf.device_id
-LEFT JOIN devices d ON d.device_id = sf.device_id
-WHERE tv.library_id = ? AND tv.track_cluster_id IN ?
-GROUP BY tv.track_cluster_id, sf.device_id, m.role, d.last_seen_at`
-	var rows []row
-	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, clusterIDs).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	cachedQuery := `
-SELECT DISTINCT
-	tv.track_cluster_id AS track_cluster_id
-FROM track_variants tv
-JOIN optimized_assets oa ON oa.library_id = tv.library_id AND oa.track_variant_id = tv.track_variant_id
-JOIN device_asset_caches dac ON dac.library_id = oa.library_id AND dac.optimized_asset_id = oa.optimized_asset_id
-WHERE tv.library_id = ?
-	AND tv.track_cluster_id IN ?
-	AND dac.device_id = ?
-	AND dac.is_cached = 1`
-	var cachedRows []cachedRow
-	if err := s.app.storage.WithContext(ctx).Raw(cachedQuery, libraryID, clusterIDs, localDeviceID).Scan(&cachedRows).Error; err != nil {
-		return nil, err
-	}
-	type facts struct {
-		local, cached     bool
-		providers, online int
-	}
-	factMap := make(map[string]facts, len(clusterIDs))
-	for _, item := range rows {
-		clusterID := strings.TrimSpace(item.TrackClusterID)
-		deviceID := strings.TrimSpace(item.DeviceID)
-		if clusterID == "" || deviceID == "" {
-			continue
-		}
-		next := factMap[clusterID]
-		if deviceID == localDeviceID {
-			next.local = true
-		} else if canProvideLocalMedia(item.Role) {
-			next.providers++
-			if item.LastSeenAt.Valid && item.LastSeenAt.Time.UTC().After(time.Now().UTC().Add(-availabilityOnlineWindow)) {
-				next.online++
-			}
-		}
-		factMap[clusterID] = next
-	}
-	for _, item := range cachedRows {
-		next := factMap[strings.TrimSpace(item.TrackClusterID)]
-		next.cached = true
-		factMap[strings.TrimSpace(item.TrackClusterID)] = next
-	}
-	out := make(map[string]apitypes.CatalogTrackAvailabilityHint, len(clusterIDs))
-	for _, clusterID := range clusterIDs {
-		f := factMap[strings.TrimSpace(clusterID)]
-		hint := apitypes.CatalogTrackAvailabilityHint{
-			HasLocalSource:            f.local,
-			HasCachedLocal:            f.cached,
-			ProviderDeviceCount:       f.providers,
-			OnlineProviderDeviceCount: f.online,
-		}
-		switch {
-		case hint.HasLocalSource:
-			hint.State = apitypes.CatalogAvailabilityLocal
-		case hint.HasCachedLocal:
-			hint.State = apitypes.CatalogAvailabilityCached
-		case hint.OnlineProviderDeviceCount > 0:
-			hint.State = apitypes.CatalogAvailabilityProviderOnline
-		case hint.ProviderDeviceCount > 0:
-			hint.State = apitypes.CatalogAvailabilityProviderOffline
-		default:
-			hint.State = apitypes.CatalogAvailabilityUnavailable
-		}
-		out[strings.TrimSpace(clusterID)] = hint
-	}
-	return out, nil
-}
-
-func (s *CatalogService) catalogAggregateHintsForAlbumVariants(ctx context.Context, libraryID, localDeviceID string, albumIDs []string) (map[string]apitypes.CatalogAggregateAvailabilityHint, error) {
-	albumIDs = compactNonEmptyStrings(albumIDs)
-	if len(albumIDs) == 0 {
-		return map[string]apitypes.CatalogAggregateAvailabilityHint{}, nil
-	}
-	type row struct {
-		AlbumVariantID string
-		TrackClusterID string
-	}
-	var rows []row
-	query := `
-SELECT
-	at.album_variant_id,
-	tv.track_cluster_id
-FROM album_tracks at
-JOIN track_variants tv ON tv.library_id = at.library_id AND tv.track_variant_id = at.track_variant_id
-WHERE at.library_id = ? AND at.album_variant_id IN ?
-GROUP BY at.album_variant_id, tv.track_cluster_id`
-	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, albumIDs).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	grouped := make(map[string][]string)
-	allClusterIDs := make([]string, 0, len(rows))
-	for _, row := range rows {
-		grouped[row.AlbumVariantID] = append(grouped[row.AlbumVariantID], row.TrackClusterID)
-		allClusterIDs = append(allClusterIDs, row.TrackClusterID)
-	}
-	return s.aggregateHintsByGroup(ctx, libraryID, localDeviceID, grouped, allClusterIDs)
-}
-
-func (s *CatalogService) catalogAggregateHintsForArtists(ctx context.Context, libraryID, localDeviceID string, artistIDs []string) (map[string]apitypes.CatalogAggregateAvailabilityHint, error) {
-	artistIDs = compactNonEmptyStrings(artistIDs)
-	if len(artistIDs) == 0 {
-		return map[string]apitypes.CatalogAggregateAvailabilityHint{}, nil
-	}
-	type row struct {
-		ArtistID       string
-		TrackClusterID string
-	}
-	var rows []row
-	query := `
-SELECT
-	c.artist_id,
-	tv.track_cluster_id
-FROM credits c
-JOIN track_variants tv ON tv.library_id = c.library_id AND tv.track_variant_id = c.entity_id
-WHERE c.library_id = ? AND c.entity_type = 'track' AND c.artist_id IN ?
-GROUP BY c.artist_id, tv.track_cluster_id`
-	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, artistIDs).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	grouped := make(map[string][]string)
-	allClusterIDs := make([]string, 0, len(rows))
-	for _, row := range rows {
-		grouped[row.ArtistID] = append(grouped[row.ArtistID], row.TrackClusterID)
-		allClusterIDs = append(allClusterIDs, row.TrackClusterID)
-	}
-	return s.aggregateHintsByGroup(ctx, libraryID, localDeviceID, grouped, allClusterIDs)
-}
-
-func (s *CatalogService) aggregateHintsByGroup(ctx context.Context, libraryID, localDeviceID string, grouped map[string][]string, allClusterIDs []string) (map[string]apitypes.CatalogAggregateAvailabilityHint, error) {
-	hints, err := s.catalogAvailabilityHintsForClusters(ctx, libraryID, localDeviceID, allClusterIDs)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]apitypes.CatalogAggregateAvailabilityHint, len(grouped))
-	for key, clusterIDs := range grouped {
-		var agg apitypes.CatalogAggregateAvailabilityHint
-		for _, clusterID := range clusterIDs {
-			switch hints[strings.TrimSpace(clusterID)].State {
-			case apitypes.CatalogAvailabilityLocal:
-				agg.LocalTrackCount++
-				agg.AvailableTrackCount++
-			case apitypes.CatalogAvailabilityCached:
-				agg.CachedTrackCount++
-				agg.AvailableTrackCount++
-			case apitypes.CatalogAvailabilityProviderOnline:
-				agg.ProviderOnlineTrackCount++
-				agg.AvailableTrackCount++
-			case apitypes.CatalogAvailabilityProviderOffline:
-				agg.ProviderOfflineTrackCount++
-				agg.AvailableTrackCount++
-			default:
-				agg.UnavailableTrackCount++
-			}
-		}
-		out[strings.TrimSpace(key)] = agg
-	}
-	return out, nil
-}
-
 func chooseRecordingVariantID(variants []recordingVariantRow, explicitPreferredID string) string {
 	if len(variants) == 0 {
 		return ""
@@ -1655,7 +1466,7 @@ func chooseAlbumVariantID(variants []apitypes.AlbumVariantItem, preferredID stri
 		if variants[i].BestQualityRank != variants[j].BestQualityRank {
 			return variants[i].BestQualityRank > variants[j].BestQualityRank
 		}
-		if strings.ToLower(variants[i].Title) != strings.ToLower(variants[j].Title) {
+		if !strings.EqualFold(variants[i].Title, variants[j].Title) {
 			return strings.ToLower(variants[i].Title) < strings.ToLower(variants[j].Title)
 		}
 		return variants[i].AlbumID < variants[j].AlbumID

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -939,20 +940,6 @@ func (s *InviteService) toIssuedInviteRecord(ctx context.Context, row IssuedInvi
 	}, nil
 }
 
-func (s *InviteService) issuedInviteByToken(ctx context.Context, libraryID, tokenID string) (IssuedInvite, bool, error) {
-	var row IssuedInvite
-	err := s.app.storage.WithContext(ctx).
-		Where("library_id = ? AND token_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(tokenID)).
-		Take(&row).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return IssuedInvite{}, false, nil
-		}
-		return IssuedInvite{}, false, err
-	}
-	return row, true, nil
-}
-
 func (s *InviteService) loadJoinSession(ctx context.Context, sessionID string) (JoinSession, error) {
 	var session JoinSession
 	if err := s.app.storage.WithContext(ctx).Where("session_id = ?", sessionID).Take(&session).Error; err != nil {
@@ -1337,8 +1324,6 @@ func (s *InviteService) handleInviteJoinStart(ctx context.Context, libraryID, lo
 					}).Error; err != nil {
 					return err
 				}
-				existing.DeviceName = req.DeviceName
-				existing.JoinPubKey = append([]byte(nil), req.JoinPubKey...)
 				existing.UpdatedAt = now
 				response = inviteJoinStartResponse{
 					LibraryID:     existing.LibraryID,
@@ -1369,7 +1354,7 @@ func (s *InviteService) handleInviteJoinStart(ctx context.Context, libraryID, lo
 				}
 				return nil
 			}
-		case existingErr != nil && existingErr != gorm.ErrRecordNotFound:
+		case !errors.Is(existingErr, gorm.ErrRecordNotFound):
 			return existingErr
 		}
 

@@ -200,25 +200,37 @@ func TestPreferencePinAndCacheMutationsAppendOplogOnlyForStateChanges(t *testing
 	if err := app.SetPreferredAlbumVariant(ctx, "album-pref", "album-pref"); err != nil {
 		t.Fatalf("repeat preferred album variant: %v", err)
 	}
-	if _, err := app.PinRecordingOffline(ctx, "rec-pref", "desktop"); err != nil {
-		t.Fatalf("pin recording offline: %v", err)
+	if _, err := app.StartPin(ctx, apitypes.PinIntentRequest{
+		Profile: "desktop",
+		Subject: apitypes.PinSubjectRef{Kind: apitypes.PinSubjectRecordingCluster, ID: "rec-pref"},
+	}); err != nil {
+		t.Fatalf("start recording pin: %v", err)
 	}
-	if _, err := app.PinRecordingOffline(ctx, "rec-pref", "desktop"); err != nil {
-		t.Fatalf("repeat pin recording offline: %v", err)
+	if _, err := app.StartPin(ctx, apitypes.PinIntentRequest{
+		Profile: "desktop",
+		Subject: apitypes.PinSubjectRef{Kind: apitypes.PinSubjectRecordingCluster, ID: "rec-pref"},
+	}); err != nil {
+		t.Fatalf("repeat recording pin: %v", err)
 	}
 	if _, err := app.CleanupCache(ctx, apitypes.CacheCleanupRequest{Mode: apitypes.CacheCleanupAllUnpinned}); err != nil {
 		t.Fatalf("cleanup cache: %v", err)
 	}
-	if err := app.UnpinRecordingOffline(ctx, "rec-pref"); err != nil {
-		t.Fatalf("unpin recording offline: %v", err)
+	if err := app.Unpin(ctx, apitypes.PinIntentRequest{
+		Profile: "desktop",
+		Subject: apitypes.PinSubjectRef{Kind: apitypes.PinSubjectRecordingCluster, ID: "rec-pref"},
+	}); err != nil {
+		t.Fatalf("unpin recording: %v", err)
 	}
-	if err := app.UnpinRecordingOffline(ctx, "rec-pref"); err != nil {
-		t.Fatalf("repeat unpin recording offline: %v", err)
+	if err := app.Unpin(ctx, apitypes.PinIntentRequest{
+		Profile: "desktop",
+		Subject: apitypes.PinSubjectRef{Kind: apitypes.PinSubjectRecordingCluster, ID: "rec-pref"},
+	}); err != nil {
+		t.Fatalf("repeat unpin recording: %v", err)
 	}
 
 	entries := loadLibraryDeviceOplogEntries(t, app, library.LibraryID, local.DeviceID)
-	if len(entries) != 5 {
-		t.Fatalf("oplog entry count = %d, want 5", len(entries))
+	if len(entries) != 3 {
+		t.Fatalf("oplog entry count = %d, want 3", len(entries))
 	}
 
 	want := []struct {
@@ -228,9 +240,7 @@ func TestPreferencePinAndCacheMutationsAppendOplogOnlyForStateChanges(t *testing
 	}{
 		{entityTypeDeviceVariantPreference, "upsert", deviceVariantPreferenceEntityID(local.DeviceID, "track", "rec-pref")},
 		{entityTypeDeviceVariantPreference, "upsert", deviceVariantPreferenceEntityID(local.DeviceID, "album", "album-pref")},
-		{entityTypeOfflinePin, "upsert", offlinePinEntityID(local.DeviceID, "recording", "rec-pref")},
 		{entityTypeDeviceAssetCache, "upsert", deviceAssetCacheEntityID(local.DeviceID, "enc-drop")},
-		{entityTypeOfflinePin, "delete", offlinePinEntityID(local.DeviceID, "recording", "rec-pref")},
 	}
 	for i, entry := range entries {
 		if entry.Seq != int64(i+1) {

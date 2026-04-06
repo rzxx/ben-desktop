@@ -86,7 +86,9 @@ func autoMigrate(db *gorm.DB) error {
 		&ScanRoot{},
 		&LocalSourcePath{},
 		&LocalArtworkSourceRef{},
-		&OfflinePin{},
+		&PinRoot{},
+		&PinMember{},
+		&PinBlobRef{},
 		&AdmissionAuthority{},
 		&MembershipCert{},
 		&MembershipCertRevocation{},
@@ -239,7 +241,9 @@ func (a *App) runContextIdentityMigration(ctx context.Context) error {
 
 		for _, model := range []any{
 			&PlaylistItem{},
-			&OfflinePin{},
+			&PinBlobRef{},
+			&PinMember{},
+			&PinRoot{},
 			&DeviceVariantPreference{},
 			&ArtworkVariant{},
 			&LocalArtworkSourceRef{},
@@ -269,6 +273,13 @@ func (a *App) runContextIdentityMigration(ctx context.Context) error {
 		}
 		return upsertLocalSettingTx(tx, localSettingCatalogIdentityEpoch, contextIdentityEpoch, now)
 	})
+}
+
+func runPinStorageMigration(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
+	return db.Exec("DROP TABLE IF EXISTS offline_pins").Error
 }
 
 func scrubPathBearingOplogRowsTx(tx *gorm.DB) error {

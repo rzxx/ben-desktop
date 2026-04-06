@@ -3,9 +3,11 @@ import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
+import { pinSubjectKey, usePinStates } from "@/hooks/pins/usePinStates";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
+import { Types } from "@/lib/api/models";
 import { formatCount, joinArtists } from "@/lib/format";
 import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
 import { usePlaybackStore } from "@/stores/playback/store";
@@ -33,6 +35,15 @@ export function TracksPage() {
       },
       refetch: () => catalogLoaderClient.refetchTracks(),
     },
+  );
+  const trackPinStates = usePinStates(
+    query.items.map(
+      (track) =>
+        new Types.PinSubjectRef({
+          ID: track.LibraryRecordingID || track.RecordingID,
+          Kind: Types.PinSubjectKind.PinSubjectRecordingCluster,
+        }),
+    ),
   );
 
   return (
@@ -77,8 +88,13 @@ export function TracksPage() {
               onQueue={() => {
                 void queueRecording(track.RecordingID);
               }}
-              pinned={
-                trackAvailabilityByRecordingId[track.RecordingID]?.data?.Pinned
+              pinState={
+                trackPinStates[
+                  pinSubjectKey({
+                    ID: track.LibraryRecordingID || track.RecordingID,
+                    Kind: Types.PinSubjectKind.PinSubjectRecordingCluster,
+                  })
+                ] ?? null
               }
               recordingId={track.RecordingID}
               subtitle={joinArtists(track.Artists)}

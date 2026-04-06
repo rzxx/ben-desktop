@@ -4,6 +4,7 @@ import {
   TrackRowContextMenu,
   type TrackRowRecordingIdentity,
 } from "@/components/catalog/TrackRowContextMenu";
+import type { PinState } from "@/lib/api/models";
 import {
   availabilityLabel,
   formatDuration,
@@ -63,7 +64,7 @@ export function TrackListRow({
   onQueue,
   onRemove,
   onToggleLike,
-  pinned = false,
+  pinState,
   recording,
   removeLabel = "Remove track",
   subtitle,
@@ -80,7 +81,7 @@ export function TrackListRow({
   onQueue: () => void;
   onRemove?: () => void;
   onToggleLike?: () => void;
-  pinned?: boolean;
+  pinState?: PinState | null;
   recording?: TrackRowRecordingIdentity;
   removeLabel?: string;
   subtitle: string;
@@ -99,7 +100,7 @@ export function TrackListRow({
     <TrackRowContextMenu
       actionable={actionable}
       onQueue={onQueue}
-      pinned={pinned}
+      pinState={pinState}
       recording={recording}
       title={title}
     >

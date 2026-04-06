@@ -314,17 +314,6 @@ func syncPeerJobMessage(index, total int, peer SyncPeer) string {
 	return fmt.Sprintf("syncing peer %d of %d: %s", index, total, target)
 }
 
-func syncJobCompletionMessage(successes, failures int) string {
-	switch {
-	case successes > 0 && failures > 0:
-		return fmt.Sprintf("synced %d peer(s), %d failed", successes, failures)
-	case successes > 0:
-		return fmt.Sprintf("synced %d peer(s)", successes)
-	default:
-		return "manual sync completed"
-	}
-}
-
 func (a *SyncService) ConnectPeer(ctx context.Context, peerAddr string) error {
 	local, err := a.requireActiveContext(ctx)
 	if err != nil {
@@ -1057,7 +1046,8 @@ func selectCheckpointTailOpsTx(tx *gorm.DB, libraryID string, baseClocks map[str
 
 func clearCheckpointManagedStateTx(tx *gorm.DB, libraryID string) error {
 	models := []any{
-		&OfflinePin{},
+		&PinBlobRef{},
+		&PinMember{},
 		&Artist{},
 		&Credit{},
 		&AlbumVariantModel{},

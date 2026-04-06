@@ -234,7 +234,7 @@ func (s *CacheService) listEntries(ctx context.Context, libraryID, deviceID stri
 	if err := s.addArtworkEntries(ctx, entries, libraryID); err != nil {
 		return nil, err
 	}
-	if err := s.applyOfflinePins(ctx, entries, libraryID, deviceID); err != nil {
+	if err := s.applyPinnedBlobRefs(ctx, entries, libraryID, deviceID); err != nil {
 		return nil, err
 	}
 
@@ -373,95 +373,60 @@ func (s *CacheService) addArtworkEntries(ctx context.Context, entries map[string
 		if strings.TrimSpace(entry.ArtworkFileExt) == "" {
 			entry.ArtworkFileExt = fileExt
 		}
-		addPinScope(entry, apitypes.CachePinScopeRef{
-			Scope:   "thumbnail",
-			ScopeID: scopeType + ":" + scopeID,
-			Durable: true,
-		})
 	}
 
 	return nil
 }
 
-func (s *CacheService) applyOfflinePins(ctx context.Context, entries map[string]*cacheBlobEntry, libraryID, deviceID string) error {
-	var pins []OfflinePin
+func (s *CacheService) applyPinnedBlobRefs(ctx context.Context, entries map[string]*cacheBlobEntry, libraryID, deviceID string) error {
+	type row struct {
+		BlobID      string
+		Scope       string
+		ScopeID     string
+		RefKind     string
+		RecordingID string
+	}
+	var rows []row
 	if err := s.app.storage.WithContext(ctx).
+		Table("pin_blob_refs").
+		Select("blob_id, scope, scope_id, ref_kind AS ref_kind, recording_id AS recording_id").
 		Where("library_id = ? AND device_id = ?", libraryID, deviceID).
-		Order("scope ASC, scope_id ASC").
-		Find(&pins).Error; err != nil {
+		Order("scope ASC, scope_id ASC, blob_id ASC").
+		Scan(&rows).Error; err != nil {
 		return err
 	}
 
-	for _, pin := range pins {
-		blobIDs, err := s.offlinePinBlobIDs(ctx, libraryID, deviceID, pin)
-		if err != nil {
-			return err
+	for _, row := range rows {
+		entry, ok := entries[strings.TrimSpace(row.BlobID)]
+		if !ok {
+			continue
 		}
-		for _, blobID := range blobIDs {
-			entry, ok := entries[blobID]
-			if !ok {
-				continue
+		switch strings.TrimSpace(row.Scope) {
+		case "recording":
+			if entry.RecordingID == "" {
+				entry.RecordingID = firstNonEmpty(strings.TrimSpace(row.RecordingID), strings.TrimSpace(row.ScopeID))
 			}
-			switch strings.TrimSpace(pin.Scope) {
-			case "recording":
-				if entry.RecordingID == "" {
-					entry.RecordingID = strings.TrimSpace(pin.ScopeID)
-				}
-			case "album":
-				if entry.AlbumID == "" {
-					entry.AlbumID = strings.TrimSpace(pin.ScopeID)
-				}
-			case "playlist":
-				if entry.PlaylistID == "" {
-					entry.PlaylistID = strings.TrimSpace(pin.ScopeID)
-				}
+		case "album":
+			if entry.AlbumID == "" {
+				entry.AlbumID = strings.TrimSpace(row.ScopeID)
 			}
-			addPinScope(entry, apitypes.CachePinScopeRef{
-				Scope:   strings.TrimSpace(pin.Scope),
-				ScopeID: strings.TrimSpace(pin.ScopeID),
-				Durable: true,
-			})
+		case "playlist":
+			if entry.PlaylistID == "" {
+				entry.PlaylistID = strings.TrimSpace(row.ScopeID)
+			}
+		}
+		addPinScope(entry, apitypes.CachePinScopeRef{
+			Scope:   strings.TrimSpace(row.Scope),
+			ScopeID: strings.TrimSpace(row.ScopeID),
+			Durable: true,
+		})
+		if strings.EqualFold(strings.TrimSpace(row.RefKind), "artwork") && strings.TrimSpace(entry.ThumbnailScopeID) == "" {
+			entry.ThumbnailScope = strings.TrimSpace(row.Scope)
+			entry.ThumbnailScopeID = strings.TrimSpace(row.ScopeID)
 		}
 	}
 
 	return nil
-}
-
-func (s *CacheService) offlinePinBlobIDs(ctx context.Context, libraryID, deviceID string, pin OfflinePin) ([]string, error) {
-	scope := strings.TrimSpace(pin.Scope)
-	scopeID := strings.TrimSpace(pin.ScopeID)
-	profile := strings.TrimSpace(pin.Profile)
-	if scope == "" || scopeID == "" {
-		return nil, nil
-	}
-	local := apitypes.LocalContext{
-		LibraryID: libraryID,
-		DeviceID:  deviceID,
-	}
-
-	recordingIDs := []string{}
-	switch scope {
-	case "recording":
-		target, err := s.app.playback.resolveRecordingPinTarget(ctx, local, scopeID, profile)
-		if err != nil {
-			return nil, err
-		}
-		recordingIDs = append(recordingIDs, target.resolvedRecordingID)
-	case "album", "playlist":
-		_, scopeRecordingIDs, resolvedProfile, err := s.app.playback.resolveOfflinePinScope(ctx, local, scope, scopeID, profile)
-		if err != nil {
-			return nil, err
-		}
-		resolution, err := s.app.playback.resolvePlaybackVariantsBatch(ctx, local, scopeRecordingIDs, resolvedProfile)
-		if err != nil {
-			return nil, err
-		}
-		recordingIDs = append(recordingIDs, resolution.resolvedRecordingIDs...)
-	default:
-		return nil, nil
-	}
-
-	return s.cachedBlobIDsForResolvedRecordings(ctx, libraryID, deviceID, recordingIDs, profile)
 }
 
 func (s *CacheService) cachedBlobIDsForResolvedRecordings(ctx context.Context, libraryID, deviceID string, recordingIDs []string, profile string) ([]string, error) {

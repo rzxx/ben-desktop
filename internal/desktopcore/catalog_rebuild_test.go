@@ -47,7 +47,7 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToSurvivingVariant(t *test
 		t.Fatalf("initial rebuild: %v", err)
 	}
 	oldAlbumID := onlyAlbumID(t, app, ctx)
-	seedOfflinePin(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
+	seedPinRoot(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
 
 	overwriteSourceFileTags(t, app, library.LibraryID, "source-old", newTags)
 	if err := app.rebuildCatalogMaterialization(ctx, library.LibraryID, nil); err != nil {
@@ -98,7 +98,7 @@ func TestRebuildCatalogMaterializationPrunesAlbumPinWhenClusterRemoved(t *testin
 		t.Fatalf("initial rebuild: %v", err)
 	}
 	oldAlbumID := onlyAlbumID(t, app, ctx)
-	seedOfflinePin(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
+	seedPinRoot(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
 
 	if err := app.db.WithContext(ctx).
 		Model(&SourceFileModel{}).
@@ -162,7 +162,7 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToExplicitPreferredVariant
 		t.Fatalf("initial rebuild: %v", err)
 	}
 	oldAlbumID := onlyAlbumID(t, app, ctx)
-	seedOfflinePin(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
+	seedPinRoot(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
 
 	_, _, groupKey := normalizedRecordKeys(oldTags)
 	clusterID := stableNameID("album_cluster", groupKey)
@@ -238,7 +238,7 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToLocalSurvivingVariant(t 
 		t.Fatalf("initial rebuild: %v", err)
 	}
 	oldAlbumID := onlyAlbumID(t, app, ctx)
-	seedOfflinePin(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
+	seedPinRoot(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
 
 	overwriteSourceFileTags(t, app, library.LibraryID, "source-old", localSurvivorTags)
 	seedPresentSourceFileWithTags(t, app, library.LibraryID, "remote-device", "source-remote-1", remoteTrackOneTags)

@@ -740,19 +740,6 @@ func (s *Session) SelectQueueIndex(ctx context.Context, index int) (SessionSnaps
 	return s.SelectEntry(ctx, entryID)
 }
 
-func (s *Session) playCurrent(ctx context.Context) (SessionSnapshot, error) {
-	s.mu.Lock()
-	target, origin, queueIndex, ok := s.playTargetLocked()
-	if !ok {
-		state := snapshotCopyLocked(&s.snapshot)
-		s.mu.Unlock()
-		return state, errors.New("queue is empty")
-	}
-	s.mu.Unlock()
-
-	return s.playEntry(ctx, target, origin, queueIndex, nil, false, true)
-}
-
 func (s *Session) playNextAvailable(
 	ctx context.Context,
 	previous *SessionEntry,
@@ -1905,27 +1892,6 @@ func (s *Session) clearLoadingStateLocked() {
 	s.snapshot.LoadingPreparation = nil
 }
 
-func (s *Session) peekNextLocked(ignoreRepeatOne bool) (SessionEntry, EntryOrigin, int, bool) {
-	if s.snapshot.CurrentEntry == nil {
-		if len(s.snapshot.UserQueue) > 0 {
-			return s.snapshot.UserQueue[0], EntryOriginQueued, 0, true
-		}
-		index := s.firstContextIndexLocked()
-		if index < 0 || s.snapshot.ContextQueue == nil || index >= len(s.snapshot.ContextQueue.Entries) {
-			return SessionEntry{}, "", -1, false
-		}
-		return s.snapshot.ContextQueue.Entries[index], EntryOriginContext, -1, true
-	}
-	if len(s.snapshot.UserQueue) > 0 {
-		return s.snapshot.UserQueue[0], EntryOriginQueued, 0, true
-	}
-	index := s.nextContextIndexLocked(ignoreRepeatOne)
-	if index < 0 || s.snapshot.ContextQueue == nil || index >= len(s.snapshot.ContextQueue.Entries) {
-		return SessionEntry{}, "", -1, false
-	}
-	return s.snapshot.ContextQueue.Entries[index], EntryOriginContext, -1, true
-}
-
 func (s *Session) firstContextIndexLocked() int {
 	if isValidContextIndex(s.snapshot, resumeContextIndex(s.snapshot)) {
 		if !s.snapshot.Shuffle {
@@ -1937,16 +1903,6 @@ func (s *Session) firstContextIndexLocked() int {
 		}
 	}
 	return defaultFirstContextIndex(s.snapshot)
-}
-
-func (s *Session) nextContextIndexLocked(ignoreRepeatOne bool) int {
-	if s.snapshot.ContextQueue == nil || len(s.snapshot.ContextQueue.Entries) == 0 {
-		return -1
-	}
-	if !currentMatchesContext(s.snapshot) {
-		return s.firstContextIndexLocked()
-	}
-	return nextContextIndexFromAnchor(s.snapshot, currentContextIndex(s.snapshot), ignoreRepeatOne)
 }
 
 func (s *Session) ensureShuffleCycleLocked() {
@@ -2083,21 +2039,6 @@ func (s *Session) returnContextEntryLocked() (SessionEntry, bool) {
 		return SessionEntry{}, false
 	}
 	return s.snapshot.ContextQueue.Entries[currentContextIndex(s.snapshot)], true
-}
-
-func (s *Session) entryInCurrentContextLocked(entry SessionEntry) bool {
-	if entry.Origin != EntryOriginContext || s.snapshot.ContextQueue == nil {
-		return false
-	}
-	if entry.ContextIndex >= 0 && entry.ContextIndex < len(s.snapshot.ContextQueue.Entries) {
-		return s.snapshot.ContextQueue.Entries[entry.ContextIndex].EntryID == entry.EntryID
-	}
-	for _, contextEntry := range s.snapshot.ContextQueue.Entries {
-		if contextEntry.EntryID == entry.EntryID {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Session) consumeSkippedUserEntries(skipped []skippedPlaybackEntry, candidate *playbackCandidate, state SessionSnapshot) SessionSnapshot {
@@ -2503,15 +2444,6 @@ func clampVolume(volume int) int {
 	return volume
 }
 
-func isPlayableState(state apitypes.RecordingAvailabilityState) bool {
-	switch state {
-	case apitypes.AvailabilityPlayableLocalFile, apitypes.AvailabilityPlayableCachedOpt, apitypes.AvailabilityPlayableRemoteOpt:
-		return true
-	default:
-		return false
-	}
-}
-
 func isAvailabilityDefinitivelyUnavailable(state apitypes.RecordingAvailabilityState) bool {
 	switch state {
 	case apitypes.AvailabilityUnavailableNoPath, apitypes.AvailabilityUnavailableProvider:
@@ -2531,9 +2463,7 @@ func cloneInt64Ptr(value *int64) *int64 {
 
 func cloneEntries(entries []SessionEntry) []SessionEntry {
 	out := make([]SessionEntry, 0, len(entries))
-	for _, entry := range entries {
-		out = append(out, entry)
-	}
+	out = append(out, entries...)
 	return out
 }
 

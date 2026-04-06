@@ -4,6 +4,7 @@ import type {
   JobSnapshot,
   LikedRecordingItem,
   PlaylistListItem,
+  PinSubjectRef,
 } from "@/lib/api/models";
 import { Button } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
@@ -11,6 +12,7 @@ import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
+import { pinSubjectKey, usePinState, usePinStates } from "@/hooks/pins/usePinStates";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import {
   isJobActive,
@@ -22,12 +24,14 @@ import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import { listPlaylistsPage } from "@/lib/api/catalog";
 import {
   formatCount,
+  pinStateLabel,
   formatRelativeDate,
   isCatalogTrackActionable,
   isTrackCollectionPlayable,
   joinArtists,
 } from "@/lib/format";
-import { startPinPlaylistOffline, unpinLikedOffline } from "@/lib/api/playback";
+import { startPin, unpin } from "@/lib/api/pin";
+import { Types } from "@/lib/api/models";
 import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
 import { usePlaybackStore } from "@/stores/playback/store";
 import { selectValueQuery } from "@/stores/catalog/query-state";
@@ -74,12 +78,28 @@ export function LikedPlaylistPage() {
     !query.isLoading &&
     !query.hasMore &&
     likedTrackCount === query.items.length;
+  const likedPinSubject: PinSubjectRef | null = likedPlaylist?.PlaylistID
+    ? new Types.PinSubjectRef({
+        ID: likedPlaylist.PlaylistID,
+        Kind: Types.PinSubjectKind.PinSubjectLikedPlaylist,
+      })
+    : null;
+  const likedPinState = usePinState(likedPinSubject);
+  const trackPinStates = usePinStates(
+    query.items.map(
+      (track) =>
+        new Types.PinSubjectRef({
+          ID: track.LibraryRecordingID || track.RecordingID,
+          Kind: Types.PinSubjectKind.PinSubjectRecordingCluster,
+        }),
+    ),
+  );
   const canPlayLiked = isTrackCollectionPlayable({
     trackCount: likedTrackCount,
     fullyLoaded: likedTracksFullyLoaded,
     hasPlayableLoadedTrack,
   });
-  const likedScopePinned = Boolean(likedPlaylist?.ScopePinned);
+  const likedScopePinnedDirect = Boolean(likedPinState?.Direct);
   const pinBusy = pinActionBusy || isJobActive(trackedPinJob);
   const pinFeedback = isJobActive(trackedPinJob)
     ? trackedPinJob?.message?.trim() || "Pinning liked songs..."
@@ -102,15 +122,8 @@ export function LikedPlaylistPage() {
     });
   }, [refreshLikedPlaylist]);
 
-  useEffect(() => {
-    if (!trackedPinJob || isJobActive(trackedPinJob)) {
-      return;
-    }
-    void refreshLikedPlaylist().catch(() => {});
-  }, [refreshLikedPlaylist, trackedPinJob]);
-
   async function handleLikedPinToggle() {
-    if (!likedPlaylist?.PlaylistID) {
+    if (!likedPinSubject) {
       return;
     }
 
@@ -118,18 +131,12 @@ export function LikedPlaylistPage() {
     setPinError("");
 
     try {
-      if (likedScopePinned) {
-        await unpinLikedOffline();
-        setLikedPlaylist((current) =>
-          current ? { ...current, ScopePinned: false } : current,
-        );
+      if (likedScopePinnedDirect) {
+        await unpin(likedPinSubject);
         setPinJob(null);
       } else {
-        const job = await startPinPlaylistOffline(likedPlaylist.PlaylistID);
+        const job = await startPin(likedPinSubject);
         setPinJob(job);
-        setLikedPlaylist((current) =>
-          current ? { ...current, ScopePinned: true } : current,
-        );
       }
     } catch (error) {
       setPinError(error instanceof Error ? error.message : String(error));
@@ -170,7 +177,7 @@ export function LikedPlaylistPage() {
             Play liked
           </Button>
           <Button
-            disabled={pinBusy || !likedPlaylist?.PlaylistID}
+            disabled={pinBusy || !likedPinSubject}
             icon={
               pinBusy ? (
                 <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -181,16 +188,23 @@ export function LikedPlaylistPage() {
             onClick={() => {
               void handleLikedPinToggle();
             }}
-            tone={likedScopePinned ? "quiet" : "default"}
+            tone={likedScopePinnedDirect ? "quiet" : "default"}
           >
             {pinBusy
               ? "Pinning liked..."
-              : likedScopePinned
+              : likedScopePinnedDirect
                 ? "Unpin liked"
+                : likedPinState?.Covered
+                  ? "Pin liked directly"
                 : "Pin liked"}
           </Button>
           {pinFeedback ? (
             <p className="text-theme-500 text-xs">{pinFeedback}</p>
+          ) : null}
+          {!pinFeedback && !pinError && pinStateLabel(likedPinState) ? (
+            <p className="text-theme-500 text-xs">
+              {pinStateLabel(likedPinState)}
+            </p>
           ) : null}
           {!pinFeedback && pinError ? (
             <p className="text-xs text-red-300">{pinError}</p>
@@ -227,8 +241,13 @@ export function LikedPlaylistPage() {
               onQueue={() => {
                 void queueLikedTrack(likedPlaybackRecordingId(track));
               }}
-              pinned={
-                trackAvailabilityByRecordingId[track.RecordingID]?.data?.Pinned
+              pinState={
+                trackPinStates[
+                  pinSubjectKey({
+                    ID: track.LibraryRecordingID || track.RecordingID,
+                    Kind: Types.PinSubjectKind.PinSubjectRecordingCluster,
+                  })
+                ] ?? null
               }
               recordingId={track.RecordingID}
               subtitle={`${joinArtists(track.Artists)} • added ${formatRelativeDate(track.AddedAt)}`}

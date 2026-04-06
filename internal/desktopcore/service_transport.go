@@ -90,26 +90,6 @@ func (s *TransportService) Stop() {
 	s.stopRuntime(current)
 }
 
-func (s *TransportService) syncActive(ctx context.Context) error {
-	if s == nil || s.app == nil {
-		return nil
-	}
-	if s.app.hasTransportOverride() {
-		s.Stop()
-		return nil
-	}
-
-	local, runtime, ok, err := s.app.syncActiveLibraryRuntimeState(ctx)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		s.Stop()
-		return nil
-	}
-	return s.syncRuntime(ctx, local, runtime)
-}
-
 func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.LocalContext, runtime *activeLibraryRuntime) error {
 	if s == nil || s.app == nil {
 		return nil

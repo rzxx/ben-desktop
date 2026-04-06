@@ -697,9 +697,3 @@ func (a *CheckpointService) checkpointBacklogCount(ctx context.Context, libraryI
 	}
 	return backlog, nil
 }
-
-func sortCheckpointDevices(devices []apitypes.CheckpointDeviceCoverage) {
-	sort.Slice(devices, func(i, j int) bool {
-		return devices[i].DeviceID < devices[j].DeviceID
-	})
-}

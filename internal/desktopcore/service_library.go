@@ -2,6 +2,7 @@ package desktopcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -235,7 +236,7 @@ func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) er
 			return err
 		}
 		models := []any{
-			&Membership{}, &ScanRoot{}, &OfflinePin{}, &AdmissionAuthority{}, &MembershipCert{}, &MembershipCertRevocation{},
+			&Membership{}, &ScanRoot{}, &PinBlobRef{}, &PinMember{}, &PinRoot{}, &AdmissionAuthority{}, &MembershipCert{}, &MembershipCertRevocation{},
 			&MembershipRecovery{}, &InviteJoinRequest{}, &InviteTokenRedemption{}, &IssuedInvite{}, &JoinSession{},
 			&Artist{}, &Credit{}, &AlbumVariantModel{}, &TrackVariantModel{}, &AlbumTrack{}, &DeviceVariantPreference{},
 			&SourceFileModel{}, &OptimizedAssetModel{}, &DeviceAssetCacheModel{}, &ArtworkVariant{}, &Playlist{},
@@ -345,7 +346,7 @@ func (s *LibraryService) UpdateLibraryMemberRole(ctx context.Context, deviceID, 
 		switch {
 		case err == nil:
 			peerID = strings.TrimSpace(existingCert.PeerID)
-		case err != nil && err != gorm.ErrRecordNotFound:
+		case !errors.Is(err, gorm.ErrRecordNotFound):
 			return err
 		}
 
@@ -547,4 +548,3 @@ func (a *App) requireActiveContext(ctx context.Context) (apitypes.LocalContext, 
 		PeerID:    device.PeerID,
 	}, nil
 }
-

@@ -2446,6 +2446,246 @@ export class PageInfo {
     }
 }
 
+export class PinChangeEvent {
+    "InvalidateAll": boolean;
+    "Subjects": PinSubjectRef[];
+    "OccurredAt": time$0.Time;
+
+    /** Creates a new PinChangeEvent instance. */
+    constructor($$source: Partial<PinChangeEvent> = {}) {
+        if (!("InvalidateAll" in $$source)) {
+            this["InvalidateAll"] = false;
+        }
+        if (!("Subjects" in $$source)) {
+            this["Subjects"] = [];
+        }
+        if (!("OccurredAt" in $$source)) {
+            this["OccurredAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PinChangeEvent instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PinChangeEvent {
+        const $$createField1_0 = $$createType32;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Subjects" in $$parsedSource) {
+            $$parsedSource["Subjects"] = $$createField1_0($$parsedSource["Subjects"]);
+        }
+        return new PinChangeEvent($$parsedSource as Partial<PinChangeEvent>);
+    }
+}
+
+export class PinIntentRequest {
+    "Subject": PinSubjectRef;
+    "Profile": string;
+
+    /** Creates a new PinIntentRequest instance. */
+    constructor($$source: Partial<PinIntentRequest> = {}) {
+        if (!("Subject" in $$source)) {
+            this["Subject"] = (new PinSubjectRef());
+        }
+        if (!("Profile" in $$source)) {
+            this["Profile"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PinIntentRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PinIntentRequest {
+        const $$createField0_0 = $$createType31;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Subject" in $$parsedSource) {
+            $$parsedSource["Subject"] = $$createField0_0($$parsedSource["Subject"]);
+        }
+        return new PinIntentRequest($$parsedSource as Partial<PinIntentRequest>);
+    }
+}
+
+export class PinSourceRef {
+    "Subject": PinSubjectRef;
+    "Direct": boolean;
+    "Profile": string;
+
+    /** Creates a new PinSourceRef instance. */
+    constructor($$source: Partial<PinSourceRef> = {}) {
+        if (!("Subject" in $$source)) {
+            this["Subject"] = (new PinSubjectRef());
+        }
+        if (!("Direct" in $$source)) {
+            this["Direct"] = false;
+        }
+        if (!("Profile" in $$source)) {
+            this["Profile"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PinSourceRef instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PinSourceRef {
+        const $$createField0_0 = $$createType31;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Subject" in $$parsedSource) {
+            $$parsedSource["Subject"] = $$createField0_0($$parsedSource["Subject"]);
+        }
+        return new PinSourceRef($$parsedSource as Partial<PinSourceRef>);
+    }
+}
+
+export class PinState {
+    "Subject": PinSubjectRef;
+    "Pinned": boolean;
+    "Direct": boolean;
+    "Covered": boolean;
+    "Pending": boolean;
+    "Sources": PinSourceRef[];
+
+    /** Creates a new PinState instance. */
+    constructor($$source: Partial<PinState> = {}) {
+        if (!("Subject" in $$source)) {
+            this["Subject"] = (new PinSubjectRef());
+        }
+        if (!("Pinned" in $$source)) {
+            this["Pinned"] = false;
+        }
+        if (!("Direct" in $$source)) {
+            this["Direct"] = false;
+        }
+        if (!("Covered" in $$source)) {
+            this["Covered"] = false;
+        }
+        if (!("Pending" in $$source)) {
+            this["Pending"] = false;
+        }
+        if (!("Sources" in $$source)) {
+            this["Sources"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PinState instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PinState {
+        const $$createField0_0 = $$createType31;
+        const $$createField5_0 = $$createType34;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Subject" in $$parsedSource) {
+            $$parsedSource["Subject"] = $$createField0_0($$parsedSource["Subject"]);
+        }
+        if ("Sources" in $$parsedSource) {
+            $$parsedSource["Sources"] = $$createField5_0($$parsedSource["Sources"]);
+        }
+        return new PinState($$parsedSource as Partial<PinState>);
+    }
+}
+
+export class PinStateListRequest {
+    "Subjects": PinSubjectRef[];
+    "Profile": string;
+
+    /** Creates a new PinStateListRequest instance. */
+    constructor($$source: Partial<PinStateListRequest> = {}) {
+        if (!("Subjects" in $$source)) {
+            this["Subjects"] = [];
+        }
+        if (!("Profile" in $$source)) {
+            this["Profile"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PinStateListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PinStateListRequest {
+        const $$createField0_0 = $$createType32;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Subjects" in $$parsedSource) {
+            $$parsedSource["Subjects"] = $$createField0_0($$parsedSource["Subjects"]);
+        }
+        return new PinStateListRequest($$parsedSource as Partial<PinStateListRequest>);
+    }
+}
+
+export class PinStateRequest {
+    "Subject": PinSubjectRef;
+    "Profile": string;
+
+    /** Creates a new PinStateRequest instance. */
+    constructor($$source: Partial<PinStateRequest> = {}) {
+        if (!("Subject" in $$source)) {
+            this["Subject"] = (new PinSubjectRef());
+        }
+        if (!("Profile" in $$source)) {
+            this["Profile"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PinStateRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PinStateRequest {
+        const $$createField0_0 = $$createType31;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Subject" in $$parsedSource) {
+            $$parsedSource["Subject"] = $$createField0_0($$parsedSource["Subject"]);
+        }
+        return new PinStateRequest($$parsedSource as Partial<PinStateRequest>);
+    }
+}
+
+export enum PinSubjectKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    PinSubjectRecordingCluster = "recording_cluster",
+    PinSubjectRecordingVariant = "recording_variant",
+    PinSubjectAlbumVariant = "album_variant",
+    PinSubjectPlaylist = "playlist",
+    PinSubjectLikedPlaylist = "liked_playlist",
+};
+
+export class PinSubjectRef {
+    "Kind": PinSubjectKind;
+    "ID": string;
+
+    /** Creates a new PinSubjectRef instance. */
+    constructor($$source: Partial<PinSubjectRef> = {}) {
+        if (!("Kind" in $$source)) {
+            this["Kind"] = PinSubjectKind.$zero;
+        }
+        if (!("ID" in $$source)) {
+            this["ID"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PinSubjectRef instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PinSubjectRef {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PinSubjectRef($$parsedSource as Partial<PinSubjectRef>);
+    }
+}
+
 export class PlaybackBatchResult {
     "Tracks": number;
     "TotalBytes": number;
@@ -2749,7 +2989,7 @@ export class PlaylistCoverRecord {
      */
     static createFrom($$source: any = {}): PlaylistCoverRecord {
         const $$createField2_0 = $$createType10;
-        const $$createField4_0 = $$createType32;
+        const $$createField4_0 = $$createType36;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Thumb" in $$parsedSource) {
             $$parsedSource["Thumb"] = $$createField2_0($$parsedSource["Thumb"]);
@@ -3237,10 +3477,10 @@ export class RecordingAvailabilityOverview {
      * Creates a new RecordingAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingAvailabilityOverview {
-        const $$createField4_0 = $$createType33;
-        const $$createField5_0 = $$createType34;
-        const $$createField6_0 = $$createType36;
-        const $$createField7_0 = $$createType38;
+        const $$createField4_0 = $$createType37;
+        const $$createField5_0 = $$createType38;
+        const $$createField6_0 = $$createType40;
+        const $$createField7_0 = $$createType42;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Playback" in $$parsedSource) {
             $$parsedSource["Playback"] = $$createField4_0($$parsedSource["Playback"]);
@@ -3458,8 +3698,8 @@ export class RecordingVariantAvailabilityOverview {
      * Creates a new RecordingVariantAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingVariantAvailabilityOverview {
-        const $$createField0_0 = $$createType39;
-        const $$createField1_0 = $$createType36;
+        const $$createField0_0 = $$createType43;
+        const $$createField1_0 = $$createType40;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Variant" in $$parsedSource) {
             $$parsedSource["Variant"] = $$createField0_0($$parsedSource["Variant"]);
@@ -3861,12 +4101,16 @@ const $$createType27 = NotificationSubject.createFrom;
 const $$createType28 = $Create.Nullable($$createType27);
 const $$createType29 = ($$createParamT: any) => $Create.Array($$createParamT);
 const $$createType30 = PageInfo.createFrom;
-const $$createType31 = PlaylistCoverVariant.createFrom;
+const $$createType31 = PinSubjectRef.createFrom;
 const $$createType32 = $Create.Array($$createType31);
-const $$createType33 = RecordingPlaybackAvailability.createFrom;
-const $$createType34 = TrackAvailabilitySummary.createFrom;
-const $$createType35 = RecordingAvailabilityItem.createFrom;
+const $$createType33 = PinSourceRef.createFrom;
+const $$createType34 = $Create.Array($$createType33);
+const $$createType35 = PlaylistCoverVariant.createFrom;
 const $$createType36 = $Create.Array($$createType35);
-const $$createType37 = RecordingVariantAvailabilityOverview.createFrom;
-const $$createType38 = $Create.Array($$createType37);
-const $$createType39 = RecordingVariantItem.createFrom;
+const $$createType37 = RecordingPlaybackAvailability.createFrom;
+const $$createType38 = TrackAvailabilitySummary.createFrom;
+const $$createType39 = RecordingAvailabilityItem.createFrom;
+const $$createType40 = $Create.Array($$createType39);
+const $$createType41 = RecordingVariantAvailabilityOverview.createFrom;
+const $$createType42 = $Create.Array($$createType41);
+const $$createType43 = RecordingVariantItem.createFrom;

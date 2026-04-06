@@ -552,7 +552,7 @@ func TestRescanNowReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
 	if err := app.SetPreferredAlbumVariant(ctx, oldAlbumID, oldVariantAlbumID); err != nil {
 		t.Fatalf("set preferred album variant: %v", err)
 	}
-	seedOfflinePin(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
+	seedPinRoot(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
 	if got := len(loadAlbumArtworkRows(t, app, oldAlbumID)); got != 3 {
 		t.Fatalf("old artwork row count = %d, want 3", got)
 	}
@@ -1189,7 +1189,7 @@ func assertAlbumPinCount(t *testing.T, app *App, libraryID, deviceID, albumID st
 
 	var count int64
 	if err := app.db.WithContext(context.Background()).
-		Model(&OfflinePin{}).
+		Model(&PinRoot{}).
 		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", libraryID, deviceID, "album", albumID).
 		Count(&count).Error; err != nil {
 		t.Fatalf("count album pins for %s: %v", albumID, err)

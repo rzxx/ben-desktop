@@ -61,7 +61,7 @@ func TestNotificationFromJobMapsClassificationAndPhase(t *testing.T) {
 func TestNotificationFromJobClassifiesManualAndAutoPinJobs(t *testing.T) {
 	manual := notificationFromJob(desktopcore.JobSnapshot{
 		JobID: "pin-1",
-		Kind:  "pin-album-offline",
+		Kind:  "pin-album",
 		Phase: desktopcore.JobPhaseQueued,
 	})
 	if manual.Audience != apitypes.NotificationAudienceUser || manual.Importance != apitypes.NotificationImportanceNormal {

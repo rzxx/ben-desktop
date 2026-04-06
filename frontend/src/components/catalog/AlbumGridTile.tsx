@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import type { AlbumListItem } from "@/lib/api/models";
+import type { AlbumListItem, PinState } from "@/lib/api/models";
 import {
   formatCount,
   isAlbumUnavailableInCatalog,
   joinArtists,
+  pinStateLabel,
 } from "@/lib/format";
 import { useThumbnailUrl } from "@/hooks/media/useThumbnailUrl";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
@@ -12,11 +13,13 @@ export function AlbumGridTile({
   album,
   availabilityState,
   availabilityLabel,
+  pinState,
   state,
 }: {
   album: AlbumListItem;
   availabilityState?: string | null;
   availabilityLabel: string;
+  pinState?: PinState | null;
   state?: Record<string, unknown>;
 }) {
   const artworkUrl = useThumbnailUrl(album.Thumb);
@@ -51,6 +54,7 @@ export function AlbumGridTile({
       </p>
       <p className="text-theme-500 mt-1 line-clamp-1 text-xs">
         {formatCount(album.TrackCount, "track")} • {availabilityLabel}
+        {pinStateLabel(pinState) ? ` • ${pinStateLabel(pinState)}` : ""}
       </p>
     </Link>
   );

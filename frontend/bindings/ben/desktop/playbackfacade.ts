@@ -78,30 +78,6 @@ export function ListRecordingPlaybackAvailability(req: apitypes$0.RecordingPlayb
     });
 }
 
-export function PinAlbumOffline(albumID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
-    return $Call.ByID(482127638, albumID, preferredProfile).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
-export function PinLikedOffline(preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
-    return $Call.ByID(1509282448, preferredProfile).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
-export function PinPlaylistOffline(playlistID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackBatchResult> {
-    return $Call.ByID(1040829657, playlistID, preferredProfile).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
-export function PinRecordingOffline(recordingID: string, preferredProfile: string): $CancellablePromise<apitypes$0.PlaybackRecordingResult> {
-    return $Call.ByID(1761311306, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType1($result);
-    });
-}
-
 export function ResolveAlbumArtworkURL(albumID: string, variant: string): $CancellablePromise<string> {
     return $Call.ByID(1336735319, albumID, variant);
 }
@@ -138,44 +114,10 @@ export function StartEnsureRecordingEncoding(recordingID: string, preferredProfi
     });
 }
 
-export function StartPinAlbumOffline(albumID: string, preferredProfile: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
-    return $Call.ByID(1209482508, albumID, preferredProfile).then(($result: any) => {
-        return $$createType12($result);
-    });
-}
-
-export function StartPinPlaylistOffline(playlistID: string, preferredProfile: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
-    return $Call.ByID(1984663315, playlistID, preferredProfile).then(($result: any) => {
-        return $$createType12($result);
-    });
-}
-
-export function StartPinRecordingOffline(recordingID: string, preferredProfile: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
-    return $Call.ByID(3679741964, recordingID, preferredProfile).then(($result: any) => {
-        return $$createType12($result);
-    });
-}
-
 export function StartPreparePlaybackRecording(recordingID: string, preferredProfile: string, purpose: apitypes$0.PlaybackPreparationPurpose): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(1507550790, recordingID, preferredProfile, purpose).then(($result: any) => {
         return $$createType12($result);
     });
-}
-
-export function UnpinAlbumOffline(albumID: string): $CancellablePromise<void> {
-    return $Call.ByID(2040256123, albumID);
-}
-
-export function UnpinLikedOffline(): $CancellablePromise<void> {
-    return $Call.ByID(2160817417);
-}
-
-export function UnpinPlaylistOffline(playlistID: string): $CancellablePromise<void> {
-    return $Call.ByID(1355317730, playlistID);
-}
-
-export function UnpinRecordingOffline(recordingID: string): $CancellablePromise<void> {
-    return $Call.ByID(2993071771, recordingID);
 }
 
 // Private type creation functions

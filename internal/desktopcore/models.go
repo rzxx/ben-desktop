@@ -65,15 +65,53 @@ type LocalArtworkSourceRef struct {
 
 func (LocalArtworkSourceRef) TableName() string { return "local_artwork_source_refs" }
 
-type OfflinePin struct {
-	LibraryID string    `gorm:"primaryKey;size:64"`
-	DeviceID  string    `gorm:"primaryKey;size:64"`
-	Scope     string    `gorm:"primaryKey;size:32"`
-	ScopeID   string    `gorm:"primaryKey;size:128"`
-	Profile   string    `gorm:"size:128;not null"`
-	CreatedAt time.Time `gorm:"not null"`
-	UpdatedAt time.Time `gorm:"not null"`
+type PinRoot struct {
+	LibraryID        string     `gorm:"primaryKey;size:64"`
+	DeviceID         string     `gorm:"primaryKey;size:64"`
+	Scope            string     `gorm:"primaryKey;size:32"`
+	ScopeID          string     `gorm:"primaryKey;size:128"`
+	Profile          string     `gorm:"size:128;not null"`
+	PendingCount     int        `gorm:"not null;default:0"`
+	CreatedAt        time.Time  `gorm:"not null"`
+	UpdatedAt        time.Time  `gorm:"not null"`
+	LastReconciledAt *time.Time `gorm:"index"`
 }
+
+func (PinRoot) TableName() string { return "pin_roots" }
+
+type PinMember struct {
+	LibraryID          string    `gorm:"primaryKey;size:64"`
+	DeviceID           string    `gorm:"primaryKey;size:64"`
+	Scope              string    `gorm:"primaryKey;size:32"`
+	ScopeID            string    `gorm:"primaryKey;size:128"`
+	Profile            string    `gorm:"primaryKey;size:128"`
+	VariantRecordingID string    `gorm:"primaryKey;size:64;column:variant_recording_id"`
+	LibraryRecordingID string    `gorm:"size:64;not null;index;column:library_recording_id"`
+	ResolutionPolicy   string    `gorm:"size:32;not null;column:resolution_policy"`
+	Pending            bool      `gorm:"not null;default:false;index"`
+	LastError          string    `gorm:"size:512"`
+	UpdatedAt          time.Time `gorm:"not null;index"`
+}
+
+func (PinMember) TableName() string { return "pin_members" }
+
+type PinBlobRef struct {
+	LibraryID        string    `gorm:"primaryKey;size:64"`
+	DeviceID         string    `gorm:"primaryKey;size:64"`
+	Scope            string    `gorm:"primaryKey;size:32"`
+	ScopeID          string    `gorm:"primaryKey;size:128"`
+	Profile          string    `gorm:"primaryKey;size:128"`
+	BlobID           string    `gorm:"primaryKey;size:128"`
+	RefKind          string    `gorm:"primaryKey;size:16;column:ref_kind"`
+	SubjectID        string    `gorm:"primaryKey;size:160;column:subject_id"`
+	RecordingID      string    `gorm:"size:64;index;column:recording_id"`
+	ArtworkScopeType string    `gorm:"size:32;column:artwork_scope_type"`
+	ArtworkScopeID   string    `gorm:"size:128;column:artwork_scope_id"`
+	ArtworkVariant   string    `gorm:"size:64;column:artwork_variant"`
+	UpdatedAt        time.Time `gorm:"not null;index"`
+}
+
+func (PinBlobRef) TableName() string { return "pin_blob_refs" }
 
 type MembershipCert struct {
 	LibraryID        string `gorm:"primaryKey;size:64"`

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { AlbumTracksEmptyState } from "@/components/catalog/EmptyState";
 import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
+import { pinSubjectKey, usePinState, usePinStates } from "@/hooks/pins/usePinStates";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import {
   isJobActive,
@@ -28,12 +29,13 @@ import {
   formatDuration,
   isAggregateAvailabilityPlayable,
   joinArtists,
+  pinStateLabel,
 } from "@/lib/format";
 import {
   resolveAlbumArtworkURL,
-  startPinAlbumOffline,
-  unpinAlbumOffline,
 } from "@/lib/api/playback";
+import { startPin, unpin } from "@/lib/api/pin";
+import { Types } from "@/lib/api/models";
 import { router } from "@/app/router/router-instance";
 import {
   getDetailRecord,
@@ -99,6 +101,14 @@ export function AlbumDetailPage() {
     (state) => state.trackAvailabilityByRecordingId,
   );
   const trackedPinJob = useJobSnapshot(pinJob);
+  const albumPinState = usePinState(
+    selectedVariantId
+      ? new Types.PinSubjectRef({
+          ID: selectedVariantId,
+          Kind: Types.PinSubjectKind.PinSubjectAlbumVariant,
+        })
+      : null,
+  );
 
   const detail = useStoreQuery(
     (state) => selectDetail(getDetailRecord(state.albumDetails, albumId)),
@@ -165,6 +175,15 @@ export function AlbumDetailPage() {
     variants.data?.find((variant) => variant.AlbumID === selectedVariantId) ??
     null;
   const albumVariants = variants.data ?? [];
+  const trackPinStates = usePinStates(
+    trackQuery.items.map(
+      (track) =>
+        new Types.PinSubjectRef({
+          ID: track.RecordingID,
+          Kind: Types.PinSubjectKind.PinSubjectRecordingVariant,
+        }),
+    ),
+  );
   const lowResArtworkUrl = useResolvedUrl(
     selectedVariantId ? `album:${selectedVariantId}:96_jpeg` : "",
     selectedVariantId
@@ -185,9 +204,8 @@ export function AlbumDetailPage() {
       ? albumAvailabilityByAlbumId[detail.data.AlbumID]?.data
       : undefined);
   const canPlayAlbum = isAggregateAvailabilityPlayable(heroAvailability);
-  const albumScopePinned = Boolean(heroAvailability?.ScopePinned);
-  const canShowAlbumPinAction =
-    albumScopePinned || heroAvailability?.State !== "LOCAL";
+  const albumScopePinnedDirect = Boolean(albumPinState?.Direct);
+  const canShowAlbumPinAction = Boolean(selectedVariantId);
   const pinBusy = pinActionBusy || isJobActive(trackedPinJob);
   const pinFeedback = isJobActive(trackedPinJob)
     ? trackedPinJob?.message?.trim() || "Pinning album..."
@@ -240,11 +258,17 @@ export function AlbumDetailPage() {
     setPinError("");
 
     try {
-      if (albumScopePinned) {
-        await unpinAlbumOffline(selectedVariantId);
+      if (albumScopePinnedDirect) {
+        await unpin({
+          ID: selectedVariantId,
+          Kind: Types.PinSubjectKind.PinSubjectAlbumVariant,
+        });
         setPinJob(null);
       } else {
-        const job = await startPinAlbumOffline(selectedVariantId);
+        const job = await startPin({
+          ID: selectedVariantId,
+          Kind: Types.PinSubjectKind.PinSubjectAlbumVariant,
+        });
         setPinJob(job);
       }
     } catch (error) {
@@ -309,18 +333,25 @@ export function AlbumDetailPage() {
                   onClick={() => {
                     void handleAlbumPinToggle();
                   }}
-                  tone={albumScopePinned ? "quiet" : "default"}
+                  tone={albumScopePinnedDirect ? "quiet" : "default"}
                 >
                   {pinBusy
                     ? "Pinning album..."
-                    : albumScopePinned
+                    : albumScopePinnedDirect
                       ? "Unpin album"
+                      : albumPinState?.Covered
+                        ? "Pin album directly"
                       : "Pin album"}
                 </Button>
               ) : null}
             </div>
             {pinFeedback ? (
               <p className="text-theme-500 text-xs">{pinFeedback}</p>
+            ) : null}
+            {!pinFeedback && !pinError && pinStateLabel(albumPinState) ? (
+              <p className="text-theme-500 text-xs">
+                {pinStateLabel(albumPinState)}
+              </p>
             ) : null}
             {!pinFeedback && pinError ? (
               <p className="text-xs text-red-300">{pinError}</p>
@@ -432,9 +463,13 @@ export function AlbumDetailPage() {
                 onQueue={() => {
                   void queueRecording(track.RecordingID);
                 }}
-                pinned={
-                  trackAvailabilityByRecordingId[track.RecordingID]?.data
-                    ?.Pinned
+                pinState={
+                  trackPinStates[
+                    pinSubjectKey({
+                      ID: track.RecordingID,
+                      Kind: Types.PinSubjectKind.PinSubjectRecordingVariant,
+                    })
+                  ] ?? null
                 }
                 recordingId={track.RecordingID}
                 subtitle={joinArtists(track.Artists)}

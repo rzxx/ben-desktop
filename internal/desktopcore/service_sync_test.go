@@ -883,8 +883,8 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	}
 	oldAlbumID := initialAlbums.Items[0].LibraryAlbumID
 	oldVariantAlbumID := initialAlbums.Items[0].PreferredVariantAlbumID
-	if err := owner.playback.upsertOfflinePin(ctx, ownerLocal, "album", oldVariantAlbumID, "desktop"); err != nil {
-		t.Fatalf("upsert owner album pin: %v", err)
+	if err := owner.pin.upsertPinRoot(ctx, ownerLocal, "album", oldVariantAlbumID, "desktop"); err != nil {
+		t.Fatalf("upsert owner album pin root: %v", err)
 	}
 
 	registry := newMemorySyncRegistry()
@@ -1022,7 +1022,7 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if staleAlbumCount != 0 {
 		t.Fatalf("stale joiner album row count = %d, want 0", staleAlbumCount)
 	}
-	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newVariantAlbumID, 1)
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newVariantAlbumID, 0)
 }
 
 func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
@@ -1100,8 +1100,8 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	}
 	oldAlbumID := initialAlbums.Items[0].LibraryAlbumID
 	oldVariantAlbumID := initialAlbums.Items[0].PreferredVariantAlbumID
-	if err := owner.playback.upsertOfflinePin(ctx, ownerLocal, "album", oldVariantAlbumID, "desktop"); err != nil {
-		t.Fatalf("upsert owner album pin: %v", err)
+	if err := owner.pin.upsertPinRoot(ctx, ownerLocal, "album", oldVariantAlbumID, "desktop"); err != nil {
+		t.Fatalf("upsert owner album pin root: %v", err)
 	}
 
 	for _, path := range []string{oldA, oldB} {
@@ -1231,7 +1231,7 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if staleAlbumCount != 0 {
 		t.Fatalf("stale checkpoint joiner album row count = %d, want 0", staleAlbumCount)
 	}
-	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newVariantAlbumID, 1)
+	assertAlbumPinCount(t, joiner, library.LibraryID, ownerLocal.DeviceID, newVariantAlbumID, 0)
 }
 
 func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *testing.T) {
@@ -1378,8 +1378,11 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 	}
 	writeCacheBlob(t, owner, encodingBlobID, 128)
 
-	if _, err := owner.PinRecordingOffline(ctx, recordingID, "desktop"); err != nil {
-		t.Fatalf("pin recording offline: %v", err)
+	if _, err := owner.StartPin(ctx, apitypes.PinIntentRequest{
+		Profile: "desktop",
+		Subject: apitypes.PinSubjectRef{Kind: apitypes.PinSubjectRecordingCluster, ID: recordingID},
+	}); err != nil {
+		t.Fatalf("start recording pin: %v", err)
 	}
 
 	registry := newMemorySyncRegistry()
@@ -1410,14 +1413,15 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 		t.Fatalf("album preference = %q, want %q", albumPref.ChosenVariantID, albumVariantID)
 	}
 
-	var pin OfflinePin
+	var pinCount int64
 	if err := joiner.db.WithContext(ctx).
+		Model(&PinRoot{}).
 		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", library.LibraryID, ownerLocal.DeviceID, "recording", recordingID).
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load synced offline pin: %v", err)
+		Count(&pinCount).Error; err != nil {
+		t.Fatalf("count remote device pins: %v", err)
 	}
-	if pin.Profile != "desktop" {
-		t.Fatalf("offline pin profile = %q, want desktop", pin.Profile)
+	if pinCount != 0 {
+		t.Fatalf("expected remote device pin intent to remain local-only, count=%d", pinCount)
 	}
 
 	var encoding OptimizedAssetModel
@@ -1462,23 +1466,21 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 	if err != nil {
 		t.Fatalf("list joiner cache entries: %v", err)
 	}
-	var thumbnailPinned bool
+	var artworkCached bool
 	for _, entry := range cacheEntries.Items {
 		if entry.BlobID != artworkBlobID {
 			continue
 		}
-		if !entry.Pinned || entry.Kind != apitypes.CacheKindThumbnail {
-			t.Fatalf("expected synced artwork cache entry to be pinned thumbnail, got %+v", entry)
+		if entry.Kind != apitypes.CacheKindThumbnail {
+			t.Fatalf("expected synced artwork cache entry to remain thumbnail, got %+v", entry)
 		}
-		for _, scope := range entry.PinScopes {
-			if scope.Scope == "thumbnail" && scope.ScopeID == "album:"+albumID && scope.Durable {
-				thumbnailPinned = true
-				break
-			}
+		if entry.Pinned {
+			t.Fatalf("expected synced artwork cache entry to remain unpinned without local pin intent, got %+v", entry)
 		}
+		artworkCached = true
 	}
-	if !thumbnailPinned {
-		t.Fatalf("expected synced artwork cache entry to have durable thumbnail pin scope")
+	if !artworkCached {
+		t.Fatalf("expected synced artwork cache entry to exist locally")
 	}
 }
 

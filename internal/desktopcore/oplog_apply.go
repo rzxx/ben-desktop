@@ -50,8 +50,6 @@ func applyOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 		return applyPlaylistItemOplogEntryTx(tx, entry)
 	case entityTypeDeviceVariantPreference:
 		return applyDeviceVariantPreferenceOplogEntryTx(tx, entry)
-	case entityTypeOfflinePin:
-		return applyOfflinePinOplogEntryTx(tx, entry)
 	case entityTypeOptimizedAsset:
 		return applyOptimizedAssetOplogEntryTx(tx, entry)
 	case entityTypeDeviceAssetCache:
@@ -371,58 +369,6 @@ func applyDeviceVariantPreferenceOplogEntryTx(tx *gorm.DB, entry OplogEntry) err
 	}).Create(&row).Error
 }
 
-func applyOfflinePinOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
-	apply, err := shouldApplyLatestMutationTx(tx, entry)
-	if err != nil || !apply {
-		return err
-	}
-
-	switch strings.TrimSpace(entry.OpKind) {
-	case "upsert":
-		var payload offlinePinOplogPayload
-		if err := json.Unmarshal([]byte(entry.PayloadJSON), &payload); err != nil {
-			return fmt.Errorf("decode offline pin payload: %w", err)
-		}
-		deviceID, scope, scopeID := offlinePinIdentityForEntry(entry, payload)
-		if deviceID == "" || scope == "" || scopeID == "" {
-			return fmt.Errorf("offline pin identity is required")
-		}
-		row := OfflinePin{
-			LibraryID: entry.LibraryID,
-			DeviceID:  deviceID,
-			Scope:     scope,
-			ScopeID:   scopeID,
-			Profile:   strings.TrimSpace(payload.Profile),
-			CreatedAt: oplogPayloadTime(payload.UpdatedAtNS, entry),
-			UpdatedAt: oplogPayloadTime(payload.UpdatedAtNS, entry),
-		}
-		return tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "library_id"},
-				{Name: "device_id"},
-				{Name: "scope"},
-				{Name: "scope_id"},
-			},
-			DoUpdates: clause.AssignmentColumns([]string{"profile", "updated_at"}),
-		}).Create(&row).Error
-	case "delete":
-		var payload offlinePinOplogPayload
-		if strings.TrimSpace(entry.PayloadJSON) != "" {
-			if err := json.Unmarshal([]byte(entry.PayloadJSON), &payload); err != nil {
-				return fmt.Errorf("decode offline pin delete payload: %w", err)
-			}
-		}
-		deviceID, scope, scopeID := offlinePinIdentityForEntry(entry, payload)
-		if deviceID == "" || scope == "" || scopeID == "" {
-			return fmt.Errorf("offline pin identity is required")
-		}
-		return tx.Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", entry.LibraryID, deviceID, scope, scopeID).
-			Delete(&OfflinePin{}).Error
-	default:
-		return fmt.Errorf("unsupported offline pin op kind %q", strings.TrimSpace(entry.OpKind))
-	}
-}
-
 func applyOptimizedAssetOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 	apply, err := shouldApplyLatestMutationTx(tx, entry)
 	if err != nil || !apply {
@@ -628,25 +574,6 @@ func deviceVariantPreferenceIdentityForEntry(entry OplogEntry, payload deviceVar
 		}
 	}
 	return deviceID, scopeType, clusterID
-}
-
-func offlinePinIdentityForEntry(entry OplogEntry, payload offlinePinOplogPayload) (string, string, string) {
-	deviceID := strings.TrimSpace(payload.DeviceID)
-	scope := strings.TrimSpace(payload.Scope)
-	scopeID := strings.TrimSpace(payload.ScopeID)
-	parts := strings.SplitN(strings.TrimSpace(entry.EntityID), ":", 3)
-	if len(parts) == 3 {
-		if deviceID == "" {
-			deviceID = strings.TrimSpace(parts[0])
-		}
-		if scope == "" {
-			scope = strings.TrimSpace(parts[1])
-		}
-		if scopeID == "" {
-			scopeID = strings.TrimSpace(parts[2])
-		}
-	}
-	return deviceID, scope, scopeID
 }
 
 func deviceAssetCacheIdentityForEntry(entry OplogEntry, payload deviceAssetCacheOplogPayload) (string, string) {

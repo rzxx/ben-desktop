@@ -57,24 +57,6 @@ func (a *App) upsertOptimizedAssetTx(tx *gorm.DB, local apitypes.LocalContext, r
 	return err
 }
 
-func (a *App) deleteOptimizedAssetTx(tx *gorm.DB, local apitypes.LocalContext, optimizedAssetID string) error {
-	optimizedAssetID = strings.TrimSpace(optimizedAssetID)
-	if optimizedAssetID == "" {
-		return nil
-	}
-	if err := tx.Where("library_id = ? AND optimized_asset_id = ?", local.LibraryID, optimizedAssetID).Delete(&DeviceAssetCacheModel{}).Error; err != nil {
-		return err
-	}
-	result := tx.Where("library_id = ? AND optimized_asset_id = ?", local.LibraryID, optimizedAssetID).Delete(&OptimizedAssetModel{})
-	if result.Error != nil || result.RowsAffected == 0 {
-		return result.Error
-	}
-	_, err := a.appendLocalOplogTx(tx, local, entityTypeOptimizedAsset, optimizedAssetEntityID(optimizedAssetID), "delete", optimizedAssetDeleteOplogPayload{
-		OptimizedAssetID: optimizedAssetID,
-	})
-	return err
-}
-
 func (a *App) upsertDeviceAssetCacheTx(tx *gorm.DB, local apitypes.LocalContext, row DeviceAssetCacheModel) error {
 	now := time.Now().UTC()
 	row.LibraryID = strings.TrimSpace(local.LibraryID)

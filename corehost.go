@@ -20,6 +20,7 @@ type coreHost struct {
 	network          desktopcore.NetworkRuntime
 	jobs             desktopcore.JobsRuntime
 	catalog          desktopcore.CatalogRuntime
+	pin              desktopcore.PinRuntime
 	invite           desktopcore.InviteRuntime
 	cache            desktopcore.CacheRuntime
 	playback         desktopcore.PlaybackRuntime
@@ -53,6 +54,7 @@ func (h *coreHost) Start(ctx context.Context) error {
 	h.network = runtime.NetworkRuntime()
 	h.jobs = runtime.Jobs()
 	h.catalog = runtime.CatalogRuntime()
+	h.pin = runtime.PinRuntime()
 	h.invite = runtime.InviteRuntime()
 	h.cache = runtime.CacheRuntime()
 	h.playback = runtime.PlaybackRuntime()
@@ -73,6 +75,7 @@ func (h *coreHost) Close() error {
 	h.network = nil
 	h.jobs = nil
 	h.catalog = nil
+	h.pin = nil
 	h.invite = nil
 	h.cache = nil
 	h.playback = nil
@@ -144,6 +147,18 @@ func (h *coreHost) CatalogRuntime() desktopcore.CatalogRuntime {
 		return h.unavailable
 	}
 	return h.catalog
+}
+
+func (h *coreHost) PinRuntime() desktopcore.PinRuntime {
+	if h == nil {
+		return nil
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.pin == nil {
+		return h.unavailable
+	}
+	return h.pin
 }
 
 func (h *coreHost) InviteRuntime() desktopcore.InviteRuntime {

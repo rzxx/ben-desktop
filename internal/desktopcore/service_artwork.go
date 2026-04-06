@@ -752,47 +752,6 @@ ORDER BY sf.quality_rank DESC, sf.updated_at DESC, sf.last_seen_at DESC, sf.loca
 	return rows, nil
 }
 
-func (s *ArtworkService) albumIDsForTrackVariants(ctx context.Context, libraryID string, trackVariantIDs []string) ([]string, error) {
-	clean := make([]string, 0, len(trackVariantIDs))
-	seen := make(map[string]struct{}, len(trackVariantIDs))
-	for _, trackVariantID := range trackVariantIDs {
-		trackVariantID = strings.TrimSpace(trackVariantID)
-		if trackVariantID == "" {
-			continue
-		}
-		if _, ok := seen[trackVariantID]; ok {
-			continue
-		}
-		seen[trackVariantID] = struct{}{}
-		clean = append(clean, trackVariantID)
-	}
-	if len(clean) == 0 {
-		return nil, nil
-	}
-
-	type row struct {
-		AlbumVariantID string
-	}
-	var rows []row
-	if err := s.app.storage.WithContext(ctx).
-		Table("album_tracks").
-		Select("DISTINCT album_variant_id AS album_variant_id").
-		Where("library_id = ? AND track_variant_id IN ?", strings.TrimSpace(libraryID), clean).
-		Order("album_variant_id ASC").
-		Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-
-	out := make([]string, 0, len(rows))
-	for _, row := range rows {
-		albumID := strings.TrimSpace(row.AlbumVariantID)
-		if albumID != "" {
-			out = append(out, albumID)
-		}
-	}
-	return out, nil
-}
-
 func (s *ArtworkService) localDeviceOwnsArtworkSource(ctx context.Context, libraryID, deviceID, sourceRef string) (bool, error) {
 	sourceRef = filepath.Clean(strings.TrimSpace(sourceRef))
 	if sourceRef == "" {

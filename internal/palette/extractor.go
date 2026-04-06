@@ -1011,11 +1011,6 @@ func buildThemeScaleSwatches(selection themeSelection, options ExtractOptions) [
 	lightness50 := clampFloat(lightAnchor.lightness+minFloat(0.045, (1-lightAnchor.lightness)*0.8), lightAnchor.lightness, 0.995)
 	chroma50 := clampFloat(lightAnchor.chroma*0.7, 0, options.MaxChroma*0.5)
 
-	seedChroma := seed.chroma
-	if seedChroma <= 0 {
-		seedChroma = options.TargetChroma
-	}
-
 	scale := make([]swatch, 0, len(paletteScaleTones))
 	for _, tone := range paletteScaleTones {
 		switch tone {

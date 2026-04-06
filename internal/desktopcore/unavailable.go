@@ -140,6 +140,26 @@ func (c *UnavailableCore) SubscribeCatalogChanges(func(apitypes.CatalogChangeEve
 	return func() {}
 }
 
+func (c *UnavailableCore) StartPin(context.Context, apitypes.PinIntentRequest) (JobSnapshot, error) {
+	return JobSnapshot{}, c.err
+}
+
+func (c *UnavailableCore) Unpin(context.Context, apitypes.PinIntentRequest) error {
+	return c.err
+}
+
+func (c *UnavailableCore) ListPinStates(context.Context, apitypes.PinStateListRequest) ([]apitypes.PinState, error) {
+	return nil, c.err
+}
+
+func (c *UnavailableCore) GetPinState(context.Context, apitypes.PinStateRequest) (apitypes.PinState, error) {
+	return apitypes.PinState{}, c.err
+}
+
+func (c *UnavailableCore) SubscribePinChanges(func(apitypes.PinChangeEvent)) func() {
+	return func() {}
+}
+
 func (c *UnavailableCore) CreatePlaylist(context.Context, string, string) (apitypes.PlaylistRecord, error) {
 	return apitypes.PlaylistRecord{}, c.err
 }
@@ -284,56 +304,12 @@ func (c *UnavailableCore) ResolveRecordingArtwork(context.Context, string, strin
 	return apitypes.RecordingArtworkResult{}, c.err
 }
 
-func (c *UnavailableCore) PinRecordingOffline(context.Context, string, string) (apitypes.PlaybackRecordingResult, error) {
-	return apitypes.PlaybackRecordingResult{}, c.err
-}
-
-func (c *UnavailableCore) StartPinRecordingOffline(context.Context, string, string) (JobSnapshot, error) {
-	return JobSnapshot{}, c.err
-}
-
 func (c *UnavailableCore) EnsurePlaybackAlbum(context.Context, string, string) (apitypes.PlaybackBatchResult, error) {
 	return apitypes.PlaybackBatchResult{}, c.err
 }
 
 func (c *UnavailableCore) EnsurePlaybackPlaylist(context.Context, string, string) (apitypes.PlaybackBatchResult, error) {
 	return apitypes.PlaybackBatchResult{}, c.err
-}
-
-func (c *UnavailableCore) UnpinRecordingOffline(context.Context, string) error {
-	return c.err
-}
-
-func (c *UnavailableCore) PinAlbumOffline(context.Context, string, string) (apitypes.PlaybackBatchResult, error) {
-	return apitypes.PlaybackBatchResult{}, c.err
-}
-
-func (c *UnavailableCore) StartPinAlbumOffline(context.Context, string, string) (JobSnapshot, error) {
-	return JobSnapshot{}, c.err
-}
-
-func (c *UnavailableCore) UnpinAlbumOffline(context.Context, string) error {
-	return c.err
-}
-
-func (c *UnavailableCore) PinPlaylistOffline(context.Context, string, string) (apitypes.PlaybackBatchResult, error) {
-	return apitypes.PlaybackBatchResult{}, c.err
-}
-
-func (c *UnavailableCore) StartPinPlaylistOffline(context.Context, string, string) (JobSnapshot, error) {
-	return JobSnapshot{}, c.err
-}
-
-func (c *UnavailableCore) UnpinPlaylistOffline(context.Context, string) error {
-	return c.err
-}
-
-func (c *UnavailableCore) PinLikedOffline(context.Context, string) (apitypes.PlaybackBatchResult, error) {
-	return apitypes.PlaybackBatchResult{}, c.err
-}
-
-func (c *UnavailableCore) UnpinLikedOffline(context.Context) error {
-	return c.err
 }
 
 func (c *UnavailableCore) ListRecordingAvailability(context.Context, string, string) ([]apitypes.RecordingAvailabilityItem, error) {

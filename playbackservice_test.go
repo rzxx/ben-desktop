@@ -96,16 +96,8 @@ type passthroughRuntimeStub struct {
 	ensurePlaylistEncodingsFn   func(context.Context, string, string) (apitypes.EnsureEncodingBatchResult, error)
 	startEnsurePlaylistFn       func(context.Context, string, string) (desktopcore.JobSnapshot, error)
 	ensurePlaybackRecordingFn   func(context.Context, string, string) (apitypes.PlaybackRecordingResult, error)
-	pinRecordingOfflineFn       func(context.Context, string, string) (apitypes.PlaybackRecordingResult, error)
-	unpinRecordingOfflineFn     func(context.Context, string) error
 	ensurePlaybackAlbumFn       func(context.Context, string, string) (apitypes.PlaybackBatchResult, error)
 	ensurePlaybackPlaylistFn    func(context.Context, string, string) (apitypes.PlaybackBatchResult, error)
-	pinAlbumOfflineFn           func(context.Context, string, string) (apitypes.PlaybackBatchResult, error)
-	unpinAlbumOfflineFn         func(context.Context, string) error
-	pinPlaylistOfflineFn        func(context.Context, string, string) (apitypes.PlaybackBatchResult, error)
-	unpinPlaylistOfflineFn      func(context.Context, string) error
-	pinLikedOfflineFn           func(context.Context, string) (apitypes.PlaybackBatchResult, error)
-	unpinLikedOfflineFn         func(context.Context) error
 	inspectPlaybackRecordingFn  func(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error)
 	preparePlaybackRecordingFn  func(context.Context, string, string, apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error)
 	startPreparePlaybackFn      func(context.Context, string, string, apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error)
@@ -454,44 +446,12 @@ func (b *passthroughBridgeStub) EnsurePlaybackRecording(ctx context.Context, rec
 	return b.ensurePlaybackRecordingFn(ctx, recordingID, preferredProfile)
 }
 
-func (b *passthroughBridgeStub) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
-	return b.pinRecordingOfflineFn(ctx, recordingID, preferredProfile)
-}
-
 func (b *passthroughBridgeStub) EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
 	return b.ensurePlaybackAlbumFn(ctx, albumID, preferredProfile)
 }
 
 func (b *passthroughBridgeStub) EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
 	return b.ensurePlaybackPlaylistFn(ctx, playlistID, preferredProfile)
-}
-
-func (b *passthroughBridgeStub) UnpinRecordingOffline(ctx context.Context, recordingID string) error {
-	return b.unpinRecordingOfflineFn(ctx, recordingID)
-}
-
-func (b *passthroughBridgeStub) PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return b.pinAlbumOfflineFn(ctx, albumID, preferredProfile)
-}
-
-func (b *passthroughBridgeStub) UnpinAlbumOffline(ctx context.Context, albumID string) error {
-	return b.unpinAlbumOfflineFn(ctx, albumID)
-}
-
-func (b *passthroughBridgeStub) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return b.pinPlaylistOfflineFn(ctx, playlistID, preferredProfile)
-}
-
-func (b *passthroughBridgeStub) UnpinPlaylistOffline(ctx context.Context, playlistID string) error {
-	return b.unpinPlaylistOfflineFn(ctx, playlistID)
-}
-
-func (b *passthroughBridgeStub) PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return b.pinLikedOfflineFn(ctx, preferredProfile)
-}
-
-func (b *passthroughBridgeStub) UnpinLikedOffline(ctx context.Context) error {
-	return b.unpinLikedOfflineFn(ctx)
 }
 
 func (b *passthroughBridgeStub) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {

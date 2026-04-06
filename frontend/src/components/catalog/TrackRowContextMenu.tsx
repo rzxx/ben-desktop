@@ -22,14 +22,16 @@ import {
   listPlaylistsPage,
 } from "@/lib/api/catalog";
 import type { JobSnapshot, PlaylistListItem } from "@/lib/api/models";
+import type { PinState, PinSubjectKind } from "@/lib/api/models";
 import {
-  startPinRecordingOffline,
-  unpinRecordingOffline,
-} from "@/lib/api/playback";
+  startPin,
+  unpin,
+} from "@/lib/api/pin";
 import { formatCount } from "@/lib/format";
 
 export type TrackRowRecordingIdentity = {
   libraryRecordingId?: string | null;
+  pinSubjectKind?: PinSubjectKind | null;
   pinRecordingId?: string | null;
   recordingId?: string | null;
 };
@@ -54,14 +56,14 @@ export function TrackRowContextMenu({
   actionable,
   children,
   onQueue,
-  pinned = false,
+  pinState = null,
   recording,
   title,
 }: {
   actionable: boolean;
   children: ReactNode | ((state: { open: boolean }) => ReactNode);
   onQueue: () => void;
-  pinned?: boolean;
+  pinState?: PinState | null;
   recording?: TrackRowRecordingIdentity;
   title: string;
 }) {
@@ -77,11 +79,15 @@ export function TrackRowContextMenu({
   const attemptedLoadRef = useRef(false);
   const loadedPlaylistsRef = useRef(false);
   const canAddToPlaylist = hasPlaylistIdentity(recording);
+  const pinDirect = Boolean(pinState?.Direct);
+  const pinCovered = Boolean(pinState?.Covered);
   const pinTargetId =
     recording?.pinRecordingId?.trim() ||
     recording?.libraryRecordingId?.trim() ||
     recording?.recordingId?.trim() ||
     "";
+  const pinSubjectKind =
+    recording?.pinSubjectKind ?? ("recording_cluster" as PinSubjectKind);
   const trackedPinJob = useJobSnapshot(pinJob);
   const pinBusy = pinActionBusy || isJobActive(trackedPinJob);
 
@@ -167,11 +173,17 @@ export function TrackRowContextMenu({
     setPinError("");
 
     try {
-      if (pinned) {
-        await unpinRecordingOffline(pinTargetId);
+      if (pinDirect) {
+        await unpin({
+          ID: pinTargetId,
+          Kind: pinSubjectKind,
+        });
         setPinJob(null);
       } else {
-        const job = await startPinRecordingOffline(pinTargetId);
+        const job = await startPin({
+          ID: pinTargetId,
+          Kind: pinSubjectKind,
+        });
         setPinJob(job);
       }
     } catch (error) {
@@ -179,7 +191,7 @@ export function TrackRowContextMenu({
     } finally {
       setPinActionBusy(false);
     }
-  }, [pinTargetId, pinned]);
+  }, [pinDirect, pinSubjectKind, pinTargetId]);
 
   return (
     <>
@@ -228,7 +240,11 @@ export function TrackRowContextMenu({
                       <Download className="h-4 w-4 shrink-0 text-white/70" />
                     )}
                     <span className="min-w-0 flex-1 truncate">
-                      {pinned ? "Unpin track" : "Pin track"}
+                      {pinDirect
+                        ? "Unpin track"
+                        : pinCovered
+                          ? "Pin track directly"
+                          : "Pin track"}
                     </span>
                   </ContextMenu.Item>
                 </>

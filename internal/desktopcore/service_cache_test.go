@@ -49,7 +49,7 @@ func TestCacheOverviewAndListingIncludePinsAndArtwork(t *testing.T) {
 		LastVerifiedAt: now.Add(-time.Hour),
 	})
 	seedArtworkCache(t, app, local.LibraryID, "album", "album-1", artworkBlob, now.Add(-30*time.Minute))
-	seedOfflinePin(t, app, local.LibraryID, local.DeviceID, "recording", "rec-pinned", "desktop")
+	seedPinRoot(t, app, local.LibraryID, local.DeviceID, "recording", "rec-pinned", "desktop")
 
 	writeCacheBlob(t, app, pinnedBlob, 100)
 	writeCacheBlob(t, app, unpinnedBlob, 200)
@@ -107,14 +107,14 @@ func TestCacheOverviewAndListingIncludePinsAndArtwork(t *testing.T) {
 		t.Fatalf("expected durable recording pin scope: %+v", byBlob[pinnedBlob].PinScopes)
 	}
 
-	var thumbnailPinned bool
+	var artworkPinned bool
 	for _, scope := range byBlob[artworkBlob].PinScopes {
-		if scope.Scope == "thumbnail" && scope.ScopeID == "album:album-1" && scope.Durable {
-			thumbnailPinned = true
+		if scope.Scope == "recording" && scope.ScopeID == "rec-pinned" && scope.Durable {
+			artworkPinned = true
 		}
 	}
-	if !thumbnailPinned {
-		t.Fatalf("expected durable thumbnail pin scope: %+v", byBlob[artworkBlob].PinScopes)
+	if !artworkPinned {
+		t.Fatalf("expected durable artwork pin scope: %+v", byBlob[artworkBlob].PinScopes)
 	}
 
 	if library.LibraryID != local.LibraryID {
@@ -157,7 +157,7 @@ func TestCleanupCacheRemovesOnlyUnpinnedLocalBlob(t *testing.T) {
 		Profile:        "desktop",
 		LastVerifiedAt: now.Add(-2 * time.Hour),
 	})
-	seedOfflinePin(t, app, local.LibraryID, local.DeviceID, "recording", "rec-pinned", "desktop")
+	seedPinRoot(t, app, local.LibraryID, local.DeviceID, "recording", "rec-pinned", "desktop")
 
 	writeCacheBlob(t, app, pinnedBlob, 120)
 	writeCacheBlob(t, app, unpinnedBlob, 180)
@@ -473,11 +473,11 @@ func seedArtworkCache(t *testing.T, app *App, libraryID, scopeType, scopeID, blo
 	}
 }
 
-func seedOfflinePin(t *testing.T, app *App, libraryID, deviceID, scope, scopeID, profile string) {
+func seedPinRoot(t *testing.T, app *App, libraryID, deviceID, scope, scopeID, profile string) {
 	t.Helper()
 
 	now := time.Now().UTC()
-	if err := app.db.Create(&OfflinePin{
+	if err := app.db.Create(&PinRoot{
 		LibraryID: libraryID,
 		DeviceID:  deviceID,
 		Scope:     scope,
@@ -486,7 +486,13 @@ func seedOfflinePin(t *testing.T, app *App, libraryID, deviceID, scope, scopeID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}).Error; err != nil {
-		t.Fatalf("seed offline pin %s/%s: %v", scope, scopeID, err)
+		t.Fatalf("seed pin root %s/%s: %v", scope, scopeID, err)
+	}
+	if err := app.pin.reconcileScope(context.Background(), apitypes.LocalContext{
+		LibraryID: libraryID,
+		DeviceID:  deviceID,
+	}, scope, scopeID, profile); err != nil {
+		t.Fatalf("reconcile seeded pin root %s/%s: %v", scope, scopeID, err)
 	}
 }
 

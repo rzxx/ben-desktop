@@ -37,10 +37,12 @@ type App struct {
 
 	jobs              *JobsService
 	catalogEvents     *CatalogEventsService
+	pinEvents         *PinEventsService
 	library           *LibraryService
 	ingest            *IngestService
 	catalog           *CatalogService
 	cache             *CacheService
+	pin               *PinService
 	transcode         *TranscodeService
 	artwork           *ArtworkService
 	playlist          *PlaylistService
@@ -79,6 +81,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 		activity:            newActivityStatus(),
 		jobs:                NewJobsService(),
 		catalogEvents:       NewCatalogEventsService(),
+		pinEvents:           NewPinEventsService(),
 		activitySubscribers: make(map[uint64]func(apitypes.ActivityStatus)),
 		tagReader: func() TagReader {
 			if resolved.TagReader != nil {
@@ -96,6 +99,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	app.ingest = &IngestService{app: app}
 	app.catalog = &CatalogService{app: app}
 	app.cache = &CacheService{app: app}
+	app.pin = newPinService(app)
 	app.transcode = newTranscodeService(app)
 	app.artwork = newArtworkService(app)
 	app.playlist = &PlaylistService{app: app}
@@ -111,6 +115,9 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	}
 	if err := app.runContextIdentityMigration(ctx); err != nil {
 		return nil, fmt.Errorf("run context identity migration: %w", err)
+	}
+	if err := runPinStorageMigration(app.db); err != nil {
+		return nil, fmt.Errorf("run pin storage migration: %w", err)
 	}
 	if err := app.syncActiveRuntimeServices(ctx); err != nil {
 		return nil, fmt.Errorf("configure active runtime services: %w", err)
@@ -156,11 +163,25 @@ func (a *App) SubscribeCatalogChanges(listener func(apitypes.CatalogChangeEvent)
 	return a.catalogEvents.Subscribe(listener)
 }
 
+func (a *App) SubscribePinChanges(listener func(apitypes.PinChangeEvent)) func() {
+	if a == nil || a.pinEvents == nil {
+		return func() {}
+	}
+	return a.pinEvents.Subscribe(listener)
+}
+
 func (a *App) emitCatalogChange(event apitypes.CatalogChangeEvent) {
 	if a == nil || a.catalogEvents == nil {
 		return
 	}
 	a.catalogEvents.Emit(event)
+}
+
+func (a *App) emitPinChange(event apitypes.PinChangeEvent) {
+	if a == nil || a.pinEvents == nil {
+		return
+	}
+	a.pinEvents.Emit(event)
 }
 
 func (a *App) ListJobs(_ context.Context, libraryID string) ([]JobSnapshot, error) {
@@ -204,6 +225,13 @@ func (a *App) CatalogRuntime() CatalogRuntime {
 		return nil
 	}
 	return newCatalogRuntimeAdapter(a.catalog, a.playlist)
+}
+
+func (a *App) PinRuntime() PinRuntime {
+	if a == nil {
+		return nil
+	}
+	return a.pin
 }
 
 func (a *App) InviteRuntime() InviteRuntime {
@@ -295,10 +323,6 @@ func (a *App) installCheckpointRecord(ctx context.Context, localDeviceID string,
 	return a.sync.installCheckpointRecord(ctx, localDeviceID, record)
 }
 
-func (a *App) installCheckpointRecordWithJob(ctx context.Context, localDeviceID string, record checkpointTransferRecord, job *JobTracker) (int, error) {
-	return a.sync.installCheckpointRecordWithJob(ctx, localDeviceID, record, job)
-}
-
 func (a *App) applyRemoteOps(ctx context.Context, libraryID string, ops []checkpointOplogEntry) (int, error) {
 	return a.sync.applyRemoteOps(ctx, libraryID, ops)
 }
@@ -367,14 +391,6 @@ func (a *App) localMembershipRecoverySecret(ctx context.Context, libraryID, devi
 	return a.identity.localMembershipRecoverySecret(ctx, libraryID, deviceID)
 }
 
-func (a *App) requestMembershipRefresh(ctx context.Context, local apitypes.LocalContext, peerID string) (transportPeerAuth, error) {
-	return a.identity.requestMembershipRefresh(ctx, local, peerID)
-}
-
-func (a *App) libraryRootPublicKey(ctx context.Context, libraryID string) (string, error) {
-	return a.identity.libraryRootPublicKey(ctx, libraryID)
-}
-
 func (a *App) buildMembershipRefreshResponse(ctx context.Context, req MembershipRefreshRequest) (MembershipRefreshResponse, error) {
 	return a.identity.buildMembershipRefreshResponse(ctx, req)
 }
@@ -393,10 +409,6 @@ func (a *App) handleInviteJoinCancel(ctx context.Context, libraryID, actualPeerI
 
 func (a *App) syncActiveScanWatcher(ctx context.Context) error {
 	return a.scanner.syncActiveScanWatcher(ctx)
-}
-
-func (a *App) stopActiveScanWatcher() {
-	a.scanner.stopActiveScanWatcher()
 }
 
 func (a *App) logf(format string, args ...any) {
@@ -461,13 +473,6 @@ func (a *App) touchDevicePeerID(ctx context.Context, deviceID, peerID, deviceNam
 		return nil
 	}
 	return a.transportService.touchDevicePeerID(ctx, deviceID, peerID, deviceName)
-}
-
-func (a *App) upsertDevicePresence(ctx context.Context, deviceID, peerID, deviceName string) error {
-	if a == nil || a.transportService == nil {
-		return nil
-	}
-	return a.transportService.upsertDevicePresence(ctx, deviceID, peerID, deviceName)
 }
 
 func (a *App) markDevicePresenceOffline(ctx context.Context, libraryID, peerID string) error {
@@ -636,6 +641,22 @@ func (a *App) CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest
 	return a.cache.CleanupCache(ctx, req)
 }
 
+func (a *App) StartPin(ctx context.Context, req apitypes.PinIntentRequest) (JobSnapshot, error) {
+	return a.pin.StartPin(ctx, req)
+}
+
+func (a *App) Unpin(ctx context.Context, req apitypes.PinIntentRequest) error {
+	return a.pin.Unpin(ctx, req)
+}
+
+func (a *App) ListPinStates(ctx context.Context, req apitypes.PinStateListRequest) ([]apitypes.PinState, error) {
+	return a.pin.ListPinStates(ctx, req)
+}
+
+func (a *App) GetPinState(ctx context.Context, req apitypes.PinStateRequest) (apitypes.PinState, error) {
+	return a.pin.GetPinState(ctx, req)
+}
+
 func (a *App) RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error) {
 	return a.playlist.RenamePlaylist(ctx, playlistID, name)
 }
@@ -748,56 +769,12 @@ func (a *App) ResolveRecordingArtwork(ctx context.Context, recordingID, variant 
 	return a.playback.ResolveRecordingArtwork(ctx, recordingID, variant)
 }
 
-func (a *App) PinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
-	return a.playback.PinRecordingOffline(ctx, recordingID, preferredProfile)
-}
-
-func (a *App) StartPinRecordingOffline(ctx context.Context, recordingID, preferredProfile string) (JobSnapshot, error) {
-	return a.playback.StartPinRecordingOffline(ctx, recordingID, preferredProfile)
-}
-
 func (a *App) EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
 	return a.playback.EnsurePlaybackAlbum(ctx, albumID, preferredProfile)
 }
 
 func (a *App) EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
 	return a.playback.EnsurePlaybackPlaylist(ctx, playlistID, preferredProfile)
-}
-
-func (a *App) UnpinRecordingOffline(ctx context.Context, recordingID string) error {
-	return a.playback.UnpinRecordingOffline(ctx, recordingID)
-}
-
-func (a *App) PinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return a.playback.PinAlbumOffline(ctx, albumID, preferredProfile)
-}
-
-func (a *App) StartPinAlbumOffline(ctx context.Context, albumID, preferredProfile string) (JobSnapshot, error) {
-	return a.playback.StartPinAlbumOffline(ctx, albumID, preferredProfile)
-}
-
-func (a *App) UnpinAlbumOffline(ctx context.Context, albumID string) error {
-	return a.playback.UnpinAlbumOffline(ctx, albumID)
-}
-
-func (a *App) PinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return a.playback.PinPlaylistOffline(ctx, playlistID, preferredProfile)
-}
-
-func (a *App) StartPinPlaylistOffline(ctx context.Context, playlistID, preferredProfile string) (JobSnapshot, error) {
-	return a.playback.StartPinPlaylistOffline(ctx, playlistID, preferredProfile)
-}
-
-func (a *App) UnpinPlaylistOffline(ctx context.Context, playlistID string) error {
-	return a.playback.UnpinPlaylistOffline(ctx, playlistID)
-}
-
-func (a *App) PinLikedOffline(ctx context.Context, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return a.playback.PinLikedOffline(ctx, preferredProfile)
-}
-
-func (a *App) UnpinLikedOffline(ctx context.Context) error {
-	return a.playback.UnpinLikedOffline(ctx)
 }
 
 func (a *App) ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {

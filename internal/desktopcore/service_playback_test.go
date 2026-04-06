@@ -16,7 +16,113 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestPinRecordingOfflinePersistsAndUnpinsCachedAsset(t *testing.T) {
+func startPinJob(t *testing.T, ctx context.Context, app *App, subject apitypes.PinSubjectRef, profile string) (JobSnapshot, error) {
+	t.Helper()
+	return app.StartPin(ctx, apitypes.PinIntentRequest{
+		Profile: profile,
+		Subject: subject,
+	})
+}
+
+func startRecordingPinJob(t *testing.T, ctx context.Context, app *App, recordingID, profile string) (JobSnapshot, error) {
+	t.Helper()
+	return startPinJob(t, ctx, app, apitypes.PinSubjectRef{
+		Kind: apitypes.PinSubjectRecordingCluster,
+		ID:   recordingID,
+	}, profile)
+}
+
+func startExactRecordingPinJob(t *testing.T, ctx context.Context, app *App, recordingID, profile string) (JobSnapshot, error) {
+	t.Helper()
+	return startPinJob(t, ctx, app, apitypes.PinSubjectRef{
+		Kind: apitypes.PinSubjectRecordingVariant,
+		ID:   recordingID,
+	}, profile)
+}
+
+func startAlbumPinJob(t *testing.T, ctx context.Context, app *App, albumID, profile string) (JobSnapshot, error) {
+	t.Helper()
+	return startPinJob(t, ctx, app, apitypes.PinSubjectRef{
+		Kind: apitypes.PinSubjectAlbumVariant,
+		ID:   albumID,
+	}, profile)
+}
+
+func startPlaylistPinJob(t *testing.T, ctx context.Context, app *App, playlistID, profile string) (JobSnapshot, error) {
+	t.Helper()
+	return startPinJob(t, ctx, app, apitypes.PinSubjectRef{
+		Kind: apitypes.PinSubjectPlaylist,
+		ID:   playlistID,
+	}, profile)
+}
+
+func startLikedPinJob(t *testing.T, ctx context.Context, app *App, playlistID, profile string) (JobSnapshot, error) {
+	t.Helper()
+	return startPinJob(t, ctx, app, apitypes.PinSubjectRef{
+		Kind: apitypes.PinSubjectLikedPlaylist,
+		ID:   playlistID,
+	}, profile)
+}
+
+func unpinRecording(t *testing.T, ctx context.Context, app *App, recordingID string) error {
+	t.Helper()
+	return app.Unpin(ctx, apitypes.PinIntentRequest{
+		Profile: "desktop",
+		Subject: apitypes.PinSubjectRef{
+			Kind: apitypes.PinSubjectRecordingCluster,
+			ID:   recordingID,
+		},
+	})
+}
+
+func loadPinRoot(t *testing.T, ctx context.Context, app *App, libraryID, deviceID, scope, scopeID string) PinRoot {
+	t.Helper()
+
+	var root PinRoot
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", libraryID, deviceID, scope, scopeID).
+		Take(&root).Error; err != nil {
+		t.Fatalf("load pin root: %v", err)
+	}
+	return root
+}
+
+func countPinRoots(t *testing.T, ctx context.Context, app *App, libraryID, deviceID, scope, scopeID string) int64 {
+	t.Helper()
+
+	var count int64
+	if err := app.db.WithContext(ctx).
+		Model(&PinRoot{}).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", libraryID, deviceID, scope, scopeID).
+		Count(&count).Error; err != nil {
+		t.Fatalf("count pin roots: %v", err)
+	}
+	return count
+}
+
+func pinRootBlobIDs(t *testing.T, ctx context.Context, app *App, libraryID, deviceID, scope, scopeID, profile string) []string {
+	t.Helper()
+
+	type row struct {
+		BlobID string
+	}
+	var rows []row
+	if err := app.db.WithContext(ctx).
+		Model(&PinBlobRef{}).
+		Select("blob_id").
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ? AND profile = ?", libraryID, deviceID, scope, scopeID, profile).
+		Order("blob_id ASC").
+		Scan(&rows).Error; err != nil {
+		t.Fatalf("load pin root blob ids: %v", err)
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, strings.TrimSpace(row.BlobID))
+	}
+	return compactNonEmptyStrings(out)
+}
+
+func TestPinRecordingPersistsAndUnpinsCachedAsset(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -42,44 +148,26 @@ func TestPinRecordingOfflinePersistsAndUnpinsCachedAsset(t *testing.T) {
 	})
 	writeCacheBlob(t, app, blobID, 128)
 
-	result, err := app.PinRecordingOffline(ctx, "rec-pin", "desktop")
+	job, err := startRecordingPinJob(t, ctx, app, "rec-pin", "desktop")
 	if err != nil {
-		t.Fatalf("pin recording offline: %v", err)
+		t.Fatalf("start recording pin: %v", err)
 	}
-	if result.BlobID != blobID {
-		t.Fatalf("blob id = %q, want %q", result.BlobID, blobID)
-	}
-	if result.SourceKind != apitypes.PlaybackSourceCachedOpt {
-		t.Fatalf("source kind = %q, want %q", result.SourceKind, apitypes.PlaybackSourceCachedOpt)
-	}
-	if !result.FromLocal {
-		t.Fatalf("expected pinned result to be local")
-	}
-	if result.Bytes != 128 {
-		t.Fatalf("bytes = %d, want 128", result.Bytes)
-	}
+	waitForJobPhase(t, ctx, app, job.JobID, JobPhaseCompleted)
 
-	var pin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "recording", "rec-pin").
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load recording pin: %v", err)
-	}
+	pin := loadPinRoot(t, ctx, app, local.LibraryID, local.DeviceID, "recording", "rec-pin")
 	if pin.Profile != "desktop" {
 		t.Fatalf("pin profile = %q, want desktop", pin.Profile)
 	}
-
-	if err := app.UnpinRecordingOffline(ctx, "rec-pin"); err != nil {
-		t.Fatalf("unpin recording offline: %v", err)
+	protectedBlobIDs := pinRootBlobIDs(t, ctx, app, local.LibraryID, local.DeviceID, "recording", "rec-pin", "desktop")
+	if !reflect.DeepEqual(protectedBlobIDs, []string{blobID}) {
+		t.Fatalf("pin root blob ids = %v, want [%s]", protectedBlobIDs, blobID)
 	}
 
-	var count int64
-	if err := app.db.WithContext(ctx).
-		Model(&OfflinePin{}).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "recording", "rec-pin").
-		Count(&count).Error; err != nil {
-		t.Fatalf("count recording pins: %v", err)
+	if err := unpinRecording(t, ctx, app, "rec-pin"); err != nil {
+		t.Fatalf("unpin recording: %v", err)
 	}
+
+	count := countPinRoots(t, ctx, app, local.LibraryID, local.DeviceID, "recording", "rec-pin")
 	if count != 0 {
 		t.Fatalf("recording pin count = %d, want 0", count)
 	}
@@ -92,7 +180,7 @@ func TestPinRecordingOfflinePersistsAndUnpinsCachedAsset(t *testing.T) {
 	}
 }
 
-func TestPinRecordingOfflineSeparatesExactAndLogicalTrackScopes(t *testing.T) {
+func TestPinRecordingSeparatesExactAndLogicalTrackScopes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -136,16 +224,12 @@ func TestPinRecordingOfflineSeparatesExactAndLogicalTrackScopes(t *testing.T) {
 		t.Fatalf("set preferred recording variant: %v", err)
 	}
 
-	if _, err := app.PinRecordingOffline(ctx, clusterID, "desktop"); err != nil {
-		t.Fatalf("pin logical recording offline: %v", err)
+	if _, err := startRecordingPinJob(t, ctx, app, clusterID, "desktop"); err != nil {
+		t.Fatalf("start logical recording pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "recording", clusterID, "desktop"), JobPhaseCompleted)
 
-	var logicalPin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "recording", clusterID).
-		Take(&logicalPin).Error; err != nil {
-		t.Fatalf("load logical recording pin: %v", err)
-	}
+	_ = loadPinRoot(t, ctx, app, local.LibraryID, local.DeviceID, "recording", clusterID)
 
 	clusterAvailability, err := app.GetRecordingAvailability(ctx, clusterID, "desktop")
 	if err != nil {
@@ -169,19 +253,15 @@ func TestPinRecordingOfflineSeparatesExactAndLogicalTrackScopes(t *testing.T) {
 		t.Fatalf("expected non-preferred exact variant to remain unpinned for logical scope")
 	}
 
-	if err := app.UnpinRecordingOffline(ctx, clusterID); err != nil {
-		t.Fatalf("unpin logical recording offline: %v", err)
+	if err := unpinRecording(t, ctx, app, clusterID); err != nil {
+		t.Fatalf("unpin logical recording: %v", err)
 	}
-	if _, err := app.PinRecordingOffline(ctx, variantA, "desktop"); err != nil {
-		t.Fatalf("pin exact recording offline: %v", err)
+	if _, err := startExactRecordingPinJob(t, ctx, app, variantA, "desktop"); err != nil {
+		t.Fatalf("start exact recording pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "recording", variantA, "desktop"), JobPhaseCompleted)
 
-	var exactPin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "recording", variantA).
-		Take(&exactPin).Error; err != nil {
-		t.Fatalf("load exact recording pin: %v", err)
-	}
+	_ = loadPinRoot(t, ctx, app, local.LibraryID, local.DeviceID, "recording", variantA)
 
 	exactAvailability, err := app.GetRecordingAvailability(ctx, variantA, "desktop")
 	if err != nil {
@@ -587,7 +667,7 @@ func TestStartPreparePlaybackRecordingQueuesAsyncJob(t *testing.T) {
 	}
 }
 
-func TestStartPinRecordingOfflineReusesActiveJobAndMarksPinnedImmediately(t *testing.T) {
+func TestStartPinRecordingReusesActiveJobAndMarksPinnedImmediately(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -613,15 +693,15 @@ func TestStartPinRecordingOfflineReusesActiveJobAndMarksPinnedImmediately(t *tes
 	})
 	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-pin-job", []byte("lossless"))
 
-	first, err := app.StartPinRecordingOffline(ctx, "rec-pin-job", "desktop")
+	first, err := startRecordingPinJob(t, ctx, app, "rec-pin-job", "desktop")
 	if err != nil {
 		t.Fatalf("start pin recording offline: %v", err)
 	}
-	if first.Kind != jobKindPinRecordingOffline || first.Phase != JobPhaseQueued {
+	if first.Kind != jobKindPinRecording || first.Phase != JobPhaseQueued {
 		t.Fatalf("unexpected first pin job: %+v", first)
 	}
 
-	second, err := app.StartPinRecordingOffline(ctx, "rec-pin-job", "desktop")
+	second, err := startRecordingPinJob(t, ctx, app, "rec-pin-job", "desktop")
 	if err != nil {
 		t.Fatalf("start pin recording offline again: %v", err)
 	}
@@ -629,12 +709,7 @@ func TestStartPinRecordingOfflineReusesActiveJobAndMarksPinnedImmediately(t *tes
 		t.Fatalf("second job id = %q, want %q", second.JobID, first.JobID)
 	}
 
-	var pin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "recording", "rec-pin-job").
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load recording pin: %v", err)
-	}
+	_ = loadPinRoot(t, ctx, app, local.LibraryID, local.DeviceID, "recording", "rec-pin-job")
 
 	availability, err := app.GetRecordingAvailability(ctx, "rec-pin-job", "desktop")
 	if err != nil {
@@ -646,16 +721,16 @@ func TestStartPinRecordingOfflineReusesActiveJobAndMarksPinnedImmediately(t *tes
 
 	close(release)
 
-	final := waitForJobPhase(t, ctx, app, playbackPinOfflineJobID(local.LibraryID, "recording", "rec-pin-job", "desktop"), JobPhaseCompleted)
-	if final.Kind != jobKindPinRecordingOffline {
-		t.Fatalf("final job kind = %q, want %q", final.Kind, jobKindPinRecordingOffline)
+	final := waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "recording", "rec-pin-job", "desktop"), JobPhaseCompleted)
+	if final.Kind != jobKindPinRecording {
+		t.Fatalf("final job kind = %q, want %q", final.Kind, jobKindPinRecording)
 	}
 	if strings.TrimSpace(final.Message) == "" {
 		t.Fatalf("expected final pin job message")
 	}
 }
 
-func TestStartPinAlbumOfflineProtectsCachedBlobsImmediately(t *testing.T) {
+func TestStartPinAlbumProtectsCachedBlobsImmediately(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -694,11 +769,11 @@ func TestStartPinAlbumOfflineProtectsCachedBlobsImmediately(t *testing.T) {
 	})
 	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-pin-album-b", []byte("lossless"))
 
-	first, err := app.StartPinAlbumOffline(ctx, albumID, "desktop")
+	first, err := startAlbumPinJob(t, ctx, app, albumID, "desktop")
 	if err != nil {
 		t.Fatalf("start pin album offline: %v", err)
 	}
-	second, err := app.StartPinAlbumOffline(ctx, albumID, "desktop")
+	second, err := startAlbumPinJob(t, ctx, app, albumID, "desktop")
 	if err != nil {
 		t.Fatalf("start pin album offline again: %v", err)
 	}
@@ -706,17 +781,8 @@ func TestStartPinAlbumOfflineProtectsCachedBlobsImmediately(t *testing.T) {
 		t.Fatalf("second job id = %q, want %q", second.JobID, first.JobID)
 	}
 
-	var pin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "album", albumID).
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load album pin: %v", err)
-	}
-
-	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
-	if err != nil {
-		t.Fatalf("offline pin blob ids: %v", err)
-	}
+	pin := loadPinRoot(t, ctx, app, local.LibraryID, local.DeviceID, "album", albumID)
+	protectedBlobIDs := pinRootBlobIDs(t, ctx, app, local.LibraryID, local.DeviceID, "album", albumID, pin.Profile)
 	if !reflect.DeepEqual(protectedBlobIDs, []string{blobID}) {
 		t.Fatalf("protected blob ids = %v, want [%s]", protectedBlobIDs, blobID)
 	}
@@ -728,9 +794,9 @@ func TestStartPinAlbumOfflineProtectsCachedBlobsImmediately(t *testing.T) {
 
 	close(release)
 
-	final := waitForJobPhase(t, ctx, app, playbackPinOfflineJobID(local.LibraryID, "album", albumID, "desktop"), JobPhaseCompleted)
-	if final.Kind != jobKindPinAlbumOffline {
-		t.Fatalf("final job kind = %q, want %q", final.Kind, jobKindPinAlbumOffline)
+	final := waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "album", albumID, "desktop"), JobPhaseCompleted)
+	if final.Kind != jobKindPinAlbum {
+		t.Fatalf("final job kind = %q, want %q", final.Kind, jobKindPinAlbum)
 	}
 }
 
@@ -770,9 +836,10 @@ func TestPinnedAvailabilityFieldsReflectDirectScopePinState(t *testing.T) {
 		LastVerifiedAt: time.Now().UTC(),
 	})
 
-	if _, err := app.PinAlbumOffline(ctx, albumID, "desktop"); err != nil {
-		t.Fatalf("pin album offline: %v", err)
+	if _, err := startAlbumPinJob(t, ctx, app, albumID, "desktop"); err != nil {
+		t.Fatalf("start album pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "album", albumID, "desktop"), JobPhaseCompleted)
 
 	trackAvailability, err := app.GetRecordingAvailability(ctx, "rec-pin-fields-a", "desktop")
 	if err != nil {
@@ -787,9 +854,10 @@ func TestPinnedAvailabilityFieldsReflectDirectScopePinState(t *testing.T) {
 		t.Fatalf("expected album summary scope pinned")
 	}
 
-	if _, err := app.PinRecordingOffline(ctx, "rec-pin-fields-a", "desktop"); err != nil {
-		t.Fatalf("pin recording offline: %v", err)
+	if _, err := startRecordingPinJob(t, ctx, app, "rec-pin-fields-a", "desktop"); err != nil {
+		t.Fatalf("start recording pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "recording", "rec-pin-fields-a", "desktop"), JobPhaseCompleted)
 
 	items, err := app.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
 		RecordingIDs:     []string{"rec-pin-fields-a", "rec-pin-fields-b"},
@@ -841,9 +909,10 @@ func TestPinnedPlaylistAutoRefreshFetchesNewTrack(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add playlist item a: %v", err)
 	}
-	if _, err := app.PinPlaylistOffline(ctx, playlist.PlaylistID, "desktop"); err != nil {
-		t.Fatalf("pin playlist offline: %v", err)
+	if _, err := startPlaylistPinJob(t, ctx, app, playlist.PlaylistID, "desktop"); err != nil {
+		t.Fatalf("start playlist pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "playlist", playlist.PlaylistID, "desktop"), JobPhaseCompleted)
 
 	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
 		RecordingID:    "rec-refresh-b",
@@ -866,7 +935,7 @@ func TestPinnedPlaylistAutoRefreshFetchesNewTrack(t *testing.T) {
 		t.Fatalf("add playlist item b: %v", err)
 	}
 
-	final := waitForJobPhase(t, ctx, app, playbackRefreshPinnedScopeJobID(local.LibraryID, "playlist", playlist.PlaylistID, "desktop"), JobPhaseCompleted)
+	final := waitForJobPhase(t, ctx, app, refreshPinScopeJobID(local.LibraryID, "playlist", playlist.PlaylistID, "desktop"), JobPhaseCompleted)
 	if final.Kind != jobKindRefreshPinnedPlaylist {
 		t.Fatalf("refresh job kind = %q, want %q", final.Kind, jobKindRefreshPinnedPlaylist)
 	}
@@ -938,9 +1007,10 @@ func TestPinnedPlaylistProtectsResolvedPreferredVariant(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add playlist item: %v", err)
 	}
-	if _, err := app.PinPlaylistOffline(ctx, playlist.PlaylistID, "desktop"); err != nil {
-		t.Fatalf("pin playlist offline: %v", err)
+	if _, err := startPlaylistPinJob(t, ctx, app, playlist.PlaylistID, "desktop"); err != nil {
+		t.Fatalf("start playlist pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "playlist", playlist.PlaylistID, "desktop"), JobPhaseCompleted)
 
 	blobA, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, variantA, "desktop")
 	if err != nil || !ok {
@@ -951,16 +1021,7 @@ func TestPinnedPlaylistProtectsResolvedPreferredVariant(t *testing.T) {
 		t.Fatalf("cached encoding for preferred variant = %v, %v", ok, err)
 	}
 
-	var pin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "playlist", playlist.PlaylistID).
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load playlist pin: %v", err)
-	}
-	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
-	if err != nil {
-		t.Fatalf("offline pin blob ids: %v", err)
-	}
+	protectedBlobIDs := pinRootBlobIDs(t, ctx, app, local.LibraryID, local.DeviceID, "playlist", playlist.PlaylistID, "desktop")
 	if !slicesContains(protectedBlobIDs, blobB) {
 		t.Fatalf("expected preferred variant blob %q to stay protected, got %v", blobB, protectedBlobIDs)
 	}
@@ -1059,9 +1120,10 @@ func TestSyncedPlaylistPinningNormalizesLogicalRecordingIDs(t *testing.T) {
 		t.Fatalf("playlist playback recording id = %q, want %q", tracks.Items[0].RecordingID, variantB)
 	}
 
-	if _, err := app.PinPlaylistOffline(ctx, playlist.PlaylistID, "desktop"); err != nil {
-		t.Fatalf("pin playlist offline: %v", err)
+	if _, err := startPlaylistPinJob(t, ctx, app, playlist.PlaylistID, "desktop"); err != nil {
+		t.Fatalf("start playlist pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "playlist", playlist.PlaylistID, "desktop"), JobPhaseCompleted)
 
 	blobA, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, variantA, "desktop")
 	if err != nil || !ok {
@@ -1072,16 +1134,7 @@ func TestSyncedPlaylistPinningNormalizesLogicalRecordingIDs(t *testing.T) {
 		t.Fatalf("cached encoding for preferred variant = %v, %v", ok, err)
 	}
 
-	var pin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "playlist", playlist.PlaylistID).
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load playlist pin: %v", err)
-	}
-	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
-	if err != nil {
-		t.Fatalf("offline pin blob ids: %v", err)
-	}
+	protectedBlobIDs := pinRootBlobIDs(t, ctx, app, local.LibraryID, local.DeviceID, "playlist", playlist.PlaylistID, "desktop")
 	if !slicesContains(protectedBlobIDs, blobB) {
 		t.Fatalf("expected preferred variant blob %q to stay protected, got %v", blobB, protectedBlobIDs)
 	}
@@ -1179,9 +1232,10 @@ func TestSyncedLikedPinningNormalizesLogicalRecordingIDs(t *testing.T) {
 		t.Fatalf("liked playback recording id = %q, want %q", liked.Items[0].RecordingID, variantB)
 	}
 
-	if _, err := app.PinLikedOffline(ctx, "desktop"); err != nil {
-		t.Fatalf("pin liked offline: %v", err)
+	if _, err := startLikedPinJob(t, ctx, app, likedPlaylistID, "desktop"); err != nil {
+		t.Fatalf("start liked pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
 
 	blobA, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, variantA, "desktop")
 	if err != nil || !ok {
@@ -1192,16 +1246,7 @@ func TestSyncedLikedPinningNormalizesLogicalRecordingIDs(t *testing.T) {
 		t.Fatalf("cached encoding for preferred variant = %v, %v", ok, err)
 	}
 
-	var pin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "playlist", likedPlaylistID).
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load liked pin: %v", err)
-	}
-	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
-	if err != nil {
-		t.Fatalf("offline pin blob ids: %v", err)
-	}
+	protectedBlobIDs := pinRootBlobIDs(t, ctx, app, local.LibraryID, local.DeviceID, "playlist", likedPlaylistID, "desktop")
 	if !slicesContains(protectedBlobIDs, blobB) {
 		t.Fatalf("expected preferred variant blob %q to stay protected, got %v", blobB, protectedBlobIDs)
 	}
@@ -1292,9 +1337,10 @@ func TestPinnedLikedAutoRefreshFetchesNewTrack(t *testing.T) {
 	}
 
 	likedPlaylistID := likedPlaylistIDForLibrary(local.LibraryID)
-	if _, err := app.PinLikedOffline(ctx, "desktop"); err != nil {
-		t.Fatalf("pin liked offline: %v", err)
+	if _, err := startLikedPinJob(t, ctx, app, likedPlaylistID, "desktop"); err != nil {
+		t.Fatalf("start liked pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
 
 	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
 		RecordingID:    "rec-liked-refresh-b",
@@ -1314,7 +1360,7 @@ func TestPinnedLikedAutoRefreshFetchesNewTrack(t *testing.T) {
 		t.Fatalf("like recording b: %v", err)
 	}
 
-	final := waitForJobPhase(t, ctx, app, playbackRefreshPinnedScopeJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
+	final := waitForJobPhase(t, ctx, app, refreshPinScopeJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
 	if final.Kind != jobKindRefreshPinnedPlaylist {
 		t.Fatalf("refresh job kind = %q, want %q", final.Kind, jobKindRefreshPinnedPlaylist)
 	}
@@ -1325,7 +1371,7 @@ func TestPinnedLikedAutoRefreshFetchesNewTrack(t *testing.T) {
 	}
 }
 
-func TestStartPinLikedOfflineKeepsPinWhenTrackIsInitiallyUnavailable(t *testing.T) {
+func TestStartPinLikedKeepsPinWhenTrackIsInitiallyUnavailable(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -1347,25 +1393,20 @@ func TestStartPinLikedOfflineKeepsPinWhenTrackIsInitiallyUnavailable(t *testing.
 	}
 
 	likedPlaylistID := likedPlaylistIDForLibrary(local.LibraryID)
-	job, err := app.StartPinPlaylistOffline(ctx, likedPlaylistID, "desktop")
+	job, err := startLikedPinJob(t, ctx, app, likedPlaylistID, "desktop")
 	if err != nil {
 		t.Fatalf("start pin liked offline: %v", err)
 	}
-	if job.Kind != jobKindPinPlaylistOffline {
-		t.Fatalf("job kind = %q, want %q", job.Kind, jobKindPinPlaylistOffline)
+	if job.Kind != jobKindPinPlaylist {
+		t.Fatalf("job kind = %q, want %q", job.Kind, jobKindPinPlaylist)
 	}
 
-	final := waitForJobPhase(t, ctx, app, playbackPinOfflineJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
-	if final.Kind != jobKindPinPlaylistOffline {
-		t.Fatalf("final job kind = %q, want %q", final.Kind, jobKindPinPlaylistOffline)
+	final := waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
+	if final.Kind != jobKindPinPlaylist {
+		t.Fatalf("final job kind = %q, want %q", final.Kind, jobKindPinPlaylist)
 	}
 
-	var pin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "playlist", likedPlaylistID).
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load liked pin: %v", err)
-	}
+	_ = loadPinRoot(t, ctx, app, local.LibraryID, local.DeviceID, "playlist", likedPlaylistID)
 	if _, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, "desktop"); err != nil {
 		t.Fatalf("initial cached encoding lookup: %v", err)
 	} else if ok {
@@ -1387,7 +1428,7 @@ func TestStartPinLikedOfflineKeepsPinWhenTrackIsInitiallyUnavailable(t *testing.
 		InvalidateAll: true,
 	})
 
-	refresh := waitForJobPhase(t, ctx, app, playbackRefreshPinnedScopeJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
+	refresh := waitForJobPhase(t, ctx, app, refreshPinScopeJobID(local.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
 	if refresh.Kind != jobKindRefreshPinnedPlaylist {
 		t.Fatalf("refresh job kind = %q, want %q", refresh.Kind, jobKindRefreshPinnedPlaylist)
 	}
@@ -1438,9 +1479,10 @@ func TestPinnedAlbumAutoRefreshReconcilesReplacementTrackSet(t *testing.T) {
 		LastVerifiedAt: time.Now().UTC(),
 	})
 
-	if _, err := app.PinAlbumOffline(ctx, albumID, "desktop"); err != nil {
-		t.Fatalf("pin album offline: %v", err)
+	if _, err := startAlbumPinJob(t, ctx, app, albumID, "desktop"); err != nil {
+		t.Fatalf("start album pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "album", albumID, "desktop"), JobPhaseCompleted)
 	blobA, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, "rec-album-refresh-a", "desktop")
 	if err != nil || !ok {
 		t.Fatalf("cached encoding for track a = %v, %v", ok, err)
@@ -1472,7 +1514,7 @@ func TestPinnedAlbumAutoRefreshReconcilesReplacementTrackSet(t *testing.T) {
 		AlbumIDs: []string{albumID},
 	})
 
-	final := waitForJobPhase(t, ctx, app, playbackRefreshPinnedScopeJobID(local.LibraryID, "album", albumID, "desktop"), JobPhaseCompleted)
+	final := waitForJobPhase(t, ctx, app, refreshPinScopeJobID(local.LibraryID, "album", albumID, "desktop"), JobPhaseCompleted)
 	if final.Kind != jobKindRefreshPinnedAlbum {
 		t.Fatalf("refresh job kind = %q, want %q", final.Kind, jobKindRefreshPinnedAlbum)
 	}
@@ -1481,16 +1523,7 @@ func TestPinnedAlbumAutoRefreshReconcilesReplacementTrackSet(t *testing.T) {
 		t.Fatalf("cached encoding for replacement track = %v, %v", ok, err)
 	}
 
-	var pin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "album", albumID).
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load album pin: %v", err)
-	}
-	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
-	if err != nil {
-		t.Fatalf("offline pin blob ids: %v", err)
-	}
+	protectedBlobIDs := pinRootBlobIDs(t, ctx, app, local.LibraryID, local.DeviceID, "album", albumID, "desktop")
 	if slicesContains(protectedBlobIDs, blobB) {
 		t.Fatalf("expected removed track blob %q to stop being protected, got %v", blobB, protectedBlobIDs)
 	}
@@ -1499,7 +1532,7 @@ func TestPinnedAlbumAutoRefreshReconcilesReplacementTrackSet(t *testing.T) {
 	}
 }
 
-func TestPinAlbumOfflineAggregatesCachedTracks(t *testing.T) {
+func TestPinAlbumAggregatesCachedTracks(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -1533,32 +1566,18 @@ func TestPinAlbumOfflineAggregatesCachedTracks(t *testing.T) {
 		LastVerifiedAt: time.Now().UTC(),
 	})
 
-	result, err := app.PinAlbumOffline(ctx, "album-batch", "desktop")
-	if err != nil {
-		t.Fatalf("pin album offline: %v", err)
+	if _, err := startAlbumPinJob(t, ctx, app, "album-batch", "desktop"); err != nil {
+		t.Fatalf("start album pin: %v", err)
 	}
-	if result.Tracks != 2 {
-		t.Fatalf("tracks = %d, want 2", result.Tracks)
-	}
-	if result.TotalBytes != 128 {
-		t.Fatalf("total bytes = %d, want 128", result.TotalBytes)
-	}
-	if result.LocalHits != 2 {
-		t.Fatalf("local hits = %d, want 2", result.LocalHits)
-	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "album", "album-batch", "desktop"), JobPhaseCompleted)
 
-	var pin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "album", "album-batch").
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load album pin: %v", err)
-	}
+	pin := loadPinRoot(t, ctx, app, local.LibraryID, local.DeviceID, "album", "album-batch")
 	if pin.Profile != "desktop" {
 		t.Fatalf("album pin profile = %q, want desktop", pin.Profile)
 	}
 }
 
-func TestPinAlbumOfflineUsesExactVariantScope(t *testing.T) {
+func TestPinAlbumUsesExactVariantScope(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -1598,16 +1617,12 @@ func TestPinAlbumOfflineUsesExactVariantScope(t *testing.T) {
 		t.Fatalf("update album cluster ids: %v", err)
 	}
 
-	if _, err := app.PinAlbumOffline(ctx, "album-variant-b", "desktop"); err != nil {
-		t.Fatalf("pin album variant offline: %v", err)
+	if _, err := startAlbumPinJob(t, ctx, app, "album-variant-b", "desktop"); err != nil {
+		t.Fatalf("start album variant pin: %v", err)
 	}
+	waitForJobPhase(t, ctx, app, pinJobID(local.LibraryID, "album", "album-variant-b", "desktop"), JobPhaseCompleted)
 
-	var pin OfflinePin
-	if err := app.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "album", "album-variant-b").
-		Take(&pin).Error; err != nil {
-		t.Fatalf("load pinned album variant: %v", err)
-	}
+	_ = loadPinRoot(t, ctx, app, local.LibraryID, local.DeviceID, "album", "album-variant-b")
 
 	summaryA := mustAlbumAvailabilitySummary(t, app, ctx, "album-variant-a")
 	if summaryA.ScopePinned {
@@ -1618,10 +1633,7 @@ func TestPinAlbumOfflineUsesExactVariantScope(t *testing.T) {
 		t.Fatalf("expected selected variant to report scope pinned")
 	}
 
-	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
-	if err != nil {
-		t.Fatalf("offline pin blob ids: %v", err)
-	}
+	protectedBlobIDs := pinRootBlobIDs(t, ctx, app, local.LibraryID, local.DeviceID, "album", "album-variant-b", "desktop")
 	if slicesContains(protectedBlobIDs, testBlobID("e")) {
 		t.Fatalf("expected exact variant pin not to protect other variant blobs: %v", protectedBlobIDs)
 	}
@@ -1630,7 +1642,7 @@ func TestPinAlbumOfflineUsesExactVariantScope(t *testing.T) {
 	}
 }
 
-func TestPinAlbumOfflineRejectsFullyLocalAlbum(t *testing.T) {
+func TestPinAlbumAllowsFullyLocalAlbum(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -1654,22 +1666,14 @@ func TestPinAlbumOfflineRejectsFullyLocalAlbum(t *testing.T) {
 	})
 	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-local-album-a", []byte("local-a"))
 
-	if _, err := app.PinAlbumOffline(ctx, "album-local-only", "desktop"); err == nil || !strings.Contains(err.Error(), "local albums do not need offline pinning") {
-		t.Fatalf("expected local album pin rejection, got %v", err)
+	job, err := startAlbumPinJob(t, ctx, app, "album-local-only", "desktop")
+	if err != nil {
+		t.Fatalf("start local album pin: %v", err)
 	}
-	if _, err := app.StartPinAlbumOffline(ctx, "album-local-only", "desktop"); err == nil || !strings.Contains(err.Error(), "local albums do not need offline pinning") {
-		t.Fatalf("expected async local album pin rejection, got %v", err)
-	}
+	waitForJobPhase(t, ctx, app, job.JobID, JobPhaseCompleted)
 
-	var count int64
-	if err := app.db.WithContext(ctx).
-		Model(&OfflinePin{}).
-		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "album", "album-local-only").
-		Count(&count).Error; err != nil {
-		t.Fatalf("count local album pins: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("local album pin count = %d, want 0", count)
+	if count := countPinRoots(t, ctx, app, local.LibraryID, local.DeviceID, "album", "album-local-only"); count != 1 {
+		t.Fatalf("local album pin count = %d, want 1", count)
 	}
 }
 
@@ -1999,8 +2003,8 @@ func TestAlbumAvailabilitySummaryStates(t *testing.T) {
 			SourceFileID:   "src-pinned-b",
 			QualityRank:    90,
 		})
-		seedOfflinePin(t, app, library.LibraryID, local.DeviceID, "recording", "rec-pinned-a", "desktop")
-		seedOfflinePin(t, app, library.LibraryID, local.DeviceID, "recording", "rec-pinned-b", "desktop")
+		seedPinRoot(t, app, library.LibraryID, local.DeviceID, "recording", "rec-pinned-a", "desktop")
+		seedPinRoot(t, app, library.LibraryID, local.DeviceID, "recording", "rec-pinned-b", "desktop")
 
 		summary := mustAlbumAvailabilitySummary(t, app, ctx, "album-pinned")
 		if summary.State != apitypes.AggregateAvailabilityStatePinned {

@@ -9,8 +9,6 @@ import {
   type SessionSnapshot,
 } from "./models";
 
-export const OFFLINE_PIN_PROFILE = "desktop";
-
 export function resolveThumbnailURL(thumb: ArtworkRef) {
   return PlaybackFacade.ResolveThumbnailURL(thumb);
 }
@@ -65,67 +63,6 @@ export function startEnsurePlaylistEncodings(
   );
 }
 
-export function startPinRecordingOffline(
-  recordingId: string,
-  preferredProfile = OFFLINE_PIN_PROFILE,
-) {
-  return PlaybackFacade.StartPinRecordingOffline(recordingId, preferredProfile);
-}
-
-export function startPinAlbumOffline(
-  albumId: string,
-  preferredProfile = OFFLINE_PIN_PROFILE,
-) {
-  return PlaybackFacade.StartPinAlbumOffline(albumId, preferredProfile);
-}
-
-export function startPinPlaylistOffline(
-  playlistId: string,
-  preferredProfile = OFFLINE_PIN_PROFILE,
-) {
-  return PlaybackFacade.StartPinPlaylistOffline(playlistId, preferredProfile);
-}
-
-export function pinRecordingOffline(
-  recordingId: string,
-  preferredProfile = OFFLINE_PIN_PROFILE,
-) {
-  return PlaybackFacade.PinRecordingOffline(recordingId, preferredProfile);
-}
-
-export function pinAlbumOffline(
-  albumId: string,
-  preferredProfile = OFFLINE_PIN_PROFILE,
-) {
-  return PlaybackFacade.PinAlbumOffline(albumId, preferredProfile);
-}
-
-export function pinPlaylistOffline(
-  playlistId: string,
-  preferredProfile = OFFLINE_PIN_PROFILE,
-) {
-  return PlaybackFacade.PinPlaylistOffline(playlistId, preferredProfile);
-}
-
-export function pinLikedOffline(preferredProfile = OFFLINE_PIN_PROFILE) {
-  return PlaybackFacade.PinLikedOffline(preferredProfile);
-}
-
-export function unpinRecordingOffline(recordingId: string) {
-  return PlaybackFacade.UnpinRecordingOffline(recordingId);
-}
-
-export function unpinAlbumOffline(albumId: string) {
-  return PlaybackFacade.UnpinAlbumOffline(albumId);
-}
-
-export function unpinPlaylistOffline(playlistId: string) {
-  return PlaybackFacade.UnpinPlaylistOffline(playlistId);
-}
-
-export function unpinLikedOffline() {
-  return PlaybackFacade.UnpinLikedOffline();
-}
 
 export function listRecordingPlaybackAvailability(
   recordingIds: string[],

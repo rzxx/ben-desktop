@@ -20,6 +20,7 @@ import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
+import { pinSubjectKey, usePinState, usePinStates } from "@/hooks/pins/usePinStates";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import {
   isJobActive,
@@ -41,11 +42,12 @@ import {
   setPlaylistCover,
 } from "@/lib/api/catalog";
 import {
-  startPinPlaylistOffline,
-  unpinPlaylistOffline,
-} from "@/lib/api/playback";
+  Types,
+} from "@/lib/api/models";
+import { startPin, unpin } from "@/lib/api/pin";
 import {
   formatCount,
+  pinStateLabel,
   formatRelativeDate,
   isCatalogTrackActionable,
   isTrackCollectionPlayable,
@@ -83,6 +85,12 @@ export function PlaylistDetailPage() {
     (state) => state.trackAvailabilityByRecordingId,
   );
   const trackedPinJob = useJobSnapshot(pinJob);
+  const playlistPinState = usePinState(
+    new Types.PinSubjectRef({
+      ID: playlistId,
+      Kind: Types.PinSubjectKind.PinSubjectPlaylist,
+    }),
+  );
   const detail = useStoreQuery(
     (state) =>
       selectDetail(getDetailRecord(state.playlistSummaries, playlistId)),
@@ -128,12 +136,21 @@ export function PlaylistDetailPage() {
     !trackQuery.isLoading &&
     !trackQuery.hasMore &&
     playlistTrackCount === trackQuery.items.length;
+  const trackPinStates = usePinStates(
+    trackQuery.items.map(
+      (track) =>
+        new Types.PinSubjectRef({
+          ID: track.LibraryRecordingID || track.RecordingID,
+          Kind: Types.PinSubjectKind.PinSubjectRecordingCluster,
+        }),
+    ),
+  );
   const canPlayPlaylistNow = isTrackCollectionPlayable({
     trackCount: playlistTrackCount,
     fullyLoaded: playlistTracksFullyLoaded,
     hasPlayableLoadedTrack,
   });
-  const scopePinned = Boolean(detail.data?.ScopePinned);
+  const scopePinnedDirect = Boolean(playlistPinState?.Direct);
   const pinBusy = pinActionBusy || isJobActive(trackedPinJob);
   const pinFeedback = isJobActive(trackedPinJob)
     ? trackedPinJob?.message?.trim() || "Pinning playlist..."
@@ -154,11 +171,17 @@ export function PlaylistDetailPage() {
     setPinError("");
 
     try {
-      if (scopePinned) {
-        await unpinPlaylistOffline(playlistId);
+      if (scopePinnedDirect) {
+        await unpin({
+          ID: playlistId,
+          Kind: Types.PinSubjectKind.PinSubjectPlaylist,
+        });
         setPinJob(null);
       } else {
-        const job = await startPinPlaylistOffline(playlistId);
+        const job = await startPin({
+          ID: playlistId,
+          Kind: Types.PinSubjectKind.PinSubjectPlaylist,
+        });
         setPinJob(job);
       }
     } catch (error) {
@@ -305,17 +328,24 @@ export function PlaylistDetailPage() {
               onClick={() => {
                 void handlePlaylistPinToggle();
               }}
-              tone={scopePinned ? "quiet" : "default"}
+              tone={scopePinnedDirect ? "quiet" : "default"}
             >
               {pinBusy
                 ? "Pinning playlist..."
-                : scopePinned
+                : scopePinnedDirect
                   ? "Unpin playlist"
+                  : playlistPinState?.Covered
+                    ? "Pin playlist directly"
                   : "Pin playlist"}
             </Button>
           </div>
           {pinFeedback ? (
             <p className="text-theme-500 text-xs">{pinFeedback}</p>
+          ) : null}
+          {!pinFeedback && !pinError && pinStateLabel(playlistPinState) ? (
+            <p className="text-theme-500 text-xs">
+              {pinStateLabel(playlistPinState)}
+            </p>
           ) : null}
           {!pinFeedback && pinError ? (
             <p className="text-xs text-red-300">{pinError}</p>
@@ -364,8 +394,13 @@ export function PlaylistDetailPage() {
                   () => {},
                 );
               }}
-              pinned={
-                trackAvailabilityByRecordingId[track.RecordingID]?.data?.Pinned
+              pinState={
+                trackPinStates[
+                  pinSubjectKey({
+                    ID: track.LibraryRecordingID || track.RecordingID,
+                    Kind: Types.PinSubjectKind.PinSubjectRecordingCluster,
+                  })
+                ] ?? null
               }
               recordingId={track.RecordingID}
               removeLabel={`Remove ${track.Title} from playlist`}

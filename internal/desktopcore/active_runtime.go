@@ -20,11 +20,6 @@ type activeLibraryRuntime struct {
 	scanWatcher      *activeScanWatcher
 }
 
-func (a *App) syncActiveLibraryRuntime(ctx context.Context) (apitypes.LocalContext, bool, error) {
-	local, _, ok, err := a.syncActiveLibraryRuntimeState(ctx)
-	return local, ok, err
-}
-
 func (a *App) syncActiveLibraryRuntimeState(ctx context.Context) (apitypes.LocalContext, *activeLibraryRuntime, bool, error) {
 	if a == nil {
 		return apitypes.LocalContext{}, nil, false, nil
