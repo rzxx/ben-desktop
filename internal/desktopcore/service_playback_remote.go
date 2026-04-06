@@ -302,16 +302,28 @@ func (s *PlaybackService) resolvePlaybackAssetTransfer(ctx context.Context, loca
 		return PlaybackAssetTransfer{}, fmt.Errorf("recording id is required")
 	}
 	profile := s.resolvePlaybackProfile(preferredProfile)
+	recordingRef := strings.TrimSpace(recordingID)
+	clusterID, ok, err := s.app.catalog.trackClusterIDForVariant(ctx, local.LibraryID, recordingRef)
+	if err != nil {
+		return PlaybackAssetTransfer{}, err
+	}
+	if ok && strings.TrimSpace(clusterID) != "" {
+		if providerRecordingID, providerOK, providerErr := s.app.catalog.explicitRecordingVariantID(ctx, local.LibraryID, local.DeviceID, strings.TrimSpace(clusterID)); providerErr != nil {
+			return PlaybackAssetTransfer{}, providerErr
+		} else if providerOK && strings.TrimSpace(providerRecordingID) != "" {
+			recordingRef = strings.TrimSpace(providerRecordingID)
+		}
+	}
 
-	blobID, encodingID, ok, err := s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, profile)
+	blobID, encodingID, ok, err := s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingRef, profile)
 	if err != nil {
 		return PlaybackAssetTransfer{}, err
 	}
 	if !ok && canProvideLocalMedia(local.Role) {
-		if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, recordingID, profile, requesterDeviceID); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
+		if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, recordingRef, profile, requesterDeviceID); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
 			return PlaybackAssetTransfer{}, err
 		}
-		blobID, encodingID, ok, err = s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, profile)
+		blobID, encodingID, ok, err = s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingRef, profile)
 		if err != nil {
 			return PlaybackAssetTransfer{}, err
 		}

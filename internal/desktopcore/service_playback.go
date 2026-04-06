@@ -938,17 +938,28 @@ SELECT
 	d.last_seen_at,
 	pss.last_success_at,
 	CASE WHEN EXISTS (
-		SELECT 1 FROM source_files sf
-		WHERE sf.library_id = m.library_id AND sf.device_id = m.device_id AND sf.is_present = 1 AND sf.track_variant_id = ?
+		SELECT 1
+		FROM source_files sf
+		JOIN track_variants req ON req.library_id = sf.library_id AND req.track_variant_id = ?
+		JOIN track_variants cand ON cand.library_id = sf.library_id AND cand.track_variant_id = sf.track_variant_id
+		WHERE sf.library_id = m.library_id AND sf.device_id = m.device_id AND sf.is_present = 1 AND cand.track_cluster_id = req.track_cluster_id
 	) THEN 1 ELSE 0 END AS source_present,
 	CASE WHEN EXISTS (
-		SELECT 1 FROM optimized_assets oa
-		WHERE oa.library_id = m.library_id AND oa.created_by_device_id = m.device_id AND oa.track_variant_id = ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
+		SELECT 1
+		FROM optimized_assets oa
+		JOIN source_files sf ON sf.library_id = oa.library_id AND sf.source_file_id = oa.source_file_id
+		JOIN track_variants req ON req.library_id = oa.library_id AND req.track_variant_id = ?
+		JOIN track_variants cand ON cand.library_id = sf.library_id AND cand.track_variant_id = sf.track_variant_id
+		WHERE oa.library_id = m.library_id AND oa.created_by_device_id = m.device_id AND cand.track_cluster_id = req.track_cluster_id AND (? = '' OR oa.profile = ? OR oa.profile = ?)
 	) THEN 1 ELSE 0 END AS optimized_present,
 	CASE WHEN EXISTS (
-		SELECT 1 FROM device_asset_caches dac
+		SELECT 1
+		FROM device_asset_caches dac
 		JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
-		WHERE dac.library_id = m.library_id AND dac.device_id = m.device_id AND dac.is_cached = 1 AND oa.track_variant_id = ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
+		JOIN source_files sf ON sf.library_id = oa.library_id AND sf.source_file_id = oa.source_file_id
+		JOIN track_variants req ON req.library_id = oa.library_id AND req.track_variant_id = ?
+		JOIN track_variants cand ON cand.library_id = sf.library_id AND cand.track_variant_id = sf.track_variant_id
+		WHERE dac.library_id = m.library_id AND dac.device_id = m.device_id AND dac.is_cached = 1 AND cand.track_cluster_id = req.track_cluster_id AND (? = '' OR oa.profile = ? OR oa.profile = ?)
 	) THEN 1 ELSE 0 END AS cached_optimized
 FROM memberships m
 LEFT JOIN devices d ON d.device_id = m.device_id
@@ -1599,10 +1610,6 @@ LIMIT 1`
 
 func (s *PlaybackService) bestCachedEncoding(ctx context.Context, libraryID, deviceID, recordingID, profile string) (string, string, bool, error) {
 	aliasProfile := normalizedPlaybackProfileAlias(profile)
-	exactVariant, err := s.isExactTrackVariantID(ctx, libraryID, recordingID)
-	if err != nil {
-		return "", "", false, err
-	}
 	type encodingRow struct {
 		BlobID           string
 		OptimizedAssetID string
@@ -1620,19 +1627,6 @@ WHERE e.library_id = ? AND cand.track_cluster_id = req.track_cluster_id AND COAL
 ORDER BY CASE WHEN sf.track_variant_id = ? THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC
 LIMIT 1`
 	args := []any{recordingID, libraryID, deviceID, libraryID, profile, profile, aliasProfile, recordingID}
-	if exactVariant {
-		query = `
-SELECT
-	e.blob_id,
-	e.optimized_asset_id AS optimized_asset_id
-FROM optimized_assets e
-JOIN source_files sf ON sf.library_id = e.library_id AND sf.source_file_id = e.source_file_id
-LEFT JOIN device_asset_caches de ON de.library_id = e.library_id AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
-WHERE e.library_id = ? AND sf.track_variant_id = ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
-ORDER BY e.bitrate DESC, e.optimized_asset_id ASC
-LIMIT 1`
-		args = []any{deviceID, libraryID, recordingID, profile, profile, aliasProfile}
-	}
 	var result encodingRow
 	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&result).Error; err != nil {
 		return "", "", false, err
@@ -1751,13 +1745,15 @@ func (s *PlaybackService) batchBestCachedRecordingIDs(ctx context.Context, libra
 	if len(exactIDs) > 0 {
 		exactQuery := `
 SELECT
-	sf.track_variant_id AS recording_id,
+	req.track_variant_id AS recording_id,
 	e.blob_id
-FROM optimized_assets e
-JOIN source_files sf ON sf.library_id = e.library_id AND sf.source_file_id = e.source_file_id
+FROM track_variants req
+JOIN track_variants cand ON cand.library_id = req.library_id AND cand.track_cluster_id = req.track_cluster_id
+JOIN source_files sf ON sf.library_id = req.library_id AND sf.track_variant_id = cand.track_variant_id
+JOIN optimized_assets e ON e.library_id = sf.library_id AND e.source_file_id = sf.source_file_id
 LEFT JOIN device_asset_caches de ON de.library_id = e.library_id AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
-WHERE e.library_id = ? AND sf.track_variant_id IN ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
-ORDER BY sf.track_variant_id ASC, e.bitrate DESC, e.optimized_asset_id ASC`
+WHERE req.library_id = ? AND req.track_variant_id IN ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
+ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_variant_id THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC`
 		var exactRows []row
 		if err := s.app.storage.WithContext(ctx).Raw(exactQuery, deviceID, libraryID, exactIDs, profile, profile, aliasProfile).Scan(&exactRows).Error; err != nil {
 			return nil, err
@@ -2584,15 +2580,17 @@ func (s *PlaybackService) batchRecordingPlaybackFacts(ctx context.Context, libra
 	}
 	sourceQuery := `
 SELECT
-	sf.track_variant_id AS recording_id,
+	req.track_variant_id AS recording_id,
 	MAX(CASE WHEN sf.device_id = ? AND sf.is_present = 1 THEN 1 ELSE 0 END) AS has_local_source,
 	MAX(CASE WHEN sf.device_id <> ? AND sf.is_present = 1 AND COALESCE(m.role, '') IN ('owner', 'admin', 'member') THEN 1 ELSE 0 END) AS has_remote_source,
 	MAX(CASE WHEN sf.device_id <> ? AND sf.is_present = 1 AND COALESCE(m.role, '') IN ('owner', 'admin', 'member') AND d.last_seen_at >= ? THEN 1 ELSE 0 END) AS has_remote_source_online
-FROM source_files sf
+FROM track_variants req
+LEFT JOIN track_variants cand ON cand.library_id = req.library_id AND cand.track_cluster_id = req.track_cluster_id
+LEFT JOIN source_files sf ON sf.library_id = req.library_id AND sf.track_variant_id = cand.track_variant_id
 LEFT JOIN memberships m ON m.library_id = sf.library_id AND m.device_id = sf.device_id
 LEFT JOIN devices d ON d.device_id = sf.device_id
-WHERE sf.library_id = ? AND sf.track_variant_id IN ?
-GROUP BY sf.track_variant_id`
+WHERE req.library_id = ? AND req.track_variant_id IN ?
+GROUP BY req.track_variant_id`
 	var sourceRows []sourceRow
 	if err := s.app.storage.WithContext(ctx).Raw(sourceQuery, localDeviceID, localDeviceID, localDeviceID, cutoff, libraryID, recordingIDs).Scan(&sourceRows).Error; err != nil {
 		return nil, err
@@ -2606,15 +2604,18 @@ GROUP BY sf.track_variant_id`
 	}
 	cacheQuery := `
 SELECT
-	oa.track_variant_id AS recording_id,
+	req.track_variant_id AS recording_id,
 	MAX(CASE WHEN dac.device_id = ? AND dac.is_cached = 1 THEN 1 ELSE 0 END) AS has_local_cached,
 	MAX(CASE WHEN dac.device_id <> ? AND dac.is_cached = 1 THEN 1 ELSE 0 END) AS has_remote_cached,
 	MAX(CASE WHEN dac.device_id <> ? AND dac.is_cached = 1 AND d.last_seen_at >= ? THEN 1 ELSE 0 END) AS has_remote_cached_online
-FROM optimized_assets oa
-JOIN device_asset_caches dac ON dac.library_id = oa.library_id AND dac.optimized_asset_id = oa.optimized_asset_id
+FROM track_variants req
+LEFT JOIN track_variants cand ON cand.library_id = req.library_id AND cand.track_cluster_id = req.track_cluster_id
+LEFT JOIN source_files sf ON sf.library_id = req.library_id AND sf.track_variant_id = cand.track_variant_id
+LEFT JOIN optimized_assets oa ON oa.library_id = sf.library_id AND oa.source_file_id = sf.source_file_id
+LEFT JOIN device_asset_caches dac ON dac.library_id = oa.library_id AND dac.optimized_asset_id = oa.optimized_asset_id
 LEFT JOIN devices d ON d.device_id = dac.device_id
-WHERE oa.library_id = ? AND oa.track_variant_id IN ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
-GROUP BY oa.track_variant_id`
+WHERE req.library_id = ? AND req.track_variant_id IN ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
+GROUP BY req.track_variant_id`
 	var cacheRows []cacheRow
 	if err := s.app.storage.WithContext(ctx).Raw(cacheQuery, localDeviceID, localDeviceID, localDeviceID, cutoff, libraryID, recordingIDs, profile, profile, aliasProfile).Scan(&cacheRows).Error; err != nil {
 		return nil, err

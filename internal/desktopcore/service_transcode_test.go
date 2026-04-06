@@ -539,6 +539,123 @@ func TestPreparePlaybackRecordingRequestsProviderTranscodeFromRemotePeer(t *test
 	}
 }
 
+func TestPreparePlaybackRecordingRequestsProviderTranscodeAcrossClusterVariantMismatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("remote-cluster-transcoded")}
+	owner := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "remote-provider-transcode-cluster")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, _ := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	const (
+		clusterID       = "rec-provider-cluster"
+		requestedID     = "rec-provider-requested"
+		providerOnlyID  = "rec-provider-remote-only"
+		albumID         = "album-provider-cluster"
+		sourceFileID    = "src-provider-cluster-remote"
+	)
+	seedInput := playbackSeedInput{
+		RecordingID:    providerOnlyID,
+		TrackClusterID: clusterID,
+		AlbumID:        albumID,
+		AlbumClusterID: albumID,
+		SourceFileID:   sourceFileID,
+		QualityRank:    100,
+	}
+	seedSourceOnlyRecording(t, owner, library.LibraryID, ownerLocal.DeviceID, seedInput)
+	seedSourceOnlyRecording(t, joiner, library.LibraryID, ownerLocal.DeviceID, seedInput)
+	writeSeedSourceFile(t, owner, library.LibraryID, ownerLocal.DeviceID, sourceFileID, []byte("lossless-remote-cluster"))
+
+	now := time.Now().UTC()
+	for _, app := range []*App{owner, joiner} {
+		if err := app.db.WithContext(ctx).Create(&TrackVariantModel{
+			LibraryID:      library.LibraryID,
+			TrackVariantID: requestedID,
+			TrackClusterID: clusterID,
+			KeyNorm:        requestedID,
+			Title:          requestedID,
+			DurationMS:     180000,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}).Error; err != nil {
+			t.Fatalf("seed requested variant on app: %v", err)
+		}
+		if err := app.db.WithContext(ctx).Create(&AlbumTrack{
+			LibraryID:      library.LibraryID,
+			AlbumVariantID: albumID,
+			TrackVariantID: requestedID,
+			DiscNo:         1,
+			TrackNo:        2,
+		}).Error; err != nil {
+			t.Fatalf("seed requested album track on app: %v", err)
+		}
+	}
+	if err := joiner.catalog.SetPreferredRecordingVariant(ctx, clusterID, requestedID); err != nil {
+		t.Fatalf("set preferred recording variant on joiner: %v", err)
+	}
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	availability, err := joiner.GetRecordingAvailability(ctx, clusterID, "desktop")
+	if err != nil {
+		t.Fatalf("get recording availability before prepare: %v", err)
+	}
+	if availability.State != apitypes.AvailabilityWaitingProviderTranscode {
+		t.Fatalf("availability state before prepare = %q, want %q", availability.State, apitypes.AvailabilityWaitingProviderTranscode)
+	}
+
+	status, err := joiner.PreparePlaybackRecording(ctx, clusterID, "desktop", apitypes.PlaybackPreparationPlayNow)
+	if err != nil {
+		t.Fatalf("prepare playback recording: %v", err)
+	}
+	if status.Phase != apitypes.PlaybackPreparationPreparingTranscode {
+		t.Fatalf("preparation phase = %q, want %q", status.Phase, apitypes.PlaybackPreparationPreparingTranscode)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		status, err = joiner.GetPlaybackPreparation(ctx, clusterID, "desktop")
+		if err != nil {
+			t.Fatalf("get playback preparation: %v", err)
+		}
+		if status.Phase == apitypes.PlaybackPreparationReady {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if status.Phase != apitypes.PlaybackPreparationReady {
+		t.Fatalf("expected playback preparation to become ready, got %+v", status)
+	}
+	if status.SourceKind != apitypes.PlaybackSourceCachedOpt {
+		t.Fatalf("ready preparation source kind = %q, want %q", status.SourceKind, apitypes.PlaybackSourceCachedOpt)
+	}
+	if status.BlobID == "" || status.EncodingID == "" || status.PlayableURI == "" {
+		t.Fatalf("expected ready preparation with local cached artifact: %+v", status)
+	}
+	if len(builder.calls) != 1 {
+		t.Fatalf("remote transcode call count = %d, want 1", len(builder.calls))
+	}
+	if !blobExists(t, joiner, status.BlobID) {
+		t.Fatalf("expected remotely transcoded blob %s to exist locally", status.BlobID)
+	}
+
+	availability, err = joiner.GetRecordingAvailability(ctx, clusterID, "desktop")
+	if err != nil {
+		t.Fatalf("get recording availability after prepare: %v", err)
+	}
+	if availability.State != apitypes.AvailabilityPlayableCachedOpt {
+		t.Fatalf("availability state after prepare = %q, want %q", availability.State, apitypes.AvailabilityPlayableCachedOpt)
+	}
+}
+
 func TestEnsurePlaybackRecordingRejectsGuestReserveWithTamperedBlob(t *testing.T) {
 	t.Parallel()
 

@@ -1439,6 +1439,92 @@ func TestStartPinLikedKeepsPinWhenTrackIsInitiallyUnavailable(t *testing.T) {
 	}
 }
 
+func TestStartPinLikedFetchesRemoteTrackAcrossClusterVariantMismatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("liked-remote-cluster")}
+	owner := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "liked-remote-cluster-pin")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	const (
+		clusterID      = "liked-cluster-remote"
+		requestedID    = "liked-requested-variant"
+		providerOnlyID = "liked-provider-variant"
+		albumID        = "liked-remote-album"
+		sourceFileID   = "liked-remote-source"
+	)
+	seedInput := playbackSeedInput{
+		RecordingID:    providerOnlyID,
+		TrackClusterID: clusterID,
+		AlbumID:        albumID,
+		AlbumClusterID: albumID,
+		SourceFileID:   sourceFileID,
+		QualityRank:    100,
+	}
+	seedSourceOnlyRecording(t, owner, library.LibraryID, ownerLocal.DeviceID, seedInput)
+	seedSourceOnlyRecording(t, joiner, library.LibraryID, ownerLocal.DeviceID, seedInput)
+	writeSeedSourceFile(t, owner, library.LibraryID, ownerLocal.DeviceID, sourceFileID, []byte("liked-remote-lossless"))
+
+	now := time.Now().UTC()
+	for _, app := range []*App{owner, joiner} {
+		if err := app.db.WithContext(ctx).Create(&TrackVariantModel{
+			LibraryID:      library.LibraryID,
+			TrackVariantID: requestedID,
+			TrackClusterID: clusterID,
+			KeyNorm:        requestedID,
+			Title:          requestedID,
+			DurationMS:     180000,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}).Error; err != nil {
+			t.Fatalf("seed requested variant: %v", err)
+		}
+		if err := app.db.WithContext(ctx).Create(&AlbumTrack{
+			LibraryID:      library.LibraryID,
+			AlbumVariantID: albumID,
+			TrackVariantID: requestedID,
+			DiscNo:         1,
+			TrackNo:        2,
+		}).Error; err != nil {
+			t.Fatalf("seed requested album track: %v", err)
+		}
+	}
+	if err := joiner.catalog.SetPreferredRecordingVariant(ctx, clusterID, requestedID); err != nil {
+		t.Fatalf("set preferred recording variant on joiner: %v", err)
+	}
+	if err := joiner.LikeRecording(ctx, clusterID); err != nil {
+		t.Fatalf("like recording on joiner: %v", err)
+	}
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner", joiner))
+
+	likedPlaylistID := likedPlaylistIDForLibrary(joinerLocal.LibraryID)
+	if _, err := startLikedPinJob(t, ctx, joiner, likedPlaylistID, "desktop"); err != nil {
+		t.Fatalf("start liked pin: %v", err)
+	}
+	waitForJobPhase(t, ctx, joiner, pinJobID(joinerLocal.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
+
+	availability, err := joiner.GetRecordingAvailability(ctx, clusterID, "desktop")
+	if err != nil {
+		t.Fatalf("get recording availability after liked pin: %v", err)
+	}
+	if availability.State != apitypes.AvailabilityPlayableCachedOpt {
+		t.Fatalf("availability state after liked pin = %q, want %q", availability.State, apitypes.AvailabilityPlayableCachedOpt)
+	}
+	if len(builder.calls) != 1 {
+		t.Fatalf("remote transcode call count = %d, want 1", len(builder.calls))
+	}
+}
+
 func TestPinnedAlbumAutoRefreshReconcilesReplacementTrackSet(t *testing.T) {
 	t.Parallel()
 
