@@ -2262,10 +2262,6 @@ func maxInt(left, right int) int {
 }
 
 func (s *PlaybackService) prepareRecordingPinResult(ctx context.Context, local apitypes.LocalContext, recordingID, profile string) (apitypes.PlaybackRecordingResult, error) {
-	if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, recordingID, profile, local.DeviceID); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
-		return apitypes.PlaybackRecordingResult{}, err
-	}
-
 	blobID, encodingID, ok, err := s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, profile)
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err

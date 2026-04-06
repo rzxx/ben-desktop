@@ -43,10 +43,19 @@ func newPinService(app *App) *PinService {
 }
 
 func (s *PinService) handlePinnedScopeCatalogChange(event apitypes.CatalogChangeEvent) {
-	if s == nil || s.app == nil || event.Kind != apitypes.CatalogChangeInvalidateBase {
+	if s == nil || s.app == nil {
 		return
 	}
-	if !pinCatalogChangeRelevant(event) {
+	switch event.Kind {
+	case apitypes.CatalogChangeInvalidateAvailability:
+		if !event.InvalidateAll {
+			return
+		}
+	case apitypes.CatalogChangeInvalidateBase:
+		if !pinCatalogChangeRelevant(event) {
+			return
+		}
+	default:
 		return
 	}
 
@@ -56,6 +65,10 @@ func (s *PinService) handlePinnedScopeCatalogChange(event apitypes.CatalogChange
 	}
 
 	ctx := context.Background()
+	if event.Kind == apitypes.CatalogChangeInvalidateAvailability {
+		s.scheduleAllPinScopeRefresh(ctx, local, pinnedScopeDebounceWait)
+		return
+	}
 	if recordingPins, albumPins, playlistPins, targeted, err := s.affectedPinRootsForEvent(ctx, local, event); err == nil {
 		if targeted {
 			for _, pin := range recordingPins {
@@ -74,13 +87,7 @@ func (s *PinService) handlePinnedScopeCatalogChange(event apitypes.CatalogChange
 	if !event.InvalidateAll {
 		return
 	}
-	pins, err := s.listPinRoots(ctx, local.LibraryID, local.DeviceID, nil)
-	if err != nil {
-		return
-	}
-	for _, pin := range pins {
-		s.schedulePinScopeRefresh(pin.LibraryID, pin.Scope, pin.ScopeID, pin.Profile)
-	}
+	s.scheduleAllPinScopeRefresh(ctx, local, pinnedScopeDebounceWait)
 }
 
 func pinCatalogChangeRelevant(event apitypes.CatalogChangeEvent) bool {
@@ -637,8 +644,12 @@ func (s *PinService) pendingForSubject(
 }
 
 func (s *PinService) collectionPending(ctx context.Context, recordingIDs []string, profile string) bool {
+	local, err := s.app.EnsureLocalContext(ctx)
+	if err != nil {
+		return false
+	}
 	for _, recordingID := range compactNonEmptyStrings(recordingIDs) {
-		if s.recordingPending(ctx, recordingID, profile) {
+		if s.recordingPendingWithLocal(ctx, local, recordingID, profile) {
 			return true
 		}
 	}
@@ -646,15 +657,45 @@ func (s *PinService) collectionPending(ctx context.Context, recordingIDs []strin
 }
 
 func (s *PinService) recordingPending(ctx context.Context, recordingID, profile string) bool {
-	availability, err := s.app.playback.GetRecordingAvailability(ctx, recordingID, profile)
+	local, err := s.app.EnsureLocalContext(ctx)
 	if err != nil {
 		return false
 	}
-	switch availability.State {
-	case apitypes.AvailabilityPlayableLocalFile, apitypes.AvailabilityPlayableCachedOpt:
+	return s.recordingPendingWithLocal(ctx, local, recordingID, profile)
+}
+
+func (s *PinService) recordingPendingWithLocal(ctx context.Context, local apitypes.LocalContext, recordingID, profile string) bool {
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
 		return false
-	default:
-		return availability.Pinned
+	}
+	if _, ok, err := s.app.playback.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, recordingID); err == nil && ok {
+		return false
+	}
+	if ok, err := s.hasPinnedCachedEncoding(ctx, local, recordingID, profile); err == nil && ok {
+		return false
+	}
+	return true
+}
+
+func (s *PinService) hasPinnedCachedEncoding(ctx context.Context, local apitypes.LocalContext, recordingID, profile string) (bool, error) {
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return false, nil
+	}
+	if exactID, ok, err := s.app.playback.trackVariantExists(ctx, local.LibraryID, recordingID); err != nil {
+		return false, err
+	} else if ok && strings.TrimSpace(exactID) != "" {
+		blobIDs, err := s.app.cache.cachedBlobIDsForResolvedRecordings(ctx, local.LibraryID, local.DeviceID, []string{strings.TrimSpace(exactID)}, profile)
+		if err != nil {
+			return false, err
+		}
+		return len(blobIDs) > 0, nil
+	}
+	if _, _, ok, err := s.app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, profile); err != nil {
+		return false, err
+	} else {
+		return ok, nil
 	}
 }
 
@@ -967,6 +1008,24 @@ func (s *PinService) schedulePinScopeRefresh(libraryID, scope, scopeID, profile 
 	s.schedulePinScopeRefreshAfter(libraryID, scope, scopeID, profile, pinnedScopeDebounceWait)
 }
 
+func (s *PinService) scheduleAllPinScopeRefresh(ctx context.Context, local apitypes.LocalContext, delay time.Duration) {
+	if s == nil || s.app == nil {
+		return
+	}
+	libraryID := strings.TrimSpace(local.LibraryID)
+	deviceID := strings.TrimSpace(local.DeviceID)
+	if libraryID == "" || deviceID == "" {
+		return
+	}
+	pins, err := s.listPinRoots(ctx, libraryID, deviceID, nil)
+	if err != nil {
+		return
+	}
+	for _, pin := range pins {
+		s.schedulePinScopeRefreshAfter(pin.LibraryID, pin.Scope, pin.ScopeID, pin.Profile, delay)
+	}
+}
+
 func (s *PinService) schedulePinScopeRefreshAfter(libraryID, scope, scopeID, profile string, delay time.Duration) {
 	libraryID = strings.TrimSpace(libraryID)
 	scope = strings.TrimSpace(scope)
@@ -1094,19 +1153,18 @@ func (s *PinService) filterRecordingsNeedingPinFetch(ctx context.Context, local 
 	if len(recordingIDs) == 0 {
 		return nil, nil
 	}
-	resolution, err := s.app.playback.resolvePlaybackVariantsBatch(ctx, local, recordingIDs, preferredProfile)
-	if err != nil {
-		return nil, err
-	}
-	cachedRecordings, err := s.app.playback.batchBestCachedRecordingIDs(ctx, local.LibraryID, local.DeviceID, resolution.resolvedRecordingIDs, resolution.profile)
-	if err != nil {
-		return nil, err
-	}
+	profile := s.app.playback.resolvePlaybackProfile(preferredProfile)
 
 	out := make([]string, 0, len(recordingIDs))
 	for _, recordingID := range recordingIDs {
-		resolvedRecordingID := resolution.resolvedByRecording[recordingID]
-		if cachedRecordings[resolvedRecordingID] {
+		if _, ok, err := s.app.playback.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, recordingID); err != nil {
+			return nil, err
+		} else if ok {
+			continue
+		}
+		if ok, err := s.hasPinnedCachedEncoding(ctx, local, recordingID, profile); err != nil {
+			return nil, err
+		} else if ok {
 			continue
 		}
 		out = append(out, recordingID)
@@ -1438,7 +1496,7 @@ func (s *PinService) memberPending(ctx context.Context, local apitypes.LocalCont
 	if _, ok, err := s.app.playback.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, recordingID); err == nil && ok {
 		return false, ""
 	}
-	if _, _, ok, err := s.app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, profile); err == nil && ok {
+	if ok, err := s.hasPinnedCachedEncoding(ctx, local, recordingID, profile); err == nil && ok {
 		return false, ""
 	}
 	return true, "waiting for local or cached media"

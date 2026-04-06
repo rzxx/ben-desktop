@@ -435,7 +435,12 @@ func (a *App) syncActiveRuntimeServices(ctx context.Context) error {
 		}
 	}
 	if a.scanner != nil {
-		return a.scanner.syncRuntime(ctx, local, runtime)
+		if err := a.scanner.syncRuntime(ctx, local, runtime); err != nil {
+			return err
+		}
+	}
+	if a.pin != nil {
+		a.pin.scheduleAllPinScopeRefresh(ctx, local, pinnedScopeDebounceWait)
 	}
 	return nil
 }
