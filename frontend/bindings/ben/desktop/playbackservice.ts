@@ -117,8 +117,20 @@ export function QueueItems(items: playback$0.SessionItem[], mode: string): $Canc
     });
 }
 
+export function QueueLikedTrack(recordingID: string): $CancellablePromise<playback$0.SessionSnapshot> {
+    return $Call.ByID(1386361251, recordingID).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
 export function QueuePlaylist(playlistID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2887176341, playlistID).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+export function QueuePlaylistTrack(playlistID: string, itemID: string): $CancellablePromise<playback$0.SessionSnapshot> {
+    return $Call.ByID(2379012428, playlistID, itemID).then(($result: any) => {
         return $$createType0($result);
     });
 }

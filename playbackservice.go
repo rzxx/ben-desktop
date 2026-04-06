@@ -399,6 +399,18 @@ func (s *PlaybackService) QueuePlaylist(ctx context.Context, playlistID string) 
 	return s.QueueItems(contextInput.Items, string(playback.QueueInsertLast))
 }
 
+func (s *PlaybackService) QueuePlaylistTrack(ctx context.Context, playlistID string, itemID string) (playback.SessionSnapshot, error) {
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	item, err := loader.LoadPlaylistItem(ctx, playlistID, itemID)
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return s.QueueItems([]playback.SessionItem{item}, string(playback.QueueInsertLast))
+}
+
 func (s *PlaybackService) PlayRecording(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
 	loader, err := s.requireLoader()
 	if err != nil {
@@ -445,6 +457,18 @@ func (s *PlaybackService) PlayLikedTrack(ctx context.Context, recordingID string
 		return playback.SessionSnapshot{}, err
 	}
 	return s.replaceContextAndPlay(ctx, contextInput)
+}
+
+func (s *PlaybackService) QueueLikedTrack(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	item, err := loader.LoadLikedItem(ctx, recordingID)
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return s.QueueItems([]playback.SessionItem{item}, string(playback.QueueInsertLast))
 }
 
 func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapshot) {

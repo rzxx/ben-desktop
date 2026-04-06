@@ -112,6 +112,16 @@ func (l *CatalogLoader) LoadPlaylistTrackContext(ctx context.Context, playlistID
 	return contextInput, nil
 }
 
+func (l *CatalogLoader) LoadPlaylistItem(ctx context.Context, playlistID, itemID string) (SessionItem, error) {
+	contextInput, err := l.LoadPlaylistContext(ctx, playlistID)
+	if err != nil {
+		return SessionItem{}, err
+	}
+	return findContextItem(contextInput.Items, func(item SessionItem) bool {
+		return item.SourceItemID == strings.TrimSpace(itemID)
+	})
+}
+
 func (l *CatalogLoader) LoadLikedContext(ctx context.Context) (PlaybackContextInput, error) {
 	if l == nil || l.core == nil {
 		return PlaybackContextInput{}, fmt.Errorf("playback core is not available")
@@ -158,6 +168,16 @@ func (l *CatalogLoader) LoadLikedTrackContext(ctx context.Context, recordingID s
 	return contextInput, nil
 }
 
+func (l *CatalogLoader) LoadLikedItem(ctx context.Context, recordingID string) (SessionItem, error) {
+	contextInput, err := l.LoadLikedContext(ctx)
+	if err != nil {
+		return SessionItem{}, err
+	}
+	return findContextItem(contextInput.Items, func(item SessionItem) bool {
+		return item.RecordingID == strings.TrimSpace(recordingID)
+	})
+}
+
 func (l *CatalogLoader) LoadRecordingContext(ctx context.Context, recordingID string) (PlaybackContextInput, error) {
 	if l == nil || l.core == nil {
 		return PlaybackContextInput{}, fmt.Errorf("playback core is not available")
@@ -184,4 +204,13 @@ func findContextStartIndex(items []SessionItem, match func(SessionItem) bool) (i
 		}
 	}
 	return 0, fmt.Errorf("selected item is not present in playback context")
+}
+
+func findContextItem(items []SessionItem, match func(SessionItem) bool) (SessionItem, error) {
+	for _, item := range items {
+		if match(item) {
+			return item, nil
+		}
+	}
+	return SessionItem{}, fmt.Errorf("selected item is not present in playback context")
 }

@@ -2,6 +2,7 @@ package desktopcore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+	"gorm.io/gorm"
 )
 
 func TestPinRecordingOfflinePersistsAndUnpinsCachedAsset(t *testing.T) {
@@ -964,6 +966,300 @@ func TestPinnedPlaylistProtectsResolvedPreferredVariant(t *testing.T) {
 	}
 	if slicesContains(protectedBlobIDs, blobA) {
 		t.Fatalf("expected non-preferred variant blob %q to remain unprotected, got %v", blobA, protectedBlobIDs)
+	}
+}
+
+func TestSyncedPlaylistPinningNormalizesLogicalRecordingIDs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	var buildIndex atomic.Int32
+	builder := &fakeAACBuilder{}
+	builder.before = func() {
+		builder.result = []byte(fmt.Sprintf("playlist-sync-%d", buildIndex.Add(1)))
+	}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "playlist-sync-logical")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	playlist, err := app.CreatePlaylist(ctx, "Synced playlist", string(apitypes.PlaylistKindNormal))
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+
+	const (
+		clusterID = "cluster-playlist-sync"
+		variantA  = "rec-playlist-sync-a"
+		variantB  = "rec-playlist-sync-b"
+		itemID    = "playlist-sync-item"
+	)
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    variantA,
+		TrackClusterID: clusterID,
+		AlbumID:        "album-playlist-sync-a",
+		AlbumClusterID: "album-playlist-sync-a",
+		SourceFileID:   "src-playlist-sync-a",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-playlist-sync-a", []byte("playlist-sync-a"))
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    variantB,
+		TrackClusterID: clusterID,
+		AlbumID:        "album-playlist-sync-b",
+		AlbumClusterID: "album-playlist-sync-b",
+		SourceFileID:   "src-playlist-sync-b",
+		QualityRank:    120,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-playlist-sync-b", []byte("playlist-sync-b"))
+
+	if err := app.catalog.SetPreferredRecordingVariant(ctx, clusterID, variantB); err != nil {
+		t.Fatalf("set preferred recording variant: %v", err)
+	}
+	if _, err := app.EnsureRecordingEncoding(ctx, variantA, "desktop"); err != nil {
+		t.Fatalf("ensure non-preferred variant encoding: %v", err)
+	}
+
+	applyPlaylistItemOplogForTest(t, app, playlistItemOplogApplyTestInput{
+		LibraryID:   library.LibraryID,
+		DeviceID:    "remote-playlist-sync",
+		EntityID:    itemID,
+		PlaylistID:  playlist.PlaylistID,
+		ItemID:      itemID,
+		RecordingID: variantA,
+	})
+
+	var item PlaylistItem
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND playlist_id = ? AND item_id = ?", library.LibraryID, playlist.PlaylistID, itemID).
+		Take(&item).Error; err != nil {
+		t.Fatalf("load synced playlist item: %v", err)
+	}
+	if item.TrackVariantID != clusterID {
+		t.Fatalf("stored playlist recording id = %q, want %q", item.TrackVariantID, clusterID)
+	}
+
+	tracks, err := app.ListPlaylistTracks(ctx, apitypes.PlaylistTrackListRequest{PlaylistID: playlist.PlaylistID})
+	if err != nil {
+		t.Fatalf("list playlist tracks: %v", err)
+	}
+	if len(tracks.Items) != 1 {
+		t.Fatalf("playlist track count = %d, want 1", len(tracks.Items))
+	}
+	if tracks.Items[0].LibraryRecordingID != clusterID {
+		t.Fatalf("playlist library recording id = %q, want %q", tracks.Items[0].LibraryRecordingID, clusterID)
+	}
+	if tracks.Items[0].RecordingID != variantB {
+		t.Fatalf("playlist playback recording id = %q, want %q", tracks.Items[0].RecordingID, variantB)
+	}
+
+	if _, err := app.PinPlaylistOffline(ctx, playlist.PlaylistID, "desktop"); err != nil {
+		t.Fatalf("pin playlist offline: %v", err)
+	}
+
+	blobA, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, variantA, "desktop")
+	if err != nil || !ok {
+		t.Fatalf("cached encoding for non-preferred variant = %v, %v", ok, err)
+	}
+	blobB, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, variantB, "desktop")
+	if err != nil || !ok {
+		t.Fatalf("cached encoding for preferred variant = %v, %v", ok, err)
+	}
+
+	var pin OfflinePin
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "playlist", playlist.PlaylistID).
+		Take(&pin).Error; err != nil {
+		t.Fatalf("load playlist pin: %v", err)
+	}
+	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
+	if err != nil {
+		t.Fatalf("offline pin blob ids: %v", err)
+	}
+	if !slicesContains(protectedBlobIDs, blobB) {
+		t.Fatalf("expected preferred variant blob %q to stay protected, got %v", blobB, protectedBlobIDs)
+	}
+	if slicesContains(protectedBlobIDs, blobA) {
+		t.Fatalf("expected non-preferred variant blob %q to remain unprotected, got %v", blobA, protectedBlobIDs)
+	}
+}
+
+func TestSyncedLikedPinningNormalizesLogicalRecordingIDs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	var buildIndex atomic.Int32
+	builder := &fakeAACBuilder{}
+	builder.before = func() {
+		builder.result = []byte(fmt.Sprintf("liked-sync-%d", buildIndex.Add(1)))
+	}
+	app := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	library, err := app.CreateLibrary(ctx, "liked-sync-logical")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	const (
+		clusterID = "cluster-liked-sync"
+		variantA  = "rec-liked-sync-a"
+		variantB  = "rec-liked-sync-b"
+	)
+
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    variantA,
+		TrackClusterID: clusterID,
+		AlbumID:        "album-liked-sync-a",
+		AlbumClusterID: "album-liked-sync-a",
+		SourceFileID:   "src-liked-sync-a",
+		QualityRank:    100,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-liked-sync-a", []byte("liked-sync-a"))
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    variantB,
+		TrackClusterID: clusterID,
+		AlbumID:        "album-liked-sync-b",
+		AlbumClusterID: "album-liked-sync-b",
+		SourceFileID:   "src-liked-sync-b",
+		QualityRank:    120,
+	})
+	writeSeedSourceFile(t, app, library.LibraryID, local.DeviceID, "src-liked-sync-b", []byte("liked-sync-b"))
+
+	if err := app.catalog.SetPreferredRecordingVariant(ctx, clusterID, variantB); err != nil {
+		t.Fatalf("set preferred recording variant: %v", err)
+	}
+	if _, err := app.EnsureRecordingEncoding(ctx, variantA, "desktop"); err != nil {
+		t.Fatalf("ensure non-preferred variant encoding: %v", err)
+	}
+
+	likedPlaylistID := likedPlaylistIDForLibrary(library.LibraryID)
+	applyPlaylistItemOplogForTest(t, app, playlistItemOplogApplyTestInput{
+		LibraryID:   library.LibraryID,
+		DeviceID:    "remote-liked-sync",
+		EntityID:    "legacy-liked-item",
+		PlaylistID:  likedPlaylistID,
+		ItemID:      "legacy-liked-item",
+		RecordingID: variantA,
+		Liked:       true,
+	})
+
+	var item PlaylistItem
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND playlist_id = ?", library.LibraryID, likedPlaylistID).
+		Take(&item).Error; err != nil {
+		t.Fatalf("load synced liked item: %v", err)
+	}
+	if item.TrackVariantID != clusterID {
+		t.Fatalf("stored liked recording id = %q, want %q", item.TrackVariantID, clusterID)
+	}
+	if item.ItemID != likedItemID(likedPlaylistID, clusterID) {
+		t.Fatalf("liked item id = %q, want %q", item.ItemID, likedItemID(likedPlaylistID, clusterID))
+	}
+
+	liked, err := app.ListLikedRecordings(ctx, apitypes.LikedRecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list liked recordings: %v", err)
+	}
+	if len(liked.Items) != 1 {
+		t.Fatalf("liked track count = %d, want 1", len(liked.Items))
+	}
+	if liked.Items[0].LibraryRecordingID != clusterID {
+		t.Fatalf("liked library recording id = %q, want %q", liked.Items[0].LibraryRecordingID, clusterID)
+	}
+	if liked.Items[0].RecordingID != variantB {
+		t.Fatalf("liked playback recording id = %q, want %q", liked.Items[0].RecordingID, variantB)
+	}
+
+	if _, err := app.PinLikedOffline(ctx, "desktop"); err != nil {
+		t.Fatalf("pin liked offline: %v", err)
+	}
+
+	blobA, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, variantA, "desktop")
+	if err != nil || !ok {
+		t.Fatalf("cached encoding for non-preferred variant = %v, %v", ok, err)
+	}
+	blobB, _, ok, err := app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, variantB, "desktop")
+	if err != nil || !ok {
+		t.Fatalf("cached encoding for preferred variant = %v, %v", ok, err)
+	}
+
+	var pin OfflinePin
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, "playlist", likedPlaylistID).
+		Take(&pin).Error; err != nil {
+		t.Fatalf("load liked pin: %v", err)
+	}
+	protectedBlobIDs, err := app.cache.offlinePinBlobIDs(ctx, local.LibraryID, local.DeviceID, pin)
+	if err != nil {
+		t.Fatalf("offline pin blob ids: %v", err)
+	}
+	if !slicesContains(protectedBlobIDs, blobB) {
+		t.Fatalf("expected preferred variant blob %q to stay protected, got %v", blobB, protectedBlobIDs)
+	}
+	if slicesContains(protectedBlobIDs, blobA) {
+		t.Fatalf("expected non-preferred variant blob %q to remain unprotected, got %v", blobA, protectedBlobIDs)
+	}
+}
+
+type playlistItemOplogApplyTestInput struct {
+	LibraryID   string
+	DeviceID    string
+	EntityID    string
+	PlaylistID  string
+	ItemID      string
+	RecordingID string
+	Liked       bool
+}
+
+func applyPlaylistItemOplogForTest(t *testing.T, app *App, in playlistItemOplogApplyTestInput) {
+	t.Helper()
+
+	payloadJSON, err := json.Marshal(playlistItemOplogPayload{
+		PlaylistID:  strings.TrimSpace(in.PlaylistID),
+		ItemID:      strings.TrimSpace(in.ItemID),
+		RecordingID: strings.TrimSpace(in.RecordingID),
+		PositionKey: defaultPositionKey(),
+		Liked:       in.Liked,
+	})
+	if err != nil {
+		t.Fatalf("marshal playlist item oplog payload: %v", err)
+	}
+
+	entry := OplogEntry{
+		LibraryID:   strings.TrimSpace(in.LibraryID),
+		DeviceID:    strings.TrimSpace(in.DeviceID),
+		Seq:         1,
+		OpID:        strings.TrimSpace(in.DeviceID) + ":1",
+		EntityType:  entityTypePlaylistItem,
+		EntityID:    strings.TrimSpace(in.EntityID),
+		OpKind:      "upsert",
+		TSNS:        time.Now().UTC().UnixNano(),
+		PayloadJSON: string(payloadJSON),
+	}
+	if entry.DeviceID == "" {
+		entry.DeviceID = "remote-playlist-item"
+		entry.OpID = entry.DeviceID + ":1"
+	}
+	if entry.EntityID == "" {
+		entry.EntityID = entry.OpID
+	}
+
+	if err := app.db.WithContext(context.Background()).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&entry).Error; err != nil {
+			return err
+		}
+		return applyPlaylistItemOplogEntryTx(tx, entry)
+	}); err != nil {
+		t.Fatalf("apply playlist item oplog entry: %v", err)
 	}
 }
 

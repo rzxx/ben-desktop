@@ -6,6 +6,7 @@ import (
 
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
+	"ben/desktop/internal/playback"
 	"ben/desktop/internal/settings"
 )
 
@@ -509,6 +510,33 @@ func (b *passthroughBridgeStub) GetPlaybackPreparation(ctx context.Context, reco
 	return b.getPlaybackPreparationFn(ctx, recordingID, preferredProfile)
 }
 
+func (b *passthroughBridgeStub) PreparePlaybackTarget(ctx context.Context, target playback.PlaybackTargetRef, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+	return b.PreparePlaybackRecording(ctx, playbackTargetID(target), preferredProfile, purpose)
+}
+
+func (b *passthroughBridgeStub) GetPlaybackTargetPreparation(ctx context.Context, target playback.PlaybackTargetRef, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+	return b.GetPlaybackPreparation(ctx, playbackTargetID(target), preferredProfile)
+}
+
+func (b *passthroughBridgeStub) GetPlaybackTargetAvailability(ctx context.Context, target playback.PlaybackTargetRef, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
+	return b.GetRecordingAvailability(ctx, playbackTargetID(target), preferredProfile)
+}
+
+func (b *passthroughBridgeStub) ListPlaybackTargetAvailability(ctx context.Context, req playback.TargetAvailabilityRequest) ([]playback.TargetAvailability, error) {
+	out := make([]playback.TargetAvailability, 0, len(req.Targets))
+	for _, target := range req.Targets {
+		status, err := b.GetPlaybackTargetAvailability(ctx, target, req.PreferredProfile)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, playback.TargetAvailability{
+			Target: target,
+			Status: status,
+		})
+	}
+	return out, nil
+}
+
 func (b *passthroughBridgeStub) ResolvePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error) {
 	return b.resolvePlaybackRecordingFn(ctx, recordingID, preferredProfile)
 }
@@ -541,6 +569,19 @@ func (b *passthroughBridgeStub) GetAlbumAvailabilityOverview(ctx context.Context
 	return b.albumAvailabilityOVFn(ctx, albumID, preferredProfile)
 }
 
+func playbackTargetID(target playback.PlaybackTargetRef) string {
+	if target.ResolutionPolicy == playback.PlaybackTargetResolutionExact {
+		if target.ExactVariantRecordingID != "" {
+			return target.ExactVariantRecordingID
+		}
+		return target.LogicalRecordingID
+	}
+	if target.LogicalRecordingID != "" {
+		return target.LogicalRecordingID
+	}
+	return target.ExactVariantRecordingID
+}
+
 func newPassthroughHost(stub *passthroughRuntimeStub) *coreHost {
 	return &coreHost{
 		started:  true,
@@ -568,5 +609,89 @@ func TestPreferredProfileNormalizesLegacyDesktopProfile(t *testing.T) {
 	got := preferredProfile(settings.CoreRuntimeSettings{TranscodeProfile: " desktop "})
 	if got != settings.DefaultTranscodeProfile {
 		t.Fatalf("preferred profile = %q, want %q", got, settings.DefaultTranscodeProfile)
+	}
+}
+
+func TestPlaybackServiceQueuePlaylistTrackUsesPlaylistItemContext(t *testing.T) {
+	t.Parallel()
+
+	stub := &passthroughRuntimeStub{
+		listPlaylistTracksFn: func(_ context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {
+			return apitypes.Page[apitypes.PlaylistTrackItem]{
+				Items: []apitypes.PlaylistTrackItem{
+					{ItemID: "item-1", RecordingID: "variant-1", Title: "One"},
+					{ItemID: "item-2", LibraryRecordingID: "cluster-2", RecordingID: "variant-2", Title: "Two"},
+				},
+				Page: apitypes.PageInfo{Total: 2},
+			}, nil
+		},
+	}
+
+	session := playback.NewSession(stub, nil, nil, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	service := &PlaybackService{
+		core:    stub,
+		session: session,
+	}
+
+	snapshot, err := service.QueuePlaylistTrack(context.Background(), "playlist-1", "item-2")
+	if err != nil {
+		t.Fatalf("queue playlist track: %v", err)
+	}
+	if len(snapshot.UserQueue) != 1 {
+		t.Fatalf("queued entries = %d, want 1", len(snapshot.UserQueue))
+	}
+	item := snapshot.UserQueue[0].Item
+	if item.SourceKind != playback.SourceKindPlaylist || item.SourceID != "playlist-1" || item.SourceItemID != "item-2" {
+		t.Fatalf("unexpected queued playlist item: %+v", item)
+	}
+	if item.Target.ResolutionPolicy != playback.PlaybackTargetResolutionPreferred {
+		t.Fatalf("resolution policy = %q, want %q", item.Target.ResolutionPolicy, playback.PlaybackTargetResolutionPreferred)
+	}
+}
+
+func TestPlaybackServiceQueueLikedTrackUsesLikedItemContext(t *testing.T) {
+	t.Parallel()
+
+	stub := &passthroughRuntimeStub{
+		listLikedRecordingsFn: func(_ context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
+			return apitypes.Page[apitypes.LikedRecordingItem]{
+				Items: []apitypes.LikedRecordingItem{
+					{LibraryRecordingID: "cluster-1", RecordingID: "variant-1", Title: "One"},
+					{LibraryRecordingID: "cluster-2", RecordingID: "variant-2", Title: "Two"},
+				},
+				Page: apitypes.PageInfo{Total: 2},
+			}, nil
+		},
+	}
+
+	session := playback.NewSession(stub, nil, nil, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	service := &PlaybackService{
+		core:    stub,
+		session: session,
+	}
+
+	snapshot, err := service.QueueLikedTrack(context.Background(), "cluster-2")
+	if err != nil {
+		t.Fatalf("queue liked track: %v", err)
+	}
+	if len(snapshot.UserQueue) != 1 {
+		t.Fatalf("queued entries = %d, want 1", len(snapshot.UserQueue))
+	}
+	item := snapshot.UserQueue[0].Item
+	if item.SourceKind != playback.SourceKindLiked || item.RecordingID != "cluster-2" {
+		t.Fatalf("unexpected queued liked item: %+v", item)
+	}
+	if item.Target.ResolutionPolicy != playback.PlaybackTargetResolutionPreferred {
+		t.Fatalf("resolution policy = %q, want %q", item.Target.ResolutionPolicy, playback.PlaybackTargetResolutionPreferred)
 	}
 }

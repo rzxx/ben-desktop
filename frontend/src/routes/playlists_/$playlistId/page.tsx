@@ -76,7 +76,9 @@ export function PlaylistDetailPage() {
   const playPlaylistTrack = usePlaybackStore(
     (state) => state.playPlaylistTrack,
   );
-  const queueRecording = usePlaybackStore((state) => state.queueRecording);
+  const queuePlaylistTrack = usePlaybackStore(
+    (state) => state.queuePlaylistTrack,
+  );
   const trackAvailabilityByRecordingId = useCatalogStore(
     (state) => state.trackAvailabilityByRecordingId,
   );
@@ -355,7 +357,7 @@ export function PlaylistDetailPage() {
                 void playPlaylistTrack(playlistId, track.ItemID);
               }}
               onQueue={() => {
-                void queueRecording(track.RecordingID);
+                void queuePlaylistTrack(playlistId, track.ItemID);
               }}
               onRemove={() => {
                 void removePlaylistItem(playlistId, track.ItemID).catch(

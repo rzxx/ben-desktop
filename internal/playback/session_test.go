@@ -1291,6 +1291,64 @@ func TestSessionSetShuffleClearsAndRebuildsPreloadWithoutChangingCurrent(t *test
 	}
 }
 
+func TestSessionSetContextRebuildsShuffleBagWhenShuffleEnabled(t *testing.T) {
+	t.Parallel()
+
+	store := &memoryStore{}
+	session := NewSession(&mockBridge{}, newTestBackend(), store, "desktop", nil)
+	session.rng = rand.New(rand.NewSource(7))
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "first",
+		Items: []SessionItem{
+			{RecordingID: "ctx-1", Title: "One", Subtitle: "Artist A"},
+			{RecordingID: "ctx-2", Title: "Two", Subtitle: "Artist B"},
+			{RecordingID: "ctx-3", Title: "Three", Subtitle: "Artist C"},
+			{RecordingID: "ctx-4", Title: "Four", Subtitle: "Artist D"},
+		},
+	}); err != nil {
+		t.Fatalf("set first context: %v", err)
+	}
+
+	if _, err := session.SetShuffle(true); err != nil {
+		t.Fatalf("enable shuffle: %v", err)
+	}
+
+	snapshot, err := session.SetContext(PlaybackContextInput{
+		Kind:       ContextKindCustom,
+		ID:         "second",
+		StartIndex: 1,
+		Items: []SessionItem{
+			{RecordingID: "next-1", Title: "Next One", Subtitle: "Artist E"},
+			{RecordingID: "next-2", Title: "Next Two", Subtitle: "Artist F"},
+			{RecordingID: "next-3", Title: "Next Three", Subtitle: "Artist G"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("set second context: %v", err)
+	}
+	if snapshot.ContextQueue == nil {
+		t.Fatalf("expected context queue")
+	}
+	if len(snapshot.ContextQueue.ShuffleBag) != len(snapshot.ContextQueue.Entries) {
+		t.Fatalf("expected rebuilt shuffle bag for new context, got %v for %d entries", snapshot.ContextQueue.ShuffleBag, len(snapshot.ContextQueue.Entries))
+	}
+	if snapshot.ContextQueue.ShuffleBag[0] != 1 {
+		t.Fatalf("expected rebuilt shuffle bag anchored at start index 1, got %v", snapshot.ContextQueue.ShuffleBag)
+	}
+	if store.snapshot.ContextQueue == nil {
+		t.Fatalf("expected persisted context queue")
+	}
+	if len(store.snapshot.ContextQueue.ShuffleBag) != len(snapshot.ContextQueue.Entries) {
+		t.Fatalf("expected persisted shuffle bag %v, got %v", snapshot.ContextQueue.ShuffleBag, store.snapshot.ContextQueue.ShuffleBag)
+	}
+}
+
 func TestSessionSetRepeatModeClearsStalePreload(t *testing.T) {
 	t.Parallel()
 
@@ -2684,7 +2742,31 @@ func TestCatalogLoaderLoadPlaylistTrackContextStartsAtSelectedItem(t *testing.T)
 	}
 }
 
-func TestItemsFromPlaylistTracksUseExactResolutionTarget(t *testing.T) {
+func TestCatalogLoaderLoadPlaylistItemReturnsSelectedItem(t *testing.T) {
+	t.Parallel()
+
+	loader := NewCatalogLoader(&mockBridge{
+		playlistTracks: map[string][]apitypes.PlaylistTrackItem{
+			"playlist-1": {
+				{ItemID: "item-1", RecordingID: "variant-1", Title: "One", Artists: []string{"Artist"}, DurationMS: 1000},
+				{ItemID: "item-2", LibraryRecordingID: "cluster-2", RecordingID: "variant-2", Title: "Two", Artists: []string{"Artist"}, DurationMS: 1000},
+			},
+		},
+	})
+
+	item, err := loader.LoadPlaylistItem(context.Background(), "playlist-1", "item-2")
+	if err != nil {
+		t.Fatalf("load playlist item: %v", err)
+	}
+	if item.SourceKind != SourceKindPlaylist || item.SourceID != "playlist-1" || item.SourceItemID != "item-2" {
+		t.Fatalf("unexpected playlist item source: %+v", item)
+	}
+	if item.Target.ResolutionPolicy != PlaybackTargetResolutionPreferred {
+		t.Fatalf("resolution policy = %q, want %q", item.Target.ResolutionPolicy, PlaybackTargetResolutionPreferred)
+	}
+}
+
+func TestItemsFromPlaylistTracksUsePreferredResolutionTarget(t *testing.T) {
 	t.Parallel()
 
 	items := ItemsFromPlaylistTracks("playlist-1", []apitypes.PlaylistTrackItem{
@@ -2710,14 +2792,14 @@ func TestItemsFromPlaylistTracksUseExactResolutionTarget(t *testing.T) {
 	if items[0].RecordingID != "cluster-1" {
 		t.Fatalf("recording id = %q, want cluster-1", items[0].RecordingID)
 	}
-	if items[0].ResolutionMode != ResolutionModeExplicit {
-		t.Fatalf("resolution mode = %q, want %q", items[0].ResolutionMode, ResolutionModeExplicit)
+	if items[0].ResolutionMode != ResolutionModeLibrary {
+		t.Fatalf("resolution mode = %q, want %q", items[0].ResolutionMode, ResolutionModeLibrary)
 	}
 	if items[0].Target.ExactVariantRecordingID != "variant-2" {
 		t.Fatalf("exact variant id = %q, want variant-2", items[0].Target.ExactVariantRecordingID)
 	}
-	if items[0].Target.ResolutionPolicy != PlaybackTargetResolutionExact {
-		t.Fatalf("resolution policy = %q, want %q", items[0].Target.ResolutionPolicy, PlaybackTargetResolutionExact)
+	if items[0].Target.ResolutionPolicy != PlaybackTargetResolutionPreferred {
+		t.Fatalf("resolution policy = %q, want %q", items[0].Target.ResolutionPolicy, PlaybackTargetResolutionPreferred)
 	}
 }
 
@@ -2747,12 +2829,12 @@ func TestCatalogLoaderLoadLikedTrackContextStartsAtSelectedTrack(t *testing.T) {
 	if contextInput.Items[1].Target.ExactVariantRecordingID != "variant-2" {
 		t.Fatalf("exact variant target = %q, want variant-2", contextInput.Items[1].Target.ExactVariantRecordingID)
 	}
-	if contextInput.Items[1].Target.ResolutionPolicy != PlaybackTargetResolutionExact {
-		t.Fatalf("resolution policy = %q, want %q", contextInput.Items[1].Target.ResolutionPolicy, PlaybackTargetResolutionExact)
+	if contextInput.Items[1].Target.ResolutionPolicy != PlaybackTargetResolutionPreferred {
+		t.Fatalf("resolution policy = %q, want %q", contextInput.Items[1].Target.ResolutionPolicy, PlaybackTargetResolutionPreferred)
 	}
 }
 
-func TestItemsFromLikedRecordingsUseExactResolutionTarget(t *testing.T) {
+func TestItemsFromLikedRecordingsUsePreferredResolutionTarget(t *testing.T) {
 	t.Parallel()
 
 	items := ItemsFromLikedRecordings([]apitypes.LikedRecordingItem{
@@ -2774,8 +2856,33 @@ func TestItemsFromLikedRecordingsUseExactResolutionTarget(t *testing.T) {
 	if items[0].Target.ExactVariantRecordingID != "variant-2" {
 		t.Fatalf("exact variant id = %q, want variant-2", items[0].Target.ExactVariantRecordingID)
 	}
-	if items[0].Target.ResolutionPolicy != PlaybackTargetResolutionExact {
-		t.Fatalf("resolution policy = %q, want %q", items[0].Target.ResolutionPolicy, PlaybackTargetResolutionExact)
+	if items[0].ResolutionMode != ResolutionModeLibrary {
+		t.Fatalf("resolution mode = %q, want %q", items[0].ResolutionMode, ResolutionModeLibrary)
+	}
+	if items[0].Target.ResolutionPolicy != PlaybackTargetResolutionPreferred {
+		t.Fatalf("resolution policy = %q, want %q", items[0].Target.ResolutionPolicy, PlaybackTargetResolutionPreferred)
+	}
+}
+
+func TestCatalogLoaderLoadLikedItemReturnsSelectedTrack(t *testing.T) {
+	t.Parallel()
+
+	loader := NewCatalogLoader(&mockBridge{
+		likedRecordings: []apitypes.LikedRecordingItem{
+			{LibraryRecordingID: "cluster-1", RecordingID: "variant-1", Title: "One", Artists: []string{"Artist"}, DurationMS: 1000},
+			{LibraryRecordingID: "cluster-2", RecordingID: "variant-2", Title: "Two", Artists: []string{"Artist"}, DurationMS: 1000},
+		},
+	})
+
+	item, err := loader.LoadLikedItem(context.Background(), "cluster-2")
+	if err != nil {
+		t.Fatalf("load liked item: %v", err)
+	}
+	if item.SourceKind != SourceKindLiked || item.RecordingID != "cluster-2" {
+		t.Fatalf("unexpected liked item: %+v", item)
+	}
+	if item.Target.ResolutionPolicy != PlaybackTargetResolutionPreferred {
+		t.Fatalf("resolution policy = %q, want %q", item.Target.ResolutionPolicy, PlaybackTargetResolutionPreferred)
 	}
 }
 

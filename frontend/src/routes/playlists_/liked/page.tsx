@@ -42,7 +42,7 @@ export function LikedPlaylistPage() {
   const [pinJob, setPinJob] = useState<JobSnapshot | null>(null);
   const playLiked = usePlaybackStore((state) => state.playLiked);
   const playLikedTrack = usePlaybackStore((state) => state.playLikedTrack);
-  const queueRecording = usePlaybackStore((state) => state.queueRecording);
+  const queueLikedTrack = usePlaybackStore((state) => state.queueLikedTrack);
   const trackAvailabilityByRecordingId = useCatalogStore(
     (state) => state.trackAvailabilityByRecordingId,
   );
@@ -225,7 +225,7 @@ export function LikedPlaylistPage() {
                 void playLikedTrack(likedPlaybackRecordingId(track));
               }}
               onQueue={() => {
-                void queueRecording(track.RecordingID);
+                void queueLikedTrack(likedPlaybackRecordingId(track));
               }}
               pinned={
                 trackAvailabilityByRecordingId[track.RecordingID]?.data?.Pinned

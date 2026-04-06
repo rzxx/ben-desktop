@@ -254,11 +254,19 @@ func applyPlaylistItemOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 		if strings.TrimSpace(itemID) == "" || recordingID == "" {
 			return fmt.Errorf("playlist item id and recording id are required")
 		}
+		libraryRecordingID, ok, err := resolvePlaylistLibraryRecordingIDTx(tx, entry.LibraryID, recordingID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			recordingID = libraryRecordingID
+		}
 		if payload.Liked || playlistID == likedPlaylistIDForLibrary(entry.LibraryID) {
 			if err := ensureLikedPlaylistTx(tx, entry.LibraryID, entry.DeviceID, oplogMutationTime(entry)); err != nil {
 				return err
 			}
 			playlistID = likedPlaylistIDForLibrary(entry.LibraryID)
+			itemID = likedItemID(playlistID, recordingID)
 		}
 		var playlistCount int64
 		if err := tx.Model(&Playlist{}).
@@ -305,6 +313,13 @@ func applyPlaylistItemOplogEntryTx(tx *gorm.DB, entry OplogEntry) error {
 			playlistID = likedPlaylistIDForLibrary(entry.LibraryID)
 		}
 		itemID := firstNonEmpty(payload.ItemID, entry.EntityID)
+		if playlistID == likedPlaylistIDForLibrary(entry.LibraryID) {
+			if libraryRecordingID, ok, err := resolvePlaylistLibraryRecordingIDTx(tx, entry.LibraryID, payload.RecordingID); err != nil {
+				return err
+			} else if ok {
+				itemID = likedItemID(playlistID, libraryRecordingID)
+			}
+		}
 		if strings.TrimSpace(itemID) == "" {
 			return fmt.Errorf("playlist item id is required")
 		}

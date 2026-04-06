@@ -211,6 +211,10 @@ export function queuePlaylist(playlistId: string) {
   return PlaybackService.QueuePlaylist(playlistId);
 }
 
+export function queuePlaylistTrack(playlistId: string, itemId: string) {
+  return PlaybackService.QueuePlaylistTrack(playlistId, itemId);
+}
+
 export function playRecording(recordingId: string) {
   return PlaybackService.PlayRecording(recordingId);
 }
@@ -225,6 +229,10 @@ export function playLiked() {
 
 export function playLikedTrack(recordingId: string) {
   return PlaybackService.PlayLikedTrack(recordingId);
+}
+
+export function queueLikedTrack(recordingId: string) {
+  return PlaybackService.QueueLikedTrack(recordingId);
 }
 
 export function selectQueueEntry(entryId: string) {

@@ -13,7 +13,9 @@ import {
   playRecording,
   previousTrack,
   queueAlbum,
+  queueLikedTrack,
   queuePlaylist,
+  queuePlaylistTrack,
   queueRecording,
   removeQueuedEntry,
   selectQueueEntry,
@@ -47,10 +49,12 @@ type PlaybackStore = {
   playPlaylist: (playlistId: string) => Promise<void>;
   playPlaylistTrack: (playlistId: string, itemId: string) => Promise<void>;
   queuePlaylist: (playlistId: string) => Promise<void>;
+  queuePlaylistTrack: (playlistId: string, itemId: string) => Promise<void>;
   playRecording: (recordingId: string) => Promise<void>;
   queueRecording: (recordingId: string) => Promise<void>;
   playLiked: () => Promise<void>;
   playLikedTrack: (recordingId: string) => Promise<void>;
+  queueLikedTrack: (recordingId: string) => Promise<void>;
   selectEntry: (entryId: string) => Promise<void>;
   removeQueuedEntry: (entryId: string) => Promise<void>;
   clearQueue: () => Promise<void>;
@@ -277,6 +281,16 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       (error) => set({ error }),
     );
   },
+  queuePlaylistTrack: async (playlistId, itemId) => {
+    const token = ++snapshotRequestSequence;
+    await applySnapshot(
+      () => queuePlaylistTrack(playlistId, itemId),
+      getPlaybackSnapshot,
+      () => token === snapshotRequestSequence,
+      get().setSnapshot,
+      (error) => set({ error }),
+    );
+  },
   playRecording: async (recordingId) => {
     const token = ++snapshotRequestSequence;
     await applySnapshot(
@@ -311,6 +325,16 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
     const token = ++snapshotRequestSequence;
     await applySnapshot(
       () => playLikedTrack(recordingId),
+      getPlaybackSnapshot,
+      () => token === snapshotRequestSequence,
+      get().setSnapshot,
+      (error) => set({ error }),
+    );
+  },
+  queueLikedTrack: async (recordingId) => {
+    const token = ++snapshotRequestSequence;
+    await applySnapshot(
+      () => queueLikedTrack(recordingId),
       getPlaybackSnapshot,
       () => token === snapshotRequestSequence,
       get().setSnapshot,

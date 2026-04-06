@@ -201,7 +201,7 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 	if !ok {
 		return apitypes.PlaylistItemRecord{}, fmt.Errorf("playlist %q does not exist", playlistID)
 	}
-	libraryRecordingID, ok, err := s.resolveLibraryRecordingID(ctx, local.LibraryID, recordingID)
+	libraryRecordingID, ok, err := s.resolvePlaylistLibraryRecordingID(ctx, local.LibraryID, recordingID)
 	if err != nil {
 		return apitypes.PlaylistItemRecord{}, err
 	}
@@ -217,7 +217,7 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 		if err := s.LikeRecording(ctx, libraryRecordingID); err != nil {
 			return apitypes.PlaylistItemRecord{}, err
 		}
-		item, ok, err := s.playlistItemByTrackVariant(ctx, local.LibraryID, playlistID, libraryRecordingID)
+		item, ok, err := s.playlistItemByLibraryRecordingID(ctx, local.LibraryID, playlistID, libraryRecordingID)
 		if err != nil {
 			return apitypes.PlaylistItemRecord{}, err
 		}
@@ -544,7 +544,7 @@ func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string)
 	if recordingID == "" {
 		return fmt.Errorf("recording id is required")
 	}
-	libraryRecordingID, ok, err := s.resolveLibraryRecordingID(ctx, local.LibraryID, recordingID)
+	libraryRecordingID, ok, err := s.resolvePlaylistLibraryRecordingID(ctx, local.LibraryID, recordingID)
 	if err != nil {
 		return err
 	}
@@ -621,7 +621,7 @@ func (s *PlaylistService) UnlikeRecording(ctx context.Context, recordingID strin
 	if recordingID == "" {
 		return fmt.Errorf("recording id is required")
 	}
-	libraryRecordingID, ok, err := s.resolveLibraryRecordingID(ctx, local.LibraryID, recordingID)
+	libraryRecordingID, ok, err := s.resolvePlaylistLibraryRecordingID(ctx, local.LibraryID, recordingID)
 	if err != nil {
 		return err
 	}
@@ -631,7 +631,7 @@ func (s *PlaylistService) UnlikeRecording(ctx context.Context, recordingID strin
 		}
 		return nil
 	}
-	item, ok, err := s.playlistItemByTrackVariant(ctx, local.LibraryID, likedPlaylistIDForLibrary(local.LibraryID), libraryRecordingID)
+	item, ok, err := s.playlistItemByLibraryRecordingID(ctx, local.LibraryID, likedPlaylistIDForLibrary(local.LibraryID), libraryRecordingID)
 	if err != nil {
 		return err
 	}
@@ -668,7 +668,7 @@ func (s *PlaylistService) IsRecordingLiked(ctx context.Context, recordingID stri
 	if err != nil {
 		return false, err
 	}
-	libraryRecordingID, ok, err := s.resolveLibraryRecordingID(ctx, local.LibraryID, recordingID)
+	libraryRecordingID, ok, err := s.resolvePlaylistLibraryRecordingID(ctx, local.LibraryID, recordingID)
 	if err != nil {
 		return false, err
 	}
@@ -790,7 +790,7 @@ func (s *PlaylistService) playlistItemByID(ctx context.Context, libraryID, playl
 	return playlistItemByIDTx(s.app.storage.WithContext(ctx), libraryID, playlistID, itemID)
 }
 
-func (s *PlaylistService) playlistItemByTrackVariant(ctx context.Context, libraryID, playlistID, recordingID string) (PlaylistItem, bool, error) {
+func (s *PlaylistService) playlistItemByLibraryRecordingID(ctx context.Context, libraryID, playlistID, recordingID string) (PlaylistItem, bool, error) {
 	var row PlaylistItem
 	err := s.app.storage.WithContext(ctx).
 		Where("library_id = ? AND playlist_id = ? AND track_variant_id = ? AND deleted_at IS NULL", libraryID, playlistID, recordingID).
@@ -816,21 +816,23 @@ func (s *PlaylistService) recordingExists(ctx context.Context, libraryID, record
 	return count > 0, nil
 }
 
-func (s *PlaylistService) resolveLibraryRecordingID(ctx context.Context, libraryID, recordingID string) (string, bool, error) {
+// Playlist rows persist logical recording ids (track clusters) even though the
+// legacy column name remains track_variant_id.
+func resolvePlaylistLibraryRecordingIDTx(tx *gorm.DB, libraryID, recordingID string) (string, bool, error) {
 	recordingID = strings.TrimSpace(recordingID)
 	if recordingID == "" {
 		return "", false, nil
 	}
 
 	var row TrackVariantModel
-	if err := s.app.storage.WithContext(ctx).
+	if err := tx.
 		Where("library_id = ? AND track_cluster_id = ?", libraryID, recordingID).
 		Take(&row).Error; err == nil {
 		return strings.TrimSpace(row.TrackClusterID), true, nil
 	} else if err != gorm.ErrRecordNotFound {
 		return "", false, err
 	}
-	if err := s.app.storage.WithContext(ctx).
+	if err := tx.
 		Where("library_id = ? AND track_variant_id = ?", libraryID, recordingID).
 		Take(&row).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -839,6 +841,10 @@ func (s *PlaylistService) resolveLibraryRecordingID(ctx context.Context, library
 		return "", false, err
 	}
 	return strings.TrimSpace(row.TrackClusterID), true, nil
+}
+
+func (s *PlaylistService) resolvePlaylistLibraryRecordingID(ctx context.Context, libraryID, recordingID string) (string, bool, error) {
+	return resolvePlaylistLibraryRecordingIDTx(s.app.storage.WithContext(ctx), libraryID, recordingID)
 }
 
 func (s *PlaylistService) ensureLikedPlaylist(ctx context.Context, libraryID, deviceID string) error {

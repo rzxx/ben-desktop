@@ -203,6 +203,9 @@ func (s *Session) SetContext(input PlaybackContextInput) (SessionSnapshot, error
 	s.cancelPendingRetryLocked()
 	s.setCurrentContextIndexLocked(startIndex)
 	s.setResumeContextIndexLocked(startIndex)
+	if s.snapshot.Shuffle {
+		s.rebuildShuffleCycleLocked()
+	}
 
 	if s.snapshot.CurrentEntry == nil {
 		s.snapshot.PositionMS = 0
@@ -257,6 +260,9 @@ func (s *Session) ReplaceContextAndPlay(ctx context.Context, input PlaybackConte
 	s.cancelPendingRetryLocked()
 	s.setCurrentContextIndexLocked(startIndex)
 	s.setResumeContextIndexLocked(startIndex)
+	if s.snapshot.Shuffle {
+		s.rebuildShuffleCycleLocked()
+	}
 
 	if current == nil {
 		s.snapshot.PositionMS = 0

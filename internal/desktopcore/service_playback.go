@@ -195,7 +195,7 @@ func (s *PlaybackService) ensurePlaylistEncodingsForLocalContext(ctx context.Con
 		job.Queued(0, "queued playlist encoding batch")
 		job.Running(0.1, "collecting playlist recordings")
 	}
-	recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
+	recordingIDs, err := s.libraryRecordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
 	if err != nil {
 		if job != nil {
 			if errors.Is(err, context.Canceled) {
@@ -408,7 +408,7 @@ func (s *PlaybackService) EnsurePlaybackPlaylist(ctx context.Context, playlistID
 	if playlistID == "" {
 		return apitypes.PlaybackBatchResult{}, fmt.Errorf("playlist id is required")
 	}
-	recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
+	recordingIDs, err := s.libraryRecordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
@@ -1457,7 +1457,7 @@ func (s *PlaybackService) PinLikedOffline(ctx context.Context, preferredProfile 
 		return apitypes.PlaybackBatchResult{}, err
 	}
 	playlistID := likedPlaylistIDForLibrary(local.LibraryID)
-	recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
+	recordingIDs, err := s.libraryRecordingIDsForPlaylist(ctx, local.LibraryID, playlistID)
 	if err != nil {
 		return apitypes.PlaybackBatchResult{}, err
 	}
@@ -2146,7 +2146,7 @@ func (s *PlaybackService) resolveOfflinePinScope(ctx context.Context, local apit
 		if scopeID == "" {
 			return "", nil, "", fmt.Errorf("playlist id is required")
 		}
-		recordingIDs, err := s.recordingIDsForPlaylist(ctx, local.LibraryID, scopeID)
+		recordingIDs, err := s.libraryRecordingIDsForPlaylist(ctx, local.LibraryID, scopeID)
 		if err != nil {
 			return "", nil, "", err
 		}
@@ -2726,7 +2726,7 @@ ORDER BY at.disc_no ASC, at.track_no ASC, tv.track_cluster_id ASC`
 	return out, nil
 }
 
-func (s *PlaybackService) recordingIDsForPlaylist(ctx context.Context, libraryID, playlistID string) ([]string, error) {
+func (s *PlaybackService) libraryRecordingIDsForPlaylist(ctx context.Context, libraryID, playlistID string) ([]string, error) {
 	type row struct{ RecordingID string }
 	var rows []row
 	query := `
