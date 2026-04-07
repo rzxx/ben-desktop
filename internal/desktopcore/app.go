@@ -319,6 +319,10 @@ func (a *App) buildCheckpointFetchResponse(ctx context.Context, req CheckpointFe
 	return a.sync.buildCheckpointFetchResponse(ctx, req)
 }
 
+func (a *App) buildLibraryChangedResponse(ctx context.Context, libraryID, deviceID, peerID string) (LibraryChangedResponse, error) {
+	return a.sync.buildLibraryChangedResponse(ctx, libraryID, deviceID, peerID)
+}
+
 func (a *App) installCheckpointRecord(ctx context.Context, localDeviceID string, record checkpointTransferRecord) (int, error) {
 	return a.sync.installCheckpointRecord(ctx, localDeviceID, record)
 }

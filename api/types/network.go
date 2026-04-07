@@ -21,6 +21,7 @@ const (
 	NetworkSyncReasonConnect NetworkSyncReason = "connect"
 	NetworkSyncReasonManual  NetworkSyncReason = "manual"
 	NetworkSyncReasonTimer   NetworkSyncReason = "timer"
+	NetworkSyncReasonUpdate  NetworkSyncReason = "update"
 )
 
 type NetworkSyncState struct {

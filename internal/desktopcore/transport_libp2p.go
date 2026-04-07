@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +25,7 @@ import (
 
 const (
 	desktopSyncProtocolID       = protocol.ID("/ben/desktop/sync/2.0.0")
+	desktopLibraryChangedID     = protocol.ID("/ben/desktop/library-changed/1.0.0")
 	desktopCheckpointProtocolID = protocol.ID("/ben/desktop/checkpoint/2.0.0")
 	desktopPlaybackProtocolID   = protocol.ID("/ben/desktop/playback/1.0.0")
 	desktopArtworkProtocolID    = protocol.ID("/ben/desktop/artwork/1.0.0")
@@ -98,6 +98,7 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 		host:      hostNode,
 	}
 	hostNode.SetStreamHandler(desktopSyncProtocolID, transport.handleSyncStream)
+	hostNode.SetStreamHandler(desktopLibraryChangedID, transport.handleLibraryChangedStream)
 	hostNode.SetStreamHandler(desktopCheckpointProtocolID, transport.handleCheckpointStream)
 	hostNode.SetStreamHandler(desktopPlaybackProtocolID, transport.handlePlaybackStream)
 	hostNode.SetStreamHandler(desktopArtworkProtocolID, transport.handleArtworkStream)
@@ -215,6 +216,60 @@ func (t *libp2pSyncTransport) ResolvePeer(ctx context.Context, _ apitypes.LocalC
 	}, nil
 }
 
+func (t *libp2pSyncTransport) ResolvePeerByIdentity(ctx context.Context, _ apitypes.LocalContext, peerID, deviceID string) (SyncPeer, error) {
+	if t == nil || t.host == nil {
+		return nil, fmt.Errorf("transport is not running")
+	}
+	peerID = strings.TrimSpace(peerID)
+	deviceID = strings.TrimSpace(deviceID)
+	if peerID == "" && deviceID != "" {
+		var row Device
+		if err := t.app.storage.WithContext(ctx).
+			Select("peer_id").
+			Where("device_id = ?", deviceID).
+			Take(&row).Error; err != nil {
+			return nil, err
+		}
+		peerID = strings.TrimSpace(row.PeerID)
+	}
+	if peerID == "" {
+		return nil, fmt.Errorf("peer id is required")
+	}
+	decoded, err := peer.Decode(peerID)
+	if err != nil {
+		return nil, fmt.Errorf("decode peer id: %w", err)
+	}
+	if deviceID == "" {
+		resolvedDeviceID, ok, err := t.app.memberDeviceIDForPeer(ctx, t.libraryID, peerID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			deviceID = resolvedDeviceID
+		}
+	}
+	return &libp2pSyncPeer{
+		transport: t,
+		peerID:    decoded,
+		deviceID:  deviceID,
+	}, nil
+}
+
+func (t *libp2pSyncTransport) peerForID(ctx context.Context, peerID peer.ID) (SyncPeer, error) {
+	if t == nil || t.host == nil || peerID == "" {
+		return nil, fmt.Errorf("peer id is required")
+	}
+	deviceID, _, err := t.app.memberDeviceIDForPeer(ctx, t.libraryID, peerID.String())
+	if err != nil {
+		return nil, err
+	}
+	return &libp2pSyncPeer{
+		transport: t,
+		peerID:    peerID,
+		deviceID:  deviceID,
+	}, nil
+}
+
 func (p *libp2pSyncPeer) Address() string {
 	if p == nil || p.transport == nil || p.transport.host == nil {
 		return ""
@@ -258,6 +313,26 @@ func (p *libp2pSyncPeer) Sync(ctx context.Context, req SyncRequest) (SyncRespons
 		return SyncResponse{}, fmt.Errorf("%s", strings.TrimSpace(resp.Error))
 	}
 	return resp.SyncResponse, nil
+}
+
+func (p *libp2pSyncPeer) NotifyLibraryChanged(ctx context.Context, req LibraryChangedRequest) (LibraryChangedResponse, error) {
+	stream, err := p.openStream(ctx, desktopLibraryChangedID)
+	if err != nil {
+		return LibraryChangedResponse{}, err
+	}
+	defer stream.Close()
+
+	if err := json.NewEncoder(stream).Encode(req); err != nil {
+		return LibraryChangedResponse{}, fmt.Errorf("write library changed request: %w", err)
+	}
+	var resp LibraryChangedResponse
+	if err := json.NewDecoder(stream).Decode(&resp); err != nil {
+		return LibraryChangedResponse{}, fmt.Errorf("read library changed response: %w", err)
+	}
+	if strings.TrimSpace(resp.Error) != "" {
+		return LibraryChangedResponse{}, fmt.Errorf("%s", strings.TrimSpace(resp.Error))
+	}
+	return resp, nil
 }
 
 func (p *libp2pSyncPeer) FetchCheckpoint(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error) {
@@ -382,6 +457,33 @@ func (t *libp2pSyncTransport) handleSyncStream(stream network.Stream) {
 	}
 	if err := json.NewEncoder(stream).Encode(wireSyncResponse{SyncResponse: resp}); err != nil {
 		t.app.logf("desktopcore: write sync response failed: %v", err)
+	}
+}
+
+func (t *libp2pSyncTransport) handleLibraryChangedStream(stream network.Stream) {
+	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
+
+	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
+	defer cancel()
+
+	var req LibraryChangedRequest
+	if err := json.NewDecoder(stream).Decode(&req); err != nil {
+		t.writeLibraryChangedError(stream, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	runtime := t.app.transportService.activeRuntimeForLibrary(t.libraryID)
+	if runtime == nil || runtime.transport != t {
+		t.writeLibraryChangedError(stream, "transport runtime is not active")
+		return
+	}
+	resp, err := t.app.transportService.handleLibraryChangedSignal(ctx, runtime, stream.Conn().RemotePeer().String(), req)
+	if err != nil {
+		t.writeLibraryChangedError(stream, err.Error())
+		return
+	}
+	if err := json.NewEncoder(stream).Encode(resp); err != nil {
+		t.app.logf("desktopcore: write library changed response failed: %v", err)
 	}
 }
 
@@ -581,6 +683,10 @@ func (t *libp2pSyncTransport) writeSyncError(stream network.Stream, message stri
 	_ = json.NewEncoder(stream).Encode(wireSyncResponse{Error: strings.TrimSpace(message)})
 }
 
+func (t *libp2pSyncTransport) writeLibraryChangedError(stream network.Stream, message string) {
+	_ = json.NewEncoder(stream).Encode(LibraryChangedResponse{Error: strings.TrimSpace(message)})
+}
+
 func (t *libp2pSyncTransport) writeCheckpointError(stream network.Stream, message string) {
 	_ = json.NewEncoder(stream).Encode(CheckpointFetchResponse{Error: strings.TrimSpace(message)})
 }
@@ -686,17 +792,16 @@ func (t *libp2pSyncTransport) handlePeerConnected(peerID peer.ID) {
 	if strings.TrimSpace(local.LibraryID) != strings.TrimSpace(t.libraryID) || strings.TrimSpace(local.DeviceID) != strings.TrimSpace(t.deviceID) {
 		return
 	}
-	local.PeerID = strings.TrimSpace(t.LocalPeerID())
-	if local.PeerID == "" {
+	runtime := t.app.transportService.activeRuntimeForLibrary(t.libraryID)
+	if runtime == nil || runtime.transport != t || strings.TrimSpace(t.LocalPeerID()) == "" {
 		return
 	}
-
-	if _, err := t.app.syncPeerCatchup(ctx, local, &libp2pSyncPeer{
-		transport: t,
-		peerID:    peerID,
-	}, apitypes.NetworkSyncReasonConnect, nil); err != nil && !errors.Is(err, context.Canceled) {
-		t.app.logf("desktopcore: connected peer catch-up failed for %s: %v", peerID.String(), err)
+	syncPeer, err := t.peerForID(ctx, peerID)
+	if err != nil {
+		t.app.logf("desktopcore: prepare connected peer catch-up for %s failed: %v", peerID.String(), err)
+		return
 	}
+	t.app.transportService.scheduleRuntimeCatchupPeer(runtime, apitypes.NetworkSyncReasonConnect, syncPeer, 0)
 }
 
 func (t *libp2pSyncTransport) handlePeerDisconnected(peerID peer.ID) {

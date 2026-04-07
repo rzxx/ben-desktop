@@ -313,7 +313,7 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 
 	job.Running(0.5, "persisting join session")
 
-	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := saveJoinSessionKeypairTx(tx, sessionID, joinPublicKey, joinPrivateKey, now); err != nil {
 			return err
 		}
@@ -416,7 +416,7 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 	}
 
 	now := time.Now().UTC()
-	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := restoreJoinSessionMaterialTx(tx, session, material, now); err != nil {
 			return err
 		}
@@ -578,7 +578,7 @@ func (s *InviteService) CancelJoinSession(ctx context.Context, sessionID string)
 		s.app.cfg.Logger.Errorf("desktopcore: cancel join session remote request failed for %s: %v", session.SessionID, err)
 	}
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Model(&JoinSession{}).
 			Where("session_id = ?", sessionID).
 			Updates(map[string]any{
@@ -668,7 +668,7 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 		return err
 	}
 
-	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var req InviteJoinRequest
 		if err := tx.Where("request_id = ?", requestID).Take(&req).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -859,7 +859,7 @@ func (s *InviteService) RejectJoinRequest(ctx context.Context, requestID, reason
 	}
 
 	now := time.Now().UTC()
-	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var req InviteJoinRequest
 		if err := tx.Where("request_id = ?", requestID).Take(&req).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -1278,7 +1278,7 @@ func (s *InviteService) handleInviteJoinStart(ctx context.Context, libraryID, lo
 	}
 
 	var response inviteJoinStartResponse
-	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var issued IssuedInvite
 		if err := tx.Where("library_id = ? AND token_id = ?", strings.TrimSpace(payload.LibraryID), strings.TrimSpace(payload.TokenID)).
 			Take(&issued).Error; err != nil {
@@ -1484,7 +1484,7 @@ func (s *InviteService) handleInviteJoinCancel(ctx context.Context, libraryID, a
 	}
 
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var row InviteJoinRequest
 		if err := tx.Where("request_id = ?", req.RequestID).Take(&row).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {

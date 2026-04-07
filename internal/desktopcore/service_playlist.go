@@ -50,7 +50,7 @@ func (s *PlaylistService) CreatePlaylist(ctx context.Context, name, kind string)
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
@@ -101,7 +101,7 @@ func (s *PlaylistService) RenamePlaylist(ctx context.Context, playlistID, name s
 	}
 	row.Name = name
 	row.UpdatedAt = time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Model(&Playlist{}).
 			Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
 			Updates(map[string]any{"name": row.Name, "updated_at": row.UpdatedAt}).Error; err != nil {
@@ -148,7 +148,7 @@ func (s *PlaylistService) DeletePlaylist(ctx context.Context, playlistID string)
 		return fmt.Errorf("reserved playlists are not deletable")
 	}
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Model(&Playlist{}).
 			Where("library_id = ? AND playlist_id = ?", local.LibraryID, playlistID).
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
@@ -229,7 +229,7 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 
 	var item PlaylistItem
 	now := time.Now().UTC()
-	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		positionKey, err := playlistItemPositionKeyTx(tx, local.LibraryID, playlistID, req.AfterItemID, req.BeforeItemID, "")
 		if err != nil {
 			return err
@@ -286,7 +286,7 @@ func (s *PlaylistService) MovePlaylistItem(ctx context.Context, req apitypes.Pla
 	}
 
 	var item PlaylistItem
-	err = s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		current, ok, err := playlistItemByIDTx(tx, local.LibraryID, playlistID, itemID)
 		if err != nil {
 			return err
@@ -354,7 +354,7 @@ func (s *PlaylistService) RemovePlaylistItem(ctx context.Context, playlistID, it
 		return s.UnlikeRecording(ctx, item.TrackVariantID)
 	}
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Model(&PlaylistItem{}).
 			Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, playlistID, itemID).
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
@@ -438,7 +438,7 @@ func (s *PlaylistService) SetPlaylistCover(ctx context.Context, req apitypes.Pla
 	}
 
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := s.app.deleteArtworkScopeTx(tx, local, "playlist", playlistID); err != nil {
 			return err
 		}
@@ -511,7 +511,7 @@ func (s *PlaylistService) ClearPlaylistCover(ctx context.Context, playlistID str
 	}
 
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := s.app.deleteArtworkScopeTx(tx, local, "playlist", playlistID); err != nil {
 			return err
 		}
@@ -576,7 +576,7 @@ func (s *PlaylistService) LikeRecording(ctx context.Context, recordingID string)
 		UpdatedAt:      now,
 		PositionKey:    defaultPositionKey(),
 	}
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := ensureLikedPlaylistTx(tx, local.LibraryID, local.DeviceID, now); err != nil {
 			return err
 		}
@@ -642,7 +642,7 @@ func (s *PlaylistService) UnlikeRecording(ctx context.Context, recordingID strin
 		return nil
 	}
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Model(&PlaylistItem{}).
 			Where("library_id = ? AND playlist_id = ? AND item_id = ?", local.LibraryID, item.PlaylistID, item.ItemID).
 			Updates(map[string]any{"deleted_at": &now, "updated_at": now}).Error; err != nil {
@@ -848,7 +848,7 @@ func (s *PlaylistService) resolvePlaylistLibraryRecordingID(ctx context.Context,
 }
 
 func (s *PlaylistService) ensureLikedPlaylist(ctx context.Context, libraryID, deviceID string) error {
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		return ensureLikedPlaylistTx(tx, libraryID, deviceID, time.Now().UTC())
 	})
 }

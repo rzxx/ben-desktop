@@ -33,6 +33,7 @@ type SyncPeer interface {
 	DeviceID() string
 	PeerID() string
 	Sync(ctx context.Context, req SyncRequest) (SyncResponse, error)
+	NotifyLibraryChanged(ctx context.Context, req LibraryChangedRequest) (LibraryChangedResponse, error)
 	FetchCheckpoint(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error)
 	FetchPlaybackAsset(ctx context.Context, req PlaybackAssetRequest) (PlaybackAssetResponse, error)
 	FetchArtworkBlob(ctx context.Context, req ArtworkBlobRequest) (ArtworkBlobResponse, error)
@@ -59,6 +60,21 @@ type SyncResponse struct {
 	RemainingOps   int64
 	NeedCheckpoint bool
 	Checkpoint     *apitypes.LibraryCheckpointManifest
+}
+
+type LibraryChangedRequest struct {
+	LibraryID string
+	DeviceID  string
+	PeerID    string
+	Auth      transportPeerAuth
+}
+
+type LibraryChangedResponse struct {
+	LibraryID string
+	DeviceID  string
+	PeerID    string
+	Auth      transportPeerAuth
+	Error     string
 }
 
 type CheckpointFetchRequest struct {
@@ -626,13 +642,13 @@ func (a *SyncService) buildSyncResponse(ctx context.Context, req SyncRequest) (S
 		now := time.Now().UTC()
 		switch {
 		case strings.TrimSpace(req.InstalledCheckpointID) == strings.TrimSpace(published.Manifest.CheckpointID):
-			if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 				return recordCheckpointAckTx(tx, req.LibraryID, req.DeviceID, published.Manifest.CheckpointID, checkpointAckSourceInstalled, now)
 			}); err != nil {
 				return SyncResponse{}, err
 			}
 		case clocksCoverCheckpoint(req.Clocks, published.Manifest.BaseClocks):
-			if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 				return recordCheckpointAckTx(tx, req.LibraryID, req.DeviceID, published.Manifest.CheckpointID, checkpointAckSourceCovered, now)
 			}); err != nil {
 				return SyncResponse{}, err
@@ -693,6 +709,30 @@ func (a *SyncService) buildCheckpointFetchResponse(ctx context.Context, req Chec
 		return CheckpointFetchResponse{}, fmt.Errorf("build local transport auth: %w", err)
 	}
 	return CheckpointFetchResponse{Record: record, Auth: auth}, nil
+}
+
+func (a *SyncService) buildLibraryChangedResponse(ctx context.Context, libraryID, deviceID, peerID string) (LibraryChangedResponse, error) {
+	libraryID = strings.TrimSpace(libraryID)
+	deviceID = strings.TrimSpace(deviceID)
+	peerID = strings.TrimSpace(peerID)
+	if libraryID == "" || deviceID == "" || peerID == "" {
+		return LibraryChangedResponse{}, fmt.Errorf("library id, device id, and peer id are required")
+	}
+	auth, err := a.ensureLocalTransportMembershipAuth(ctx, apitypes.LocalContext{
+		LibraryID: libraryID,
+		DeviceID:  deviceID,
+		PeerID:    peerID,
+		Role:      firstNonEmpty(a.membershipRole(ctx, libraryID, deviceID), roleMember),
+	}, peerID)
+	if err != nil {
+		return LibraryChangedResponse{}, fmt.Errorf("build local transport auth: %w", err)
+	}
+	return LibraryChangedResponse{
+		LibraryID: libraryID,
+		DeviceID:  deviceID,
+		PeerID:    peerID,
+		Auth:      auth,
+	}, nil
 }
 
 func (a *SyncService) membershipRole(ctx context.Context, libraryID, deviceID string) string {
@@ -955,7 +995,7 @@ func (a *SyncService) installCheckpointRecordWithJob(ctx context.Context, localD
 		job.Running(0.55, "installing checkpoint state")
 	}
 
-	err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		preservedTail, err := selectCheckpointTailOpsTx(tx, record.Manifest.LibraryID, record.Manifest.BaseClocks)
 		if err != nil {
 			return err
@@ -1140,7 +1180,7 @@ func (a *SyncService) applyRemoteOpsSummary(ctx context.Context, libraryID strin
 
 func (a *SyncService) applyRemoteOp(ctx context.Context, libraryID string, op checkpointOplogEntry) (int, error) {
 	inserted := 0
-	err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var existing int64
 		if err := tx.Model(&OplogEntry{}).
 			Where("library_id = ? AND op_id = ?", strings.TrimSpace(libraryID), strings.TrimSpace(op.OpID)).

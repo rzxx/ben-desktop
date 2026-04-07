@@ -2,12 +2,27 @@ package desktopcore
 
 import (
 	"context"
+	"sync"
 
 	"gorm.io/gorm"
 )
 
+const txCommitHooksKey = "desktopcore:tx-commit-hooks"
+
 type DBService struct {
 	db *gorm.DB
+}
+
+type txStateKey struct{}
+
+type txState struct {
+	commitHooks   *txCommitHookState
+	oplogMutation any
+}
+
+type txCommitHookState struct {
+	mu    sync.Mutex
+	hooks []func()
 }
 
 func OpenDBService(path string) (*DBService, error) {
@@ -47,7 +62,16 @@ func (s *DBService) Transaction(ctx context.Context, fn func(*gorm.DB) error) er
 	if s == nil || s.db == nil {
 		return nil
 	}
-	return s.db.WithContext(ctx).Transaction(fn)
+	state := &txState{commitHooks: &txCommitHookState{}}
+	ctx = context.WithValue(ctx, txStateKey{}, state)
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(tx)
+	})
+	if err != nil || state.commitHooks == nil {
+		return err
+	}
+	state.commitHooks.run()
+	return nil
 }
 
 func (s *DBService) Close() error {
@@ -55,4 +79,57 @@ func (s *DBService) Close() error {
 		return nil
 	}
 	return closeSQL(s.db)
+}
+
+func registerTxCommitHook(tx *gorm.DB, hook func()) {
+	if tx == nil || hook == nil {
+		return
+	}
+	state := txCommitHooks(tx)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.hooks = append(state.hooks, hook)
+}
+
+func txCommitHooks(tx *gorm.DB) *txCommitHookState {
+	if state := transactionState(tx); state != nil {
+		if state.commitHooks == nil {
+			state.commitHooks = &txCommitHookState{}
+		}
+		return state.commitHooks
+	}
+	if tx == nil {
+		return &txCommitHookState{}
+	}
+	if existing, ok := tx.InstanceGet(txCommitHooksKey); ok {
+		if state, stateOK := existing.(*txCommitHookState); stateOK && state != nil {
+			return state
+		}
+	}
+	state := &txCommitHookState{}
+	tx.InstanceSet(txCommitHooksKey, state)
+	return state
+}
+
+func transactionState(tx *gorm.DB) *txState {
+	if tx == nil || tx.Statement == nil || tx.Statement.Context == nil {
+		return nil
+	}
+	state, _ := tx.Statement.Context.Value(txStateKey{}).(*txState)
+	return state
+}
+
+func (s *txCommitHookState) run() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	hooks := append([]func(){}, s.hooks...)
+	s.hooks = nil
+	s.mu.Unlock()
+	for _, hook := range hooks {
+		if hook != nil {
+			hook()
+		}
+	}
 }

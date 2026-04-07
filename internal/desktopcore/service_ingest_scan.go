@@ -488,7 +488,7 @@ type ingestRecord struct {
 func (s *IngestService) upsertIngest(ctx context.Context, in ingestRecord) error {
 	now := time.Now().UTC()
 	local := apitypes.LocalContext{LibraryID: in.LibraryID, DeviceID: in.DeviceID}
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		pathKey := localPathKey(in.Path)
 		sourceFingerprint := in.HashAlgo + ":" + in.HashHex
 		conflicts, err := conflictingPathSourceFilesTx(tx, in.LibraryID, in.DeviceID, pathKey, sourceFingerprint)
@@ -630,7 +630,7 @@ func (s *IngestService) reconcileRootPresence(ctx context.Context, libraryID, de
 	local := apitypes.LocalContext{LibraryID: libraryID, DeviceID: deviceID}
 	now := time.Now().UTC()
 	var rowsAffected int64
-	err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		result := tx.
 			Model(&SourceFileModel{}).
 			Where("library_id = ? AND device_id = ? AND source_file_id IN ? AND is_present = ?", libraryID, deviceID, missingIDs, true).

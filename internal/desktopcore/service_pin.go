@@ -16,8 +16,9 @@ import (
 type PinService struct {
 	app *App
 
-	refreshMu     sync.Mutex
-	refreshTimers map[string]*time.Timer
+	refreshMu         sync.Mutex
+	refreshTimers     map[string]*time.Timer
+	refreshRetryDelay time.Duration
 }
 
 type pinCoverageCache struct {
@@ -33,8 +34,9 @@ type pinCoverageCache struct {
 
 func newPinService(app *App) *PinService {
 	service := &PinService{
-		app:           app,
-		refreshTimers: make(map[string]*time.Timer),
+		app:               app,
+		refreshTimers:     make(map[string]*time.Timer),
+		refreshRetryDelay: 15 * time.Second,
 	}
 	if app != nil {
 		app.SubscribeCatalogChanges(service.handlePinnedScopeCatalogChange)
@@ -66,7 +68,7 @@ func (s *PinService) handlePinnedScopeCatalogChange(event apitypes.CatalogChange
 
 	ctx := context.Background()
 	if event.Kind == apitypes.CatalogChangeInvalidateAvailability {
-		s.scheduleAllPinScopeRefresh(ctx, local, pinnedScopeDebounceWait)
+		s.schedulePendingPinScopeRefresh(ctx, local, pinnedScopeDebounceWait)
 		return
 	}
 	if recordingPins, albumPins, playlistPins, targeted, err := s.affectedPinRootsForEvent(ctx, local, event); err == nil {
@@ -319,7 +321,7 @@ func (s *PinService) upsertPinRoot(ctx context.Context, local apitypes.LocalCont
 		return fmt.Errorf("pin root scope and scope id are required")
 	}
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var existing PinRoot
 		err := tx.Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, scope, scopeID).
 			Take(&existing).Error
@@ -359,7 +361,7 @@ func (s *PinService) deletePinRoot(ctx context.Context, local apitypes.LocalCont
 	if scopeID == "" {
 		return fmt.Errorf("%s id is required", scope)
 	}
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, scope, scopeID).
 			Delete(&PinBlobRef{}).Error; err != nil {
 			return err
@@ -1008,8 +1010,29 @@ func (s *PinService) schedulePinScopeRefresh(libraryID, scope, scopeID, profile 
 	s.schedulePinScopeRefreshAfter(libraryID, scope, scopeID, profile, pinnedScopeDebounceWait)
 }
 
+func (s *PinService) schedulePinScopeRefreshRetry(libraryID, scope, scopeID, profile string) {
+	if s == nil {
+		return
+	}
+	delay := s.refreshRetryDelay
+	if delay <= 0 {
+		delay = pinnedScopeDebounceWait
+	}
+	s.schedulePinScopeRefreshAfter(libraryID, scope, scopeID, profile, delay)
+}
+
+type pinScopeRefreshLoader func(context.Context, string, string) ([]PinRoot, error)
+
 func (s *PinService) scheduleAllPinScopeRefresh(ctx context.Context, local apitypes.LocalContext, delay time.Duration) {
-	if s == nil || s.app == nil {
+	s.schedulePinScopeRefreshes(ctx, local, delay, s.loadAllPinRootsForRefresh)
+}
+
+func (s *PinService) schedulePendingPinScopeRefresh(ctx context.Context, local apitypes.LocalContext, delay time.Duration) {
+	s.schedulePinScopeRefreshes(ctx, local, delay, s.loadPendingPinRootsForRefresh)
+}
+
+func (s *PinService) schedulePinScopeRefreshes(ctx context.Context, local apitypes.LocalContext, delay time.Duration, load pinScopeRefreshLoader) {
+	if s == nil || s.app == nil || load == nil {
 		return
 	}
 	libraryID := strings.TrimSpace(local.LibraryID)
@@ -1017,13 +1040,27 @@ func (s *PinService) scheduleAllPinScopeRefresh(ctx context.Context, local apity
 	if libraryID == "" || deviceID == "" {
 		return
 	}
-	pins, err := s.listPinRoots(ctx, libraryID, deviceID, nil)
+	pins, err := load(ctx, libraryID, deviceID)
 	if err != nil {
 		return
 	}
 	for _, pin := range pins {
 		s.schedulePinScopeRefreshAfter(pin.LibraryID, pin.Scope, pin.ScopeID, pin.Profile, delay)
 	}
+}
+
+func (s *PinService) loadAllPinRootsForRefresh(ctx context.Context, libraryID, deviceID string) ([]PinRoot, error) {
+	return s.listPinRoots(ctx, libraryID, deviceID, nil)
+}
+
+func (s *PinService) loadPendingPinRootsForRefresh(ctx context.Context, libraryID, deviceID string) ([]PinRoot, error) {
+	var pins []PinRoot
+	if err := s.app.storage.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND pending_count > 0", libraryID, deviceID).
+		Find(&pins).Error; err != nil {
+		return nil, err
+	}
+	return pins, nil
 }
 
 func (s *PinService) schedulePinScopeRefreshAfter(libraryID, scope, scopeID, profile string, delay time.Duration) {
@@ -1141,10 +1178,10 @@ func (s *PinService) runPinScopeRefreshJob(ctx context.Context, libraryID, scope
 		job.Fail(pinJobProgress(outcome.result.Tracks, maxInt(outcome.total, 1)), "pinned scope refresh failed", err)
 		return
 	}
-	if outcome.pendingCount > 0 {
-		s.schedulePinScopeRefreshAfter(local.LibraryID, scope, resolvedScopeID, profile, pinnedScopeRetryWait)
-	}
 	job.Complete(1, pinScopeCompletionMessage(outcome.result, outcome.pendingCount, outcome.total))
+	if outcome.pendingCount > 0 {
+		s.schedulePinScopeRefreshRetry(local.LibraryID, scope, resolvedScopeID, profile)
+	}
 	s.app.playback.emitPinAvailabilityInvalidation(local, scope, resolvedScopeID, recordingIDs)
 }
 
@@ -1352,7 +1389,7 @@ func (s *PinService) reconcileScope(ctx context.Context, local apitypes.LocalCon
 		return err
 	}
 
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Where(
 			"library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?",
 			local.LibraryID,

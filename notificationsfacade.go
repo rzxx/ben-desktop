@@ -918,6 +918,7 @@ func classifyJob(kind string) (apitypes.NotificationAudience, apitypes.Notificat
 		"compact-checkpoint":
 		return apitypes.NotificationAudienceUser, apitypes.NotificationImportanceNormal
 	case "install-checkpoint",
+		"refresh-pinned-recording",
 		"refresh-pinned-album",
 		"refresh-pinned-playlist",
 		"watch-scan":

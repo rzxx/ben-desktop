@@ -215,7 +215,7 @@ func (s *PlaybackService) storeFetchedPlaybackAsset(ctx context.Context, local a
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := mirrorOptimizedAssetTx(tx, asset); err != nil {
 			return err
 		}

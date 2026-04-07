@@ -316,7 +316,7 @@ func (a *IdentityMembershipService) requestMembershipRefresh(ctx context.Context
 			continue
 		}
 
-		if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 			if len(resp.AuthorityChain) > 0 {
 				if err := saveAdmissionAuthorityChainTx(tx, local.LibraryID, resp.AuthorityChain); err != nil {
 					return fmt.Errorf("store refreshed admission authority chain: %w", err)
@@ -379,7 +379,7 @@ func (a *IdentityMembershipService) buildMembershipRefreshResponse(ctx context.C
 	}
 
 	var response MembershipRefreshResponse
-	err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		cert, err := refreshMembershipCertWithRecoveryTx(tx, req.LibraryID, req.DeviceID, req.PeerID, req.RecoveryToken, defaultMembershipCertTTL)
 		if err != nil {
 			return err
@@ -460,4 +460,3 @@ func decryptAdmissionMaterial(ciphertext []byte, refreshPubKey, refreshPrivKey *
 	}
 	return strings.TrimSpace(material.PrivateKey), nil
 }
-

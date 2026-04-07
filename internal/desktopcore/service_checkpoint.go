@@ -231,7 +231,7 @@ func (a *CheckpointService) publishCheckpoint(ctx context.Context, libraryID, de
 	if job != nil {
 		job.Running(0.7, "persisting published checkpoint")
 	}
-	if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := savePublishedCheckpointTx(tx, manifest, chunks); err != nil {
 			return err
 		}
@@ -273,7 +273,7 @@ func (a *CheckpointService) compactCheckpoint(ctx context.Context, libraryID str
 	if job != nil {
 		job.Running(0.65, "deleting checkpoint-covered oplog entries")
 	}
-	if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		for deviceID, seq := range baseClocks {
 			deviceID = strings.TrimSpace(deviceID)
 			if deviceID == "" {

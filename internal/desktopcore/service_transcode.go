@@ -245,7 +245,7 @@ func (s *TranscodeService) EnsureRecordingEncoding(ctx context.Context, local ap
 	now := time.Now().UTC()
 	encodingID := stableNameID("encoding", source.SourceFileID+"|"+spec.ID)
 	bitrate := measuredAverageBitrate(len(encoded), source.DurationMS)
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := s.app.upsertOptimizedAssetTx(tx, local, OptimizedAssetModel{
 			OptimizedAssetID:  encodingID,
 			SourceFileID:      source.SourceFileID,
@@ -314,7 +314,7 @@ func (s *TranscodeService) findEncodingForSource(ctx context.Context, libraryID,
 
 func (s *TranscodeService) markAssetCached(ctx context.Context, local apitypes.LocalContext, optimizedAssetID string) error {
 	now := time.Now().UTC()
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		lastVerified := now
 		return s.app.upsertDeviceAssetCacheTx(tx, local, DeviceAssetCacheModel{
 			DeviceID:         local.DeviceID,

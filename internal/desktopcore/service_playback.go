@@ -28,7 +28,6 @@ const (
 
 	pinnedScopeWorkerCount  = 3
 	pinnedScopeDebounceWait = time.Second
-	pinnedScopeRetryWait    = 15 * time.Second
 )
 
 type PlaybackService struct {
@@ -2011,10 +2010,10 @@ func (s *PlaybackService) runRecordingPinJob(ctx context.Context, local apitypes
 		job.Fail(0, "track pin failed", err)
 		return
 	}
-	if pending {
-		s.app.pin.schedulePinScopeRefreshAfter(local.LibraryID, "recording", target.scopeID, target.profile, pinnedScopeRetryWait)
-	}
 	job.Complete(1, recordingPinCompletionMessage(result, pending))
+	if pending {
+		s.app.pin.schedulePinScopeRefreshRetry(local.LibraryID, "recording", target.scopeID, target.profile)
+	}
 	s.emitPinAvailabilityInvalidation(local, "recording", target.scopeID, compactNonEmptyStrings([]string{target.scopeRecordingID, target.clusterID}))
 }
 
@@ -2034,10 +2033,10 @@ func (s *PlaybackService) runPinScopeJob(ctx context.Context, local apitypes.Loc
 		job.Fail(pinJobProgress(outcome.result.Tracks, maxInt(outcome.total, 1)), label+" failed", err)
 		return
 	}
-	if outcome.pendingCount > 0 {
-		s.app.pin.schedulePinScopeRefreshAfter(local.LibraryID, scope, scopeID, profile, pinnedScopeRetryWait)
-	}
 	job.Complete(1, pinScopeCompletionMessage(outcome.result, outcome.pendingCount, outcome.total))
+	if outcome.pendingCount > 0 {
+		s.app.pin.schedulePinScopeRefreshRetry(local.LibraryID, scope, scopeID, profile)
+	}
 	s.emitPinAvailabilityInvalidation(local, scope, scopeID, recordingIDs)
 }
 

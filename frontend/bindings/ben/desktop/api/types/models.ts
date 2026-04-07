@@ -2174,6 +2174,7 @@ export enum NetworkSyncReason {
     NetworkSyncReasonConnect = "connect",
     NetworkSyncReasonManual = "manual",
     NetworkSyncReasonTimer = "timer",
+    NetworkSyncReasonUpdate = "update",
 };
 
 export enum NotificationAudience {

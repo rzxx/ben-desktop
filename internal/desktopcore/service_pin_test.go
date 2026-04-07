@@ -145,3 +145,86 @@ func TestGetPinStateMarksTrackCoveredByPinnedPlaylist(t *testing.T) {
 		t.Fatalf("track pin sources = %+v, want playlist coverage", state.Sources)
 	}
 }
+
+func TestRunPinScopeRefreshJobSchedulesRetryWhenTracksRemainPending(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+	app.pin.refreshRetryDelay = 20 * time.Millisecond
+
+	library, err := app.CreateLibrary(ctx, "pin-refresh-retry")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	seedPlaylistRecording(t, app, library.LibraryID, "rec-pending-refresh", "Pending Refresh")
+
+	if err := app.pin.upsertPinRoot(ctx, local, "recording", "rec-pending-refresh", "desktop"); err != nil {
+		t.Fatalf("upsert pending pin root: %v", err)
+	}
+
+	app.pin.runPinScopeRefreshJob(ctx, library.LibraryID, "recording", "rec-pending-refresh", "desktop")
+
+	jobID := refreshPinScopeJobID(library.LibraryID, "recording", "rec-pending-refresh", "desktop")
+	app.pin.refreshMu.Lock()
+	_, scheduled := app.pin.refreshTimers[jobID]
+	app.pin.refreshMu.Unlock()
+	if !scheduled {
+		t.Fatalf("expected pending pin scope refresh retry for %s", jobID)
+	}
+}
+
+func TestSyncActiveRuntimeServicesRefreshesPinRootsEvenWhenPendingCountIsZero(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+		return &fakeManagedTransport{peerID: "peer-pin-startup-refresh"}, nil
+	}
+
+	library, err := app.CreateLibrary(ctx, "pin-startup-refresh")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	seedPlaylistRecording(t, app, library.LibraryID, "rec-startup-refresh", "Startup Refresh")
+
+	if err := app.pin.upsertPinRoot(ctx, local, "recording", "rec-startup-refresh", "desktop"); err != nil {
+		t.Fatalf("upsert pin root: %v", err)
+	}
+	if err := app.db.WithContext(ctx).
+		Model(&PinRoot{}).
+		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", library.LibraryID, local.DeviceID, "recording", "rec-startup-refresh").
+		Update("pending_count", 0).Error; err != nil {
+		t.Fatalf("clear pending_count: %v", err)
+	}
+
+	app.pin.refreshMu.Lock()
+	for key, timer := range app.pin.refreshTimers {
+		if timer != nil {
+			timer.Stop()
+		}
+		delete(app.pin.refreshTimers, key)
+	}
+	app.pin.refreshMu.Unlock()
+
+	if err := app.syncActiveRuntimeServices(ctx); err != nil {
+		t.Fatalf("sync runtime services: %v", err)
+	}
+
+	jobID := refreshPinScopeJobID(library.LibraryID, "recording", "rec-startup-refresh", "desktop")
+	app.pin.refreshMu.Lock()
+	_, scheduled := app.pin.refreshTimers[jobID]
+	app.pin.refreshMu.Unlock()
+	if !scheduled {
+		t.Fatalf("expected startup refresh for %s even with pending_count = 0", jobID)
+	}
+}

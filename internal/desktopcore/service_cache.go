@@ -508,7 +508,7 @@ func (s *CacheService) markBlobEncodingsUncached(ctx context.Context, local apit
 		OptimizedAssetID string
 	}
 	now := time.Now().UTC()
-	return s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var rows []row
 		query := `
 SELECT dac.optimized_asset_id AS optimized_asset_id

@@ -1645,6 +1645,90 @@ func TestAvailabilityInvalidationRefreshesPendingPins(t *testing.T) {
 	}
 }
 
+func TestAvailabilityInvalidationRefreshesOnlyPendingPins(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	builder := &fakeAACBuilder{result: []byte("availability-pending-only")}
+	owner := openCacheTestAppWithTranscodeBuilder(t, 1024, builder)
+	joiner := openCacheTestApp(t, 1024)
+
+	library, err := owner.CreateLibrary(ctx, "availability-pending-only")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, joinerLocal := seedSharedLibraryForSync(t, owner, joiner, library)
+
+	const (
+		pendingRecordingID  = "rec-availability-pending-only"
+		pendingAlbumID      = "album-availability-pending-only"
+		pendingSourceFileID = "src-availability-pending-only"
+		localAlbumID        = "album-local-only-refresh"
+		localRecordingID    = "rec-local-only-refresh"
+		localSourceFileID   = "src-local-only-refresh"
+	)
+
+	pendingSeed := playbackSeedInput{
+		RecordingID:    pendingRecordingID,
+		TrackClusterID: pendingRecordingID,
+		AlbumID:        pendingAlbumID,
+		AlbumClusterID: pendingAlbumID,
+		SourceFileID:   pendingSourceFileID,
+		QualityRank:    100,
+	}
+	seedSourceOnlyRecording(t, owner, library.LibraryID, ownerLocal.DeviceID, pendingSeed)
+	seedSourceOnlyRecording(t, joiner, library.LibraryID, ownerLocal.DeviceID, pendingSeed)
+	writeSeedSourceFile(t, owner, library.LibraryID, ownerLocal.DeviceID, pendingSourceFileID, []byte("availability-pending-only-source"))
+
+	localSeed := playbackSeedInput{
+		RecordingID:    localRecordingID,
+		TrackClusterID: localRecordingID,
+		AlbumID:        localAlbumID,
+		AlbumClusterID: localAlbumID,
+		SourceFileID:   localSourceFileID,
+		QualityRank:    100,
+	}
+	seedSourceOnlyRecording(t, joiner, library.LibraryID, joinerLocal.DeviceID, localSeed)
+	writeSeedSourceFile(t, joiner, library.LibraryID, joinerLocal.DeviceID, localSourceFileID, []byte("local-only-refresh-source"))
+
+	if err := joiner.LikeRecording(ctx, pendingRecordingID); err != nil {
+		t.Fatalf("like recording on joiner: %v", err)
+	}
+	likedPlaylistID := likedPlaylistIDForLibrary(joinerLocal.LibraryID)
+	if _, err := startLikedPinJob(t, ctx, joiner, likedPlaylistID, "desktop"); err != nil {
+		t.Fatalf("start liked pin: %v", err)
+	}
+	waitForJobPhase(t, ctx, joiner, pinJobID(joinerLocal.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
+
+	if _, err := startAlbumPinJob(t, ctx, joiner, localAlbumID, "desktop"); err != nil {
+		t.Fatalf("start local album pin: %v", err)
+	}
+	waitForJobPhase(t, ctx, joiner, pinJobID(joinerLocal.LibraryID, "album", localAlbumID, "desktop"), JobPhaseCompleted)
+
+	registry := newMemorySyncRegistry()
+	owner.SetSyncTransport(registry.transport("memory://owner-pending-only", owner))
+	joiner.SetSyncTransport(registry.transport("memory://joiner-pending-only", joiner))
+
+	joiner.emitAvailabilityInvalidateAll()
+
+	refresh := waitForJobPhase(t, ctx, joiner, refreshPinScopeJobID(joinerLocal.LibraryID, "playlist", likedPlaylistID, "desktop"), JobPhaseCompleted)
+	if refresh.Kind != jobKindRefreshPinnedPlaylist {
+		t.Fatalf("refresh job kind = %q, want %q", refresh.Kind, jobKindRefreshPinnedPlaylist)
+	}
+	if _, _, ok, err := joiner.playback.bestCachedEncoding(ctx, joinerLocal.LibraryID, joinerLocal.DeviceID, pendingRecordingID, "desktop"); err != nil {
+		t.Fatalf("cached encoding lookup after pending refresh: %v", err)
+	} else if !ok {
+		t.Fatalf("expected pending liked recording to be fetched after availability refresh")
+	}
+
+	albumRefreshID := refreshPinScopeJobID(joinerLocal.LibraryID, "album", localAlbumID, "desktop")
+	if job, ok, err := joiner.GetJob(ctx, albumRefreshID); err != nil {
+		t.Fatalf("get local album refresh job: %v", err)
+	} else if ok {
+		t.Fatalf("expected local non-pending album to avoid availability refresh job, got %+v", job)
+	}
+}
+
 func TestStartPinLikedFetchesRemoteTrackAcrossClusterVariantMismatch(t *testing.T) {
 	t.Parallel()
 

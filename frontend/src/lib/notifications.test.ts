@@ -239,5 +239,10 @@ describe("notificationHeading", () => {
     expect(
       notificationHeading(makeNotification({ kind: "sync-activity" })),
     ).toBe("Background sync");
+    expect(
+      notificationHeading(
+        makeNotification({ kind: "refresh-pinned-recording" }),
+      ),
+    ).toBe("Pinned track refresh");
   });
 });

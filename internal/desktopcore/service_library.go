@@ -77,7 +77,7 @@ func (s *LibraryService) CreateLibrary(ctx context.Context, name string) (apityp
 
 	now := time.Now().UTC()
 	libraryID := uuid.NewString()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Create(&Library{
 			LibraryID: libraryID,
 			Name:      name,
@@ -177,7 +177,7 @@ func (s *LibraryService) RenameLibrary(ctx context.Context, libraryID, name stri
 	if !canManageLibrary(local.Role) {
 		return apitypes.LibrarySummary{}, fmt.Errorf("library rename requires admin role")
 	}
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Model(&Library{}).
 			Where("library_id = ?", libraryID).
 			Update("name", name).Error; err != nil {
@@ -203,7 +203,7 @@ func (s *LibraryService) LeaveLibrary(ctx context.Context, libraryID string) err
 	if libraryID == "" {
 		return fmt.Errorf("library id is required")
 	}
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Where("library_id = ? AND device_id = ?", libraryID, device.DeviceID).Delete(&Membership{}).Error; err != nil {
 			return err
 		}
@@ -231,7 +231,7 @@ func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) er
 	if !canManageLibrary(local.Role) {
 		return fmt.Errorf("library delete requires admin role")
 	}
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Model(&Device{}).Where("active_library_id = ?", libraryID).Update("active_library_id", nil).Error; err != nil {
 			return err
 		}
@@ -321,7 +321,7 @@ func (s *LibraryService) UpdateLibraryMemberRole(ctx context.Context, deviceID, 
 	if !canManageLibrary(local.Role) {
 		return fmt.Errorf("member role update requires admin role")
 	}
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		actor, err := loadManagedMembershipTx(tx, local.LibraryID, local.DeviceID)
 		if err != nil {
 			return err
@@ -390,7 +390,7 @@ func (s *LibraryService) RemoveLibraryMember(ctx context.Context, deviceID strin
 	if !canManageLibrary(local.Role) {
 		return fmt.Errorf("member removal requires admin role")
 	}
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		actor, err := loadManagedMembershipTx(tx, local.LibraryID, local.DeviceID)
 		if err != nil {
 			return err
@@ -460,7 +460,7 @@ func (a *App) ensureCurrentDevice(ctx context.Context) (Device, error) {
 		JoinedAt:   now,
 		LastSeenAt: &now,
 	}
-	if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Create(&device).Error; err != nil {
 			return err
 		}

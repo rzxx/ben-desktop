@@ -153,6 +153,8 @@ export function notificationHeading(notification: NotificationSnapshot) {
       return "Album pin";
     case "pin-playlist":
       return "Playlist pin";
+    case "refresh-pinned-recording":
+      return "Pinned track refresh";
     case "refresh-pinned-album":
       return "Pinned album refresh";
     case "refresh-pinned-playlist":

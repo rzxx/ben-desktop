@@ -93,7 +93,7 @@ func (a *App) ensureLocalOplogSignatures(ctx context.Context, local apitypes.Loc
 		return fmt.Errorf("load transport identity: %w", err)
 	}
 
-	return a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var rows []OplogEntry
 		if err := tx.Where("library_id = ? AND device_id = ?", strings.TrimSpace(local.LibraryID), strings.TrimSpace(local.DeviceID)).
 			Order("seq ASC").
@@ -195,4 +195,3 @@ func verifyCheckpointOplogEntryTx(tx *gorm.DB, libraryID string, entry checkpoin
 	}
 	return nil
 }
-

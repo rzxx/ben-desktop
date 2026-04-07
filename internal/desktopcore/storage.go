@@ -33,6 +33,8 @@ func openSQLite(path string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Keep SQLite on a single shared connection to avoid concurrent writer
+	// contention in the embedded desktop runtime.
 	sqlDB.SetMaxOpenConns(1)
 	return db, nil
 }
@@ -148,7 +150,7 @@ func (a *App) runPathPrivacyMigration(ctx context.Context) error {
 	}
 
 	now := time.Now().UTC()
-	return a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var sources []SourceFileModel
 		if err := tx.Order("library_id ASC, device_id ASC, source_file_id ASC").Find(&sources).Error; err != nil {
 			return err
@@ -228,7 +230,7 @@ func (a *App) runContextIdentityMigration(ctx context.Context) error {
 	}
 
 	now := time.Now().UTC()
-	return a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		for _, stmt := range []string{
 			"DROP INDEX IF EXISTS idx_source_file_fingerprint",
 			"DROP INDEX IF EXISTS idx_album_variant_key",

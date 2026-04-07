@@ -387,6 +387,47 @@ func TestTransportStartupCatchupInstallsCheckpointAfterRestart(t *testing.T) {
 	}
 }
 
+func TestManagedTransportAutoAppliesRemoteUpdateWithoutReconnect(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	registry := newManagedMemorySyncRegistry()
+	owner := openPlaylistTestApp(t)
+	joiner := openPlaylistTestApp(t)
+	owner.transportService.factory = registry.factory("memory://owner", owner)
+	joiner.transportService.factory = registry.factory("memory://joiner", joiner)
+
+	library, err := owner.CreateLibrary(ctx, "managed-remote-update")
+	if err != nil {
+		t.Fatalf("create owner library: %v", err)
+	}
+	ownerLocal, _ := seedSharedLibraryForSync(t, owner, joiner, library)
+	if err := joiner.syncActiveRuntimeServices(ctx); err != nil {
+		t.Fatalf("start joiner runtime services: %v", err)
+	}
+
+	if err := joiner.ConnectPeer(ctx, "memory://owner"); err != nil {
+		t.Fatalf("connect peer: %v", err)
+	}
+
+	playlist, err := owner.CreatePlaylist(ctx, "After Connect", "")
+	if err != nil {
+		t.Fatalf("create post-connect playlist: %v", err)
+	}
+
+	waitForPlaylistName(t, ctx, joiner, library.LibraryID, playlist.PlaylistID, "After Connect")
+
+	var peerState PeerSyncState
+	if err := joiner.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ?", library.LibraryID, ownerLocal.DeviceID).
+		Take(&peerState).Error; err != nil {
+		t.Fatalf("load peer sync state after remote update: %v", err)
+	}
+	if peerState.LastApplied == 0 || peerState.LastError != "" {
+		t.Fatalf("unexpected peer sync error after remote update: %+v", peerState)
+	}
+}
+
 func TestInstallCheckpointReplacementPrunesSupersededLocalState(t *testing.T) {
 	t.Parallel()
 
@@ -1902,6 +1943,48 @@ func (t *memorySyncTransport) ResolvePeer(_ context.Context, _ apitypes.LocalCon
 	return &memorySyncPeer{addr: peerAddr, app: app}, nil
 }
 
+func (t *memorySyncTransport) ResolvePeerByIdentity(ctx context.Context, local apitypes.LocalContext, peerID, deviceID string) (SyncPeer, error) {
+	t.registry.mu.RLock()
+	defer t.registry.mu.RUnlock()
+
+	peerID = strings.TrimSpace(peerID)
+	deviceID = strings.TrimSpace(deviceID)
+	libraryID := strings.TrimSpace(local.LibraryID)
+	for addr, app := range t.registry.apps {
+		if addr == t.selfAddr {
+			continue
+		}
+		remote, ok, err := app.ActiveLibrary(ctx)
+		if err != nil || !ok {
+			continue
+		}
+		if libraryID != "" && strings.TrimSpace(remote.LibraryID) != libraryID {
+			continue
+		}
+		local, err := app.EnsureLocalContext(ctx)
+		if err != nil {
+			continue
+		}
+		local, err = app.ensureLocalPeerContext(ctx, local)
+		if err != nil {
+			continue
+		}
+		if peerID != "" && strings.TrimSpace(local.PeerID) == peerID {
+			return &memorySyncPeer{addr: addr, app: app}, nil
+		}
+		if deviceID != "" && strings.TrimSpace(local.DeviceID) == deviceID {
+			return &memorySyncPeer{addr: addr, app: app}, nil
+		}
+	}
+	if peerID != "" {
+		return nil, fmt.Errorf("peer %q not found", peerID)
+	}
+	if deviceID != "" {
+		return nil, fmt.Errorf("device %q not found", deviceID)
+	}
+	return nil, fmt.Errorf("peer identity is required")
+}
+
 type blockingSyncTransport struct {
 	started chan struct{}
 }
@@ -1953,6 +2036,24 @@ func (p *memorySyncPeer) Sync(ctx context.Context, req SyncRequest) (SyncRespons
 		return SyncResponse{}, err
 	}
 	return p.app.buildSyncResponse(ctx, req)
+}
+
+func (p *memorySyncPeer) NotifyLibraryChanged(ctx context.Context, req LibraryChangedRequest) (LibraryChangedResponse, error) {
+	if p.app.transportService != nil {
+		runtime := p.app.transportService.activeRuntimeForLibrary(req.LibraryID)
+		if runtime != nil && runtime.ctx.Err() == nil && runtime.transport != nil {
+			return p.app.transportService.handleLibraryChangedSignal(ctx, runtime, req.PeerID, req)
+		}
+	}
+	local, err := p.app.EnsureLocalContext(ctx)
+	if err != nil {
+		return LibraryChangedResponse{}, err
+	}
+	local, err = p.app.ensureLocalPeerContext(ctx, local)
+	if err != nil {
+		return LibraryChangedResponse{}, err
+	}
+	return p.app.buildLibraryChangedResponse(ctx, req.LibraryID, local.DeviceID, local.PeerID)
 }
 
 func (p *memorySyncPeer) FetchCheckpoint(ctx context.Context, req CheckpointFetchRequest) (CheckpointFetchResponse, error) {

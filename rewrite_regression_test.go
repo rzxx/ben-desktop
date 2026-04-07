@@ -138,6 +138,35 @@ func TestDesktopRewriteRegression(t *testing.T) {
 		}
 	})
 
+	t.Run("generated network sync reason bindings stay current", func(t *testing.T) {
+		binding, err := os.ReadFile(filepath.Join("frontend", "bindings", "ben", "desktop", "api", "types", "models.ts"))
+		if err != nil {
+			t.Fatalf("read generated type bindings: %v", err)
+		}
+		if !strings.Contains(string(binding), `NetworkSyncReasonUpdate = "update"`) {
+			t.Fatalf("generated NetworkSyncReason binding is missing update")
+		}
+	})
+
+	t.Run("pinned recording refresh notifications stay wired through backend and frontend labels", func(t *testing.T) {
+		facade, err := os.ReadFile("notificationsfacade.go")
+		if err != nil {
+			t.Fatalf("read notifications facade: %v", err)
+		}
+		if !strings.Contains(string(facade), `"refresh-pinned-recording"`) {
+			t.Fatalf("notifications facade is missing refresh-pinned-recording classification")
+		}
+
+		frontendLabels, err := os.ReadFile(filepath.Join("frontend", "src", "lib", "notifications.ts"))
+		if err != nil {
+			t.Fatalf("read frontend notification labels: %v", err)
+		}
+		frontendText := string(frontendLabels)
+		if !strings.Contains(frontendText, `case "refresh-pinned-recording":`) || !strings.Contains(frontendText, `return "Pinned track refresh";`) {
+			t.Fatalf("frontend notification labels are missing refresh-pinned-recording")
+		}
+	})
+
 	t.Run("corehost does not fall back to app runtimes", func(t *testing.T) {
 		corehost, err := os.ReadFile("corehost.go")
 		if err != nil {

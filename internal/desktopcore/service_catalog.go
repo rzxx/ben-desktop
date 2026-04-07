@@ -372,7 +372,7 @@ func (s *CatalogService) SetPreferredRecordingVariant(ctx context.Context, recor
 		return fmt.Errorf("chosen recording is not in the same cluster")
 	}
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var existing DeviceVariantPreference
 		err := tx.Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", local.LibraryID, local.DeviceID, "track", clusterID).
 			Take(&existing).Error
@@ -442,7 +442,7 @@ func (s *CatalogService) SetPreferredAlbumVariant(ctx context.Context, albumID, 
 		return fmt.Errorf("chosen album is not in the same cluster")
 	}
 	now := time.Now().UTC()
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var existing DeviceVariantPreference
 		err := tx.Where("library_id = ? AND device_id = ? AND scope_type = ? AND cluster_id = ?", local.LibraryID, local.DeviceID, "album", clusterID).
 			Take(&existing).Error

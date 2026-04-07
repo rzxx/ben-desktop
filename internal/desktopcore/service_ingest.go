@@ -27,7 +27,7 @@ func (s *IngestService) SetScanRoots(ctx context.Context, roots []string) error 
 	if err != nil {
 		return err
 	}
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		return setLibraryScanRootsTx(tx, local.LibraryID, local.DeviceID, normalized)
 	}); err != nil {
 		return err
@@ -75,7 +75,7 @@ func (s *IngestService) RemoveScanRoots(ctx context.Context, roots []string) ([]
 		next = append(next, root)
 	}
 
-	if err := s.app.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		return setLibraryScanRootsTx(tx, local.LibraryID, local.DeviceID, next)
 	}); err != nil {
 		return nil, err
@@ -195,4 +195,3 @@ func scanRootKey(root string) string {
 	}
 	return root
 }
-

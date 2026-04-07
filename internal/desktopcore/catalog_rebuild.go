@@ -37,7 +37,7 @@ func (a *App) rebuildCatalogMaterialization(ctx context.Context, libraryID strin
 	}
 
 	var reconcileAlbumIDs []string
-	if err := a.storage.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		var err error
 		reconcileAlbumIDs, err = a.prepareCatalogRebuildTx(tx, libraryID, local)
 		return err
