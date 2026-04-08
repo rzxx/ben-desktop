@@ -689,8 +689,8 @@ func TestConnectPeerAppliesIncrementalLibraryAndCatalogSync(t *testing.T) {
 	if err := owner.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set owner scan roots: %v", err)
 	}
-	if _, err := owner.RescanNow(ctx); err != nil {
-		t.Fatalf("owner rescan: %v", err)
+	if _, err := owner.RepairLibrary(ctx); err != nil {
+		t.Fatalf("owner repair: %v", err)
 	}
 	if _, err := owner.RenameLibrary(ctx, library.LibraryID, "shared-catalog-renamed"); err != nil {
 		t.Fatalf("rename shared library: %v", err)
@@ -784,8 +784,8 @@ func TestInstallCheckpointRecordReplaysLibraryAndCatalogState(t *testing.T) {
 	if err := owner.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set owner scan roots: %v", err)
 	}
-	if _, err := owner.RescanNow(ctx); err != nil {
-		t.Fatalf("owner rescan: %v", err)
+	if _, err := owner.RepairLibrary(ctx); err != nil {
+		t.Fatalf("owner repair: %v", err)
 	}
 	if _, err := owner.RenameLibrary(ctx, library.LibraryID, "checkpoint-catalog-renamed"); err != nil {
 		t.Fatalf("rename shared library: %v", err)
@@ -911,8 +911,8 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if err := owner.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set owner scan roots: %v", err)
 	}
-	if _, err := owner.RescanNow(ctx); err != nil {
-		t.Fatalf("initial owner rescan: %v", err)
+	if _, err := owner.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial owner repair: %v", err)
 	}
 
 	initialAlbums, err := owner.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -1002,8 +1002,8 @@ func TestConnectPeerCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 		QualityRank: 1443200,
 	}
 
-	if _, err := owner.RescanNow(ctx); err != nil {
-		t.Fatalf("updated owner rescan: %v", err)
+	if _, err := owner.RepairLibrary(ctx); err != nil {
+		t.Fatalf("updated owner repair: %v", err)
 	}
 	updatedOwnerAlbums, err := owner.ListAlbums(ctx, apitypes.AlbumListRequest{})
 	if err != nil {
@@ -1128,8 +1128,8 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 	if err := owner.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set owner scan roots: %v", err)
 	}
-	if _, err := owner.RescanNow(ctx); err != nil {
-		t.Fatalf("initial owner rescan: %v", err)
+	if _, err := owner.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial owner repair: %v", err)
 	}
 
 	initialAlbums, err := owner.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -1211,8 +1211,8 @@ func TestInstallCheckpointCanonicalizesOwnerAlbumReplacement(t *testing.T) {
 		QualityRank: 1443200,
 	}
 
-	if _, err := owner.RescanNow(ctx); err != nil {
-		t.Fatalf("updated owner rescan: %v", err)
+	if _, err := owner.RepairLibrary(ctx); err != nil {
+		t.Fatalf("updated owner repair: %v", err)
 	}
 	updatedOwnerAlbums, err := owner.ListAlbums(ctx, apitypes.AlbumListRequest{})
 	if err != nil {
@@ -1317,8 +1317,8 @@ func TestConnectPeerAppliesReplicatedPreferencesPinsAndMaterializedState(t *test
 	if err := owner.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set owner scan roots: %v", err)
 	}
-	if _, err := owner.RescanNow(ctx); err != nil {
-		t.Fatalf("owner rescan: %v", err)
+	if _, err := owner.RepairLibrary(ctx); err != nil {
+		t.Fatalf("owner repair: %v", err)
 	}
 
 	recordings, err := owner.ListRecordings(ctx, apitypes.RecordingListRequest{})

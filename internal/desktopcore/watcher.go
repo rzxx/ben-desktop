@@ -15,12 +15,14 @@ import (
 )
 
 const (
-	jobKindWatchRescan = "watch-scan"
 	watchDebounceDelay = 350 * time.Millisecond
 )
 
+var newFSNotifyWatcher = fsnotify.NewWatcher
+
 type activeScanWatcher struct {
 	app       *App
+	coord     *scanCoordinator
 	libraryID string
 	deviceID  string
 	roots     []string
@@ -31,10 +33,11 @@ type activeScanWatcher struct {
 	ready  chan error
 }
 
-func newActiveScanWatcher(app *App, libraryID, deviceID string, roots []string) *activeScanWatcher {
+func newActiveScanWatcher(app *App, coord *scanCoordinator, libraryID, deviceID string, roots []string) *activeScanWatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &activeScanWatcher{
 		app:       app,
+		coord:     coord,
 		libraryID: strings.TrimSpace(libraryID),
 		deviceID:  strings.TrimSpace(deviceID),
 		roots:     append([]string(nil), normalizedWatcherRoots(roots)...),
@@ -92,7 +95,7 @@ func (w *activeScanWatcher) run() {
 		return
 	}
 
-	watcher, err := fsnotify.NewWatcher()
+	watcher, err := newFSNotifyWatcher()
 	if err != nil {
 		w.ready <- err
 		w.app.logf("desktopcore: create scan watcher failed: %v", err)
@@ -115,21 +118,45 @@ func (w *activeScanWatcher) run() {
 	defer timer.Stop()
 
 	var (
-		timerActive  bool
-		pendingRoots = make(map[string]string)
-		scanWG       sync.WaitGroup
+		timerActive          bool
+		pendingPresenceRoots = make(map[string]string)
+		pendingArtworkRoots  = make(map[string]string)
+		pendingStartupRoots  = make(map[string]string)
+		pendingPaths         = make(map[string]string)
+		scanWG               sync.WaitGroup
 	)
 	defer scanWG.Wait()
 
-	queueRoots := func(candidates []string) {
-		for _, root := range candidates {
+	queueDelta := func(paths []string, presenceRoots []string, artworkRoots []string, startupRoots []string) {
+		for _, path := range paths {
+			path = filepath.Clean(strings.TrimSpace(path))
+			if path == "" {
+				continue
+			}
+			pendingPaths[localPathKey(path)] = path
+		}
+		for _, root := range presenceRoots {
 			root = strings.TrimSpace(root)
 			if root == "" {
 				continue
 			}
-			pendingRoots[scanRootKey(root)] = root
+			pendingPresenceRoots[scanRootKey(root)] = root
 		}
-		if len(pendingRoots) == 0 {
+		for _, root := range artworkRoots {
+			root = strings.TrimSpace(root)
+			if root == "" {
+				continue
+			}
+			pendingArtworkRoots[scanRootKey(root)] = root
+		}
+		for _, root := range startupRoots {
+			root = strings.TrimSpace(root)
+			if root == "" {
+				continue
+			}
+			pendingStartupRoots[scanRootKey(root)] = root
+		}
+		if len(pendingPaths) == 0 && len(pendingPresenceRoots) == 0 && len(pendingArtworkRoots) == 0 && len(pendingStartupRoots) == 0 {
 			return
 		}
 		if timerActive {
@@ -165,40 +192,140 @@ func (w *activeScanWatcher) run() {
 			if !shouldTriggerWatchRescan(event.Op) {
 				continue
 			}
-			queueRoots(w.affectedRoots(event.Name))
+			paths, presenceRoots, artworkRoots, startupRoots := w.classifyEvent(event)
+			queueDelta(paths, presenceRoots, artworkRoots, startupRoots)
 		case <-timer.C:
 			timerActive = false
-			roots := sortedWatcherRoots(pendingRoots)
-			clear(pendingRoots)
-			if len(roots) == 0 {
+			paths := sortedWatcherRoots(pendingPaths)
+			presenceRoots := sortedWatcherRoots(pendingPresenceRoots)
+			artworkRoots := sortedWatcherRoots(pendingArtworkRoots)
+			startupRoots := sortedWatcherRoots(pendingStartupRoots)
+			clear(pendingPaths)
+			clear(pendingPresenceRoots)
+			clear(pendingArtworkRoots)
+			clear(pendingStartupRoots)
+			if len(paths) == 0 && len(presenceRoots) == 0 && len(artworkRoots) == 0 && len(startupRoots) == 0 {
 				continue
 			}
 			scanWG.Add(1)
-			go func(roots []string) {
+			go func(paths []string, presenceRoots []string, artworkRoots []string, startupRoots []string) {
 				defer scanWG.Done()
-				if _, err := w.app.ingest.runTrackedScan(w.ctx, w.libraryID, w.deviceID, roots, jobKindWatchRescan); err != nil && w.ctx.Err() == nil {
-					w.app.logf("desktopcore: watch scan failed: %v", err)
+				if w.coord == nil {
+					return
 				}
-			}(roots)
+				if len(startupRoots) > 0 {
+					if err := w.coord.queueStartupFull(startupRoots); err != nil && w.ctx.Err() == nil {
+						w.app.logf("desktopcore: startup scan submission failed: %v", err)
+					}
+					paths = prunePathsUnderRoots(paths, startupRoots)
+					presenceRoots = pruneRootsUnderRoots(presenceRoots, startupRoots)
+					artworkRoots = pruneRootsUnderRoots(artworkRoots, startupRoots)
+				}
+				if err := w.coord.queueWatchDelta(paths, presenceRoots, artworkRoots); err != nil && w.ctx.Err() == nil {
+					w.app.logf("desktopcore: watch scan submission failed: %v", err)
+				}
+			}(paths, presenceRoots, artworkRoots, startupRoots)
 		}
 	}
 }
 
-func (w *activeScanWatcher) affectedRoots(path string) []string {
+func (w *activeScanWatcher) classifyEvent(event fsnotify.Event) ([]string, []string, []string, []string) {
+	if w == nil {
+		return nil, nil, nil, nil
+	}
+	path := filepath.Clean(strings.TrimSpace(event.Name))
+	if path == "" {
+		return nil, nil, nil, append([]string(nil), w.roots...)
+	}
+
+	affectedRoots := w.presenceRootsForPath(path)
+	artworkRoots := w.artworkRootsForPath(path)
+	startupRoots := w.startupRootsForPath(path)
+	if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+		if isAudioPath(path) {
+			return []string{path}, nil, nil, nil
+		}
+		if isArtworkSidecarPath(path) {
+			return nil, nil, artworkRoots, nil
+		}
+		return nil, affectedRoots, nil, nil
+	}
+	if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
+		info, err := os.Stat(path)
+		switch {
+		case err == nil && info.IsDir():
+			return nil, affectedRoots, nil, startupRoots
+		case isAudioPath(path):
+			return []string{path}, nil, nil, nil
+		case isArtworkSidecarPath(path):
+			return nil, nil, artworkRoots, nil
+		case err == nil:
+			return nil, nil, nil, nil
+		case errors.Is(err, os.ErrNotExist) && isAudioPath(path):
+			return []string{path}, nil, nil, nil
+		case errors.Is(err, os.ErrNotExist) && isArtworkSidecarPath(path):
+			return nil, nil, artworkRoots, nil
+		default:
+			return nil, nil, nil, nil
+		}
+	}
+	return nil, nil, nil, nil
+}
+
+func (w *activeScanWatcher) presenceRootsForPath(path string) []string {
 	path = filepath.Clean(strings.TrimSpace(path))
 	if path == "" {
 		return append([]string(nil), w.roots...)
 	}
-	out := make([]string, 0, len(w.roots))
+
+	out := make(map[string]string, len(w.roots))
 	for _, root := range w.roots {
-		if pathWithinRoot(path, root) || pathWithinRoot(root, path) {
-			out = append(out, root)
+		switch {
+		case scanRootKey(path) == scanRootKey(root):
+			out[scanRootKey(root)] = root
+		case pathWithinRoot(path, root):
+			out[scanRootKey(path)] = path
+		case pathWithinRoot(root, path):
+			out[scanRootKey(root)] = root
 		}
 	}
 	if len(out) > 0 {
-		return out
+		return sortedWatcherRoots(out)
 	}
-	return append([]string(nil), w.roots...)
+	return nil
+}
+
+func (w *activeScanWatcher) artworkRootsForPath(path string) []string {
+	if w == nil || !isArtworkSidecarPath(path) {
+		return nil
+	}
+	dir := filepath.Dir(filepath.Clean(strings.TrimSpace(path)))
+	if dir == "" {
+		return nil
+	}
+	for _, root := range w.roots {
+		if pathWithinRoot(dir, root) {
+			return []string{dir}
+		}
+	}
+	return nil
+}
+
+func (w *activeScanWatcher) startupRootsForPath(path string) []string {
+	if w == nil {
+		return nil
+	}
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "" {
+		return nil
+	}
+	out := make([]string, 0, len(w.roots))
+	for _, root := range w.roots {
+		if scanRootKey(root) == scanRootKey(path) {
+			out = append(out, root)
+		}
+	}
+	return out
 }
 
 func (a *ScannerService) syncActiveScanWatcher(ctx context.Context) error {
@@ -215,6 +342,35 @@ func (a *ScannerService) syncActiveScanWatcher(ctx context.Context) error {
 		return nil
 	}
 	return a.syncRuntime(ctx, local, runtime)
+}
+
+func (a *ScannerService) resetRuntime(libraryID, deviceID string) {
+	if a == nil {
+		return
+	}
+
+	libraryID = strings.TrimSpace(libraryID)
+	deviceID = strings.TrimSpace(deviceID)
+
+	a.runtimeMu.Lock()
+	runtime := a.activeRuntime
+	if runtime == nil || strings.TrimSpace(runtime.libraryID) != libraryID || strings.TrimSpace(runtime.deviceID) != deviceID {
+		a.runtimeMu.Unlock()
+		return
+	}
+	currentWatcher := runtime.scanWatcher
+	currentCoordinator := runtime.scanCoordinator
+	runtime.scanWatcher = nil
+	runtime.scanCoordinator = nil
+	runtime.startupScanPending = true
+	a.runtimeMu.Unlock()
+
+	if currentCoordinator != nil {
+		currentCoordinator.stop()
+	}
+	if currentWatcher != nil {
+		currentWatcher.stop()
+	}
 }
 
 func (a *ScannerService) syncRuntime(ctx context.Context, local apitypes.LocalContext, runtime *activeLibraryRuntime) error {
@@ -242,19 +398,44 @@ func (a *ScannerService) syncRuntime(ctx context.Context, local apitypes.LocalCo
 	}
 
 	a.runtimeMu.Lock()
+	if runtime.scanCoordinator == nil {
+		runtime.scanCoordinator = newScanCoordinator(a.App, local.LibraryID, local.DeviceID, runtime.ctx)
+	}
+	coord := runtime.scanCoordinator
 	current := runtime.scanWatcher
-	if current != nil && current.sameConfig(local.LibraryID, local.DeviceID, roots) {
+	configMatches := current != nil && current.sameConfig(local.LibraryID, local.DeviceID, roots)
+	shouldQueueStartup := runtime.startupScanPending || !configMatches
+	if configMatches {
 		a.runtimeMu.Unlock()
+		if shouldQueueStartup {
+			return coord.queueStartupFull(roots)
+		}
 		return nil
 	}
-	next := newActiveScanWatcher(a.App, local.LibraryID, local.DeviceID, roots)
+	next := newActiveScanWatcher(a.App, coord, local.LibraryID, local.DeviceID, roots)
+	a.runtimeMu.Unlock()
+
+	if err := next.start(); err != nil {
+		return err
+	}
+	a.runtimeMu.Lock()
+	active := a.activeRuntime
+	if active != runtime {
+		a.runtimeMu.Unlock()
+		next.stop()
+		return errActiveLibraryRuntimeStopped
+	}
+	previous := runtime.scanWatcher
 	runtime.scanWatcher = next
 	a.runtimeMu.Unlock()
 
-	if current != nil {
-		current.stop()
+	if previous != nil {
+		previous.stop()
 	}
-	return next.start()
+	if shouldQueueStartup {
+		return coord.queueStartupFull(roots)
+	}
+	return nil
 }
 
 func (a *ScannerService) stopActiveScanWatcher() {
@@ -280,18 +461,17 @@ func addRecursiveWatch(watcher *fsnotify.Watcher, watchedDirs map[string]struct{
 	}
 	info, err := os.Stat(root)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fallback := nearestExistingWatchPath(root)
+			if fallback == "" {
+				return err
+			}
+			return addSingleWatch(watcher, watchedDirs, fallback)
+		}
 		return err
 	}
 	if !info.IsDir() {
-		return filepath.WalkDir(filepath.Dir(root), func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if filepath.Clean(path) != filepath.Clean(filepath.Dir(root)) {
-				return filepath.SkipDir
-			}
-			return addSingleWatch(watcher, watchedDirs, path)
-		})
+		return addSingleWatch(watcher, watchedDirs, filepath.Dir(root))
 	}
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -340,6 +520,50 @@ func addSingleWatch(watcher *fsnotify.Watcher, watchedDirs map[string]struct{}, 
 
 func shouldTriggerWatchRescan(op fsnotify.Op) bool {
 	return op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) != 0
+}
+
+func nearestExistingWatchPath(path string) string {
+	path = filepath.Clean(strings.TrimSpace(path))
+	for path != "" {
+		info, err := os.Stat(path)
+		if err == nil && info.IsDir() {
+			return path
+		}
+		next := filepath.Dir(path)
+		if next == path {
+			break
+		}
+		path = next
+	}
+	return ""
+}
+
+func prunePathsUnderRoots(paths, roots []string) []string {
+	if len(paths) == 0 || len(roots) == 0 {
+		return paths
+	}
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if pathWithinAnyRoot(path, roots) {
+			continue
+		}
+		out = append(out, path)
+	}
+	return out
+}
+
+func pruneRootsUnderRoots(candidates, roots []string) []string {
+	if len(candidates) == 0 || len(roots) == 0 {
+		return candidates
+	}
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if rootWithinAny(candidate, roots) {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	return out
 }
 
 func sortedWatcherRoots(items map[string]string) []string {

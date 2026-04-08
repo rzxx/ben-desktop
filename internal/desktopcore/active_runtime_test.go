@@ -2,11 +2,13 @@ package desktopcore
 
 import (
 	"context"
-	"sync"
+	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	apitypes "ben/desktop/api/types"
+	"github.com/fsnotify/fsnotify"
 )
 
 func TestStartActiveLibraryJobFailsQueuedJobWhenLibraryIsNotActive(t *testing.T) {
@@ -145,5 +147,61 @@ func TestActiveLibraryRuntimeOwnsTransportAndWatcherLifecycle(t *testing.T) {
 	case <-firstWatcher.done:
 	default:
 		t.Fatal("expected first watcher to be stopped with replaced active runtime")
+	}
+}
+
+func TestScanWatcherStartupFailureRetriesOnSameConfig(t *testing.T) {
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	if _, err := app.CreateLibrary(ctx, "watcher-retry"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	root := t.TempDir()
+	originalFactory := newFSNotifyWatcher
+	newFSNotifyWatcher = func() (*fsnotify.Watcher, error) {
+		return nil, errors.New("watcher startup failed")
+	}
+	t.Cleanup(func() {
+		newFSNotifyWatcher = originalFactory
+	})
+
+	if err := app.SetScanRoots(ctx, []string{root}); err == nil {
+		t.Fatal("expected scan root sync to fail when watcher startup fails")
+	}
+	roots, err := app.ScanRoots(ctx)
+	if err != nil {
+		t.Fatalf("scan roots after failed watcher startup: %v", err)
+	}
+	if len(roots) != 0 {
+		t.Fatalf("scan roots after failed watcher startup = %+v, want empty set", roots)
+	}
+
+	app.runtimeMu.Lock()
+	runtime := app.activeRuntime
+	var watcher *activeScanWatcher
+	if runtime != nil {
+		watcher = runtime.scanWatcher
+	}
+	app.runtimeMu.Unlock()
+	if watcher != nil {
+		t.Fatal("failed watcher startup should not leave a watcher installed")
+	}
+
+	newFSNotifyWatcher = originalFactory
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("retry set scan roots after watcher startup failure: %v", err)
+	}
+
+	app.runtimeMu.Lock()
+	runtime = app.activeRuntime
+	watcher = nil
+	if runtime != nil {
+		watcher = runtime.scanWatcher
+	}
+	app.runtimeMu.Unlock()
+	if watcher == nil {
+		t.Fatal("expected watcher startup retry to install a watcher")
 	}
 }

@@ -72,6 +72,7 @@ type TranscodeOplogDiagnostics struct {
 type LibraryOplogDiagnostics struct {
 	LibraryID         string
 	GeneratedAt       time.Time
+	Maintenance       ScanMaintenanceStatus
 	OplogByEntityType []OplogDiagnosticsGroup
 	OplogByDeviceID   []OplogDiagnosticsGroup
 	OplogByRecency    []OplogRecencyBucket

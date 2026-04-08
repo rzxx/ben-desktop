@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,6 +64,176 @@ func TestSetAndRemoveScanRootsNormalizeAndPersist(t *testing.T) {
 	}
 	if !reflect.DeepEqual(remaining, []string{filepath.Clean(rootA)}) {
 		t.Fatalf("remaining roots = %v, want [%s]", remaining, filepath.Clean(rootA))
+	}
+}
+
+func TestRemovingScanRootAutomaticallyRemovesIndexedContent(t *testing.T) {
+	ctx := context.Background()
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	audioA := filepath.Join(rootA, "keep.flac")
+	audioB := filepath.Join(rootB, "drop.flac")
+	for path, payload := range map[string]string{
+		audioA: "keep",
+		audioB: "drop",
+	} {
+		if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
+			t.Fatalf("write audio file %s: %v", path, err)
+		}
+	}
+
+	app := openCacheTestAppWithTagReader(t, 1024, staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioA): {
+				Title:       "Keep Track",
+				Album:       "Root A Album",
+				AlbumArtist: "Root A Artist",
+				Artists:     []string{"Root A Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(audioB): {
+				Title:       "Drop Track",
+				Album:       "Root B Album",
+				AlbumArtist: "Root B Artist",
+				Artists:     []string{"Root B Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	})
+	if _, err := app.CreateLibrary(ctx, "scan-root-removal"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{rootA, rootB}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	waitForRecordingCount(t, ctx, app, 2)
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
+
+	remaining, err := app.RemoveScanRoots(ctx, []string{rootB})
+	if err != nil {
+		t.Fatalf("remove scan roots: %v", err)
+	}
+	if len(remaining) != 1 || scanRootKey(remaining[0]) != scanRootKey(rootA) {
+		t.Fatalf("remaining roots = %+v, want [%s]", remaining, filepath.Clean(rootA))
+	}
+
+	recordings := waitForRecordingCount(t, ctx, app, 1)
+	if recordings[0].Title != "Keep Track" {
+		t.Fatalf("recordings after root removal = %+v, want Keep Track only", recordings)
+	}
+}
+
+func TestSetScanRootsCancelsRepairForRemovedRoot(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "stale-repair.flac")
+	if err := os.WriteFile(audioPath, []byte("stale-repair"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+
+	baseReader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Stale Repair Track",
+				Album:       "Stale Repair Album",
+				AlbumArtist: "Stale Repair Artist",
+				Artists:     []string{"Stale Repair Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, baseReader)
+	if _, err := app.CreateLibrary(ctx, "stale-repair-root-change"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
+	if err := os.WriteFile(audioPath, []byte("stale-repair-updated"), 0o644); err != nil {
+		t.Fatalf("rewrite audio file before repair: %v", err)
+	}
+
+	started := make(chan string, 1)
+	release := make(chan struct{})
+	app.tagReader = blockingTagReader{
+		tagsByPath: baseReader.tagsByPath,
+		started:    started,
+		release:    release,
+	}
+
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	job, err := app.StartRepairLibrary(ctx)
+	if err != nil {
+		t.Fatalf("start repair library: %v", err)
+	}
+
+	select {
+	case startedPath := <-started:
+		if startedPath != filepath.Clean(audioPath) {
+			t.Fatalf("started path = %q, want %q", startedPath, filepath.Clean(audioPath))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for repair ingest to start")
+	}
+
+	if err := app.SetScanRoots(ctx, nil); err != nil {
+		t.Fatalf("clear scan roots: %v", err)
+	}
+	close(release)
+
+	final := waitForJobPhase(t, ctx, app, job.JobID, JobPhaseFailed)
+	if final.Kind != jobKindRepairLibrary || final.LibraryID != local.LibraryID {
+		t.Fatalf("unexpected final repair job: %+v", final)
+	}
+
+	recordings, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list recordings after root removal: %v", err)
+	}
+	if len(recordings.Items) != 0 {
+		t.Fatalf("recordings after root removal = %+v, want empty", recordings.Items)
+	}
+
+	roots, err := app.ScanRoots(ctx)
+	if err != nil {
+		t.Fatalf("scan roots after root removal: %v", err)
+	}
+	if len(roots) != 0 {
+		t.Fatalf("scan roots after root removal = %+v, want empty", roots)
 	}
 }
 
@@ -127,7 +298,7 @@ func TestScanRootUpdatesRejectGuestRole(t *testing.T) {
 	}
 }
 
-func TestRescanNowImportsMetadataAndPublishesCompletedJob(t *testing.T) {
+func TestRepairLibraryImportsMetadataAndPublishesCompletedJob(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -170,12 +341,14 @@ func TestRescanNowImportsMetadataAndPublishesCompletedJob(t *testing.T) {
 	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set scan roots: %v", err)
 	}
+	waitForRecordingCount(t, ctx, app, 1)
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
 
-	stats, err := app.RescanNow(ctx)
+	stats, err := app.RepairLibrary(ctx)
 	if err != nil {
-		t.Fatalf("rescan now: %v", err)
+		t.Fatalf("repair library: %v", err)
 	}
-	if stats.Scanned != 1 || stats.Imported != 1 || stats.Errors != 0 {
+	if stats.Scanned != 1 || stats.Imported != 0 || stats.SkippedUnchanged != 1 || stats.Errors != 0 {
 		t.Fatalf("unexpected scan stats: %+v", stats)
 	}
 
@@ -195,7 +368,7 @@ func TestRescanNowImportsMetadataAndPublishesCompletedJob(t *testing.T) {
 		t.Fatalf("unexpected scan activity: %+v", activity.Scan)
 	}
 
-	jobID := scanJobID(library.LibraryID, local.DeviceID, []string{filepath.Clean(root)}, jobKindRescanAll)
+	jobID := scanJobID(library.LibraryID, local.DeviceID, []string{filepath.Clean(root)}, jobKindRepairLibrary)
 	job, ok, err := app.GetJob(ctx, jobID)
 	if err != nil {
 		t.Fatalf("get scan job: %v", err)
@@ -203,12 +376,12 @@ func TestRescanNowImportsMetadataAndPublishesCompletedJob(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected scan job %q", jobID)
 	}
-	if job.Phase != JobPhaseCompleted || job.Kind != jobKindRescanAll {
+	if job.Phase != JobPhaseCompleted || job.Kind != jobKindRepairLibrary {
 		t.Fatalf("unexpected scan job: %+v", job)
 	}
 }
 
-func TestStartRescanNowQueuesAsyncJob(t *testing.T) {
+func TestStartRepairLibraryQueuesAsyncJob(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -252,17 +425,17 @@ func TestStartRescanNowQueuesAsyncJob(t *testing.T) {
 		t.Fatalf("set scan roots: %v", err)
 	}
 
-	job, err := app.StartRescanNow(ctx)
+	job, err := app.StartRepairLibrary(ctx)
 	if err != nil {
-		t.Fatalf("start rescan now: %v", err)
+		t.Fatalf("start repair library: %v", err)
 	}
-	if job.Phase != JobPhaseQueued || job.Kind != jobKindRescanAll {
+	if job.Phase != JobPhaseQueued || job.Kind != jobKindRepairLibrary {
 		t.Fatalf("unexpected queued job: %+v", job)
 	}
 
-	jobID := scanJobID(library.LibraryID, local.DeviceID, []string{filepath.Clean(root)}, jobKindRescanAll)
+	jobID := scanJobID(library.LibraryID, local.DeviceID, []string{filepath.Clean(root)}, jobKindRepairLibrary)
 	final := waitForJobPhase(t, ctx, app, jobID, JobPhaseCompleted)
-	if final.Kind != jobKindRescanAll || final.LibraryID != library.LibraryID {
+	if final.Kind != jobKindRepairLibrary || final.LibraryID != library.LibraryID {
 		t.Fatalf("unexpected final job snapshot: %+v", final)
 	}
 
@@ -275,7 +448,140 @@ func TestStartRescanNowQueuesAsyncJob(t *testing.T) {
 	}
 }
 
-func TestStartRescanNowCancelsWhenActiveLibraryChanges(t *testing.T) {
+func TestAutomaticScansStayScopedAndRepairUsesFullRebuild(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	firstPath := filepath.Join(root, "first.flac")
+	secondPath := filepath.Join(root, "second.flac")
+	if err := os.WriteFile(firstPath, []byte("fake-audio-1"), 0o644); err != nil {
+		t.Fatalf("write first audio file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(firstPath): {
+				Title:       "First Track",
+				Album:       "Scoped Album",
+				AlbumArtist: "Scoped Artist",
+				Artists:     []string{"Scoped Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(secondPath): {
+				Title:       "Second Track",
+				Album:       "Scoped Album",
+				AlbumArtist: "Scoped Artist",
+				Artists:     []string{"Scoped Artist"},
+				TrackNo:     2,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  181000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	var fullRebuildCalls int32
+	app.rebuildCatalogMaterializationFullHook = func() {
+		atomic.AddInt32(&fullRebuildCalls, 1)
+	}
+	defer func() {
+		app.rebuildCatalogMaterializationFullHook = nil
+	}()
+	library, err := app.CreateLibrary(ctx, "scoped-auto-scan")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	waitForRecordingCount(t, ctx, app, 1)
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
+	if got := atomic.LoadInt32(&fullRebuildCalls); got != 0 {
+		t.Fatalf("startup scan invoked full rebuild %d times, want 0", got)
+	}
+
+	if err := os.WriteFile(secondPath, []byte("fake-audio-2"), 0o644); err != nil {
+		t.Fatalf("write second audio file: %v", err)
+	}
+	stats, err := app.ingest.runDeltaScanPass(
+		ctx,
+		library.LibraryID,
+		local.DeviceID,
+		deltaScanScope{audioPaths: []string{secondPath}},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("delta scan pass: %v", err)
+	}
+	if stats.Imported != 1 || stats.Errors != 0 {
+		t.Fatalf("unexpected delta scan stats: %+v", stats)
+	}
+	waitForRecordingCount(t, ctx, app, 2)
+	if got := atomic.LoadInt32(&fullRebuildCalls); got != 0 {
+		t.Fatalf("delta scan invoked full rebuild %d times, want 0", got)
+	}
+
+	if err := app.markScanRepairRequired(ctx, library.LibraryID, local.DeviceID, "test-reason", "test detail"); err != nil {
+		t.Fatalf("mark scan repair required: %v", err)
+	}
+	activity, err := app.ActivityStatus(ctx)
+	if err != nil {
+		t.Fatalf("activity status before repair: %v", err)
+	}
+	if !activity.Maintenance.RepairRequired {
+		t.Fatalf("expected repair required before repair, got %+v", activity.Maintenance)
+	}
+
+	repairStats, err := app.RepairLibrary(ctx)
+	if err != nil {
+		t.Fatalf("repair library: %v", err)
+	}
+	if repairStats.Scanned != 2 || repairStats.Errors != 0 {
+		t.Fatalf("unexpected repair stats: %+v", repairStats)
+	}
+	if got := atomic.LoadInt32(&fullRebuildCalls); got != 1 {
+		t.Fatalf("repair invoked full rebuild %d times, want 1", got)
+	}
+
+	activity, err = app.ActivityStatus(ctx)
+	if err != nil {
+		t.Fatalf("activity status after repair: %v", err)
+	}
+	if activity.Maintenance.RepairRequired {
+		t.Fatalf("repair state should be cleared after repair, got %+v", activity.Maintenance)
+	}
+
+	oplog, err := app.InspectLibraryOplog(ctx, library.LibraryID)
+	if err != nil {
+		t.Fatalf("inspect library oplog: %v", err)
+	}
+	if oplog.Maintenance.RepairRequired {
+		t.Fatalf("oplog maintenance should be cleared after repair, got %+v", oplog.Maintenance)
+	}
+}
+
+func TestStartRepairLibraryCancelsWhenActiveLibraryChanges(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -283,12 +589,6 @@ func TestStartRescanNowCancelsWhenActiveLibraryChanges(t *testing.T) {
 	rootB := t.TempDir()
 	audioA1 := filepath.Join(rootA, "async-one.flac")
 	audioA2 := filepath.Join(rootA, "async-two.flac")
-	if err := os.WriteFile(audioA1, []byte("fake-audio-1"), 0o644); err != nil {
-		t.Fatalf("write first audio file: %v", err)
-	}
-	if err := os.WriteFile(audioA2, []byte("fake-audio-2"), 0o644); err != nil {
-		t.Fatalf("write second audio file: %v", err)
-	}
 
 	release := make(chan struct{})
 	started := make(chan string, 2)
@@ -334,13 +634,6 @@ func TestStartRescanNowCancelsWhenActiveLibraryChanges(t *testing.T) {
 	}
 	app := openCacheTestAppWithTagReader(t, 1024, reader)
 
-	first, err := app.CreateLibrary(ctx, "scan-cancel-a")
-	if err != nil {
-		t.Fatalf("create first library: %v", err)
-	}
-	if err := app.SetScanRoots(ctx, []string{rootA}); err != nil {
-		t.Fatalf("set first scan roots: %v", err)
-	}
 	second, err := app.CreateLibrary(ctx, "scan-cancel-b")
 	if err != nil {
 		t.Fatalf("create second library: %v", err)
@@ -348,17 +641,33 @@ func TestStartRescanNowCancelsWhenActiveLibraryChanges(t *testing.T) {
 	if err := app.SetScanRoots(ctx, []string{rootB}); err != nil {
 		t.Fatalf("set second scan roots: %v", err)
 	}
-	if _, err := app.SelectLibrary(ctx, first.LibraryID); err != nil {
-		t.Fatalf("reselect first library: %v", err)
+
+	first, err := app.CreateLibrary(ctx, "scan-cancel-a")
+	if err != nil {
+		t.Fatalf("create first library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{rootA}); err != nil {
+		t.Fatalf("set first scan roots: %v", err)
+	}
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
+	if app.scanner != nil {
+		app.scanner.stopActiveScanWatcher()
+	}
+
+	if err := os.WriteFile(audioA1, []byte("fake-audio-1"), 0o644); err != nil {
+		t.Fatalf("write first audio file: %v", err)
+	}
+	if err := os.WriteFile(audioA2, []byte("fake-audio-2"), 0o644); err != nil {
+		t.Fatalf("write second audio file: %v", err)
 	}
 
 	local, err := app.requireActiveContext(ctx)
 	if err != nil {
 		t.Fatalf("active context: %v", err)
 	}
-	job, err := app.StartRescanNow(ctx)
+	job, err := app.StartRepairLibrary(ctx)
 	if err != nil {
-		t.Fatalf("start rescan now: %v", err)
+		t.Fatalf("start repair library: %v", err)
 	}
 	if job.Phase != JobPhaseQueued {
 		t.Fatalf("unexpected queued scan job: %+v", job)
@@ -375,7 +684,7 @@ func TestStartRescanNowCancelsWhenActiveLibraryChanges(t *testing.T) {
 	}
 	close(release)
 
-	jobID := scanJobID(first.LibraryID, local.DeviceID, []string{filepath.Clean(rootA)}, jobKindRescanAll)
+	jobID := scanJobID(first.LibraryID, local.DeviceID, []string{filepath.Clean(rootA)}, jobKindRepairLibrary)
 	final := waitForJobPhase(t, ctx, app, jobID, JobPhaseFailed)
 	if !strings.Contains(final.Message, "no longer active") {
 		t.Fatalf("expected cancellation message, got %+v", final)
@@ -384,16 +693,226 @@ func TestStartRescanNowCancelsWhenActiveLibraryChanges(t *testing.T) {
 	if _, err := app.SelectLibrary(ctx, first.LibraryID); err != nil {
 		t.Fatalf("reselect first library after cancellation: %v", err)
 	}
+}
+
+func TestRepairLibraryDropsQueuedManualScanOnCallerCancel(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "queued-cancel.flac")
+	if err := os.WriteFile(audioPath, []byte("fake-audio"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+
+	started := make(chan string, 4)
+	release := make(chan struct{})
+	reader := blockingTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Queued Cancel Track",
+				Album:       "Queued Cancel Album",
+				AlbumArtist: "Queued Cancel Artist",
+				Artists:     []string{"Queued Cancel Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+		started: started,
+		release: release,
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	if _, err := app.CreateLibrary(ctx, "scan-queued-cancel"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+
+	job, err := app.StartRepairLibrary(ctx)
+	if err != nil {
+		t.Fatalf("start blocking scan: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for initial scan ingest to start")
+	}
+
+	cancelCtx, cancel := context.WithCancel(ctx)
+	result := make(chan error, 1)
+	go func() {
+		_, err := app.RepairLibrary(cancelCtx)
+		result <- err
+	}()
+
+	foundPending := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		app.runtimeMu.Lock()
+		runtime := app.activeRuntime
+		app.runtimeMu.Unlock()
+		if runtime != nil && runtime.scanCoordinator != nil {
+			runtime.scanCoordinator.mu.Lock()
+			pending := len(runtime.scanCoordinator.pending)
+			runtime.scanCoordinator.mu.Unlock()
+			if pending > 0 {
+				foundPending = true
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !foundPending {
+		t.Fatal("timed out waiting for queued manual repair request")
+	}
+
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued repair err = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for queued repair cancellation")
+	}
+
+	close(release)
+	final := waitForJobPhase(t, ctx, app, job.JobID, JobPhaseCompleted)
+	if final.Kind != jobKindRepairLibrary || final.LibraryID != local.LibraryID {
+		t.Fatalf("unexpected blocking scan completion: %+v", final)
+	}
+
+	select {
+	case path := <-started:
+		t.Fatalf("canceled queued repair still ingested %q", path)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestRepairLibraryCancelsActiveManualScanOnCallerCancel(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	audioA := filepath.Join(root, "active-cancel-a.flac")
+	audioB := filepath.Join(root, "active-cancel-b.flac")
+
+	started := make(chan string, 4)
+	release := make(chan struct{})
+	reader := blockingTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioA): {
+				Title:       "Active Cancel Track A",
+				Album:       "Active Cancel Album",
+				AlbumArtist: "Active Cancel Artist",
+				Artists:     []string{"Active Cancel Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(audioB): {
+				Title:       "Active Cancel Track B",
+				Album:       "Active Cancel Album",
+				AlbumArtist: "Active Cancel Artist",
+				Artists:     []string{"Active Cancel Artist"},
+				TrackNo:     2,
+				DiscNo:      1,
+				Year:        2024,
+				DurationMS:  181000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+		started: started,
+		release: release,
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	if _, err := app.CreateLibrary(ctx, "scan-active-cancel"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
+	if app.scanner != nil {
+		app.scanner.stopActiveScanWatcher()
+	}
+
+	for _, path := range []string{audioA, audioB} {
+		if err := os.WriteFile(path, []byte("fake-audio"), 0o644); err != nil {
+			t.Fatalf("write audio file %q: %v", path, err)
+		}
+	}
+
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	cancelCtx, cancel := context.WithCancel(ctx)
+	result := make(chan error, 1)
+	go func() {
+		_, err := app.RepairLibrary(cancelCtx)
+		result <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for active repair ingest to start")
+	}
+
+	cancel()
+	close(release)
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("active repair err = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for active repair cancellation")
+	}
+
+	jobID := scanJobID(local.LibraryID, local.DeviceID, []string{filepath.Clean(root)}, jobKindRepairLibrary)
+	final := waitForJobPhase(t, ctx, app, jobID, JobPhaseFailed)
+	if !strings.Contains(final.Message, "repair canceled") {
+		t.Fatalf("expected cancellation message, got %+v", final)
+	}
+
 	recordings, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
 	if err != nil {
 		t.Fatalf("list partially scanned recordings: %v", err)
 	}
 	if len(recordings.Items) >= 2 {
-		t.Fatalf("expected library switch to stop the old scan before both tracks imported, got %+v", recordings.Items)
+		t.Fatalf("expected caller cancellation to stop the scan before both tracks imported, got %+v", recordings.Items)
 	}
 }
 
-func TestRescanRootMarksMissingFilesAbsent(t *testing.T) {
+func TestRepairRootsMarksMissingFilesAbsent(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -431,19 +950,19 @@ func TestRescanRootMarksMissingFilesAbsent(t *testing.T) {
 	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set scan roots: %v", err)
 	}
-	if _, err := app.RescanRoot(ctx, root); err != nil {
-		t.Fatalf("initial rescan root: %v", err)
+	if _, err := app.ingest.repairRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("initial repair roots: %v", err)
 	}
 
 	if err := os.Remove(audioPath); err != nil {
 		t.Fatalf("remove audio file: %v", err)
 	}
-	stats, err := app.RescanRoot(ctx, root)
+	stats, err := app.ingest.repairRoots(ctx, []string{root})
 	if err != nil {
-		t.Fatalf("rescan missing root: %v", err)
+		t.Fatalf("repair missing root: %v", err)
 	}
 	if stats.Scanned != 0 {
-		t.Fatalf("missing-root scan should not rescan files: %+v", stats)
+		t.Fatalf("missing-root repair should not rescan files: %+v", stats)
 	}
 
 	var row SourceFileModel
@@ -455,7 +974,7 @@ func TestRescanRootMarksMissingFilesAbsent(t *testing.T) {
 	}
 }
 
-func TestRescanNowReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
+func TestRepairLibraryReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -536,8 +1055,8 @@ func TestRescanNowReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
 		t.Fatalf("set scan roots: %v", err)
 	}
 
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("initial rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -625,8 +1144,8 @@ func TestRescanNowReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
 	}
 	builder.results[filepath.Clean(newA)] = buildResult("new", newA)
 
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("updated rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("updated repair: %v", err)
 	}
 
 	updatedAlbums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -700,7 +1219,7 @@ func TestRescanNowReplacesRemovedAlbumVariantMaterialization(t *testing.T) {
 	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, oldAlbumID, 1)
 }
 
-func TestRescanNowKeepsCatalogWhenArtworkRebuildFails(t *testing.T) {
+func TestRepairLibraryKeepsCatalogWhenArtworkRebuildFails(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -756,8 +1275,8 @@ func TestRescanNowKeepsCatalogWhenArtworkRebuildFails(t *testing.T) {
 	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set scan roots: %v", err)
 	}
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("initial rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair: %v", err)
 	}
 
 	initialAlbums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -798,9 +1317,9 @@ func TestRescanNowKeepsCatalogWhenArtworkRebuildFails(t *testing.T) {
 	builder.errs[filepath.Clean(newPath)] = errors.New("artwork rebuild failed")
 	builder.results[filepath.Clean(newPath)] = buildResult("new", newPath)
 
-	stats, err := app.RescanNow(ctx)
+	stats, err := app.RepairLibrary(ctx)
 	if err != nil {
-		t.Fatalf("rescan with artwork failure: %v", err)
+		t.Fatalf("repair with artwork failure: %v", err)
 	}
 	if stats.Imported != 1 {
 		t.Fatalf("imported count = %d, want 1", stats.Imported)
@@ -880,7 +1399,7 @@ func TestRebuildCatalogMaterializationPreservesPresentCrossOwnerVariants(t *test
 		QualityRank: 1443200,
 	})
 
-	if err := app.rebuildCatalogMaterialization(ctx, library.LibraryID, nil); err != nil {
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
 		t.Fatalf("rebuild catalog materialization: %v", err)
 	}
 
@@ -951,6 +1470,55 @@ func TestScanWatcherImportsNewFileForActiveLibrary(t *testing.T) {
 	if recordings[0].Title != "Watched Track" {
 		t.Fatalf("watched recording title = %q, want Watched Track", recordings[0].Title)
 	}
+}
+
+func TestScanWatcherRemovesDeletedFileForActiveLibrary(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "watch-delete.flac")
+	if err := os.WriteFile(audioPath, []byte("watch-delete"), 0o644); err != nil {
+		t.Fatalf("write watched audio file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Watched Delete",
+				Album:       "Watcher Album",
+				AlbumArtist: "Watcher Artist",
+				Artists:     []string{"Watcher Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  210000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	if _, err := app.CreateLibrary(ctx, "watch-delete"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair: %v", err)
+	}
+	waitForRecordingCount(t, ctx, app, 1)
+
+	if err := os.Remove(audioPath); err != nil {
+		t.Fatalf("remove watched audio file: %v", err)
+	}
+	waitForRecordingCount(t, ctx, app, 0)
 }
 
 func TestScanWatcherFollowsActiveLibrarySelection(t *testing.T) {
@@ -1051,12 +1619,9 @@ func TestScanWatcherFollowsActiveLibrarySelection(t *testing.T) {
 	if _, err := app.SelectLibrary(ctx, first.LibraryID); err != nil {
 		t.Fatalf("select first library: %v", err)
 	}
-	page, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
-	if err != nil {
-		t.Fatalf("list first library recordings: %v", err)
-	}
-	if len(page.Items) != 0 {
-		t.Fatalf("inactive library should not have auto-imported while deselected: %+v", page.Items)
+	recordings = waitForRecordingCount(t, ctx, app, 1)
+	if recordings[0].Title != "Inactive Track" {
+		t.Fatalf("startup scan should catch up inactive library on activation, got %+v", recordings)
 	}
 
 	if err := os.WriteFile(audioA2, []byte("reactivated"), 0o644); err != nil {
@@ -1074,12 +1639,653 @@ func TestScanWatcherFollowsActiveLibrarySelection(t *testing.T) {
 	if _, err := app.SelectLibrary(ctx, second.LibraryID); err != nil {
 		t.Fatalf("reselect second library: %v", err)
 	}
-	page, err = app.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	page, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
 	if err != nil {
 		t.Fatalf("list second library recordings: %v", err)
 	}
 	if len(page.Items) != 1 || page.Items[0].Title != "Active Track" {
 		t.Fatalf("second library recordings = %+v, want only Active Track", page.Items)
+	}
+}
+
+func TestSetScanRootsTriggersStartupScanForExistingFiles(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "late-root.flac")
+	if err := os.WriteFile(audioPath, []byte("late-root"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Late Root Track",
+				Album:       "Late Root Album",
+				AlbumArtist: "Late Root Artist",
+				Artists:     []string{"Late Root Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	if _, err := app.CreateLibrary(ctx, "late-root-startup"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	page, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list recordings before roots: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("recordings before roots = %+v, want empty", page.Items)
+	}
+
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+
+	recordings := waitForRecordingCount(t, ctx, app, 1)
+	if recordings[0].Title != "Late Root Track" {
+		t.Fatalf("startup scan after adding roots = %+v, want Late Root Track", recordings)
+	}
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
+}
+
+func TestStartupScanRemovesDeletedFileWhileLibraryWasInactive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	audioA := filepath.Join(rootA, "inactive-delete.flac")
+	audioB := filepath.Join(rootB, "active.flac")
+	if err := os.WriteFile(audioA, []byte("inactive"), 0o644); err != nil {
+		t.Fatalf("write inactive audio: %v", err)
+	}
+	if err := os.WriteFile(audioB, []byte("active"), 0o644); err != nil {
+		t.Fatalf("write active audio: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioA): {
+				Title:       "Inactive Delete",
+				Album:       "Library A",
+				AlbumArtist: "Artist A",
+				Artists:     []string{"Artist A"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(audioB): {
+				Title:       "Active Track",
+				Album:       "Library B",
+				AlbumArtist: "Artist B",
+				Artists:     []string{"Artist B"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+
+	first, err := app.CreateLibrary(ctx, "startup-a")
+	if err != nil {
+		t.Fatalf("create first library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{rootA}); err != nil {
+		t.Fatalf("set first scan roots: %v", err)
+	}
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair first library: %v", err)
+	}
+	waitForRecordingCount(t, ctx, app, 1)
+
+	if _, err := app.CreateLibrary(ctx, "startup-b"); err != nil {
+		t.Fatalf("create second library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{rootB}); err != nil {
+		t.Fatalf("set second scan roots: %v", err)
+	}
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("repair second library: %v", err)
+	}
+
+	if err := os.Remove(audioA); err != nil {
+		t.Fatalf("remove inactive library audio: %v", err)
+	}
+	if _, err := app.SelectLibrary(ctx, first.LibraryID); err != nil {
+		t.Fatalf("reselect first library: %v", err)
+	}
+	waitForRecordingCount(t, ctx, app, 0)
+}
+
+func TestStartupScanRetriesAfterFailureOnNextRuntimeSync(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "retry-startup.flac")
+	if err := os.WriteFile(audioPath, []byte("retry-startup"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+
+	reader := &flakyTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Retried Startup Track",
+				Album:       "Retried Startup Album",
+				AlbumArtist: "Retried Startup Artist",
+				Artists:     []string{"Retried Startup Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+		failuresRemainingByPath: map[string]int{
+			filepath.Clean(audioPath): 1,
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	if _, err := app.CreateLibrary(ctx, "startup-retry"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+
+	failed := waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseFailed)
+	if !strings.Contains(failed.Error, "forced tag read failure") {
+		t.Fatalf("startup failure job = %+v, want forced tag read failure", failed)
+	}
+
+	page, err := app.ListRecordings(ctx, apitypes.RecordingListRequest{})
+	if err != nil {
+		t.Fatalf("list recordings after failed startup scan: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("recordings after failed startup scan = %+v, want empty", page.Items)
+	}
+
+	if err := app.syncActiveRuntimeServices(ctx); err != nil {
+		t.Fatalf("retry startup scan: %v", err)
+	}
+
+	recordings := waitForRecordingCount(t, ctx, app, 1)
+	if recordings[0].Title != "Retried Startup Track" {
+		t.Fatalf("recordings after retry = %+v, want Retried Startup Track", recordings)
+	}
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
+}
+
+func TestRepairLibraryEmitsAvailabilityInvalidation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "availability.flac")
+	if err := os.WriteFile(audioPath, []byte("availability"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+
+	reader := staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Availability Track",
+				Album:       "Availability Album",
+				AlbumArtist: "Availability Artist",
+				Artists:     []string{"Availability Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	if _, err := app.CreateLibrary(ctx, "scan-availability"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+
+	events := make(chan apitypes.CatalogChangeEvent, 16)
+	stop := app.SubscribeCatalogChanges(func(event apitypes.CatalogChangeEvent) {
+		select {
+		case events <- event:
+		default:
+		}
+	})
+	defer stop()
+
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("repair library: %v", err)
+	}
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Kind == apitypes.CatalogChangeInvalidateAvailability && event.InvalidateAll {
+				return
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for availability invalidation after scan")
+		}
+	}
+}
+
+func TestDeltaScanReconcilesChangedAlbumWithoutFullRebuild(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	firstPath := filepath.Join(root, "01-first.flac")
+	secondPath := filepath.Join(root, "02-second.flac")
+	for _, path := range []string{firstPath, secondPath} {
+		if err := os.WriteFile(path, []byte(filepath.Base(path)), 0o644); err != nil {
+			t.Fatalf("write audio file %s: %v", path, err)
+		}
+	}
+
+	reader := &mutableTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(firstPath): {
+				Title:       "First Track",
+				Album:       "Original Album",
+				AlbumArtist: "Mutable Artist",
+				Artists:     []string{"Mutable Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+			filepath.Clean(secondPath): {
+				Title:       "Second Track",
+				Album:       "Original Album",
+				AlbumArtist: "Mutable Artist",
+				Artists:     []string{"Mutable Artist"},
+				TrackNo:     2,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  181000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	if _, err := app.CreateLibrary(ctx, "delta-reconcile"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	waitForRecordingCount(t, ctx, app, 2)
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
+
+	initialAlbums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list initial albums: %v", err)
+	}
+	if len(initialAlbums.Items) != 1 || initialAlbums.Items[0].TrackCount != 2 {
+		t.Fatalf("unexpected initial albums: %+v", initialAlbums.Items)
+	}
+
+	reader.tagsByPath[filepath.Clean(firstPath)] = Tags{
+		Title:       "First Track",
+		Album:       "Split Album",
+		AlbumArtist: "Mutable Artist",
+		Artists:     []string{"Mutable Artist"},
+		TrackNo:     1,
+		DiscNo:      1,
+		Year:        2025,
+		DurationMS:  180000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+	if err := os.WriteFile(firstPath, []byte("updated-first-track"), 0o644); err != nil {
+		t.Fatalf("rewrite first audio file: %v", err)
+	}
+
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	stats, err := app.ingest.runDeltaScanPass(ctx, local.LibraryID, local.DeviceID, deltaScanScope{audioPaths: []string{firstPath}}, nil)
+	if err != nil {
+		t.Fatalf("delta scan: %v", err)
+	}
+	if stats.Imported != 1 || stats.Errors != 0 {
+		t.Fatalf("unexpected delta scan stats: %+v", stats)
+	}
+
+	updatedAlbums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list updated albums: %v", err)
+	}
+	if len(updatedAlbums.Items) != 2 {
+		t.Fatalf("updated album count = %d, want 2", len(updatedAlbums.Items))
+	}
+
+	sawOriginalAlbum := false
+	sawSplitAlbum := false
+	sawSecondTrack := false
+	sawFirstTrack := false
+	for _, album := range updatedAlbums.Items {
+		if album.TrackCount != 1 {
+			t.Fatalf("album %q track count = %d, want 1", album.Title, album.TrackCount)
+		}
+		tracks, err := app.ListAlbumTracks(ctx, apitypes.AlbumTrackListRequest{
+			AlbumID:     album.PreferredVariantAlbumID,
+			PageRequest: apitypes.PageRequest{Limit: maxPageLimit},
+		})
+		if err != nil {
+			t.Fatalf("list album tracks for %s: %v", album.Title, err)
+		}
+		if len(tracks.Items) != 1 {
+			t.Fatalf("album %q tracks = %+v, want exactly one track", album.Title, tracks.Items)
+		}
+		switch tracks.Items[0].Title {
+		case "Second Track":
+			sawSecondTrack = true
+			if album.Title != "Original Album" {
+				t.Fatalf("second track stayed in %q, want Original Album", album.Title)
+			}
+			sawOriginalAlbum = true
+		case "First Track":
+			sawFirstTrack = true
+			if album.Title != "Split Album" {
+				t.Fatalf("first track moved to %q, want Split Album", album.Title)
+			}
+			sawSplitAlbum = true
+		default:
+			t.Fatalf("unexpected album tracks for %q: %+v", album.Title, tracks.Items)
+		}
+	}
+	if !sawOriginalAlbum || !sawSplitAlbum || !sawFirstTrack || !sawSecondTrack {
+		t.Fatalf(
+			"unexpected updated albums: original=%v split=%v first=%v second=%v albums=%+v",
+			sawOriginalAlbum,
+			sawSplitAlbum,
+			sawFirstTrack,
+			sawSecondTrack,
+			updatedAlbums.Items,
+		)
+	}
+}
+
+func TestScanEmitsCatalogQueryInvalidationsForTargetedRefresh(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "01-event.flac")
+	if err := os.WriteFile(audioPath, []byte("event-track"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+
+	reader := &mutableTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Event Track",
+				Album:       "Event Album",
+				AlbumArtist: "Event Artist",
+				Artists:     []string{"Event Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	}
+	app := openCacheTestAppWithTagReader(t, 1024, reader)
+	if _, err := app.CreateLibrary(ctx, "scan-events"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	waitForRecordingCount(t, ctx, app, 1)
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
+
+	reader.tagsByPath[filepath.Clean(audioPath)] = Tags{
+		Title:       "Event Track",
+		Album:       "Renamed Event Album",
+		AlbumArtist: "Event Artist",
+		Artists:     []string{"Event Artist"},
+		TrackNo:     1,
+		DiscNo:      1,
+		Year:        2025,
+		DurationMS:  180000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+	if err := os.WriteFile(audioPath, []byte("event-track-updated"), 0o644); err != nil {
+		t.Fatalf("rewrite audio file: %v", err)
+	}
+
+	events := make(chan apitypes.CatalogChangeEvent, 32)
+	stop := app.SubscribeCatalogChanges(func(event apitypes.CatalogChangeEvent) {
+		select {
+		case events <- event:
+		default:
+		}
+	})
+	defer stop()
+
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	if _, err := app.ingest.runDeltaScanPass(ctx, local.LibraryID, local.DeviceID, deltaScanScope{audioPaths: []string{audioPath}}, nil); err != nil {
+		t.Fatalf("delta scan: %v", err)
+	}
+
+	queryKeys := make(map[string]struct{})
+	sawScopedBase := false
+	sawAlbumTracks := false
+	sawArtistAlbums := false
+	drainDeadline := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case event := <-events:
+			if len(event.RecordingIDs) > 0 && len(event.AlbumIDs) > 0 {
+				sawScopedBase = true
+			}
+			if strings.HasPrefix(event.QueryKey, "albumTracks:") {
+				sawAlbumTracks = true
+			}
+			if strings.HasPrefix(event.QueryKey, "artistAlbums:") {
+				sawArtistAlbums = true
+			}
+			if event.QueryKey != "" {
+				queryKeys[event.QueryKey] = struct{}{}
+			}
+		case <-drainDeadline:
+			goto assertions
+		}
+	}
+
+assertions:
+	for _, queryKey := range []string{"tracks", "albums", "artists"} {
+		if _, ok := queryKeys[queryKey]; !ok {
+			t.Fatalf("missing query invalidation for %q; events = %+v", queryKey, queryKeys)
+		}
+	}
+	if !sawAlbumTracks {
+		t.Fatal("expected albumTracks query invalidation from scan")
+	}
+	if !sawArtistAlbums {
+		t.Fatal("expected artistAlbums query invalidation from scan")
+	}
+	if !sawScopedBase {
+		t.Fatal("expected scan to emit scoped base invalidation with recording and album ids")
+	}
+}
+
+func TestDeltaScanIgnoresCorruptImpactRows(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "broken.flac")
+	if err := os.WriteFile(audioPath, []byte("broken"), 0o644); err != nil {
+		t.Fatalf("write audio file: %v", err)
+	}
+
+	app := openCacheTestAppWithTagReader(t, 1024, staticTagReader{
+		tagsByPath: map[string]Tags{
+			filepath.Clean(audioPath): {
+				Title:       "Recovered Track",
+				Album:       "Recovered Album",
+				AlbumArtist: "Recovered Artist",
+				Artists:     []string{"Recovered Artist"},
+				TrackNo:     1,
+				DiscNo:      1,
+				Year:        2025,
+				DurationMS:  180000,
+				Container:   "flac",
+				Codec:       "flac",
+				Bitrate:     1411200,
+				SampleRate:  44100,
+				Channels:    2,
+				IsLossless:  true,
+				QualityRank: 1443200,
+			},
+		},
+	})
+	if _, err := app.CreateLibrary(ctx, "delta-failure"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("set scan roots: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	waitForRecordingCount(t, ctx, app, 1)
+	waitForJobKindPhase(t, ctx, app, jobKindStartupScan, JobPhaseCompleted)
+	if err := os.WriteFile(audioPath, []byte("broken-recovered"), 0o644); err != nil {
+		t.Fatalf("rewrite audio file: %v", err)
+	}
+
+	now := time.Now().UTC()
+	var row SourceFileModel
+	if err := app.db.WithContext(ctx).
+		Where("library_id = ? AND device_id = ? AND path_key = ?", local.LibraryID, local.DeviceID, localPathKey(audioPath)).
+		Take(&row).Error; err != nil {
+		t.Fatalf("load current source file: %v", err)
+	}
+	row.TrackVariantID = "broken-track"
+	row.SourceFingerprint = "sha256:broken-source"
+	row.EditionScopeKey = "broken-scope"
+	row.HashAlgo = "sha256"
+	row.HashHex = strings.Repeat("b", 64)
+	row.MTimeNS = now.Add(-time.Minute).UnixNano()
+	row.SizeBytes = int64(len("broken"))
+	row.TagsJSON = "{"
+	row.LastSeenAt = now
+	row.IsPresent = true
+	row.UpdatedAt = now
+	if err := app.db.WithContext(ctx).Save(&row).Error; err != nil {
+		t.Fatalf("corrupt current source file: %v", err)
+	}
+
+	stats, err := app.ingest.runDeltaScanPass(ctx, local.LibraryID, local.DeviceID, deltaScanScope{audioPaths: []string{audioPath}}, nil)
+	if err != nil {
+		t.Fatalf("delta scan with corrupt impact row: %v", err)
+	}
+	if stats.Imported != 1 || stats.Errors != 0 {
+		t.Fatalf("unexpected delta scan stats: %+v", stats)
+	}
+
+	activity, err := app.ActivityStatus(ctx)
+	if err != nil {
+		t.Fatalf("activity status: %v", err)
+	}
+	if activity.Scan.Phase != "completed" {
+		t.Fatalf("scan activity phase = %q, want completed", activity.Scan.Phase)
+	}
+
+	recordings := waitForRecordingCount(t, ctx, app, 1)
+	if recordings[0].Title != "Recovered Track" {
+		t.Fatalf("unexpected recordings after recovery delta scan: %+v", recordings)
 	}
 }
 
@@ -1126,12 +2332,69 @@ func waitForJobPhase(t *testing.T, ctx context.Context, app *App, jobID string, 
 	return JobSnapshot{}
 }
 
+func waitForJobKindPhase(t *testing.T, ctx context.Context, app *App, kind string, want JobPhase) JobSnapshot {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		jobs, err := app.ListJobs(ctx, "")
+		if err == nil {
+			for _, job := range jobs {
+				if strings.TrimSpace(job.Kind) == strings.TrimSpace(kind) && job.Phase == want {
+					return job
+				}
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	jobs, err := app.ListJobs(ctx, "")
+	if err != nil {
+		t.Fatalf("list jobs after wait: %v", err)
+	}
+	t.Fatalf("job kind %q with phase %q not found after wait; jobs = %+v", kind, want, jobs)
+	return JobSnapshot{}
+}
+
 type staticTagReader struct {
+	tagsByPath map[string]Tags
+}
+
+type mutableTagReader struct {
 	tagsByPath map[string]Tags
 }
 
 func (r staticTagReader) Read(path string) (Tags, error) {
 	path = filepath.Clean(path)
+	tags, ok := r.tagsByPath[path]
+	if !ok {
+		return Tags{}, errors.New("missing test tags for " + path)
+	}
+	return tags, nil
+}
+
+func (r *mutableTagReader) Read(path string) (Tags, error) {
+	path = filepath.Clean(path)
+	tags, ok := r.tagsByPath[path]
+	if !ok {
+		return Tags{}, errors.New("missing test tags for " + path)
+	}
+	return tags, nil
+}
+
+type flakyTagReader struct {
+	tagsByPath              map[string]Tags
+	failuresRemainingByPath map[string]int
+}
+
+func (r *flakyTagReader) Read(path string) (Tags, error) {
+	path = filepath.Clean(path)
+	if r.failuresRemainingByPath != nil {
+		if remaining := r.failuresRemainingByPath[path]; remaining > 0 {
+			r.failuresRemainingByPath[path] = remaining - 1
+			return Tags{}, errors.New("forced tag read failure for " + path)
+		}
+	}
 	tags, ok := r.tagsByPath[path]
 	if !ok {
 		return Tags{}, errors.New("missing test tags for " + path)

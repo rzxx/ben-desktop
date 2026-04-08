@@ -104,6 +104,7 @@ export {
     RecordingVariantItem,
     RecordingVariantListRequest,
     ScanActivityStatus,
+    ScanMaintenanceStatus,
     TrackAvailabilitySummary,
     TranscodeActivityStatus,
     TranscodeOplogDiagnostics

@@ -10,6 +10,7 @@ import (
 
 	apitypes "ben/desktop/api/types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type catalogRebuildSnapshot struct {
@@ -30,18 +31,26 @@ type catalogAlbumVariantSnapshot struct {
 	BestQualityRank int
 }
 
-func (a *App) rebuildCatalogMaterialization(ctx context.Context, libraryID string, local *apitypes.LocalContext) error {
+type catalogMaterializationRows struct {
+	albums         map[string]AlbumVariantModel
+	albumGroupKeys map[string]string
+	tracks         map[string]TrackVariantModel
+	albumTracks    map[string]AlbumTrack
+	artists        map[string]Artist
+	credits        map[string]Credit
+}
+
+func (a *App) rebuildCatalogMaterializationFull(ctx context.Context, libraryID string, local *apitypes.LocalContext) error {
 	libraryID = strings.TrimSpace(libraryID)
 	if a == nil || a.storage == nil || libraryID == "" {
 		return nil
 	}
+	if a.rebuildCatalogMaterializationFullHook != nil {
+		a.rebuildCatalogMaterializationFullHook()
+	}
 
-	var reconcileAlbumIDs []string
-	if err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
-		var err error
-		reconcileAlbumIDs, err = a.prepareCatalogRebuildTx(tx, libraryID, local)
-		return err
-	}); err != nil {
+	reconcileAlbumIDs, err := a.prepareCatalogRebuild(ctx, libraryID, local)
+	if err != nil {
 		return err
 	}
 
@@ -57,6 +66,135 @@ func (a *App) rebuildCatalogMaterialization(ctx context.Context, libraryID strin
 		}
 	}
 	return nil
+}
+
+func (a *App) rebuildCatalogMaterializationScoped(
+	ctx context.Context,
+	libraryID string,
+	local *apitypes.LocalContext,
+	impact scanImpactSet,
+) error {
+	libraryID = strings.TrimSpace(libraryID)
+	if a == nil || a.storage == nil || libraryID == "" {
+		return nil
+	}
+	if !impact.hasTargets() {
+		return nil
+	}
+
+	deviceID := ""
+	if local != nil {
+		deviceID = strings.TrimSpace(local.DeviceID)
+	}
+	if err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
+		beforeSnapshot, err := captureCatalogRebuildSnapshotTx(tx, libraryID, deviceID)
+		if err != nil {
+			return err
+		}
+		if err := reconcileCatalogMaterializationForScanTx(tx, libraryID, impact); err != nil {
+			return err
+		}
+		if err := pruneDanglingVariantPreferencesTx(tx, libraryID); err != nil {
+			return err
+		}
+		afterSnapshot, err := captureCatalogRebuildSnapshotTx(tx, libraryID, deviceID)
+		if err != nil {
+			return err
+		}
+		if err := migrateAlbumPinRootsTx(tx, libraryID, beforeSnapshot, afterSnapshot); err != nil {
+			return err
+		}
+		if local != nil {
+			for _, albumID := range diffStringSet(beforeSnapshot.albumIDs, afterSnapshot.albumIDs) {
+				if err := a.deleteArtworkScopeTx(tx, *local, "album", albumID); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	a.emitCatalogChangesForScan(impact)
+	a.emitAvailabilityInvalidateAllForActiveLibrary(libraryID)
+	if local != nil && a.artwork != nil {
+		if err := a.reconcileLocalAlbumArtworkBestEffort(ctx, *local, impact.albumVariantIDs()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) emitCatalogChangesForScan(impact scanImpactSet) {
+	if a == nil {
+		return
+	}
+
+	recordingIDs := impact.recordingIDs()
+	albumIDs := impact.albumIDs()
+	albumVariantIDs := impact.albumVariantIDs()
+	artistIDs := impact.artistIDs()
+	if len(recordingIDs) == 0 && len(albumIDs) == 0 && len(albumVariantIDs) == 0 && len(artistIDs) == 0 {
+		return
+	}
+
+	a.emitCatalogChange(apitypes.CatalogChangeEvent{
+		Kind:         apitypes.CatalogChangeInvalidateBase,
+		Entity:       apitypes.CatalogChangeEntityTracks,
+		RecordingIDs: recordingIDs,
+		AlbumIDs:     albumIDs,
+	})
+	if len(recordingIDs) > 0 {
+		a.emitCatalogChange(apitypes.CatalogChangeEvent{
+			Kind:     apitypes.CatalogChangeInvalidateBase,
+			QueryKey: "tracks",
+		})
+	}
+	if len(albumIDs) > 0 {
+		a.emitCatalogChange(apitypes.CatalogChangeEvent{
+			Kind:     apitypes.CatalogChangeInvalidateBase,
+			QueryKey: "albums",
+		})
+	}
+	for _, albumID := range albumVariantIDs {
+		a.emitCatalogChange(apitypes.CatalogChangeEvent{
+			Kind:     apitypes.CatalogChangeInvalidateBase,
+			QueryKey: "albumTracks:" + albumID,
+		})
+	}
+	if len(albumVariantIDs) == 0 {
+		for _, albumID := range albumIDs {
+			a.emitCatalogChange(apitypes.CatalogChangeEvent{
+				Kind:     apitypes.CatalogChangeInvalidateBase,
+				QueryKey: "albumTracks:" + albumID,
+			})
+		}
+	}
+	if len(artistIDs) > 0 {
+		a.emitCatalogChange(apitypes.CatalogChangeEvent{
+			Kind:     apitypes.CatalogChangeInvalidateBase,
+			QueryKey: "artists",
+		})
+		for _, artistID := range artistIDs {
+			a.emitCatalogChange(apitypes.CatalogChangeEvent{
+				Kind:     apitypes.CatalogChangeInvalidateBase,
+				QueryKey: "artistAlbums:" + artistID,
+			})
+		}
+	}
+}
+
+func (a *App) prepareCatalogRebuild(ctx context.Context, libraryID string, local *apitypes.LocalContext) ([]string, error) {
+	var reconcileAlbumIDs []string
+	if err := a.storage.Transaction(ctx, func(tx *gorm.DB) error {
+		var err error
+		reconcileAlbumIDs, err = a.prepareCatalogRebuildTx(tx, libraryID, local)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return reconcileAlbumIDs, nil
 }
 
 func (a *App) prepareCatalogRebuildTx(tx *gorm.DB, libraryID string, local *apitypes.LocalContext) ([]string, error) {
@@ -124,17 +262,52 @@ func rebuildCatalogMaterializationTx(tx *gorm.DB, libraryID string) error {
 		return err
 	}
 
-	albums := make(map[string]AlbumVariantModel)
-	albumGroupKeys := make(map[string]string)
-	tracks := make(map[string]TrackVariantModel)
-	albumTracks := make(map[string]AlbumTrack)
-	artists := make(map[string]Artist)
-	credits := make(map[string]Credit)
+	materialized, err := deriveCatalogMaterializationRows(rows)
+	if err != nil {
+		return err
+	}
+
+	for _, model := range []any{
+		&Credit{},
+		&Artist{},
+		&AlbumTrack{},
+		&AlbumVariantModel{},
+		&TrackVariantModel{},
+	} {
+		if err := tx.Where("library_id = ?", libraryID).Delete(model).Error; err != nil {
+			return err
+		}
+	}
+
+	if err := createArtistsTx(tx, materialized.artists); err != nil {
+		return err
+	}
+	if err := createCreditsTx(tx, materialized.credits); err != nil {
+		return err
+	}
+	if err := createAlbumVariantsTx(tx, materialized.albums); err != nil {
+		return err
+	}
+	if err := createTrackVariantsTx(tx, materialized.tracks); err != nil {
+		return err
+	}
+	return createAlbumTracksTx(tx, materialized.albumTracks)
+}
+
+func deriveCatalogMaterializationRows(rows []SourceFileModel) (catalogMaterializationRows, error) {
+	materialized := catalogMaterializationRows{
+		albums:         make(map[string]AlbumVariantModel),
+		albumGroupKeys: make(map[string]string),
+		tracks:         make(map[string]TrackVariantModel),
+		albumTracks:    make(map[string]AlbumTrack),
+		artists:        make(map[string]Artist),
+		credits:        make(map[string]Credit),
+	}
 
 	for _, row := range rows {
 		tags, err := tagsFromSnapshotJSON(row.TagsJSON)
 		if err != nil {
-			return err
+			return materialized, err
 		}
 
 		recordingKey, albumKey, groupKey := normalizedRecordKeys(tags)
@@ -149,15 +322,18 @@ func rebuildCatalogMaterializationTx(tx *gorm.DB, libraryID string) error {
 				tags.Album,
 			}, "|"))
 		}
-		trackVariantID := explicitTrackVariantID(recordingKey, editionScopeKey, tags.DiscNo, tags.TrackNo)
+		trackVariantID := strings.TrimSpace(row.TrackVariantID)
+		if trackVariantID == "" {
+			trackVariantID = explicitTrackVariantID(recordingKey, editionScopeKey, tags.DiscNo, tags.TrackNo)
+		}
 		trackClusterID := stableNameID("track_cluster", recordingKey)
 		albumVariantID := explicitAlbumVariantID(albumKey, editionScopeKey)
 		mutatedAt := latestNonZeroTime(row.UpdatedAt, row.LastSeenAt, row.CreatedAt)
 
-		track, ok := tracks[trackVariantID]
+		track, ok := materialized.tracks[trackVariantID]
 		if !ok {
 			track = TrackVariantModel{
-				LibraryID:      libraryID,
+				LibraryID:      strings.TrimSpace(row.LibraryID),
 				TrackVariantID: trackVariantID,
 				TrackClusterID: trackClusterID,
 				KeyNorm:        recordingKey,
@@ -169,12 +345,12 @@ func rebuildCatalogMaterializationTx(tx *gorm.DB, libraryID string) error {
 		} else if track.UpdatedAt.Before(mutatedAt) {
 			track.UpdatedAt = mutatedAt
 		}
-		tracks[trackVariantID] = track
+		materialized.tracks[trackVariantID] = track
 
-		album, ok := albums[albumVariantID]
+		album, ok := materialized.albums[albumVariantID]
 		if !ok {
 			album = AlbumVariantModel{
-				LibraryID:      libraryID,
+				LibraryID:      strings.TrimSpace(row.LibraryID),
 				AlbumVariantID: albumVariantID,
 				AlbumClusterID: "",
 				Title:          strings.TrimSpace(tags.Album),
@@ -189,48 +365,161 @@ func rebuildCatalogMaterializationTx(tx *gorm.DB, libraryID string) error {
 		} else if album.UpdatedAt.Before(mutatedAt) {
 			album.UpdatedAt = mutatedAt
 		}
-		albums[albumVariantID] = album
-		albumGroupKeys[albumVariantID] = groupKey
+		materialized.albums[albumVariantID] = album
+		materialized.albumGroupKeys[albumVariantID] = groupKey
 
 		albumTrack := AlbumTrack{
-			LibraryID:      libraryID,
+			LibraryID:      strings.TrimSpace(row.LibraryID),
 			AlbumVariantID: albumVariantID,
 			TrackVariantID: trackVariantID,
 			DiscNo:         maxTrackNumber(tags.DiscNo),
 			TrackNo:        maxTrackNumber(tags.TrackNo),
 		}
-		albumTracks[albumTrackKey(albumTrack)] = albumTrack
+		materialized.albumTracks[albumTrackKey(albumTrack)] = albumTrack
 
-		collectArtistsAndCredits(libraryID, trackVariantID, albumVariantID, tags, artists, credits)
+		collectArtistsAndCredits(strings.TrimSpace(row.LibraryID), trackVariantID, albumVariantID, tags, materialized.artists, materialized.credits)
 	}
 
-	assignStrictAlbumClusterIDs(albums, albumGroupKeys)
+	assignStrictAlbumClusterIDs(materialized.albums, materialized.albumGroupKeys)
+	return materialized, nil
+}
 
-	for _, model := range []any{
-		&Credit{},
-		&Artist{},
-		&AlbumTrack{},
-		&AlbumVariantModel{},
-		&TrackVariantModel{},
-	} {
-		if err := tx.Where("library_id = ?", libraryID).Delete(model).Error; err != nil {
+func reconcileCatalogMaterializationForScanTx(tx *gorm.DB, libraryID string, impact scanImpactSet) error {
+	albumVariantIDs := impact.albumVariantIDs()
+	trackVariantSet := make(map[string]struct{}, len(impact.trackVariantSet))
+	for key := range impact.trackVariantSet {
+		trackVariantSet[key] = struct{}{}
+	}
+	currentTrackVariantIDs, err := loadTrackVariantIDsForAlbumVariantsTx(tx, libraryID, albumVariantIDs)
+	if err != nil {
+		return err
+	}
+	for _, trackVariantID := range currentTrackVariantIDs {
+		trackVariantSet[trackVariantID] = struct{}{}
+	}
+	trackVariantIDs := sortedSetKeys(trackVariantSet)
+
+	rows, err := loadPresentSourceFilesForTrackVariantsTx(tx, libraryID, trackVariantIDs)
+	if err != nil {
+		return err
+	}
+	materialized, err := deriveCatalogMaterializationRows(rows)
+	if err != nil {
+		return err
+	}
+	if err := deleteScopedCatalogRowsTx(tx, libraryID, trackVariantIDs, albumVariantIDs); err != nil {
+		return err
+	}
+	if err := upsertArtistsTx(tx, materialized.artists); err != nil {
+		return err
+	}
+	if err := createCreditsTx(tx, materialized.credits); err != nil {
+		return err
+	}
+	if err := createAlbumVariantsTx(tx, materialized.albums); err != nil {
+		return err
+	}
+	if err := createTrackVariantsTx(tx, materialized.tracks); err != nil {
+		return err
+	}
+	if err := createAlbumTracksTx(tx, materialized.albumTracks); err != nil {
+		return err
+	}
+	return pruneOrphanArtistsTx(tx, libraryID, impact.artistIDs())
+}
+
+func loadTrackVariantIDsForAlbumVariantsTx(tx *gorm.DB, libraryID string, albumVariantIDs []string) ([]string, error) {
+	albumVariantIDs = compactNonEmptyStrings(albumVariantIDs)
+	if len(albumVariantIDs) == 0 {
+		return nil, nil
+	}
+
+	type row struct {
+		TrackVariantID string
+	}
+	var rows []row
+	if err := tx.Model(&AlbumTrack{}).
+		Select("DISTINCT track_variant_id").
+		Where("library_id = ? AND album_variant_id IN ?", strings.TrimSpace(libraryID), albumVariantIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if trackVariantID := strings.TrimSpace(row.TrackVariantID); trackVariantID != "" {
+			out = append(out, trackVariantID)
+		}
+	}
+	return compactNonEmptyStrings(out), nil
+}
+
+func loadPresentSourceFilesForTrackVariantsTx(tx *gorm.DB, libraryID string, trackVariantIDs []string) ([]SourceFileModel, error) {
+	trackVariantIDs = compactNonEmptyStrings(trackVariantIDs)
+	if len(trackVariantIDs) == 0 {
+		return nil, nil
+	}
+
+	var rows []SourceFileModel
+	if err := tx.
+		Where("library_id = ? AND is_present = ? AND track_variant_id IN ?", strings.TrimSpace(libraryID), true, trackVariantIDs).
+		Order("quality_rank DESC").
+		Order("last_seen_at DESC").
+		Order("updated_at DESC").
+		Order("device_id ASC").
+		Order("source_file_id ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func deleteScopedCatalogRowsTx(tx *gorm.DB, libraryID string, trackVariantIDs, albumVariantIDs []string) error {
+	libraryID = strings.TrimSpace(libraryID)
+	trackVariantIDs = compactNonEmptyStrings(trackVariantIDs)
+	albumVariantIDs = compactNonEmptyStrings(albumVariantIDs)
+	if len(trackVariantIDs) > 0 {
+		if err := tx.Where("library_id = ? AND entity_type = ? AND entity_id IN ?", libraryID, "track", trackVariantIDs).Delete(&Credit{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id = ? AND track_variant_id IN ?", libraryID, trackVariantIDs).Delete(&AlbumTrack{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id = ? AND track_variant_id IN ?", libraryID, trackVariantIDs).Delete(&TrackVariantModel{}).Error; err != nil {
 			return err
 		}
 	}
+	if len(albumVariantIDs) > 0 {
+		if err := tx.Where("library_id = ? AND entity_type = ? AND entity_id IN ?", libraryID, "album", albumVariantIDs).Delete(&Credit{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id = ? AND album_variant_id IN ?", libraryID, albumVariantIDs).Delete(&AlbumTrack{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id = ? AND album_variant_id IN ?", libraryID, albumVariantIDs).Delete(&AlbumVariantModel{}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	if err := createArtistsTx(tx, artists); err != nil {
-		return err
+func pruneOrphanArtistsTx(tx *gorm.DB, libraryID string, artistIDs []string) error {
+	artistIDs = compactNonEmptyStrings(artistIDs)
+	if len(artistIDs) == 0 {
+		return nil
 	}
-	if err := createCreditsTx(tx, credits); err != nil {
-		return err
-	}
-	if err := createAlbumVariantsTx(tx, albums); err != nil {
-		return err
-	}
-	if err := createTrackVariantsTx(tx, tracks); err != nil {
-		return err
-	}
-	return createAlbumTracksTx(tx, albumTracks)
+	return tx.Exec(
+		`DELETE FROM artists
+WHERE library_id = ?
+  AND artist_id IN ?
+  AND NOT EXISTS (
+    SELECT 1
+    FROM credits
+    WHERE credits.library_id = artists.library_id
+      AND credits.artist_id = artists.artist_id
+  )`,
+		strings.TrimSpace(libraryID),
+		artistIDs,
+	).Error
 }
 
 func pruneDanglingVariantPreferencesTx(tx *gorm.DB, libraryID string) error {
@@ -582,6 +871,22 @@ func stringSliceContains(values []string, target string) bool {
 	return false
 }
 
+func catalogAlbumFamilyKey(title, artistsCSV string) string {
+	parts := []string{normalizeCatalogKey(title)}
+	artists := splitArtists(artistsCSV)
+	if len(artists) > 0 {
+		normalizedArtists := make([]string, 0, len(artists))
+		for _, artist := range artists {
+			if normalized := normalizeCatalogKey(artist); normalized != "" {
+				normalizedArtists = append(normalizedArtists, normalized)
+			}
+		}
+		sort.Strings(normalizedArtists)
+		parts = append(parts, normalizedArtists...)
+	}
+	return normalizeCatalogKey(strings.Join(parts, "|"))
+}
+
 func loadVariantPreferenceTargetsTx(tx *gorm.DB, libraryID, scopeType string) (map[string]struct{}, map[string]struct{}, error) {
 	switch strings.TrimSpace(scopeType) {
 	case "album":
@@ -681,7 +986,7 @@ ORDER BY a.album_variant_id ASC`
 	for _, row := range albumRows {
 		albumID := strings.TrimSpace(row.AlbumVariantID)
 		clusterID := strings.TrimSpace(row.AlbumClusterID)
-		familyKey := normalizeCatalogKey(strings.TrimSpace(row.Title))
+		familyKey := catalogAlbumFamilyKey(strings.TrimSpace(row.Title), row.ArtistsCSV)
 		if albumID != "" {
 			snapshot.albumIDs[albumID] = struct{}{}
 			snapshot.albumClusterByVariant[albumID] = clusterID
@@ -857,6 +1162,20 @@ func createArtistsTx(tx *gorm.DB, artists map[string]Artist) error {
 		rows = append(rows, artists[key])
 	}
 	return tx.CreateInBatches(rows, 200).Error
+}
+
+func upsertArtistsTx(tx *gorm.DB, artists map[string]Artist) error {
+	if len(artists) == 0 {
+		return nil
+	}
+	rows := make([]Artist, 0, len(artists))
+	for _, key := range sortedStringKeys(artists) {
+		rows = append(rows, artists[key])
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "library_id"}, {Name: "artist_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"name", "name_sort"}),
+	}).CreateInBatches(rows, 200).Error
 }
 
 func createCreditsTx(tx *gorm.DB, credits map[string]Credit) error {

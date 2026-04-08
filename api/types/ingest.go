@@ -12,8 +12,7 @@ type ScanStats struct {
 }
 
 type IngestSurface interface {
-	RescanRoot(ctx context.Context, root string) (ScanStats, error)
-	RescanNow(ctx context.Context) (ScanStats, error)
+	RepairLibrary(ctx context.Context) (ScanStats, error)
 	SetScanRoots(ctx context.Context, roots []string) error
 	AddScanRoots(ctx context.Context, roots []string) ([]string, error)
 	RemoveScanRoots(ctx context.Context, roots []string) ([]string, error)

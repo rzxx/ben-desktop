@@ -135,7 +135,12 @@ func (a *OperatorService) InspectLibraryOplog(ctx context.Context, libraryID str
 		GeneratedAt: time.Now().UTC(),
 	}
 
-	var err error
+	local, err := a.EnsureLocalContext(ctx)
+	if err == nil {
+		report.Maintenance, _ = a.loadScanMaintenanceStatus(ctx, libraryID, local.DeviceID)
+	}
+	err = nil
+
 	if report.OplogByEntityType, err = a.inspectOplogGroups(ctx, libraryID, "entity_type"); err != nil {
 		return apitypes.LibraryOplogDiagnostics{}, fmt.Errorf("group oplog by entity type: %w", err)
 	}
@@ -159,8 +164,14 @@ func (a *OperatorService) InspectLibraryOplog(ctx context.Context, libraryID str
 	return report, nil
 }
 
-func (a *OperatorService) ActivityStatus(context.Context) (apitypes.ActivityStatus, error) {
-	return a.ActivityStatusSnapshot(), nil
+func (a *OperatorService) ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error) {
+	status := a.ActivityStatusSnapshot()
+	local, err := a.EnsureLocalContext(ctx)
+	if err != nil {
+		return status, nil
+	}
+	status.Maintenance, _ = a.loadScanMaintenanceStatus(ctx, local.LibraryID, local.DeviceID)
+	return status, nil
 }
 
 func (a *OperatorService) NetworkStatus() apitypes.NetworkStatus {

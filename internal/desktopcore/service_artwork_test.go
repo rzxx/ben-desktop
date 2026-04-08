@@ -79,7 +79,7 @@ func (s artworkBuilderByPathStub) BuildFromSource(_ context.Context, source Artw
 	return s.BuildForAudio(context.Background(), source.AudioPath)
 }
 
-func TestRescanNowBuildsAlbumArtworkVariants(t *testing.T) {
+func TestRepairLibraryBuildsAlbumArtworkVariants(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -131,8 +131,8 @@ func TestRescanNowBuildsAlbumArtworkVariants(t *testing.T) {
 		t.Fatalf("set scan roots: %v", err)
 	}
 
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("rescan now: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("repair library: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -184,7 +184,7 @@ func TestRescanNowBuildsAlbumArtworkVariants(t *testing.T) {
 	}
 }
 
-func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
+func TestRepairRootsRebuildArtworkFromSurvivingSource(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -265,8 +265,8 @@ func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
 	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set scan roots: %v", err)
 	}
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("initial rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -286,8 +286,8 @@ func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
 	if err := os.Remove(pathA); err != nil {
 		t.Fatalf("remove first audio file: %v", err)
 	}
-	if _, err := app.RescanRoot(ctx, root); err != nil {
-		t.Fatalf("rescan root after removal: %v", err)
+	if _, err := app.ingest.repairRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("repair roots after removal: %v", err)
 	}
 
 	updatedAlbums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -314,7 +314,7 @@ func TestRescanRootRebuildsArtworkFromSurvivingSource(t *testing.T) {
 	}
 }
 
-func TestRescanNowReusesUnchangedSidecarArtwork(t *testing.T) {
+func TestRepairLibraryReusesUnchangedSidecarArtwork(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -369,8 +369,8 @@ func TestRescanNowReusesUnchangedSidecarArtwork(t *testing.T) {
 	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set scan roots: %v", err)
 	}
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("initial rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -388,7 +388,7 @@ func TestRescanNowReusesUnchangedSidecarArtwork(t *testing.T) {
 	beforeBlobIDs := artworkBlobIDs(before)
 
 	time.Sleep(10 * time.Millisecond)
-	if _, err := app.RescanNow(ctx); err != nil {
+	if _, err := app.RepairLibrary(ctx); err != nil {
 		t.Fatalf("second rescan: %v", err)
 	}
 
@@ -404,7 +404,7 @@ func TestRescanNowReusesUnchangedSidecarArtwork(t *testing.T) {
 	}
 }
 
-func TestRescanNowRebuildsArtworkWhenSidecarBecomesPreferred(t *testing.T) {
+func TestRepairLibraryRebuildsArtworkWhenSidecarBecomesPreferred(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -456,8 +456,8 @@ func TestRescanNowRebuildsArtworkWhenSidecarBecomesPreferred(t *testing.T) {
 	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set scan roots: %v", err)
 	}
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("initial rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -490,8 +490,8 @@ func TestRescanNowRebuildsArtworkWhenSidecarBecomesPreferred(t *testing.T) {
 		},
 	}
 
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("updated rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("updated repair: %v", err)
 	}
 
 	after := loadAlbumArtworkRows(t, app, albumID)
@@ -506,7 +506,7 @@ func TestRescanNowRebuildsArtworkWhenSidecarBecomesPreferred(t *testing.T) {
 	}
 }
 
-func TestRescanNowPrefersHigherResolutionEmbeddedArtworkOverSidecar(t *testing.T) {
+func TestRepairLibraryPrefersHigherResolutionEmbeddedArtworkOverSidecar(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -577,8 +577,8 @@ func TestRescanNowPrefersHigherResolutionEmbeddedArtworkOverSidecar(t *testing.T
 		t.Fatalf("set scan roots: %v", err)
 	}
 
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("rescan now: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("repair library: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -601,7 +601,7 @@ func TestRescanNowPrefersHigherResolutionEmbeddedArtworkOverSidecar(t *testing.T
 	}
 }
 
-func TestRescanNowPrefersBestArtworkAcrossAlbumTracks(t *testing.T) {
+func TestRepairLibraryPrefersBestArtworkAcrossAlbumTracks(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -691,8 +691,8 @@ func TestRescanNowPrefersBestArtworkAcrossAlbumTracks(t *testing.T) {
 		t.Fatalf("set scan roots: %v", err)
 	}
 
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("rescan now: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("repair library: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -712,7 +712,7 @@ func TestRescanNowPrefersBestArtworkAcrossAlbumTracks(t *testing.T) {
 	}
 }
 
-func TestRescanNowRefreshesArtworkWhenSidecarChangesWithoutAudioChange(t *testing.T) {
+func TestRepairLibraryRefreshesArtworkWhenSidecarChangesWithoutAudioChange(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -772,8 +772,8 @@ func TestRescanNowRefreshesArtworkWhenSidecarChangesWithoutAudioChange(t *testin
 	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set scan roots: %v", err)
 	}
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("initial rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -798,8 +798,8 @@ func TestRescanNowRefreshesArtworkWhenSidecarChangesWithoutAudioChange(t *testin
 		},
 	}
 
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("updated rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("updated repair: %v", err)
 	}
 
 	after := loadAlbumArtworkRows(t, app, albumID)
@@ -811,7 +811,7 @@ func TestRescanNowRefreshesArtworkWhenSidecarChangesWithoutAudioChange(t *testin
 	}
 }
 
-func TestRescanNowRefreshesArtworkWhenAlbumVariantSurvives(t *testing.T) {
+func TestRepairLibraryRefreshesArtworkWhenAlbumVariantSurvives(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -862,8 +862,8 @@ func TestRescanNowRefreshesArtworkWhenAlbumVariantSurvives(t *testing.T) {
 	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set scan roots: %v", err)
 	}
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("initial rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -914,8 +914,8 @@ func TestRescanNowRefreshesArtworkWhenAlbumVariantSurvives(t *testing.T) {
 		},
 	}
 
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("updated rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("updated repair: %v", err)
 	}
 
 	updatedAlbums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -945,7 +945,7 @@ func TestRescanNowRefreshesArtworkWhenAlbumVariantSurvives(t *testing.T) {
 	}
 }
 
-func TestRescanNowPrefersNewerTrackArtworkWhenAlbumVariantSurvives(t *testing.T) {
+func TestRepairLibraryPrefersNewerTrackArtworkWhenAlbumVariantSurvives(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -996,8 +996,8 @@ func TestRescanNowPrefersNewerTrackArtworkWhenAlbumVariantSurvives(t *testing.T)
 	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set scan roots: %v", err)
 	}
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("initial rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -1046,8 +1046,8 @@ func TestRescanNowPrefersNewerTrackArtworkWhenAlbumVariantSurvives(t *testing.T)
 		},
 	}
 
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("updated rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("updated repair: %v", err)
 	}
 
 	updatedAlbums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -1077,7 +1077,7 @@ func TestRescanNowPrefersNewerTrackArtworkWhenAlbumVariantSurvives(t *testing.T)
 	}
 }
 
-func TestRescanRootDeletesArtworkWhenLocalSourceDisappears(t *testing.T) {
+func TestRepairRootsDeleteArtworkWhenLocalSourceDisappears(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -1132,8 +1132,8 @@ func TestRescanRootDeletesArtworkWhenLocalSourceDisappears(t *testing.T) {
 	if err := app.SetScanRoots(ctx, []string{root}); err != nil {
 		t.Fatalf("set scan roots: %v", err)
 	}
-	if _, err := app.RescanNow(ctx); err != nil {
-		t.Fatalf("initial rescan: %v", err)
+	if _, err := app.RepairLibrary(ctx); err != nil {
+		t.Fatalf("initial repair: %v", err)
 	}
 
 	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
@@ -1148,8 +1148,8 @@ func TestRescanRootDeletesArtworkWhenLocalSourceDisappears(t *testing.T) {
 	if err := os.Remove(audioPath); err != nil {
 		t.Fatalf("remove audio file: %v", err)
 	}
-	if _, err := app.RescanRoot(ctx, root); err != nil {
-		t.Fatalf("rescan root after delete: %v", err)
+	if _, err := app.ingest.repairRoots(ctx, []string{root}); err != nil {
+		t.Fatalf("repair roots after delete: %v", err)
 	}
 
 	var count int64

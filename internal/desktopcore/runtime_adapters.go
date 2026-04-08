@@ -77,12 +77,8 @@ func (r *libraryRuntimeAdapter) ScanRoots(ctx context.Context) ([]string, error)
 	return r.ingest.ScanRoots(ctx)
 }
 
-func (r *libraryRuntimeAdapter) StartRescanNow(ctx context.Context) (JobSnapshot, error) {
-	return r.ingest.StartRescanNow(ctx)
-}
-
-func (r *libraryRuntimeAdapter) StartRescanRoot(ctx context.Context, root string) (JobSnapshot, error) {
-	return r.ingest.StartRescanRoot(ctx, root)
+func (r *libraryRuntimeAdapter) StartRepairLibrary(ctx context.Context) (JobSnapshot, error) {
+	return r.ingest.StartRepairLibrary(ctx)
 }
 
 type networkRuntimeAdapter struct {

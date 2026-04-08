@@ -22,10 +22,10 @@ type App struct {
 	checkpoint *CheckpointService
 	scanner    *ScannerService
 
-	activityMu sync.RWMutex
-	activity   apitypes.ActivityStatus
-	scanFlight *scanFlight
-	tagReader  TagReader
+	activityMu                            sync.RWMutex
+	activity                              apitypes.ActivityStatus
+	tagReader                             TagReader
+	rebuildCatalogMaterializationFullHook func()
 
 	activitySubscribers    map[uint64]func(apitypes.ActivityStatus)
 	nextActivitySubscriber uint64
@@ -554,20 +554,12 @@ func (a *App) ScanRoots(ctx context.Context) ([]string, error) {
 	return a.ingest.ScanRoots(ctx)
 }
 
-func (a *App) RescanNow(ctx context.Context) (apitypes.ScanStats, error) {
-	return a.ingest.RescanNow(ctx)
+func (a *App) RepairLibrary(ctx context.Context) (apitypes.ScanStats, error) {
+	return a.ingest.RepairLibrary(ctx)
 }
 
-func (a *App) StartRescanNow(ctx context.Context) (JobSnapshot, error) {
-	return a.ingest.StartRescanNow(ctx)
-}
-
-func (a *App) RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error) {
-	return a.ingest.RescanRoot(ctx, root)
-}
-
-func (a *App) StartRescanRoot(ctx context.Context, root string) (JobSnapshot, error) {
-	return a.ingest.StartRescanRoot(ctx, root)
+func (a *App) StartRepairLibrary(ctx context.Context) (JobSnapshot, error) {
+	return a.ingest.StartRepairLibrary(ctx)
 }
 
 func (a *App) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {

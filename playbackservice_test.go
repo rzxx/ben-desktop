@@ -43,10 +43,8 @@ type passthroughRuntimeStub struct {
 	addScanRootsFn              func(context.Context, []string) ([]string, error)
 	removeScanRootsFn           func(context.Context, []string) ([]string, error)
 	scanRootsFn                 func(context.Context) ([]string, error)
-	rescanNowFn                 func(context.Context) (apitypes.ScanStats, error)
-	startRescanNowFn            func(context.Context) (desktopcore.JobSnapshot, error)
-	rescanRootFn                func(context.Context, string) (apitypes.ScanStats, error)
-	startRescanRootFn           func(context.Context, string) (desktopcore.JobSnapshot, error)
+	repairLibraryFn             func(context.Context) (apitypes.ScanStats, error)
+	startRepairLibraryFn        func(context.Context) (desktopcore.JobSnapshot, error)
 	listArtistsFn               func(context.Context, apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error)
 	getArtistFn                 func(context.Context, string) (apitypes.ArtistListItem, error)
 	listArtistAlbumsFn          func(context.Context, apitypes.ArtistAlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
@@ -234,20 +232,12 @@ func (b *passthroughBridgeStub) ScanRoots(ctx context.Context) ([]string, error)
 	return b.scanRootsFn(ctx)
 }
 
-func (b *passthroughBridgeStub) RescanNow(ctx context.Context) (apitypes.ScanStats, error) {
-	return b.rescanNowFn(ctx)
+func (b *passthroughBridgeStub) RepairLibrary(ctx context.Context) (apitypes.ScanStats, error) {
+	return b.repairLibraryFn(ctx)
 }
 
-func (b *passthroughBridgeStub) StartRescanNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
-	return b.startRescanNowFn(ctx)
-}
-
-func (b *passthroughBridgeStub) RescanRoot(ctx context.Context, root string) (apitypes.ScanStats, error) {
-	return b.rescanRootFn(ctx, root)
-}
-
-func (b *passthroughBridgeStub) StartRescanRoot(ctx context.Context, root string) (desktopcore.JobSnapshot, error) {
-	return b.startRescanRootFn(ctx, root)
+func (b *passthroughBridgeStub) StartRepairLibrary(ctx context.Context) (desktopcore.JobSnapshot, error) {
+	return b.startRepairLibraryFn(ctx)
 }
 
 func (b *passthroughBridgeStub) ListArtists(ctx context.Context, req apitypes.ArtistListRequest) (apitypes.Page[apitypes.ArtistListItem], error) {

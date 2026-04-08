@@ -136,12 +136,8 @@ func (s *LibraryFacade) ScanRoots(ctx context.Context) ([]string, error) {
 	return s.library().ScanRoots(ctx)
 }
 
-func (s *LibraryFacade) StartRescanNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
-	return s.library().StartRescanNow(ctx)
-}
-
-func (s *LibraryFacade) StartRescanRoot(ctx context.Context, root string) (desktopcore.JobSnapshot, error) {
-	return s.library().StartRescanRoot(ctx, root)
+func (s *LibraryFacade) StartRepairLibrary(ctx context.Context) (desktopcore.JobSnapshot, error) {
+	return s.library().StartRepairLibrary(ctx)
 }
 
 type NetworkFacade struct {

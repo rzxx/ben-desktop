@@ -65,6 +65,17 @@ type LocalArtworkSourceRef struct {
 
 func (LocalArtworkSourceRef) TableName() string { return "local_artwork_source_refs" }
 
+type ScanMaintenanceState struct {
+	LibraryID      string    `gorm:"primaryKey;size:64"`
+	DeviceID       string    `gorm:"primaryKey;size:64"`
+	RepairRequired bool      `gorm:"not null;default:false"`
+	Reason         string    `gorm:"size:128"`
+	Detail         string    `gorm:"size:512"`
+	UpdatedAt      time.Time `gorm:"not null;index"`
+}
+
+func (ScanMaintenanceState) TableName() string { return "scan_maintenance_states" }
+
 type PinRoot struct {
 	LibraryID        string     `gorm:"primaryKey;size:64"`
 	DeviceID         string     `gorm:"primaryKey;size:64"`

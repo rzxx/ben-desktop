@@ -15,7 +15,6 @@ func newNotificationFacadeForTest(now *time.Time, emitted *[]apitypes.Notificati
 	return &NotificationsFacade{
 		notifications:     make(map[string]apitypes.NotificationSnapshot),
 		activeTranscodes:  make(map[string]apitypes.NotificationSnapshot),
-		scanEmitStates:    make(map[string]notificationEmitState),
 		artworkEmitStates: make(map[string]notificationEmitState),
 		now: func() time.Time {
 			if now == nil {
@@ -199,7 +198,7 @@ func TestUpsertNotificationSkipsSemanticDuplicates(t *testing.T) {
 	}
 }
 
-func TestScanJobAndActivityCollapseIntoSingleNotification(t *testing.T) {
+func TestScanJobNotificationsUseJobSnapshotsOnly(t *testing.T) {
 	_jsii := &NotificationsFacade{
 		notifications:    make(map[string]apitypes.NotificationSnapshot),
 		activeTranscodes: make(map[string]apitypes.NotificationSnapshot),
@@ -207,11 +206,11 @@ func TestScanJobAndActivityCollapseIntoSingleNotification(t *testing.T) {
 
 	_jsii.handleJobSnapshot(desktopcore.JobSnapshot{
 		JobID:     "scan-job-1",
-		Kind:      "scan-library",
+		Kind:      "repair-library",
 		LibraryID: "lib-1",
 		Phase:     desktopcore.JobPhaseQueued,
 		Progress:  0.05,
-		Message:   "queued library scan",
+		Message:   "queued library repair",
 		CreatedAt: time.Now().UTC().Add(-time.Second),
 		UpdatedAt: time.Now().UTC().Add(-time.Second),
 	})
@@ -219,45 +218,33 @@ func TestScanJobAndActivityCollapseIntoSingleNotification(t *testing.T) {
 	if len(_jsii.notifications) != 1 {
 		t.Fatalf("notification count after queued scan = %d, want 1", len(_jsii.notifications))
 	}
-
-	var scanID string
-	for id, notification := range _jsii.notifications {
-		scanID = id
-		if notification.Kind != "scan-library" {
-			t.Fatalf("notification kind = %q, want %q", notification.Kind, "scan-library")
-		}
-		if notification.Audience != apitypes.NotificationAudienceUser {
-			t.Fatalf("notification audience = %q, want %q", notification.Audience, apitypes.NotificationAudienceUser)
-		}
-		if notification.Importance != apitypes.NotificationImportanceNormal {
-			t.Fatalf("notification importance = %q, want %q", notification.Importance, apitypes.NotificationImportanceNormal)
-		}
-		if notification.Phase != apitypes.NotificationPhaseQueued {
-			t.Fatalf("notification phase = %q, want %q", notification.Phase, apitypes.NotificationPhaseQueued)
-		}
+	notification, ok := _jsii.notifications["job:scan-job-1"]
+	if !ok {
+		t.Fatal("expected queued scan notification")
 	}
-	if scanID == "" {
-		t.Fatalf("expected scan notification id")
+	if notification.Kind != "repair-library" {
+		t.Fatalf("notification kind = %q, want %q", notification.Kind, "repair-library")
+	}
+	if notification.Audience != apitypes.NotificationAudienceUser {
+		t.Fatalf("notification audience = %q, want %q", notification.Audience, apitypes.NotificationAudienceUser)
+	}
+	if notification.Importance != apitypes.NotificationImportanceNormal {
+		t.Fatalf("notification importance = %q, want %q", notification.Importance, apitypes.NotificationImportanceNormal)
+	}
+	if notification.Phase != apitypes.NotificationPhaseQueued {
+		t.Fatalf("notification phase = %q, want %q", notification.Phase, apitypes.NotificationPhaseQueued)
 	}
 
-	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
-		Phase:       "enumerating",
-		RootsTotal:  1,
-		CurrentRoot: "G:\\Music",
+	_jsii.handleActivitySnapshot(apitypes.ActivityStatus{
+		Scan: apitypes.ScanActivityStatus{
+			Phase:       "enumerating",
+			RootsTotal:  1,
+			CurrentRoot: "G:\\Music",
+		},
 	})
 
 	if len(_jsii.notifications) != 1 {
 		t.Fatalf("notification count after scan activity = %d, want 1", len(_jsii.notifications))
-	}
-	updated := _jsii.notifications[scanID]
-	if updated.Phase != apitypes.NotificationPhaseRunning {
-		t.Fatalf("running phase = %q, want %q", updated.Phase, apitypes.NotificationPhaseRunning)
-	}
-	if updated.Kind != "scan-library" {
-		t.Fatalf("running kind = %q, want %q", updated.Kind, "scan-library")
-	}
-	if updated.Audience != apitypes.NotificationAudienceUser {
-		t.Fatalf("running audience = %q, want %q", updated.Audience, apitypes.NotificationAudienceUser)
 	}
 }
 
@@ -309,151 +296,220 @@ func TestArtworkActivityReusesSingleNotificationAcrossSequentialAlbums(t *testin
 	}
 }
 
-func TestScanRunningNotificationsAreCoalesced(t *testing.T) {
+func TestScanActivityNotificationsAreSuppressed(t *testing.T) {
 	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
 	emitted := make([]apitypes.NotificationSnapshot, 0, 4)
 	_jsii := newNotificationFacadeForTest(&now, &emitted)
-	_jsii.setScanNotificationMetadata(
-		"scan-library",
-		apitypes.NotificationAudienceUser,
-		apitypes.NotificationImportanceNormal,
-	)
-
-	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
-		Phase:         "ingesting",
-		TracksDone:    1,
-		TracksTotal:   100,
-		WorkersActive: 1,
+	_jsii.handleActivitySnapshot(apitypes.ActivityStatus{
+		Scan: apitypes.ScanActivityStatus{
+			Phase:         "ingesting",
+			TracksDone:    1,
+			TracksTotal:   100,
+			WorkersActive: 1,
+		},
 	})
 
 	now = now.Add(100 * time.Millisecond)
-	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
-		Phase:       "ingesting",
-		TracksDone:  2,
-		TracksTotal: 100,
+	_jsii.handleActivitySnapshot(apitypes.ActivityStatus{
+		Scan: apitypes.ScanActivityStatus{
+			Phase:       "ingesting",
+			TracksDone:  2,
+			TracksTotal: 100,
+		},
 	})
 
 	now = now.Add(100 * time.Millisecond)
-	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
-		Phase:       "ingesting",
-		TracksDone:  3,
-		TracksTotal: 100,
+	_jsii.handleActivitySnapshot(apitypes.ActivityStatus{
+		Scan: apitypes.ScanActivityStatus{
+			Phase:       "ingesting",
+			TracksDone:  3,
+			TracksTotal: 100,
+		},
 	})
 
-	if len(emitted) != 1 {
-		t.Fatalf("emitted notifications = %d, want 1", len(emitted))
-	}
-	if emitted[0].Phase != apitypes.NotificationPhaseRunning {
-		t.Fatalf("emitted phase = %q, want %q", emitted[0].Phase, apitypes.NotificationPhaseRunning)
+	if len(emitted) != 0 {
+		t.Fatalf("emitted notifications = %d, want 0", len(emitted))
 	}
 }
 
-func TestScanQueuedAndTerminalNotificationsBypassThrottle(t *testing.T) {
+func TestScanJobNotificationsEmitQueuedAndTerminalStates(t *testing.T) {
 	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
 	emitted := make([]apitypes.NotificationSnapshot, 0, 4)
 	_jsii := newNotificationFacadeForTest(&now, &emitted)
 
-	_jsii.handleScanJobSnapshot(desktopcore.JobSnapshot{
+	_jsii.handleJobSnapshot(desktopcore.JobSnapshot{
 		JobID:     "scan-job-1",
-		Kind:      "scan-library",
+		Kind:      "repair-library",
 		LibraryID: "lib-1",
 		Phase:     desktopcore.JobPhaseQueued,
-		Message:   "queued library scan",
+		Message:   "queued library repair",
 	})
 
-	now = now.Add(10 * time.Millisecond)
-	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
-		Phase:         "ingesting",
-		TracksDone:    1,
-		TracksTotal:   100,
-		WorkersActive: 1,
-	})
-
-	now = now.Add(10 * time.Millisecond)
-	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
-		Phase:       "completed",
-		TracksDone:  100,
-		TracksTotal: 100,
-	})
-
-	if len(emitted) != 3 {
-		t.Fatalf("emitted notifications = %d, want 3", len(emitted))
+	if len(emitted) != 1 {
+		t.Fatalf("emitted notifications after queued scan = %d, want 1", len(emitted))
 	}
 	if emitted[0].Phase != apitypes.NotificationPhaseQueued {
 		t.Fatalf("queued phase = %q, want %q", emitted[0].Phase, apitypes.NotificationPhaseQueued)
 	}
-	if emitted[2].Phase != apitypes.NotificationPhaseSuccess {
-		t.Fatalf("terminal phase = %q, want %q", emitted[2].Phase, apitypes.NotificationPhaseSuccess)
+
+	now = now.Add(10 * time.Millisecond)
+	_jsii.handleJobSnapshot(desktopcore.JobSnapshot{
+		JobID:     "scan-job-1",
+		Kind:      "repair-library",
+		LibraryID: "lib-1",
+		Phase:     desktopcore.JobPhaseCompleted,
+		Message:   "repair completed",
+		Progress:  1,
+	})
+
+	if len(emitted) != 2 {
+		t.Fatalf("emitted notifications = %d, want 2", len(emitted))
+	}
+	if emitted[1].Phase != apitypes.NotificationPhaseSuccess {
+		t.Fatalf("terminal phase = %q, want %q", emitted[1].Phase, apitypes.NotificationPhaseSuccess)
 	}
 }
 
-func TestScanRunningJobSnapshotsOnlyUpdateMetadata(t *testing.T) {
+func TestQueuedScanKindsEmitNotifications(t *testing.T) {
 	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
-	emitted := make([]apitypes.NotificationSnapshot, 0, 2)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 4)
 	_jsii := newNotificationFacadeForTest(&now, &emitted)
 
-	_jsii.handleScanJobSnapshot(desktopcore.JobSnapshot{
-		JobID:     "scan-job-1",
-		Kind:      "scan-library",
-		LibraryID: "lib-1",
-		Phase:     desktopcore.JobPhaseQueued,
-		Message:   "queued library scan",
-	})
-
-	now = now.Add(5 * time.Millisecond)
-	_jsii.handleScanJobSnapshot(desktopcore.JobSnapshot{
-		JobID:     "scan-job-1",
-		Kind:      "scan-library",
-		LibraryID: "lib-1",
-		Phase:     desktopcore.JobPhaseRunning,
-		Message:   "ingesting track",
-		Progress:  0.15,
-	})
-
+	for _, kind := range []string{"repair-library", "watch-scan-delta", "startup-scan"} {
+		_jsii.handleJobSnapshot(desktopcore.JobSnapshot{
+			JobID:     "job:" + kind,
+			Kind:      kind,
+			LibraryID: "lib-1",
+			Phase:     desktopcore.JobPhaseQueued,
+			Message:   "queued scan",
+		})
+	}
 	if len(emitted) != 1 {
 		t.Fatalf("emitted notifications = %d, want 1", len(emitted))
 	}
-	if got := _jsii.scanNotificationKind; got != "scan-library" {
-		t.Fatalf("scan notification kind = %q, want %q", got, "scan-library")
+	if emitted[0].Kind != "repair-library" {
+		t.Fatalf("notification kind = %q, want repair-library", emitted[0].Kind)
+	}
+	if emitted[0].Phase != apitypes.NotificationPhaseQueued {
+		t.Fatalf("queued phase = %q, want %q", emitted[0].Phase, apitypes.NotificationPhaseQueued)
 	}
 }
 
-func TestSuppressedScanNotificationStillUpdatesStoredSnapshot(t *testing.T) {
+func TestSuppressedScanActivityDoesNotStoreSnapshot(t *testing.T) {
 	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
 	emitted := make([]apitypes.NotificationSnapshot, 0, 2)
 	_jsii := newNotificationFacadeForTest(&now, &emitted)
-	_jsii.setScanNotificationMetadata(
-		"scan-library",
-		apitypes.NotificationAudienceUser,
-		apitypes.NotificationImportanceNormal,
-	)
-
-	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
-		Phase:         "ingesting",
-		TracksDone:    1,
-		TracksTotal:   100,
-		WorkersActive: 1,
+	_jsii.handleActivitySnapshot(apitypes.ActivityStatus{
+		Scan: apitypes.ScanActivityStatus{
+			Phase:         "ingesting",
+			TracksDone:    1,
+			TracksTotal:   100,
+			WorkersActive: 1,
+		},
 	})
 
 	now = now.Add(100 * time.Millisecond)
-	_jsii.handleScanActivity(apitypes.ScanActivityStatus{
-		Phase:       "ingesting",
-		TracksDone:  2,
-		TracksTotal: 100,
+	_jsii.handleActivitySnapshot(apitypes.ActivityStatus{
+		Scan: apitypes.ScanActivityStatus{
+			Phase:       "ingesting",
+			TracksDone:  2,
+			TracksTotal: 100,
+		},
 	})
 
 	notifications := _jsii.ListNotifications()
-	if len(notifications) != 1 {
-		t.Fatalf("notification count = %d, want 1", len(notifications))
+	if len(notifications) != 0 {
+		t.Fatalf("notification count = %d, want 0", len(notifications))
 	}
+	if len(emitted) != 0 {
+		t.Fatalf("emitted notifications = %d, want 0", len(emitted))
+	}
+}
+
+func TestScanMaintenanceNotificationsAreActionableAndClearable(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 4)
+	facade := newNotificationFacadeForTest(&now, &emitted)
+
+	facade.handleActivitySnapshot(apitypes.ActivityStatus{
+		Maintenance: apitypes.ScanMaintenanceStatus{
+			RepairRequired: true,
+			Reason:         "scoped-impact-corrupt",
+			Detail:         "invalid scoped impact rows",
+		},
+	})
+
 	if len(emitted) != 1 {
 		t.Fatalf("emitted notifications = %d, want 1", len(emitted))
 	}
-	if got := notifications[0].Progress; got != 0.02 {
-		t.Fatalf("stored progress = %v, want %v", got, 0.02)
+	if emitted[0].Kind != "scan-maintenance" {
+		t.Fatalf("notification kind = %q, want %q", emitted[0].Kind, "scan-maintenance")
 	}
-	if notifications[0].UpdatedAt != now {
-		t.Fatalf("stored updated at = %v, want %v", notifications[0].UpdatedAt, now)
+	if emitted[0].Phase != apitypes.NotificationPhaseError {
+		t.Fatalf("notification phase = %q, want %q", emitted[0].Phase, apitypes.NotificationPhaseError)
+	}
+	if emitted[0].Audience != apitypes.NotificationAudienceUser {
+		t.Fatalf("notification audience = %q, want %q", emitted[0].Audience, apitypes.NotificationAudienceUser)
+	}
+	if emitted[0].Importance != apitypes.NotificationImportanceImportant {
+		t.Fatalf("notification importance = %q, want %q", emitted[0].Importance, apitypes.NotificationImportanceImportant)
+	}
+	if emitted[0].Error != "invalid scoped impact rows" {
+		t.Fatalf("notification error = %q, want detail text", emitted[0].Error)
+	}
+
+	now = now.Add(10 * time.Millisecond)
+	facade.handleActivitySnapshot(apitypes.ActivityStatus{
+		Maintenance: apitypes.ScanMaintenanceStatus{
+			UpdatedAt: now,
+		},
+	})
+
+	if len(emitted) != 2 {
+		t.Fatalf("emitted notifications after clear = %d, want 2", len(emitted))
+	}
+	if emitted[1].Phase != apitypes.NotificationPhaseSuccess {
+		t.Fatalf("cleared phase = %q, want %q", emitted[1].Phase, apitypes.NotificationPhaseSuccess)
+	}
+	if emitted[1].Message != "Library repair no longer required." {
+		t.Fatalf("cleared message = %q", emitted[1].Message)
+	}
+}
+
+func TestScanMaintenanceDoesNotEmitFalseSuccessWhenLibraryContextChanges(t *testing.T) {
+	now := time.Date(2026, time.March, 21, 12, 0, 0, 0, time.UTC)
+	emitted := make([]apitypes.NotificationSnapshot, 0, 2)
+	facade := newNotificationFacadeForTest(&now, &emitted)
+
+	facade.notifications["scan-maintenance:active"] = apitypes.NotificationSnapshot{
+		ID:         "scan-maintenance:active",
+		Kind:       "scan-maintenance",
+		LibraryID:  "library-a",
+		Audience:   apitypes.NotificationAudienceUser,
+		Importance: apitypes.NotificationImportanceImportant,
+		Phase:      apitypes.NotificationPhaseError,
+		Message:    "Automatic scan needs a repair run.",
+		Error:      "invalid scoped impact rows",
+		CreatedAt:  now.Add(-time.Minute),
+		UpdatedAt:  now.Add(-time.Minute),
+	}
+
+	now = now.Add(10 * time.Millisecond)
+	facade.handleActivitySnapshot(apitypes.ActivityStatus{
+		Maintenance: apitypes.ScanMaintenanceStatus{
+			UpdatedAt: now,
+		},
+	})
+
+	if len(emitted) != 0 {
+		t.Fatalf("emitted notifications = %d, want 0", len(emitted))
+	}
+	notification, ok := facade.notifications["scan-maintenance:active"]
+	if !ok {
+		t.Fatal("expected maintenance notification to remain recorded")
+	}
+	if notification.Phase != apitypes.NotificationPhaseError {
+		t.Fatalf("maintenance phase = %q, want error", notification.Phase)
 	}
 }
 
@@ -743,50 +799,46 @@ func TestPlaybackPreloadFetchNotificationsUseSystemRunningAndSuccess(t *testing.
 	}
 }
 
-func TestScanPipelineMergesArtworkStageIntoScanNotification(t *testing.T) {
+func TestScanPipelineStillSurfacesArtworkFailures(t *testing.T) {
 	facade := &NotificationsFacade{
 		notifications:    make(map[string]apitypes.NotificationSnapshot),
 		activeTranscodes: make(map[string]apitypes.NotificationSnapshot),
 	}
 
-	facade.handleJobSnapshot(desktopcore.JobSnapshot{
-		JobID:   "scan-job-1",
-		Kind:    "scan-library",
-		Phase:   desktopcore.JobPhaseQueued,
-		Message: "queued library scan",
+	facade.handleActivitySnapshot(apitypes.ActivityStatus{
+		Scan: apitypes.ScanActivityStatus{
+			Phase:       "ingesting",
+			TracksDone:  1,
+			TracksTotal: 10,
+		},
+		Artwork: apitypes.ArtworkActivityStatus{
+			Phase:          "running",
+			AlbumsTotal:    2,
+			CurrentAlbumID: "album-1",
+		},
 	})
-	var scanID string
-	for id := range facade.notifications {
-		scanID = id
+	facade.handleActivitySnapshot(apitypes.ActivityStatus{
+		Scan: apitypes.ScanActivityStatus{
+			Phase:       "completed",
+			TracksDone:  10,
+			TracksTotal: 10,
+		},
+		Artwork: apitypes.ArtworkActivityStatus{
+			Phase:       "failed",
+			Errors:      2,
+			AlbumsTotal: 2,
+		},
+	})
+
+	notification, ok := facade.notifications["artwork:activity"]
+	if !ok {
+		t.Fatal("expected artwork notification during scan pipeline")
 	}
-
-	facade.handleScanActivity(apitypes.ScanActivityStatus{
-		Phase:       "ingesting",
-		TracksDone:  1,
-		TracksTotal: 10,
-	})
-	facade.handleArtworkActivity(apitypes.ArtworkActivityStatus{
-		Phase:          "running",
-		AlbumsTotal:    2,
-		CurrentAlbumID: "album-1",
-	})
-	if got := facade.notifications[scanID].Message; !strings.Contains(got, "Generating artwork") {
-		t.Fatalf("scan pipeline message = %q", got)
+	if notification.Phase != apitypes.NotificationPhaseError {
+		t.Fatalf("artwork phase = %q, want %q", notification.Phase, apitypes.NotificationPhaseError)
 	}
-
-	facade.handleArtworkActivity(apitypes.ArtworkActivityStatus{
-		Phase:       "failed",
-		Errors:      2,
-		AlbumsTotal: 2,
-	})
-	facade.handleScanActivity(apitypes.ScanActivityStatus{
-		Phase:       "completed",
-		TracksDone:  10,
-		TracksTotal: 10,
-	})
-
-	if got := facade.notifications[scanID]; got.Phase != apitypes.NotificationPhaseSuccess || !strings.Contains(got.Message, "2 artwork error") {
-		t.Fatalf("scan completion notification = %+v", got)
+	if !strings.Contains(notification.Error, "2 error") {
+		t.Fatalf("artwork error = %q", notification.Error)
 	}
 }
 

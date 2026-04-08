@@ -7,19 +7,14 @@ import (
 	apitypes "ben/desktop/api/types"
 )
 
-type scanFlight struct {
-	libraryID string
-	roots     map[string]string
-	stats     apitypes.ScanStats
-	err       error
-	done      chan struct{}
-}
-
 func newActivityStatus() apitypes.ActivityStatus {
 	now := time.Now().UTC()
 	return apitypes.ActivityStatus{
 		Scan: apitypes.ScanActivityStatus{
 			Phase:     "idle",
+			UpdatedAt: now,
+		},
+		Maintenance: apitypes.ScanMaintenanceStatus{
 			UpdatedAt: now,
 		},
 		Artwork: apitypes.ArtworkActivityStatus{
@@ -91,6 +86,23 @@ func (a *App) updateScanActivity(apply func(*apitypes.ScanActivityStatus)) {
 	}
 	a.activity.Scan.UpdatedAt = time.Now().UTC()
 	a.activity.UpdatedAt = a.activity.Scan.UpdatedAt
+	snapshot := a.activity
+	subscribers := a.snapshotActivitySubscribersLocked()
+	a.activityMu.Unlock()
+
+	notifyActivitySubscribers(subscribers, snapshot)
+}
+
+func (a *App) setScanMaintenanceStatus(status apitypes.ScanMaintenanceStatus) {
+	if a == nil {
+		return
+	}
+	a.activityMu.Lock()
+	if status.UpdatedAt.IsZero() {
+		status.UpdatedAt = time.Now().UTC()
+	}
+	a.activity.Maintenance = status
+	a.activity.UpdatedAt = status.UpdatedAt
 	snapshot := a.activity
 	subscribers := a.snapshotActivitySubscribersLocked()
 	a.activityMu.Unlock()

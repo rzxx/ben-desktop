@@ -121,16 +121,16 @@ export function notificationHeading(notification: NotificationSnapshot) {
       return "Playback preload";
     case "scan-activity":
       return "Scan activity";
+    case "scan-maintenance":
+      return "Library maintenance";
     case "artwork-activity":
       return "Artwork activity";
     case "sync-activity":
       return "Background sync";
     case "transcode-activity":
       return "Transcode activity";
-    case "scan-library":
-      return "Library scan";
-    case "scan-root":
-      return "Root scan";
+    case "repair-library":
+      return "Library repair";
     case "sync-now":
       return "Manual sync";
     case "connect-peer":

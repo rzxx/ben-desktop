@@ -532,7 +532,7 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 
 		if !resp.HasMore || (len(resp.Ops) == 0 && applied == 0) {
 			if needsCatalogRebuild {
-				if err := a.rebuildCatalogMaterialization(ctx, local.LibraryID, nil); err != nil {
+				if err := a.rebuildCatalogMaterializationFull(ctx, local.LibraryID, nil); err != nil {
 					if !errors.Is(err, context.Canceled) {
 						a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 					}
@@ -1155,7 +1155,7 @@ func (a *SyncService) applyRemoteOps(ctx context.Context, libraryID string, ops 
 		return applied, err
 	}
 	if needsCatalogRebuild {
-		if err := a.rebuildCatalogMaterialization(ctx, libraryID, nil); err != nil {
+		if err := a.rebuildCatalogMaterializationFull(ctx, libraryID, nil); err != nil {
 			return applied, err
 		}
 	}

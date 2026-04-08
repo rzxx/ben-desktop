@@ -392,10 +392,6 @@ func (c *UnavailableCore) ScanRoots(context.Context) ([]string, error) {
 	return nil, c.err
 }
 
-func (c *UnavailableCore) StartRescanNow(context.Context) (JobSnapshot, error) {
-	return JobSnapshot{}, c.err
-}
-
-func (c *UnavailableCore) StartRescanRoot(context.Context, string) (JobSnapshot, error) {
+func (c *UnavailableCore) StartRepairLibrary(context.Context) (JobSnapshot, error) {
 	return JobSnapshot{}, c.err
 }

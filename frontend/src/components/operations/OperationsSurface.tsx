@@ -16,7 +16,7 @@ import {
   startPublishCheckpoint,
   startSyncNow,
 } from "@/lib/api/network";
-import { startLibraryRescan, startRootRescan } from "@/lib/api/library";
+import { startLibraryRepair } from "@/lib/api/library";
 import { formatCount, formatDateTime } from "@/lib/format";
 import { isNotificationActive } from "@/lib/notifications";
 import { useOperationsPage } from "@/hooks/operations/useOperationsPage";
@@ -42,6 +42,7 @@ export function OperationsSurface() {
     feedback,
     handleAddRoot,
     handleRemoveRoot,
+    maintenance,
     oplogDeviceCounts,
     oplogEntityCounts,
     pendingAction,
@@ -101,6 +102,11 @@ export function OperationsSurface() {
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
                 Scan {scanPhase}
               </span>
+              {maintenance?.RepairRequired && (
+                <span className="rounded-full border border-amber-300/20 bg-amber-300/12 px-3 py-1 text-xs tracking-[0.2em] text-amber-100 uppercase">
+                  Repair recommended
+                </span>
+              )}
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
                 {checkpointSummary(state.checkpoint)}
               </span>
@@ -148,7 +154,7 @@ export function OperationsSurface() {
             No active library
           </h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-white/50">
-            Select or create a library before running manual scan or checkpoint
+            Select or create a library before running repair or checkpoint
             operations.
           </p>
           {state.local && (
@@ -329,21 +335,41 @@ export function OperationsSurface() {
                 </div>
               </div>
 
+              {maintenance?.RepairRequired && (
+                <div className="mt-5 rounded-[1.2rem] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm text-amber-100">
+                  <p className="font-semibold">Repair recommended</p>
+                  <p className="mt-2 text-amber-50/85">
+                    Automatic scans detected library state that needs an
+                    explicit repair run.
+                  </p>
+                  {maintenance.Reason && (
+                    <p className="mt-2 text-xs tracking-[0.22em] text-amber-100/70 uppercase">
+                      {maintenance.Reason}
+                    </p>
+                  )}
+                  {maintenance.Detail && (
+                    <p className="mt-2 text-sm text-amber-50/80">
+                      {maintenance.Detail}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="mt-5 flex flex-wrap gap-3">
                 <button
                   className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
-                  disabled={!canScan || pendingAction === "scan-library"}
+                  disabled={!canScan || pendingAction === "repair-library"}
                   onClick={() => {
                     void runAction(
-                      "scan-library",
-                      startLibraryRescan,
+                      "repair-library",
+                      startLibraryRepair,
                       "Started",
                     );
                   }}
                   type="button"
                 >
                   <RefreshCw className="h-4 w-4" />
-                  <span>Scan library</span>
+                  <span>Repair library</span>
                 </button>
                 <button
                   className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
@@ -410,7 +436,7 @@ export function OperationsSurface() {
               </div>
 
               <p className="mt-4 text-sm text-white/48">
-                Scan actions require owner, admin, or member role. Checkpoint
+                Repair requires owner, admin, or member role. Checkpoint
                 actions require admin or owner role.
               </p>
             </div>
@@ -433,7 +459,7 @@ export function OperationsSurface() {
                   <div className="ml-auto">
                     <button
                       className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
-                      disabled={pendingAction === "scan-root:add"}
+                      disabled={pendingAction === "root-config:add"}
                       onClick={() => {
                         void handleAddRoot();
                       }}
@@ -453,7 +479,6 @@ export function OperationsSurface() {
                   </div>
                 ) : (
                   state.roots.map((root) => {
-                    const key = `scan-root:${root}`;
                     return (
                       <div
                         className="flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-white/8 bg-black/10 px-4 py-3"
@@ -464,31 +489,14 @@ export function OperationsSurface() {
                             {root}
                           </p>
                           <p className="mt-1 text-xs tracking-[0.22em] text-white/32 uppercase">
-                            Root scan
+                            Local root
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          <button
-                            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
-                            disabled={!canScan || pendingAction === key}
-                            onClick={() => {
-                              void runAction(
-                                key,
-                                () => startRootRescan(root),
-                                "Started",
-                              );
-                            }}
-                            type="button"
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                            <span>Scan root</span>
-                          </button>
                           {canScan && (
                             <button
                               className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
-                              disabled={
-                                pendingAction === `scan-root:remove:${root}`
-                              }
+                              disabled={pendingAction === `root-config:remove:${root}`}
                               onClick={() => {
                                 void handleRemoveRoot(root);
                               }}

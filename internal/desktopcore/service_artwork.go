@@ -324,6 +324,20 @@ func sidecarCandidates(dir string) []string {
 	return out
 }
 
+func isArtworkSidecarPath(path string) bool {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "" {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(path))
+	for _, candidate := range sidecarCandidates(filepath.Dir(path)) {
+		if strings.ToLower(filepath.Base(candidate)) == base {
+			return true
+		}
+	}
+	return false
+}
+
 func sidecarIsFile(path string) bool {
 	st, err := os.Stat(path)
 	if err != nil {

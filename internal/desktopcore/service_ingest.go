@@ -23,16 +23,33 @@ func (s *IngestService) SetScanRoots(ctx context.Context, roots []string) error 
 	if !canProvideLocalMedia(local.Role) {
 		return fmt.Errorf("scan root updates require owner, admin, or member role")
 	}
+	current, err := s.app.scanRootsForDevice(ctx, local.LibraryID, local.DeviceID)
+	if err != nil {
+		return err
+	}
 	normalized, err := normalizeScanRoots(roots)
 	if err != nil {
 		return err
 	}
+	if sameScanRootSet(current, normalized) {
+		return nil
+	}
+	removed := diffScanRoots(current, normalized)
 	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		return setLibraryScanRootsTx(tx, local.LibraryID, local.DeviceID, normalized)
 	}); err != nil {
 		return err
 	}
-	return s.app.syncActiveScanWatcher(ctx)
+	if s.app.scanner != nil {
+		s.app.scanner.resetRuntime(local.LibraryID, local.DeviceID)
+	}
+	if err := s.removeScanRootsFromCatalog(ctx, local.LibraryID, local.DeviceID, removed); err != nil {
+		return s.restoreScanRootsAfterFailure(ctx, local.LibraryID, local.DeviceID, current, err)
+	}
+	if err := s.app.syncActiveScanWatcher(ctx); err != nil {
+		return s.restoreScanRootsAfterFailure(ctx, local.LibraryID, local.DeviceID, current, err)
+	}
+	return nil
 }
 
 func (s *IngestService) AddScanRoots(ctx context.Context, roots []string) ([]string, error) {
@@ -75,12 +92,7 @@ func (s *IngestService) RemoveScanRoots(ctx context.Context, roots []string) ([]
 		next = append(next, root)
 	}
 
-	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
-		return setLibraryScanRootsTx(tx, local.LibraryID, local.DeviceID, next)
-	}); err != nil {
-		return nil, err
-	}
-	if err := s.app.syncActiveScanWatcher(ctx); err != nil {
+	if err := s.SetScanRoots(ctx, next); err != nil {
 		return nil, err
 	}
 	return s.app.scanRootsForDevice(ctx, local.LibraryID, local.DeviceID)
@@ -92,6 +104,33 @@ func (s *IngestService) ScanRoots(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return s.app.scanRootsForDevice(ctx, local.LibraryID, local.DeviceID)
+}
+
+func (s *IngestService) restoreScanRootsAfterFailure(
+	ctx context.Context,
+	libraryID string,
+	deviceID string,
+	previous []string,
+	cause error,
+) error {
+	if s == nil || s.app == nil {
+		return cause
+	}
+
+	restoreErr := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
+		return setLibraryScanRootsTx(tx, libraryID, deviceID, previous)
+	})
+	if restoreErr != nil {
+		return fmt.Errorf("%w (also failed to restore previous scan roots: %v)", cause, restoreErr)
+	}
+
+	if len(previous) > 0 {
+		s.app.markStartupScanPending(libraryID, deviceID)
+	}
+	if syncErr := s.app.syncActiveScanWatcher(ctx); syncErr != nil {
+		return fmt.Errorf("%w (previous scan roots were restored, but watcher recovery failed: %v)", cause, syncErr)
+	}
+	return cause
 }
 
 func (a *App) scanRootsForDevice(ctx context.Context, libraryID, deviceID string) ([]string, error) {
@@ -186,6 +225,24 @@ func hasScanRoot(targets []string, candidate string) bool {
 		}
 	}
 	return false
+}
+
+func diffScanRoots(current, next []string) []string {
+	if len(current) == 0 {
+		return nil
+	}
+	nextSet := make(map[string]struct{}, len(next))
+	for _, root := range normalizedWatcherRoots(next) {
+		nextSet[scanRootKey(root)] = struct{}{}
+	}
+	removed := make([]string, 0, len(current))
+	for _, root := range normalizedWatcherRoots(current) {
+		if _, ok := nextSet[scanRootKey(root)]; ok {
+			continue
+		}
+		removed = append(removed, root)
+	}
+	return removed
 }
 
 func scanRootKey(root string) string {

@@ -19,7 +19,7 @@ func TestLibraryFacadeForwardsToRuntime(t *testing.T) {
 	ctx := context.Background()
 	summary := apitypes.LibrarySummary{LibraryID: "lib-1", Name: "Library", Role: "admin", JoinedAt: time.Now().UTC(), IsActive: true}
 	member := apitypes.LibraryMemberStatus{LibraryID: "lib-1", DeviceID: "dev-1", Role: "admin"}
-	job := desktopcore.JobSnapshot{JobID: "job-scan", Kind: "scan-library", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
+	job := desktopcore.JobSnapshot{JobID: "job-repair", Kind: "repair-library", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
 	calls := make([]string, 0, 12)
 	host := newPassthroughHost(&passthroughRuntimeStub{
 		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
@@ -63,12 +63,8 @@ func TestLibraryFacadeForwardsToRuntime(t *testing.T) {
 			calls = append(calls, "remove:"+deviceID)
 			return nil
 		},
-		startRescanNowFn: func(context.Context) (desktopcore.JobSnapshot, error) {
-			calls = append(calls, "start-rescan-now")
-			return job, nil
-		},
-		startRescanRootFn: func(_ context.Context, root string) (desktopcore.JobSnapshot, error) {
-			calls = append(calls, "start-rescan-root:"+root)
+		startRepairLibraryFn: func(context.Context) (desktopcore.JobSnapshot, error) {
+			calls = append(calls, "start-repair-library")
 			return job, nil
 		},
 	})
@@ -104,11 +100,8 @@ func TestLibraryFacadeForwardsToRuntime(t *testing.T) {
 	if err := facade.RemoveLibraryMember(ctx, "dev-1"); err != nil {
 		t.Fatalf("remove library member: %v", err)
 	}
-	if got, err := facade.StartRescanNow(ctx); err != nil || got.JobID != job.JobID {
-		t.Fatalf("start rescan now = %+v, err=%v", got, err)
-	}
-	if got, err := facade.StartRescanRoot(ctx, "C:/music"); err != nil || got.JobID != job.JobID {
-		t.Fatalf("start rescan root = %+v, err=%v", got, err)
+	if got, err := facade.StartRepairLibrary(ctx); err != nil || got.JobID != job.JobID {
+		t.Fatalf("start repair library = %+v, err=%v", got, err)
 	}
 
 	want := []string{
@@ -122,8 +115,7 @@ func TestLibraryFacadeForwardsToRuntime(t *testing.T) {
 		"members",
 		"role:dev-1:guest",
 		"remove:dev-1",
-		"start-rescan-now",
-		"start-rescan-root:C:/music",
+		"start-repair-library",
 	}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("library facade calls = %v, want %v", calls, want)

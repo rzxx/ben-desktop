@@ -12,12 +12,14 @@ import (
 var errActiveLibraryRuntimeStopped = errors.New("active library runtime is no longer available")
 
 type activeLibraryRuntime struct {
-	libraryID        string
-	deviceID         string
-	ctx              context.Context
-	cancel           context.CancelFunc
-	transportRuntime *activeTransportRuntime
-	scanWatcher      *activeScanWatcher
+	libraryID          string
+	deviceID           string
+	ctx                context.Context
+	cancel             context.CancelFunc
+	startupScanPending bool
+	transportRuntime   *activeTransportRuntime
+	scanWatcher        *activeScanWatcher
+	scanCoordinator    *scanCoordinator
 }
 
 func (a *App) syncActiveLibraryRuntimeState(ctx context.Context) (apitypes.LocalContext, *activeLibraryRuntime, bool, error) {
@@ -47,14 +49,20 @@ func (a *App) syncActiveLibraryRuntimeState(ctx context.Context) (apitypes.Local
 
 	scopeCtx, cancel := context.WithCancel(context.Background())
 	next := &activeLibraryRuntime{
-		libraryID: libraryID,
-		deviceID:  deviceID,
-		ctx:       scopeCtx,
-		cancel:    cancel,
+		libraryID:          libraryID,
+		deviceID:           deviceID,
+		ctx:                scopeCtx,
+		cancel:             cancel,
+		startupScanPending: true,
 	}
 	a.activeRuntime = next
 	a.runtimeMu.Unlock()
 
+	maintenance, maintenanceErr := a.loadScanMaintenanceStatus(ctx, libraryID, deviceID)
+	if maintenanceErr != nil {
+		maintenance = apitypes.ScanMaintenanceStatus{}
+	}
+	a.setScanMaintenanceStatus(maintenance)
 	a.stopLibraryRuntime(current)
 	return local, next, true, nil
 }
@@ -69,6 +77,7 @@ func (a *App) clearActiveLibraryRuntime() {
 	a.activeRuntime = nil
 	a.runtimeMu.Unlock()
 
+	a.setScanMaintenanceStatus(apitypes.ScanMaintenanceStatus{})
 	a.stopLibraryRuntime(current)
 }
 
@@ -85,6 +94,48 @@ func (a *App) stopLibraryRuntime(current *activeLibraryRuntime) {
 	if a.transportService != nil && current.transportRuntime != nil {
 		a.transportService.stopRuntime(current.transportRuntime)
 	}
+}
+
+func (a *App) markStartupScanSatisfied(libraryID, deviceID string) {
+	if a == nil {
+		return
+	}
+
+	libraryID = strings.TrimSpace(libraryID)
+	deviceID = strings.TrimSpace(deviceID)
+
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
+
+	current := a.activeRuntime
+	if current == nil {
+		return
+	}
+	if strings.TrimSpace(current.libraryID) != libraryID || strings.TrimSpace(current.deviceID) != deviceID {
+		return
+	}
+	current.startupScanPending = false
+}
+
+func (a *App) markStartupScanPending(libraryID, deviceID string) {
+	if a == nil {
+		return
+	}
+
+	libraryID = strings.TrimSpace(libraryID)
+	deviceID = strings.TrimSpace(deviceID)
+
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
+
+	current := a.activeRuntime
+	if current == nil {
+		return
+	}
+	if strings.TrimSpace(current.libraryID) != libraryID || strings.TrimSpace(current.deviceID) != deviceID {
+		return
+	}
+	current.startupScanPending = true
 }
 
 func (a *App) activeLibraryTaskContext(ctx context.Context, libraryID string) (context.Context, func(), error) {
@@ -174,4 +225,14 @@ func (a *App) failActiveLibraryJobStartup(jobID string, kind string, libraryID s
 	default:
 		return job.Fail(1, message, err)
 	}
+}
+
+func (a *App) failActiveLibraryJobIfActive(jobID string, kind string, libraryID string, message string, err error) JobSnapshot {
+	if a == nil || a.jobs == nil {
+		return JobSnapshot{}
+	}
+	if snapshot, ok := a.jobs.Get(jobID); ok && !isActiveJobPhase(snapshot.Phase) {
+		return snapshot
+	}
+	return a.failActiveLibraryJobStartup(jobID, kind, libraryID, message, err)
 }

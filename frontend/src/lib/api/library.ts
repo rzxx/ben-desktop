@@ -69,10 +69,6 @@ export async function pickScanRoot(currentRoot = "") {
   return typeof selected === "string" ? selected.trim() : "";
 }
 
-export function startLibraryRescan() {
-  return LibraryFacade.StartRescanNow();
-}
-
-export function startRootRescan(root: string) {
-  return LibraryFacade.StartRescanRoot(root);
+export function startLibraryRepair() {
+  return LibraryFacade.StartRepairLibrary();
 }

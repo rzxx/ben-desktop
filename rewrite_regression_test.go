@@ -187,8 +187,8 @@ func TestDesktopRewriteRegression(t *testing.T) {
 			{
 				path: filepath.Join("internal", "desktopcore", "runtime.go"),
 				disallows: []string{
-					"\tRescanNow(ctx context.Context)",
-					"\tRescanRoot(ctx context.Context",
+					"\tStartRescanNow(ctx context.Context)",
+					"\tStartRescanRoot(ctx context.Context",
 					"\tSyncNow(ctx context.Context)",
 					"\tConnectPeer(ctx context.Context",
 					"\tPublishCheckpoint(ctx context.Context)",
@@ -203,8 +203,8 @@ func TestDesktopRewriteRegression(t *testing.T) {
 			{
 				path: "facades.go",
 				disallows: []string{
-					"func (s *LibraryFacade) RescanNow(",
-					"func (s *LibraryFacade) RescanRoot(",
+					"func (s *LibraryFacade) StartRescanNow(",
+					"func (s *LibraryFacade) StartRescanRoot(",
 					"func (s *NetworkFacade) SyncNow(",
 					"func (s *NetworkFacade) ConnectPeer(",
 					"func (s *NetworkFacade) PublishCheckpoint(",
@@ -219,8 +219,8 @@ func TestDesktopRewriteRegression(t *testing.T) {
 			{
 				path: filepath.Join("internal", "desktopcore", "unavailable.go"),
 				disallows: []string{
-					"func (c *UnavailableCore) RescanNow(",
-					"func (c *UnavailableCore) RescanRoot(",
+					"func (c *UnavailableCore) StartRescanNow(",
+					"func (c *UnavailableCore) StartRescanRoot(",
 					"func (c *UnavailableCore) SyncNow(",
 					"func (c *UnavailableCore) ConnectPeer(",
 					"func (c *UnavailableCore) PublishCheckpoint(",
@@ -242,8 +242,8 @@ func TestDesktopRewriteRegression(t *testing.T) {
 			{
 				path: filepath.Join("frontend", "bindings", "ben", "desktop", "libraryfacade.ts"),
 				disallows: []string{
-					"export function RescanNow",
-					"export function RescanRoot",
+					"export function StartRescanNow",
+					"export function StartRescanRoot",
 				},
 			},
 			{

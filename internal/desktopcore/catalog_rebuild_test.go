@@ -43,14 +43,14 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToSurvivingVariant(t *test
 	newTags.Year = 2025
 
 	seedPresentSourceFileWithTags(t, app, library.LibraryID, local.DeviceID, "source-old", oldTags)
-	if err := app.rebuildCatalogMaterialization(ctx, library.LibraryID, nil); err != nil {
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
 		t.Fatalf("initial rebuild: %v", err)
 	}
 	oldAlbumID := onlyAlbumID(t, app, ctx)
 	seedPinRoot(t, app, library.LibraryID, local.DeviceID, "album", oldAlbumID, "desktop")
 
 	overwriteSourceFileTags(t, app, library.LibraryID, "source-old", newTags)
-	if err := app.rebuildCatalogMaterialization(ctx, library.LibraryID, nil); err != nil {
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
 		t.Fatalf("updated rebuild: %v", err)
 	}
 
@@ -94,7 +94,7 @@ func TestRebuildCatalogMaterializationPrunesAlbumPinWhenClusterRemoved(t *testin
 	}
 
 	seedPresentSourceFileWithTags(t, app, library.LibraryID, local.DeviceID, "source-old", oldTags)
-	if err := app.rebuildCatalogMaterialization(ctx, library.LibraryID, nil); err != nil {
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
 		t.Fatalf("initial rebuild: %v", err)
 	}
 	oldAlbumID := onlyAlbumID(t, app, ctx)
@@ -106,7 +106,7 @@ func TestRebuildCatalogMaterializationPrunesAlbumPinWhenClusterRemoved(t *testin
 		Update("is_present", false).Error; err != nil {
 		t.Fatalf("mark source missing: %v", err)
 	}
-	if err := app.rebuildCatalogMaterialization(ctx, library.LibraryID, nil); err != nil {
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
 		t.Fatalf("rebuild after removal: %v", err)
 	}
 
@@ -118,6 +118,101 @@ func TestRebuildCatalogMaterializationPrunesAlbumPinWhenClusterRemoved(t *testin
 		t.Fatalf("album count = %d, want 0", len(albums.Items))
 	}
 	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, oldAlbumID, 0)
+}
+
+func TestRebuildCatalogMaterializationDoesNotRetargetAlbumPinAcrossTitleCollision(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "rebuild-pin-title-collision")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	pinnedTags := Tags{
+		Title:       "Pinned Track",
+		Album:       "Collision Album",
+		AlbumArtist: "Artist A",
+		Artists:     []string{"Artist A"},
+		TrackNo:     1,
+		DiscNo:      1,
+		Year:        2024,
+		DurationMS:  180000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+	collisionTrackOne := Tags{
+		Title:       "Collision One",
+		Album:       "Collision Album",
+		AlbumArtist: "Artist B",
+		Artists:     []string{"Artist B"},
+		TrackNo:     1,
+		DiscNo:      1,
+		Year:        2024,
+		DurationMS:  181000,
+		Container:   "flac",
+		Codec:       "flac",
+		Bitrate:     1411200,
+		SampleRate:  44100,
+		Channels:    2,
+		IsLossless:  true,
+		QualityRank: 1443200,
+	}
+	collisionTrackTwo := collisionTrackOne
+	collisionTrackTwo.Title = "Collision Two"
+	collisionTrackTwo.TrackNo = 2
+	collisionTrackTwo.DurationMS = 182000
+
+	seedPresentSourceFileWithTags(t, app, library.LibraryID, local.DeviceID, "source-pinned", pinnedTags)
+	seedPresentSourceFileWithTags(t, app, library.LibraryID, local.DeviceID, "source-collision-1", collisionTrackOne)
+	seedPresentSourceFileWithTags(t, app, library.LibraryID, local.DeviceID, "source-collision-2", collisionTrackTwo)
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
+		t.Fatalf("initial rebuild: %v", err)
+	}
+
+	albums, err := app.ListAlbums(ctx, apitypes.AlbumListRequest{})
+	if err != nil {
+		t.Fatalf("list initial albums: %v", err)
+	}
+	if len(albums.Items) != 2 {
+		t.Fatalf("initial album count = %d, want 2", len(albums.Items))
+	}
+
+	pinnedAlbumID := albumIDByArtist(t, albums.Items, "Artist A")
+	collisionAlbumID := albumIDByArtist(t, albums.Items, "Artist B")
+	seedPinRoot(t, app, library.LibraryID, local.DeviceID, "album", pinnedAlbumID, "desktop")
+
+	updatedPinnedTags := pinnedTags
+	updatedPinnedTags.AlbumArtist = "Artist A Updated"
+	updatedPinnedTags.Artists = []string{"Artist A Updated"}
+	overwriteSourceFileTags(t, app, library.LibraryID, "source-pinned", updatedPinnedTags)
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
+		t.Fatalf("updated rebuild: %v", err)
+	}
+
+	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, pinnedAlbumID, 0)
+	assertAlbumPinCount(t, app, library.LibraryID, local.DeviceID, collisionAlbumID, 0)
+
+	var pinCount int64
+	if err := app.db.WithContext(ctx).
+		Model(&PinRoot{}).
+		Where("library_id = ? AND device_id = ? AND scope = ?", library.LibraryID, local.DeviceID, "album").
+		Count(&pinCount).Error; err != nil {
+		t.Fatalf("count album pin roots: %v", err)
+	}
+	if pinCount != 0 {
+		t.Fatalf("album pin count after ambiguous rebuild = %d, want 0", pinCount)
+	}
 }
 
 func TestRebuildCatalogMaterializationMigratesAlbumPinToExplicitPreferredVariant(t *testing.T) {
@@ -158,7 +253,7 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToExplicitPreferredVariant
 	preferredTags.QualityRank = 2000000
 
 	seedPresentSourceFileWithTags(t, app, library.LibraryID, local.DeviceID, "source-old", oldTags)
-	if err := app.rebuildCatalogMaterialization(ctx, library.LibraryID, nil); err != nil {
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
 		t.Fatalf("initial rebuild: %v", err)
 	}
 	oldAlbumID := onlyAlbumID(t, app, ctx)
@@ -181,7 +276,7 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToExplicitPreferredVariant
 
 	overwriteSourceFileTags(t, app, library.LibraryID, "source-old", altTags)
 	seedPresentSourceFileWithTags(t, app, library.LibraryID, local.DeviceID, "source-preferred", preferredTags)
-	if err := app.rebuildCatalogMaterialization(ctx, library.LibraryID, nil); err != nil {
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
 		t.Fatalf("rebuild with preferred survivor: %v", err)
 	}
 
@@ -234,7 +329,7 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToLocalSurvivingVariant(t 
 	localAlbumID := stableNameID("album", normalizedRecordAlbumKey(t, localSurvivorTags))
 
 	seedPresentSourceFileWithTags(t, app, library.LibraryID, local.DeviceID, "source-old", oldTags)
-	if err := app.rebuildCatalogMaterialization(ctx, library.LibraryID, nil); err != nil {
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
 		t.Fatalf("initial rebuild: %v", err)
 	}
 	oldAlbumID := onlyAlbumID(t, app, ctx)
@@ -243,7 +338,7 @@ func TestRebuildCatalogMaterializationMigratesAlbumPinToLocalSurvivingVariant(t 
 	overwriteSourceFileTags(t, app, library.LibraryID, "source-old", localSurvivorTags)
 	seedPresentSourceFileWithTags(t, app, library.LibraryID, "remote-device", "source-remote-1", remoteTrackOneTags)
 	seedPresentSourceFileWithTags(t, app, library.LibraryID, "remote-device", "source-remote-2", remoteTrackTwoTags)
-	if err := app.rebuildCatalogMaterialization(ctx, library.LibraryID, nil); err != nil {
+	if err := app.rebuildCatalogMaterializationFull(ctx, library.LibraryID, nil); err != nil {
 		t.Fatalf("rebuild with local and remote survivors: %v", err)
 	}
 
@@ -306,4 +401,18 @@ func onlyAlbumID(t *testing.T, app *App, ctx context.Context) string {
 		t.Fatalf("album count = %d, want 1", len(albums.Items))
 	}
 	return albums.Items[0].AlbumID
+}
+
+func albumIDByArtist(t *testing.T, albums []apitypes.AlbumListItem, artist string) string {
+	t.Helper()
+
+	for _, album := range albums {
+		for _, candidate := range album.Artists {
+			if candidate == artist {
+				return album.AlbumID
+			}
+		}
+	}
+	t.Fatalf("album for artist %q not found in %+v", artist, albums)
+	return ""
 }

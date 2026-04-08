@@ -35,7 +35,7 @@ import { useNotificationsStore } from "./store";
 function makeNotification(source: Partial<Types.NotificationSnapshot> = {}) {
   return new Types.NotificationSnapshot({
     id: "scan-1",
-    kind: "scan-library",
+    kind: "repair-library",
     audience: Types.NotificationAudience.NotificationAudienceUser,
     importance: Types.NotificationImportance.NotificationImportanceNormal,
     phase: Types.NotificationPhase.NotificationPhaseRunning,

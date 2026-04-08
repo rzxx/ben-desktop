@@ -83,14 +83,8 @@ export function SetScanRoots(roots: string[]): $CancellablePromise<void> {
     return $Call.ByID(2099880265, roots);
 }
 
-export function StartRescanNow(): $CancellablePromise<desktopcore$0.JobSnapshot> {
-    return $Call.ByID(3257783323).then(($result: any) => {
-        return $$createType5($result);
-    });
-}
-
-export function StartRescanRoot(root: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
-    return $Call.ByID(2433872449, root).then(($result: any) => {
+export function StartRepairLibrary(): $CancellablePromise<desktopcore$0.JobSnapshot> {
+    return $Call.ByID(4183300495).then(($result: any) => {
         return $$createType5($result);
     });
 }

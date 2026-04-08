@@ -1575,10 +1575,7 @@ func TestLibp2pPeerConnectedCatchupDoesNotListAllPeers(t *testing.T) {
 		gotPeer := targetPeer
 		gotReason := targetReason
 		targetMu.Unlock()
-		if gotPeer != "" || gotReason != "" {
-			if gotReason != apitypes.NetworkSyncReasonConnect {
-				t.Fatalf("connect catch-up reason = %q, want %q", gotReason, apitypes.NetworkSyncReasonConnect)
-			}
+		if gotReason == apitypes.NetworkSyncReasonConnect {
 			if gotPeer != ownerLocal.PeerID {
 				t.Fatalf("connect catch-up peer = %q, want %q", gotPeer, ownerLocal.PeerID)
 			}
@@ -1586,7 +1583,11 @@ func TestLibp2pPeerConnectedCatchupDoesNotListAllPeers(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("timed out waiting for targeted connect catch-up hook")
+	targetMu.Lock()
+	gotPeer := targetPeer
+	gotReason := targetReason
+	targetMu.Unlock()
+	t.Fatalf("timed out waiting for targeted connect catch-up hook; last peer=%q reason=%q", gotPeer, gotReason)
 }
 
 type fakeManagedTransport struct {

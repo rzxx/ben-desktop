@@ -88,6 +88,7 @@ func autoMigrate(db *gorm.DB) error {
 		&ScanRoot{},
 		&LocalSourcePath{},
 		&LocalArtworkSourceRef{},
+		&ScanMaintenanceState{},
 		&PinRoot{},
 		&PinMember{},
 		&PinBlobRef{},

@@ -15,7 +15,7 @@ import {
 function makeNotification(source: Partial<Types.NotificationSnapshot> = {}) {
   return new Types.NotificationSnapshot({
     id: "notification-1",
-    kind: "scan-library",
+    kind: "repair-library",
     audience: Types.NotificationAudience.NotificationAudienceUser,
     importance: Types.NotificationImportance.NotificationImportanceNormal,
     phase: Types.NotificationPhase.NotificationPhaseRunning,
@@ -244,5 +244,8 @@ describe("notificationHeading", () => {
         makeNotification({ kind: "refresh-pinned-recording" }),
       ),
     ).toBe("Pinned track refresh");
+    expect(
+      notificationHeading(makeNotification({ kind: "scan-maintenance" })),
+    ).toBe("Library maintenance");
   });
 });

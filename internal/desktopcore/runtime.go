@@ -21,8 +21,7 @@ type LibraryRuntime interface {
 	AddScanRoots(ctx context.Context, roots []string) ([]string, error)
 	RemoveScanRoots(ctx context.Context, roots []string) ([]string, error)
 	ScanRoots(ctx context.Context) ([]string, error)
-	StartRescanNow(ctx context.Context) (JobSnapshot, error)
-	StartRescanRoot(ctx context.Context, root string) (JobSnapshot, error)
+	StartRepairLibrary(ctx context.Context) (JobSnapshot, error)
 }
 
 type NetworkRuntime interface {

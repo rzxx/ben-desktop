@@ -46,13 +46,7 @@ type NotificationsFacade struct {
 	notifications map[string]apitypes.NotificationSnapshot
 	stopListening []func()
 
-	scanNotificationID    string
-	scanNotificationPhase string
-	scanNotificationKind  string
-	scanAudience          apitypes.NotificationAudience
-	scanImportance        apitypes.NotificationImportance
-	scanEmitStates        map[string]notificationEmitState
-
+	scanEmitStates           map[string]notificationEmitState
 	artworkNotificationID    string
 	artworkNotificationPhase string
 	artworkEmitStates        map[string]notificationEmitState
@@ -71,7 +65,6 @@ type NotificationsFacade struct {
 
 	lastRuntimeSyncNotification apitypes.NotificationSnapshot
 	lastRuntimeSyncActive       bool
-	scanArtworkErrors           int
 }
 
 func NewNotificationsFacade(host *coreHost, playbackService *PlaybackService) *NotificationsFacade {
@@ -202,8 +195,7 @@ func (s *NotificationsFacade) handleJobSnapshot(job desktopcore.JobSnapshot) {
 	if strings.TrimSpace(job.Kind) == "prepare-playback" {
 		return
 	}
-	if isScanJobKind(job.Kind) {
-		s.handleScanJobSnapshot(job)
+	if !shouldPersistJobNotification(job.Kind) {
 		return
 	}
 	snapshot := notificationFromJob(job)
@@ -214,49 +206,57 @@ func (s *NotificationsFacade) handleJobSnapshot(job desktopcore.JobSnapshot) {
 }
 
 func (s *NotificationsFacade) handleActivitySnapshot(status apitypes.ActivityStatus) {
-	s.handleScanActivity(status.Scan)
+	s.handleScanMaintenance(status.Maintenance)
 	s.handleArtworkActivity(status.Artwork)
 	s.handleTranscodeActivity(status.Transcodes)
 }
 
-func (s *NotificationsFacade) handleScanActivity(status apitypes.ScanActivityStatus) {
-	phase := activityPhase(status.Phase)
-	if phase == "" {
+func (s *NotificationsFacade) handleScanMaintenance(status apitypes.ScanMaintenanceStatus) {
+	const maintenanceNotificationID = "scan-maintenance:active"
+
+	if status.RepairRequired {
+		local := s.localContext()
+		errorText := strings.TrimSpace(status.Detail)
+		if errorText == "" {
+			errorText = strings.TrimSpace(status.Reason)
+		}
+		s.upsertNotification(apitypes.NotificationSnapshot{
+			ID:         maintenanceNotificationID,
+			Kind:       "scan-maintenance",
+			LibraryID:  strings.TrimSpace(local.LibraryID),
+			Audience:   apitypes.NotificationAudienceUser,
+			Importance: apitypes.NotificationImportanceImportant,
+			Phase:      apitypes.NotificationPhaseError,
+			Message:    "Automatic scan needs a repair run.",
+			Error:      errorText,
+			Sticky:     true,
+		})
 		return
 	}
-	id := s.activityNotificationID("scan", phase)
-	if id == "" {
+
+	notification, ok := s.notificationByID(maintenanceNotificationID)
+	if !ok {
 		return
 	}
-	kind, audience, importance := s.scanNotificationMetadata()
-	message := scanActivityMessage(status)
-	errorText := activityError(status.Phase, status.Errors)
-	if phase == apitypes.NotificationPhaseSuccess && s.currentScanArtworkErrors() > 0 {
-		artworkErrors := s.currentScanArtworkErrors()
-		message = fmt.Sprintf("Scan completed with %d artwork error(s).", artworkErrors)
-		errorText = fmt.Sprintf("%d artwork error(s)", artworkErrors)
+	local := s.localContext()
+	currentLibraryID := strings.TrimSpace(local.LibraryID)
+	previousLibraryID := strings.TrimSpace(notification.LibraryID)
+	if previousLibraryID != "" && currentLibraryID != previousLibraryID {
+		return
 	}
-	s.upsertNotification(apitypes.NotificationSnapshot{
-		ID:         id,
-		Kind:       kind,
-		Audience:   audience,
-		Importance: importance,
-		Phase:      phase,
-		Message:    message,
-		Error:      errorText,
-		Progress:   scanActivityProgress(status),
-		Sticky:     phase == apitypes.NotificationPhaseError,
-	})
-	if phase == apitypes.NotificationPhaseSuccess || phase == apitypes.NotificationPhaseError {
-		s.setCurrentScanArtworkErrors(0)
-	}
+	notification.Kind = "scan-maintenance"
+	notification.LibraryID = currentLibraryID
+	notification.Audience = apitypes.NotificationAudienceUser
+	notification.Importance = apitypes.NotificationImportanceImportant
+	notification.Phase = apitypes.NotificationPhaseSuccess
+	notification.Message = "Library repair no longer required."
+	notification.Error = ""
+	notification.Progress = 1
+	notification.Sticky = false
+	s.upsertNotification(notification)
 }
 
 func (s *NotificationsFacade) handleArtworkActivity(status apitypes.ArtworkActivityStatus) {
-	if s.shouldMergeArtworkIntoScan() {
-		s.handleMergedScanArtworkActivity(status)
-		return
-	}
 	phase := activityPhase(status.Phase)
 	if phase == "" {
 		return
@@ -276,51 +276,6 @@ func (s *NotificationsFacade) handleArtworkActivity(status apitypes.ArtworkActiv
 		Progress:   artworkActivityProgress(status),
 		Sticky:     phase == apitypes.NotificationPhaseError,
 	})
-}
-
-func (s *NotificationsFacade) handleScanJobSnapshot(job desktopcore.JobSnapshot) {
-	kind := strings.TrimSpace(job.Kind)
-	audience, importance := classifyJob(kind)
-	s.setScanNotificationMetadata(kind, audience, importance)
-	if job.Phase == desktopcore.JobPhaseQueued {
-		s.setCurrentScanArtworkErrors(0)
-	}
-	if job.Phase == desktopcore.JobPhaseRunning {
-		return
-	}
-	phase := notificationPhaseFromJob(job.Phase)
-	if phase == "" {
-		return
-	}
-	id := s.activityNotificationID("scan", phase)
-	if id == "" {
-		return
-	}
-	message := strings.TrimSpace(job.Message)
-	errorText := strings.TrimSpace(job.Error)
-	if phase == apitypes.NotificationPhaseSuccess && s.currentScanArtworkErrors() > 0 {
-		artworkErrors := s.currentScanArtworkErrors()
-		message = fmt.Sprintf("Scan completed with %d artwork error(s).", artworkErrors)
-		errorText = fmt.Sprintf("%d artwork error(s)", artworkErrors)
-	}
-	s.upsertNotification(apitypes.NotificationSnapshot{
-		ID:         id,
-		Kind:       kind,
-		LibraryID:  strings.TrimSpace(job.LibraryID),
-		Audience:   audience,
-		Importance: importance,
-		Phase:      phase,
-		Message:    message,
-		Error:      errorText,
-		Progress:   job.Progress,
-		Sticky:     job.Phase == desktopcore.JobPhaseFailed,
-		CreatedAt:  job.CreatedAt,
-		UpdatedAt:  job.UpdatedAt,
-		FinishedAt: job.FinishedAt,
-	})
-	if phase == apitypes.NotificationPhaseSuccess || phase == apitypes.NotificationPhaseError {
-		s.setCurrentScanArtworkErrors(0)
-	}
 }
 
 func (s *NotificationsFacade) handleTranscodeActivity(items []apitypes.TranscodeActivityStatus) {
@@ -590,28 +545,7 @@ func (s *NotificationsFacade) activityNotificationID(kind string, phase apitypes
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	nowID := kind + ":" + fmt.Sprintf("%d", s.currentTime().UnixNano())
 	switch kind {
-	case "scan":
-		switch phase {
-		case apitypes.NotificationPhaseQueued, apitypes.NotificationPhaseRunning:
-			if s.scanNotificationID == "" || !isNotificationActivePhase(s.scanNotificationPhase) {
-				if s.scanNotificationID != "" && s.scanNotificationID != nowID {
-					delete(s.scanEmitStates, s.scanNotificationID)
-				}
-				s.scanNotificationID = nowID
-			}
-			s.scanNotificationPhase = string(phase)
-			return s.scanNotificationID
-		case apitypes.NotificationPhaseSuccess, apitypes.NotificationPhaseError:
-			if s.scanNotificationID == "" {
-				s.scanNotificationID = nowID
-			}
-			s.scanNotificationPhase = string(phase)
-			return s.scanNotificationID
-		default:
-			return ""
-		}
 	case "artwork":
 		switch phase {
 		case apitypes.NotificationPhaseRunning:
@@ -654,38 +588,6 @@ func (s *NotificationsFacade) ensurePlaybackPreloadNotificationID(entryID string
 	}
 	s.playbackPreloadEntryID = entryID
 	return s.playbackPreloadID
-}
-
-func (s *NotificationsFacade) setScanNotificationMetadata(
-	kind string,
-	audience apitypes.NotificationAudience,
-	importance apitypes.NotificationImportance,
-) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.scanNotificationKind = strings.TrimSpace(kind)
-	s.scanAudience = audience
-	s.scanImportance = importance
-}
-
-func (s *NotificationsFacade) scanNotificationMetadata() (string, apitypes.NotificationAudience, apitypes.NotificationImportance) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	kind := strings.TrimSpace(s.scanNotificationKind)
-	if kind == "" {
-		kind = "scan-activity"
-	}
-	audience := s.scanAudience
-	if audience == "" {
-		audience = apitypes.NotificationAudienceSystem
-	}
-	importance := s.scanImportance
-	if importance == "" {
-		importance = apitypes.NotificationImportanceDebug
-	}
-	return kind, audience, importance
 }
 
 func (s *NotificationsFacade) clearPlaybackNotificationID() {
@@ -902,8 +804,7 @@ func notificationPhaseFromJob(phase desktopcore.JobPhase) apitypes.NotificationP
 
 func classifyJob(kind string) (apitypes.NotificationAudience, apitypes.NotificationImportance) {
 	switch strings.TrimSpace(kind) {
-	case "scan-library",
-		"scan-root",
+	case "repair-library",
 		"sync-now",
 		"connect-peer",
 		"join-session",
@@ -921,10 +822,20 @@ func classifyJob(kind string) (apitypes.NotificationAudience, apitypes.Notificat
 		"refresh-pinned-recording",
 		"refresh-pinned-album",
 		"refresh-pinned-playlist",
-		"watch-scan":
+		"watch-scan-delta",
+		"startup-scan":
 		return apitypes.NotificationAudienceSystem, apitypes.NotificationImportanceDebug
 	default:
 		return apitypes.NotificationAudienceSystem, apitypes.NotificationImportanceDebug
+	}
+}
+
+func shouldPersistJobNotification(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "watch-scan-delta", "startup-scan":
+		return false
+	default:
+		return true
 	}
 }
 
@@ -948,39 +859,11 @@ func activityError(phase string, errors int) string {
 	return fmt.Sprintf("%d error(s)", errors)
 }
 
-func scanActivityProgress(status apitypes.ScanActivityStatus) float64 {
-	if status.TracksTotal > 0 {
-		return clampNotificationProgress(float64(status.TracksDone) / float64(status.TracksTotal))
-	}
-	if status.RootsTotal > 0 {
-		return clampNotificationProgress(float64(status.RootsDone) / float64(status.RootsTotal))
-	}
-	return 0.1
-}
-
 func artworkActivityProgress(status apitypes.ArtworkActivityStatus) float64 {
 	if status.AlbumsTotal > 0 {
 		return clampNotificationProgress(float64(status.AlbumsDone) / float64(status.AlbumsTotal))
 	}
 	return 0.1
-}
-
-func scanActivityMessage(status apitypes.ScanActivityStatus) string {
-	switch strings.TrimSpace(status.Phase) {
-	case "enumerating":
-		if root := strings.TrimSpace(status.CurrentRoot); root != "" {
-			return "Scanning " + root
-		}
-		return "Enumerating scan roots..."
-	case "ingesting":
-		return scanActivityTrackMessage(status)
-	case "completed":
-		return "Scan completed."
-	case "failed":
-		return "Scan failed."
-	default:
-		return "Scanning library..."
-	}
 }
 
 func artworkActivityMessage(status apitypes.ArtworkActivityStatus) string {
@@ -1008,16 +891,7 @@ func transcodeCompletionMessage(notification apitypes.NotificationSnapshot) stri
 
 func isScanJobKind(kind string) bool {
 	switch strings.TrimSpace(kind) {
-	case "scan-library", "scan-root", "watch-scan":
-		return true
-	default:
-		return false
-	}
-}
-
-func isNotificationActivePhase(phase string) bool {
-	switch phase {
-	case string(apitypes.NotificationPhaseQueued), string(apitypes.NotificationPhaseRunning):
+	case "repair-library", "watch-scan-delta", "startup-scan":
 		return true
 	default:
 		return false
@@ -1099,37 +973,16 @@ func recordActivityNotificationEmitLocked(
 	}
 }
 
-func isScanNotification(notification apitypes.NotificationSnapshot) bool {
-	if strings.HasPrefix(strings.TrimSpace(notification.ID), "scan:") {
-		return true
-	}
-	kind := strings.TrimSpace(notification.Kind)
-	return kind == "scan-activity" || isScanJobKind(kind)
-}
-
 func isArtworkNotification(notification apitypes.NotificationSnapshot) bool {
 	return strings.TrimSpace(notification.ID) == "artwork:activity" ||
 		strings.TrimSpace(notification.Kind) == "artwork-activity"
 }
 
-func scanActivityTrackMessage(status apitypes.ScanActivityStatus) string {
-	if status.TracksTotal <= 0 {
-		return "Scanning tracks..."
+func isScanNotification(notification apitypes.NotificationSnapshot) bool {
+	if !strings.HasPrefix(strings.TrimSpace(notification.ID), "job:") {
+		return false
 	}
-	current := status.TracksDone
-	if status.WorkersActive > 0 && current < status.TracksTotal {
-		current++
-	}
-	if current < 0 {
-		current = 0
-	}
-	if current > status.TracksTotal {
-		current = status.TracksTotal
-	}
-	if root := strings.TrimSpace(status.CurrentRoot); root != "" {
-		return fmt.Sprintf("Scanning tracks %d/%d in %s", current, status.TracksTotal, root)
-	}
-	return fmt.Sprintf("Scanning tracks %d/%d", current, status.TracksTotal)
+	return isScanJobKind(notification.Kind)
 }
 
 func (s *NotificationsFacade) trackNotificationDrivenJobs(job desktopcore.JobSnapshot) {
@@ -1338,85 +1191,6 @@ func networkSyncProgress(status apitypes.NetworkStatus) float64 {
 	applied := float64(status.LastBatchApplied)
 	remaining := float64(status.BacklogEstimate)
 	return clampNotificationProgress(applied / (applied + remaining))
-}
-
-func (s *NotificationsFacade) shouldMergeArtworkIntoScan() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.scanNotificationID != "" && isNotificationActivePhase(s.scanNotificationPhase)
-}
-
-func (s *NotificationsFacade) handleMergedScanArtworkActivity(status apitypes.ArtworkActivityStatus) {
-	phase := strings.TrimSpace(status.Phase)
-	if phase == "" || phase == "idle" {
-		return
-	}
-	id, kind, audience, importance, ok := s.activeScanNotificationMetadata()
-	if !ok {
-		return
-	}
-	if phase == "failed" && status.Errors > 0 {
-		s.setCurrentScanArtworkErrors(status.Errors)
-	}
-
-	message := "Generating artwork..."
-	errorText := ""
-	progress := 0.82 + artworkActivityProgress(status)*0.18
-	switch phase {
-	case "running":
-		message = artworkActivityMessage(status)
-	case "completed":
-		message = "Finalizing library scan..."
-		progress = 0.98
-	case "failed":
-		message = "Artwork generation encountered errors."
-		errorText = activityError(phase, status.Errors)
-		progress = 0.98
-	}
-
-	s.upsertNotification(apitypes.NotificationSnapshot{
-		ID:         id,
-		Kind:       kind,
-		Audience:   audience,
-		Importance: importance,
-		Phase:      apitypes.NotificationPhaseRunning,
-		Message:    message,
-		Error:      errorText,
-		Progress:   clampNotificationProgress(progress),
-	})
-}
-
-func (s *NotificationsFacade) activeScanNotificationMetadata() (string, string, apitypes.NotificationAudience, apitypes.NotificationImportance, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.scanNotificationID == "" || !isNotificationActivePhase(s.scanNotificationPhase) {
-		return "", "", "", "", false
-	}
-	kind := strings.TrimSpace(s.scanNotificationKind)
-	if kind == "" {
-		kind = "scan-activity"
-	}
-	audience := s.scanAudience
-	if audience == "" {
-		audience = apitypes.NotificationAudienceUser
-	}
-	importance := s.scanImportance
-	if importance == "" {
-		importance = apitypes.NotificationImportanceNormal
-	}
-	return s.scanNotificationID, kind, audience, importance, true
-}
-
-func (s *NotificationsFacade) currentScanArtworkErrors() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.scanArtworkErrors
-}
-
-func (s *NotificationsFacade) setCurrentScanArtworkErrors(errors int) {
-	s.mu.Lock()
-	s.scanArtworkErrors = errors
-	s.mu.Unlock()
 }
 
 func playbackPreparationError(status apitypes.PlaybackPreparationStatus, fallback string) string {

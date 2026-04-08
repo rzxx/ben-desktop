@@ -7,9 +7,17 @@ import (
 
 type ActivityStatus struct {
 	Scan       ScanActivityStatus
+	Maintenance ScanMaintenanceStatus
 	Artwork    ArtworkActivityStatus
 	Transcodes []TranscodeActivityStatus
 	UpdatedAt  time.Time
+}
+
+type ScanMaintenanceStatus struct {
+	RepairRequired bool
+	Reason         string
+	Detail         string
+	UpdatedAt      time.Time
 }
 
 type ScanActivityStatus struct {

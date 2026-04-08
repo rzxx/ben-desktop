@@ -87,10 +87,8 @@ function formatGroupCounts(
 
 function jobKindLabel(kind: string) {
   switch (kind) {
-    case "scan-library":
-      return "Library scan";
-    case "scan-root":
-      return "Root scan";
+    case "repair-library":
+      return "Library repair";
     case "publish-checkpoint":
       return "Publish checkpoint";
     case "compact-checkpoint":
@@ -270,7 +268,7 @@ export function useOperationsPage() {
   );
 
   const handleAddRoot = useCallback(async () => {
-    setPendingAction("scan-root:add");
+    setPendingAction("root-config:add");
     setFeedback("");
     setActionError("");
     try {
@@ -290,7 +288,7 @@ export function useOperationsPage() {
 
   const handleRemoveRoot = useCallback(
     async (root: string) => {
-      setPendingAction(`scan-root:remove:${root}`);
+      setPendingAction(`root-config:remove:${root}`);
       setFeedback("");
       setActionError("");
       try {
@@ -319,6 +317,8 @@ export function useOperationsPage() {
   const checkpointNeedsRepublish =
     canCheckpoint &&
     (!state.checkpoint?.CheckpointID || !state.checkpoint?.PublishedAt);
+  const maintenance =
+    state.activity?.Maintenance ?? state.oplog?.Maintenance ?? null;
 
   return {
     actionError,
@@ -328,6 +328,7 @@ export function useOperationsPage() {
     feedback,
     handleAddRoot,
     handleRemoveRoot,
+    maintenance,
     oplogDeviceCounts,
     oplogEntityCounts,
     pendingAction,
