@@ -2,7 +2,6 @@ package desktopcore
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -121,270 +120,84 @@ func autoMigrate(db *gorm.DB) error {
 	)
 }
 
-const (
-	pathPrivacyEpoch                 = "2"
-	contextIdentityEpoch             = "3"
-	catalogMaterializationEpoch      = "1"
-	localSettingCatalogIdentityEpoch = "catalog_identity_epoch"
-	localSettingCatalogMaterialEpoch = "catalog_materialization_epoch"
-)
-
-func (a *App) runPathPrivacyMigration(ctx context.Context) error {
+func (a *App) ensureDatabaseBaseline(ctx context.Context) error {
 	if a == nil || a.storage == nil {
 		return nil
 	}
 
-	device, err := a.ensureCurrentDevice(ctx)
+	var setting LocalSetting
+	err := a.storage.WithContext(ctx).Where("key = ?", localSettingDBBaselineEpoch).Take(&setting).Error
+	switch {
+	case err == nil && strings.TrimSpace(setting.Value) == dbBaselineEpoch:
+		return nil
+	case err != nil && err != gorm.ErrRecordNotFound:
+		return err
+	}
+
+	incompatible, err := databasePredatesCurrentBaseline(a.storage.WithContext(ctx))
 	if err != nil {
-		return fmt.Errorf("ensure current device for path privacy migration: %w", err)
-	}
-	currentDeviceID := strings.TrimSpace(device.DeviceID)
-	if currentDeviceID == "" {
-		return fmt.Errorf("current device id is required for path privacy migration")
-	}
-
-	var setting LocalSetting
-	err = a.storage.WithContext(ctx).Where("key = ?", localSettingPathPrivacyEpoch).Take(&setting).Error
-	switch {
-	case err == nil && strings.TrimSpace(setting.Value) == pathPrivacyEpoch:
-		return nil
-	case err != nil && err != gorm.ErrRecordNotFound:
 		return err
+	}
+	if incompatible {
+		return fmt.Errorf("database predates the current development baseline %q; old development databases are no longer migrated; delete the local SQLite database and rebuild from scratch", dbBaselineEpoch)
 	}
 
 	now := time.Now().UTC()
 	return a.storage.Transaction(ctx, func(tx *gorm.DB) error {
-		var sources []SourceFileModel
-		if err := tx.Order("library_id ASC, device_id ASC, source_file_id ASC").Find(&sources).Error; err != nil {
-			return err
-		}
-		for _, row := range sources {
-			if strings.TrimSpace(row.DeviceID) == currentDeviceID && strings.TrimSpace(row.LocalPath) != "" {
-				if err := tx.Save(&LocalSourcePath{
-					LibraryID:    strings.TrimSpace(row.LibraryID),
-					DeviceID:     currentDeviceID,
-					SourceFileID: strings.TrimSpace(row.SourceFileID),
-					LocalPath:    filepath.Clean(strings.TrimSpace(row.LocalPath)),
-					PathKey:      localPathKey(row.LocalPath),
-					UpdatedAt:    now,
-				}).Error; err != nil {
-					return err
-				}
-				continue
-			}
-			if err := tx.Model(&SourceFileModel{}).
-				Where("library_id = ? AND device_id = ? AND source_file_id = ?", row.LibraryID, row.DeviceID, row.SourceFileID).
-				Updates(map[string]any{
-					"local_path": "",
-					"path_key":   opaqueSourcePathKey(strings.TrimSpace(row.SourceFileID)),
-				}).Error; err != nil {
-				return err
-			}
-		}
-
-		var artwork []ArtworkVariant
-		if err := tx.Order("library_id ASC, scope_type ASC, scope_id ASC, variant ASC").Find(&artwork).Error; err != nil {
-			return err
-		}
-		for _, row := range artwork {
-			if strings.TrimSpace(row.ChosenSourceRef) == "" {
-				continue
-			}
-			if err := tx.Save(&LocalArtworkSourceRef{
-				LibraryID:       strings.TrimSpace(row.LibraryID),
-				ScopeType:       strings.TrimSpace(row.ScopeType),
-				ScopeID:         strings.TrimSpace(row.ScopeID),
-				Variant:         strings.TrimSpace(row.Variant),
-				ChosenSource:    strings.TrimSpace(row.ChosenSource),
-				ChosenSourceRef: filepath.Clean(strings.TrimSpace(row.ChosenSourceRef)),
-				UpdatedAt:       now,
-			}).Error; err != nil {
-				return err
-			}
-			if err := tx.Model(&ArtworkVariant{}).
-				Where("library_id = ? AND scope_type = ? AND scope_id = ? AND variant = ?", row.LibraryID, row.ScopeType, row.ScopeID, row.Variant).
-				Update("chosen_source_ref", "").Error; err != nil {
-				return err
-			}
-		}
-
-		if err := scrubPathBearingOplogRowsTx(tx); err != nil {
-			return err
-		}
-		if err := clearPathBearingCheckpointStateTx(tx); err != nil {
-			return err
-		}
-		return upsertLocalSettingTx(tx, localSettingPathPrivacyEpoch, pathPrivacyEpoch, now)
+		return upsertLocalSettingTx(tx, localSettingDBBaselineEpoch, dbBaselineEpoch, now)
 	})
 }
 
-func (a *App) runContextIdentityMigration(ctx context.Context) error {
-	if a == nil || a.storage == nil {
-		return nil
-	}
-
-	var setting LocalSetting
-	err := a.storage.WithContext(ctx).Where("key = ?", localSettingCatalogIdentityEpoch).Take(&setting).Error
-	switch {
-	case err == nil && strings.TrimSpace(setting.Value) == contextIdentityEpoch:
-		return nil
-	case err != nil && err != gorm.ErrRecordNotFound:
-		return err
-	}
-
-	now := time.Now().UTC()
-	return a.storage.Transaction(ctx, func(tx *gorm.DB) error {
-		for _, stmt := range []string{
-			"DROP INDEX IF EXISTS idx_source_file_fingerprint",
-			"DROP INDEX IF EXISTS idx_album_variant_key",
-			"DROP INDEX IF EXISTS idx_track_variant_key",
-		} {
-			if err := tx.Exec(stmt).Error; err != nil {
-				return err
-			}
-		}
-
-		for _, model := range []any{
-			&PlaylistItem{},
-			&PinBlobRef{},
-			&PinMember{},
-			&PinRoot{},
-			&DeviceVariantPreference{},
-			&ArtworkVariant{},
-			&LocalArtworkSourceRef{},
-			&AlbumTrack{},
-			&AlbumVariantModel{},
-			&TrackVariantModel{},
-			&OptimizedAssetModel{},
-			&DeviceAssetCacheModel{},
-			&SourceFileModel{},
-			&LocalSourcePath{},
-			&OplogEntry{},
-			&DeviceClock{},
-			&PeerSyncState{},
-			&LibraryCheckpointChunk{},
-			&LibraryCheckpoint{},
-			&DeviceCheckpointAck{},
-		} {
-			if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(model).Error; err != nil {
-				return err
-			}
-		}
-
-		if err := tx.Model(&Playlist{}).
-			Where("kind = ?", playlistKindLiked).
-			Update("deleted_at", now).Error; err != nil {
-			return err
-		}
-		return upsertLocalSettingTx(tx, localSettingCatalogIdentityEpoch, contextIdentityEpoch, now)
-	})
-}
-
-func (a *App) runCatalogMaterializationMigration(ctx context.Context) error {
-	if a == nil || a.storage == nil {
-		return nil
-	}
-
-	var setting LocalSetting
-	err := a.storage.WithContext(ctx).Where("key = ?", localSettingCatalogMaterialEpoch).Take(&setting).Error
-	switch {
-	case err == nil && strings.TrimSpace(setting.Value) == catalogMaterializationEpoch:
-		return nil
-	case err != nil && err != gorm.ErrRecordNotFound:
-		return err
-	}
-
-	var libraryIDs []string
-	if err := a.storage.WithContext(ctx).
-		Model(&Library{}).
-		Select("library_id").
-		Order("library_id ASC").
-		Scan(&libraryIDs).Error; err != nil {
-		return err
-	}
-	for _, libraryID := range libraryIDs {
-		libraryID = strings.TrimSpace(libraryID)
-		if libraryID == "" {
-			continue
-		}
-		if err := a.rebuildCatalogMaterializationFull(ctx, libraryID, nil); err != nil {
-			return fmt.Errorf("rebuild catalog materialization for %s: %w", libraryID, err)
-		}
-	}
-
-	now := time.Now().UTC()
-	return a.storage.Transaction(ctx, func(tx *gorm.DB) error {
-		return upsertLocalSettingTx(tx, localSettingCatalogMaterialEpoch, catalogMaterializationEpoch, now)
-	})
-}
-
-func runPinStorageMigration(db *gorm.DB) error {
+func databasePredatesCurrentBaseline(db *gorm.DB) (bool, error) {
 	if db == nil {
-		return nil
+		return false, nil
 	}
-	return db.Exec("DROP TABLE IF EXISTS offline_pins").Error
-}
 
-func scrubPathBearingOplogRowsTx(tx *gorm.DB) error {
-	var rows []OplogEntry
-	if err := tx.Where("entity_type IN ?", []string{entityTypeScanRoots, entityTypeSourceFile, entityTypeArtworkVariant}).
-		Order("library_id ASC, device_id ASC, seq ASC, op_id ASC").
-		Find(&rows).Error; err != nil {
-		return err
+	exists, err := sqliteTableExists(db, "offline_pins")
+	if err != nil {
+		return false, err
 	}
-	for _, row := range rows {
-		switch strings.TrimSpace(row.EntityType) {
-		case entityTypeScanRoots:
-			if err := tx.Delete(&row).Error; err != nil {
-				return err
-			}
-		case entityTypeSourceFile:
-			var payload sourceFileOplogPayload
-			if strings.TrimSpace(row.PayloadJSON) != "" && strings.TrimSpace(row.PayloadJSON) != "{}" {
-				if err := json.Unmarshal([]byte(row.PayloadJSON), &payload); err != nil {
-					return fmt.Errorf("decode source file oplog payload during migration: %w", err)
-				}
-			}
-			payload.LocalPath = ""
-			raw, err := json.Marshal(payload)
-			if err != nil {
-				return fmt.Errorf("marshal scrubbed source file oplog payload: %w", err)
-			}
-			if err := tx.Model(&OplogEntry{}).
-				Where("library_id = ? AND op_id = ?", row.LibraryID, row.OpID).
-				Update("payload_json", string(raw)).Error; err != nil {
-				return err
-			}
-		case entityTypeArtworkVariant:
-			var payload artworkVariantOplogPayload
-			if strings.TrimSpace(row.PayloadJSON) != "" && strings.TrimSpace(row.PayloadJSON) != "{}" {
-				if err := json.Unmarshal([]byte(row.PayloadJSON), &payload); err != nil {
-					return fmt.Errorf("decode artwork variant oplog payload during migration: %w", err)
-				}
-			}
-			payload.ChosenSourceRef = ""
-			raw, err := json.Marshal(payload)
-			if err != nil {
-				return fmt.Errorf("marshal scrubbed artwork variant oplog payload: %w", err)
-			}
-			if err := tx.Model(&OplogEntry{}).
-				Where("library_id = ? AND op_id = ?", row.LibraryID, row.OpID).
-				Update("payload_json", string(raw)).Error; err != nil {
-				return err
-			}
+	if exists {
+		return true, nil
+	}
+
+	for _, table := range []string{
+		"libraries",
+		"source_files",
+		"track_variants",
+		"album_variants",
+		"playlist_items",
+		"pin_roots",
+		"oplog_entries",
+	} {
+		hasRows, err := sqliteTableHasRows(db, table)
+		if err != nil {
+			return false, err
+		}
+		if hasRows {
+			return true, nil
 		}
 	}
-	return nil
+	return false, nil
 }
 
-func clearPathBearingCheckpointStateTx(tx *gorm.DB) error {
-	if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&LibraryCheckpointChunk{}).Error; err != nil {
-		return err
+func sqliteTableExists(db *gorm.DB, table string) (bool, error) {
+	var count int64
+	if err := db.Raw(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+		strings.TrimSpace(table),
+	).Scan(&count).Error; err != nil {
+		return false, fmt.Errorf("query sqlite_master for table %q: %w", table, err)
 	}
-	if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&LibraryCheckpoint{}).Error; err != nil {
-		return err
+	return count > 0, nil
+}
+
+func sqliteTableHasRows(db *gorm.DB, table string) (bool, error) {
+	var count int64
+	if err := db.Table(strings.TrimSpace(table)).Count(&count).Error; err != nil {
+		return false, fmt.Errorf("count rows in %q: %w", table, err)
 	}
-	return tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&DeviceCheckpointAck{}).Error
+	return count > 0, nil
 }
 
 func reclaimSQLiteSpace(ctx context.Context, db *gorm.DB) error {

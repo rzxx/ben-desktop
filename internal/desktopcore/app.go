@@ -107,20 +107,11 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	app.invite = &InviteService{app: app}
 	app.transportService = newTransportService(app)
 
+	if err := app.ensureDatabaseBaseline(ctx); err != nil {
+		return nil, fmt.Errorf("ensure database baseline: %w", err)
+	}
 	if _, err := app.ensureCurrentDevice(ctx); err != nil {
 		return nil, fmt.Errorf("ensure current device: %w", err)
-	}
-	if err := app.runPathPrivacyMigration(ctx); err != nil {
-		return nil, fmt.Errorf("run path privacy migration: %w", err)
-	}
-	if err := app.runContextIdentityMigration(ctx); err != nil {
-		return nil, fmt.Errorf("run context identity migration: %w", err)
-	}
-	if err := app.runCatalogMaterializationMigration(ctx); err != nil {
-		return nil, fmt.Errorf("run catalog materialization migration: %w", err)
-	}
-	if err := runPinStorageMigration(app.db); err != nil {
-		return nil, fmt.Errorf("run pin storage migration: %w", err)
 	}
 	if err := app.syncActiveRuntimeServices(ctx); err != nil {
 		return nil, fmt.Errorf("configure active runtime services: %w", err)
