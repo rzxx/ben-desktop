@@ -284,15 +284,19 @@ func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recording
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
-	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
+	resolvedRecordingID, profile, exactRequested, err := s.resolvePlaybackRequest(ctx, local, recordingID, preferredProfile)
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
 	if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, resolvedRecordingID, profile, local.DeviceID); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
+	remoteRecordingID := resolvedRecordingID
+	if !exactRequested {
+		remoteRecordingID = strings.TrimSpace(recordingID)
+	}
 
-	blobID, encodingID, ok, err := s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile)
+	blobID, encodingID, ok, err := s.bestCachedEncodingWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile, exactRequested)
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
@@ -322,7 +326,7 @@ func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recording
 		}, nil
 	}
 
-	if localPath, ok, err := s.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID); err != nil {
+	if localPath, ok, err := s.bestLocalRecordingPathWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, exactRequested); err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	} else if ok {
 		info, err := os.Stat(localPath)
@@ -338,13 +342,13 @@ func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recording
 		}, nil
 	}
 
-	availability, err := s.GetRecordingAvailability(ctx, resolvedRecordingID, profile)
+	availability, err := s.GetRecordingAvailability(ctx, recordingID, profile)
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
 	switch availability.State {
 	case apitypes.AvailabilityPlayableRemoteOpt:
-		if result, fetched, err := s.ensureRemotePlaybackRecording(ctx, local, resolvedRecordingID, profile); err != nil {
+		if result, fetched, err := s.ensureRemotePlaybackRecording(ctx, local, remoteRecordingID, profile); err != nil {
 			return apitypes.PlaybackRecordingResult{}, err
 		} else if fetched {
 			return result, nil
@@ -355,7 +359,7 @@ func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recording
 			Reason:     apitypes.PlaybackUnavailableNetworkOff,
 		}, fmt.Errorf("recording %s requires remote optimized fetch", resolvedRecordingID)
 	case apitypes.AvailabilityWaitingProviderTranscode:
-		if result, fetched, err := s.ensureRemotePlaybackRecording(ctx, local, resolvedRecordingID, profile); err != nil {
+		if result, fetched, err := s.ensureRemotePlaybackRecording(ctx, local, remoteRecordingID, profile); err != nil {
 			return apitypes.PlaybackRecordingResult{}, err
 		} else if fetched {
 			return result, nil
@@ -441,7 +445,7 @@ func (s *PlaybackService) InspectPlaybackRecording(ctx context.Context, recordin
 }
 
 func (s *PlaybackService) inspectPlaybackRecording(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
-	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
+	resolvedRecordingID, profile, exactRequested, err := s.resolvePlaybackRequest(ctx, local, recordingID, preferredProfile)
 	if err != nil {
 		return apitypes.PlaybackPreparationStatus{}, err
 	}
@@ -453,7 +457,7 @@ func (s *PlaybackService) inspectPlaybackRecording(ctx context.Context, local ap
 		UpdatedAt:        time.Now().UTC(),
 	}
 
-	if localPath, ok, err := s.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID); err != nil {
+	if localPath, ok, err := s.bestLocalRecordingPathWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, exactRequested); err != nil {
 		return apitypes.PlaybackPreparationStatus{}, err
 	} else if ok {
 		uri, err := fileURIFromPath(localPath)
@@ -466,7 +470,7 @@ func (s *PlaybackService) inspectPlaybackRecording(ctx context.Context, local ap
 		return status, nil
 	}
 
-	if blobID, encodingID, ok, err := s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile); err != nil {
+	if blobID, encodingID, ok, err := s.bestCachedEncodingWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile, exactRequested); err != nil {
 		return apitypes.PlaybackPreparationStatus{}, err
 	} else if ok {
 		uri, err := s.fileURIForBlob(blobID)
@@ -480,7 +484,7 @@ func (s *PlaybackService) inspectPlaybackRecording(ctx context.Context, local ap
 		}
 	}
 
-	items, err := s.ListRecordingAvailability(ctx, resolvedRecordingID, profile)
+	items, err := s.ListRecordingAvailability(ctx, recordingID, profile)
 	if err != nil {
 		return apitypes.PlaybackPreparationStatus{}, err
 	}
@@ -914,7 +918,8 @@ func (s *PlaybackService) ListRecordingAvailability(ctx context.Context, recordi
 	if err != nil {
 		return nil, err
 	}
-	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
+	recordingID = strings.TrimSpace(recordingID)
+	resolvedRecordingID, profile, exactVariant, err := s.resolvePlaybackRequest(ctx, local, recordingID, preferredProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -965,13 +970,52 @@ LEFT JOIN devices d ON d.device_id = m.device_id
 LEFT JOIN peer_sync_states pss ON pss.library_id = m.library_id AND pss.device_id = m.device_id
 WHERE m.library_id = ?
 ORDER BY CASE WHEN m.device_id = ? THEN 0 ELSE 1 END, m.device_id ASC`
-	var rows []row
-	if err := s.app.storage.WithContext(ctx).Raw(query,
+	args := []any{
 		resolvedRecordingID,
 		resolvedRecordingID, profile, profile, aliasProfile,
 		resolvedRecordingID, profile, profile, aliasProfile,
 		local.LibraryID, local.DeviceID,
-	).Scan(&rows).Error; err != nil {
+	}
+	if exactVariant {
+		query = `
+SELECT
+	m.device_id,
+	m.role,
+	COALESCE(d.peer_id, '') AS peer_id,
+	d.last_seen_at,
+	pss.last_success_at,
+	CASE WHEN EXISTS (
+		SELECT 1
+		FROM source_files sf
+		WHERE sf.library_id = m.library_id AND sf.device_id = m.device_id AND sf.is_present = 1 AND sf.track_variant_id = ?
+	) THEN 1 ELSE 0 END AS source_present,
+	CASE WHEN EXISTS (
+		SELECT 1
+		FROM optimized_assets oa
+		JOIN source_files sf ON sf.library_id = oa.library_id AND sf.source_file_id = oa.source_file_id
+		WHERE oa.library_id = m.library_id AND oa.created_by_device_id = m.device_id AND sf.track_variant_id = ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
+	) THEN 1 ELSE 0 END AS optimized_present,
+	CASE WHEN EXISTS (
+		SELECT 1
+		FROM device_asset_caches dac
+		JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
+		JOIN source_files sf ON sf.library_id = oa.library_id AND sf.source_file_id = oa.source_file_id
+		WHERE dac.library_id = m.library_id AND dac.device_id = m.device_id AND dac.is_cached = 1 AND sf.track_variant_id = ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
+	) THEN 1 ELSE 0 END AS cached_optimized
+FROM memberships m
+LEFT JOIN devices d ON d.device_id = m.device_id
+LEFT JOIN peer_sync_states pss ON pss.library_id = m.library_id AND pss.device_id = m.device_id
+WHERE m.library_id = ?
+ORDER BY CASE WHEN m.device_id = ? THEN 0 ELSE 1 END, m.device_id ASC`
+		args = []any{
+			resolvedRecordingID,
+			resolvedRecordingID, profile, profile, aliasProfile,
+			resolvedRecordingID, profile, profile, aliasProfile,
+			local.LibraryID, local.DeviceID,
+		}
+	}
+	var rows []row
+	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]apitypes.RecordingAvailabilityItem, 0, len(rows))
@@ -995,7 +1039,7 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 	if err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
 	}
-	resolvedRecordingID, profile, err := s.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
+	resolvedRecordingID, profile, exactRequested, err := s.resolvePlaybackRequest(ctx, local, recordingID, preferredProfile)
 	if err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
 	}
@@ -1008,7 +1052,7 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 	} else {
 		out.Pinned = pinned
 	}
-	if localPath, ok, err := s.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID); err != nil {
+	if localPath, ok, err := s.bestLocalRecordingPathWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, exactRequested); err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
 	} else if ok {
 		out.State = apitypes.AvailabilityPlayableLocalFile
@@ -1016,14 +1060,14 @@ func (s *PlaybackService) GetRecordingAvailability(ctx context.Context, recordin
 		out.LocalPath = localPath
 		return out, nil
 	}
-	if _, _, ok, err := s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile); err != nil {
+	if _, _, ok, err := s.bestCachedEncodingWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile, exactRequested); err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
 	} else if ok {
 		out.State = apitypes.AvailabilityPlayableCachedOpt
 		out.SourceKind = apitypes.PlaybackSourceCachedOpt
 		return out, nil
 	}
-	items, err := s.ListRecordingAvailability(ctx, resolvedRecordingID, profile)
+	items, err := s.ListRecordingAvailability(ctx, recordingID, profile)
 	if err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
 	}
@@ -1161,25 +1205,48 @@ func (s *PlaybackService) batchRecordingPlaybackAvailability(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	localPaths, err := s.batchBestLocalRecordingPaths(ctx, local.LibraryID, local.DeviceID, resolution.resolvedRecordingIDs)
+	partition := partitionResolvedRecordingRequests(recordingIDs, resolution)
+	exactLocalPaths, err := s.batchBestLocalRecordingPaths(ctx, local.LibraryID, local.DeviceID, partition.exactResolvedIDs, true)
 	if err != nil {
 		return nil, err
 	}
-	cachedRecordings, err := s.batchBestCachedRecordingIDs(ctx, local.LibraryID, local.DeviceID, resolution.resolvedRecordingIDs, resolution.profile)
+	logicalLocalPaths, err := s.batchBestLocalRecordingPaths(ctx, local.LibraryID, local.DeviceID, partition.logicalResolvedIDs, false)
+	if err != nil {
+		return nil, err
+	}
+	exactCachedRecordings, err := s.batchBestCachedRecordingIDs(ctx, local.LibraryID, local.DeviceID, partition.exactResolvedIDs, resolution.profile, true)
+	if err != nil {
+		return nil, err
+	}
+	logicalCachedRecordings, err := s.batchBestCachedRecordingIDs(ctx, local.LibraryID, local.DeviceID, partition.logicalResolvedIDs, resolution.profile, false)
 	if err != nil {
 		return nil, err
 	}
 
 	cutoff := time.Now().UTC().Add(-availabilityOnlineWindow)
 	networkRunning := s.app.NetworkStatus().Running
-	facts, err := s.batchRecordingPlaybackFacts(
+	exactFacts, err := s.batchRecordingPlaybackFacts(
 		ctx,
 		local.LibraryID,
 		local.DeviceID,
-		resolution.resolvedRecordingIDs,
+		partition.exactResolvedIDs,
 		resolution.profile,
 		normalizedPlaybackProfileAlias(resolution.profile),
 		cutoff,
+		true,
+	)
+	if err != nil {
+		return nil, err
+	}
+	logicalFacts, err := s.batchRecordingPlaybackFacts(
+		ctx,
+		local.LibraryID,
+		local.DeviceID,
+		partition.logicalResolvedIDs,
+		resolution.profile,
+		normalizedPlaybackProfileAlias(resolution.profile),
+		cutoff,
+		false,
 	)
 	if err != nil {
 		return nil, err
@@ -1189,31 +1256,38 @@ func (s *PlaybackService) batchRecordingPlaybackAvailability(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-
 	out := make([]apitypes.RecordingPlaybackAvailability, 0, len(recordingIDs))
 	for _, recordingID := range recordingIDs {
-		resolvedRecordingID := resolution.resolvedByRecording[recordingID]
+		resolvedRecordingID := strings.TrimSpace(resolution.resolvedByRecording[recordingID])
+		exactRequested := resolution.exactRequestedByID[recordingID]
 		item := apitypes.RecordingPlaybackAvailability{
 			RecordingID:      recordingID,
 			PreferredProfile: resolution.profile,
 			Pinned:           trackPins[recordingID],
 		}
 
-		if localPath := localPaths[resolvedRecordingID]; localPath != "" {
+		localPath := logicalLocalPaths[resolvedRecordingID]
+		cachedRecording := logicalCachedRecordings[resolvedRecordingID]
+		fact := logicalFacts[resolvedRecordingID]
+		if exactRequested {
+			localPath = exactLocalPaths[resolvedRecordingID]
+			cachedRecording = exactCachedRecordings[resolvedRecordingID]
+			fact = exactFacts[resolvedRecordingID]
+		}
+		if localPath != "" {
 			item.State = apitypes.AvailabilityPlayableLocalFile
 			item.SourceKind = apitypes.PlaybackSourceLocalFile
 			item.LocalPath = localPath
 			out = append(out, item)
 			continue
 		}
-		if cachedRecordings[resolvedRecordingID] {
+		if cachedRecording {
 			item.State = apitypes.AvailabilityPlayableCachedOpt
 			item.SourceKind = apitypes.PlaybackSourceCachedOpt
 			out = append(out, item)
 			continue
 		}
 
-		fact := facts[resolvedRecordingID]
 		switch {
 		case fact.hasRemoteCached && fact.hasRemoteCachedOnline && networkRunning:
 			item.State = apitypes.AvailabilityPlayableRemoteOpt
@@ -1317,28 +1391,8 @@ func (s *PlaybackService) GetAlbumAvailabilityOverview(ctx context.Context, albu
 }
 
 func (s *PlaybackService) resolvePlaybackVariant(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (string, string, error) {
-	recordingID = strings.TrimSpace(recordingID)
-	if recordingID == "" {
-		return "", "", fmt.Errorf("recording id is required")
-	}
-	profile := s.resolvePlaybackProfile(preferredProfile)
-	if exact, ok, err := s.trackVariantExists(ctx, local.LibraryID, recordingID); err != nil {
-		return "", "", err
-	} else if ok {
-		return exact, profile, nil
-	}
-	variants, err := s.app.catalog.listRecordingVariantsRows(ctx, local.LibraryID, local.DeviceID, recordingID, profile)
-	if err != nil {
-		return "", "", err
-	}
-	explicitPreferredID, _, err := s.app.catalog.preferredRecordingVariantID(ctx, local.LibraryID, local.DeviceID, recordingID)
-	if err != nil {
-		return "", "", err
-	}
-	if preferredID := chooseRecordingVariantID(variants, explicitPreferredID); preferredID != "" {
-		return preferredID, profile, nil
-	}
-	return recordingID, profile, nil
+	resolvedRecordingID, profile, _, err := s.resolvePlaybackRequest(ctx, local, recordingID, preferredProfile)
+	return resolvedRecordingID, profile, err
 }
 
 func (s *PlaybackService) resolvePlaybackProfile(preferredProfile string) string {
@@ -1375,9 +1429,9 @@ func firstNonEmptyString(values ...string) string {
 }
 
 type recordingBatchResolution struct {
-	profile              string
-	resolvedByRecording  map[string]string
-	resolvedRecordingIDs []string
+	profile             string
+	exactRequestedByID  map[string]bool
+	resolvedByRecording map[string]string
 }
 
 func (s *PlaybackService) resolvePlaybackVariantsBatch(ctx context.Context, local apitypes.LocalContext, recordingIDs []string, preferredProfile string) (recordingBatchResolution, error) {
@@ -1385,9 +1439,9 @@ func (s *PlaybackService) resolvePlaybackVariantsBatch(ctx context.Context, loca
 	profile := s.resolvePlaybackProfile(preferredProfile)
 	if len(recordingIDs) == 0 {
 		return recordingBatchResolution{
-			profile:              profile,
-			resolvedByRecording:  map[string]string{},
-			resolvedRecordingIDs: []string{},
+			profile:             profile,
+			exactRequestedByID:  map[string]bool{},
+			resolvedByRecording: map[string]string{},
 		}, nil
 	}
 
@@ -1435,10 +1489,12 @@ func (s *PlaybackService) resolvePlaybackVariantsBatch(ctx context.Context, loca
 		return recordingBatchResolution{}, err
 	}
 
+	exactRequestedByID := make(map[string]bool, len(recordingIDs))
 	resolvedByRecording := make(map[string]string, len(recordingIDs))
-	resolvedRecordingIDs := make([]string, 0, len(recordingIDs))
-	resolvedSeen := make(map[string]struct{}, len(recordingIDs))
 	for _, recordingID := range recordingIDs {
+		if _, ok := exactVariantIDs[recordingID]; ok {
+			exactRequestedByID[recordingID] = true
+		}
 		resolvedID := recordingID
 		if _, ok := exactVariantIDs[recordingID]; ok {
 			resolvedID = recordingID
@@ -1448,18 +1504,69 @@ func (s *PlaybackService) resolvePlaybackVariantsBatch(ctx context.Context, loca
 			}
 		}
 		resolvedByRecording[recordingID] = resolvedID
-		if _, ok := resolvedSeen[resolvedID]; ok {
-			continue
-		}
-		resolvedSeen[resolvedID] = struct{}{}
-		resolvedRecordingIDs = append(resolvedRecordingIDs, resolvedID)
 	}
 
 	return recordingBatchResolution{
-		profile:              profile,
-		resolvedByRecording:  resolvedByRecording,
-		resolvedRecordingIDs: resolvedRecordingIDs,
+		profile:             profile,
+		exactRequestedByID:  exactRequestedByID,
+		resolvedByRecording: resolvedByRecording,
 	}, nil
+}
+
+type partitionedResolvedRecordingRequests struct {
+	exactResolvedIDs   []string
+	logicalResolvedIDs []string
+}
+
+func partitionResolvedRecordingRequests(recordingIDs []string, resolution recordingBatchResolution) partitionedResolvedRecordingRequests {
+	out := partitionedResolvedRecordingRequests{}
+	exactSeen := make(map[string]struct{}, len(recordingIDs))
+	logicalSeen := make(map[string]struct{}, len(recordingIDs))
+	for _, recordingID := range compactNonEmptyStrings(recordingIDs) {
+		resolvedRecordingID := strings.TrimSpace(resolution.resolvedByRecording[recordingID])
+		if resolvedRecordingID == "" {
+			continue
+		}
+		if resolution.exactRequestedByID[recordingID] {
+			if _, ok := exactSeen[resolvedRecordingID]; ok {
+				continue
+			}
+			exactSeen[resolvedRecordingID] = struct{}{}
+			out.exactResolvedIDs = append(out.exactResolvedIDs, resolvedRecordingID)
+			continue
+		}
+		if _, ok := logicalSeen[resolvedRecordingID]; ok {
+			continue
+		}
+		logicalSeen[resolvedRecordingID] = struct{}{}
+		out.logicalResolvedIDs = append(out.logicalResolvedIDs, resolvedRecordingID)
+	}
+	return out
+}
+
+func (s *PlaybackService) resolvePlaybackRequest(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (string, string, bool, error) {
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return "", "", false, fmt.Errorf("recording id is required")
+	}
+	profile := s.resolvePlaybackProfile(preferredProfile)
+	if exact, ok, err := s.trackVariantExists(ctx, local.LibraryID, recordingID); err != nil {
+		return "", "", false, err
+	} else if ok {
+		return exact, profile, true, nil
+	}
+	variants, err := s.app.catalog.listRecordingVariantsRows(ctx, local.LibraryID, local.DeviceID, recordingID, profile)
+	if err != nil {
+		return "", "", false, err
+	}
+	explicitPreferredID, _, err := s.app.catalog.preferredRecordingVariantID(ctx, local.LibraryID, local.DeviceID, recordingID)
+	if err != nil {
+		return "", "", false, err
+	}
+	if preferredID := chooseRecordingVariantID(variants, explicitPreferredID); preferredID != "" {
+		return preferredID, profile, false, nil
+	}
+	return recordingID, profile, false, nil
 }
 
 func (s *PlaybackService) trackVariantExists(ctx context.Context, libraryID, recordingID string) (string, bool, error) {
@@ -1571,11 +1678,15 @@ func (s *PlaybackService) isExactTrackVariantID(ctx context.Context, libraryID, 
 }
 
 func (s *PlaybackService) bestLocalRecordingPath(ctx context.Context, libraryID, deviceID, recordingID string) (string, bool, error) {
-	type localPathRow struct{ LocalPath string }
 	exactVariant, err := s.isExactTrackVariantID(ctx, libraryID, recordingID)
 	if err != nil {
 		return "", false, err
 	}
+	return s.bestLocalRecordingPathWithExactness(ctx, libraryID, deviceID, recordingID, exactVariant)
+}
+
+func (s *PlaybackService) bestLocalRecordingPathWithExactness(ctx context.Context, libraryID, deviceID, recordingID string, exactVariant bool) (string, bool, error) {
+	type localPathRow struct{ LocalPath string }
 	query := `
 SELECT sf.local_path
 FROM source_files sf
@@ -1608,6 +1719,14 @@ LIMIT 1`
 }
 
 func (s *PlaybackService) bestCachedEncoding(ctx context.Context, libraryID, deviceID, recordingID, profile string) (string, string, bool, error) {
+	exactVariant, err := s.isExactTrackVariantID(ctx, libraryID, recordingID)
+	if err != nil {
+		return "", "", false, err
+	}
+	return s.bestCachedEncodingWithExactness(ctx, libraryID, deviceID, recordingID, profile, exactVariant)
+}
+
+func (s *PlaybackService) bestCachedEncodingWithExactness(ctx context.Context, libraryID, deviceID, recordingID, profile string, exactVariant bool) (string, string, bool, error) {
 	aliasProfile := normalizedPlaybackProfileAlias(profile)
 	type encodingRow struct {
 		BlobID           string
@@ -1626,6 +1745,19 @@ WHERE e.library_id = ? AND cand.track_cluster_id = req.track_cluster_id AND COAL
 ORDER BY CASE WHEN sf.track_variant_id = ? THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC
 LIMIT 1`
 	args := []any{recordingID, libraryID, deviceID, libraryID, profile, profile, aliasProfile, recordingID}
+	if exactVariant {
+		query = `
+SELECT
+	e.blob_id,
+	e.optimized_asset_id AS optimized_asset_id
+FROM optimized_assets e
+JOIN source_files sf ON sf.library_id = e.library_id AND sf.source_file_id = e.source_file_id
+LEFT JOIN device_asset_caches de ON de.library_id = e.library_id AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
+WHERE e.library_id = ? AND sf.track_variant_id = ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
+ORDER BY e.bitrate DESC, e.optimized_asset_id ASC
+LIMIT 1`
+		args = []any{deviceID, libraryID, recordingID, profile, profile, aliasProfile}
+	}
 	var result encodingRow
 	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&result).Error; err != nil {
 		return "", "", false, err
@@ -1639,46 +1771,25 @@ LIMIT 1`
 	return strings.TrimSpace(result.BlobID), strings.TrimSpace(result.OptimizedAssetID), true, nil
 }
 
-func (s *PlaybackService) batchBestLocalRecordingPaths(ctx context.Context, libraryID, deviceID string, recordingIDs []string) (map[string]string, error) {
+func (s *PlaybackService) batchBestLocalRecordingPaths(ctx context.Context, libraryID, deviceID string, recordingIDs []string, exactVariant bool) (map[string]string, error) {
 	recordingIDs = compactNonEmptyStrings(recordingIDs)
 	if len(recordingIDs) == 0 {
 		return map[string]string{}, nil
-	}
-	exactVariantIDs, err := s.exactTrackVariantIDsSet(ctx, libraryID, recordingIDs)
-	if err != nil {
-		return nil, err
-	}
-	exactIDs := make([]string, 0, len(recordingIDs))
-	clusterIDs := make([]string, 0, len(recordingIDs))
-	for _, recordingID := range recordingIDs {
-		if _, ok := exactVariantIDs[recordingID]; ok {
-			exactIDs = append(exactIDs, recordingID)
-			continue
-		}
-		clusterIDs = append(clusterIDs, recordingID)
 	}
 
 	type row struct {
 		RecordingID string
 		LocalPath   string
 	}
-	rows := make([]row, 0, len(recordingIDs))
-	if len(exactIDs) > 0 {
-		exactQuery := `
+	query := `
 SELECT
 	sf.track_variant_id AS recording_id,
 	sf.local_path
 FROM source_files sf
 WHERE sf.library_id = ? AND sf.track_variant_id IN ? AND sf.device_id = ? AND sf.is_present = 1
 ORDER BY sf.track_variant_id ASC, sf.last_seen_at DESC, sf.quality_rank DESC, sf.size_bytes DESC, sf.local_path ASC`
-		var exactRows []row
-		if err := s.app.storage.WithContext(ctx).Raw(exactQuery, libraryID, exactIDs, deviceID).Scan(&exactRows).Error; err != nil {
-			return nil, err
-		}
-		rows = append(rows, exactRows...)
-	}
-	if len(clusterIDs) > 0 {
-		query := `
+	if !exactVariant {
+		query = `
 SELECT
 	req.track_variant_id AS recording_id,
 	sf.local_path
@@ -1687,11 +1798,10 @@ JOIN track_variants cand ON cand.library_id = req.library_id AND cand.track_clus
 JOIN source_files sf ON sf.library_id = req.library_id AND sf.track_variant_id = cand.track_variant_id
 WHERE req.library_id = ? AND req.track_variant_id IN ? AND sf.device_id = ? AND sf.is_present = 1
 ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_variant_id THEN 0 ELSE 1 END ASC, sf.last_seen_at DESC, sf.quality_rank DESC, sf.size_bytes DESC, sf.local_path ASC`
-		var clusterRows []row
-		if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, clusterIDs, deviceID).Scan(&clusterRows).Error; err != nil {
-			return nil, err
-		}
-		rows = append(rows, clusterRows...)
+	}
+	var rows []row
+	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, recordingIDs, deviceID).Scan(&rows).Error; err != nil {
+		return nil, err
 	}
 
 	out := make(map[string]string, len(recordingIDs))
@@ -1715,34 +1825,29 @@ ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_var
 	return out, nil
 }
 
-func (s *PlaybackService) batchBestCachedRecordingIDs(ctx context.Context, libraryID, deviceID string, recordingIDs []string, profile string) (map[string]bool, error) {
+func (s *PlaybackService) batchBestCachedRecordingIDs(ctx context.Context, libraryID, deviceID string, recordingIDs []string, profile string, exactVariant bool) (map[string]bool, error) {
 	recordingIDs = compactNonEmptyStrings(recordingIDs)
 	if len(recordingIDs) == 0 {
 		return map[string]bool{}, nil
 	}
 
 	aliasProfile := normalizedPlaybackProfileAlias(profile)
-	exactVariantIDs, err := s.exactTrackVariantIDsSet(ctx, libraryID, recordingIDs)
-	if err != nil {
-		return nil, err
-	}
-	exactIDs := make([]string, 0, len(recordingIDs))
-	clusterIDs := make([]string, 0, len(recordingIDs))
-	for _, recordingID := range recordingIDs {
-		if _, ok := exactVariantIDs[recordingID]; ok {
-			exactIDs = append(exactIDs, recordingID)
-			continue
-		}
-		clusterIDs = append(clusterIDs, recordingID)
-	}
 
 	type row struct {
 		RecordingID string
 		BlobID      string
 	}
-	rows := make([]row, 0, len(recordingIDs))
-	if len(exactIDs) > 0 {
-		exactQuery := `
+	query := `
+SELECT
+	sf.track_variant_id AS recording_id,
+	e.blob_id
+FROM optimized_assets e
+JOIN source_files sf ON sf.library_id = e.library_id AND sf.source_file_id = e.source_file_id
+LEFT JOIN device_asset_caches de ON de.library_id = e.library_id AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
+WHERE e.library_id = ? AND sf.track_variant_id IN ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
+ORDER BY sf.track_variant_id ASC, e.bitrate DESC, e.optimized_asset_id ASC`
+	if !exactVariant {
+		query = `
 SELECT
 	req.track_variant_id AS recording_id,
 	e.blob_id
@@ -1753,29 +1858,10 @@ JOIN optimized_assets e ON e.library_id = sf.library_id AND e.source_file_id = s
 LEFT JOIN device_asset_caches de ON de.library_id = e.library_id AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
 WHERE req.library_id = ? AND req.track_variant_id IN ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
 ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_variant_id THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC`
-		var exactRows []row
-		if err := s.app.storage.WithContext(ctx).Raw(exactQuery, deviceID, libraryID, exactIDs, profile, profile, aliasProfile).Scan(&exactRows).Error; err != nil {
-			return nil, err
-		}
-		rows = append(rows, exactRows...)
 	}
-	if len(clusterIDs) > 0 {
-		query := `
-SELECT
-	req.track_variant_id AS recording_id,
-	e.blob_id
-FROM track_variants req
-JOIN track_variants cand ON cand.library_id = req.library_id AND cand.track_cluster_id = req.track_cluster_id
-JOIN source_files sf ON sf.library_id = req.library_id AND sf.track_variant_id = cand.track_variant_id
-JOIN optimized_assets e ON e.library_id = sf.library_id AND e.source_file_id = sf.source_file_id
-LEFT JOIN device_asset_caches de ON de.library_id = e.library_id AND de.optimized_asset_id = e.optimized_asset_id AND de.device_id = ?
-WHERE req.library_id = ? AND req.track_variant_id IN ? AND COALESCE(de.is_cached, 0) = 1 AND (? = '' OR e.profile = ? OR e.profile = ?)
-ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_variant_id THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC`
-		var clusterRows []row
-		if err := s.app.storage.WithContext(ctx).Raw(query, deviceID, libraryID, clusterIDs, profile, profile, aliasProfile).Scan(&clusterRows).Error; err != nil {
-			return nil, err
-		}
-		rows = append(rows, clusterRows...)
+	var rows []row
+	if err := s.app.storage.WithContext(ctx).Raw(query, deviceID, libraryID, recordingIDs, profile, profile, aliasProfile).Scan(&rows).Error; err != nil {
+		return nil, err
 	}
 
 	out := make(map[string]bool, len(recordingIDs))
@@ -1824,6 +1910,7 @@ type resolvedRecordingPinTarget struct {
 	resolvedRecordingID string
 	clusterID           string
 	profile             string
+	exactRequested      bool
 }
 
 type pinScopeMaterializationOutcome struct {
@@ -1856,6 +1943,7 @@ func (s *PlaybackService) resolveRecordingPinTarget(ctx context.Context, local a
 			resolvedRecordingID: exactRecordingID,
 			clusterID:           clusterID,
 			profile:             profile,
+			exactRequested:      true,
 		}, nil
 	}
 
@@ -1869,6 +1957,7 @@ func (s *PlaybackService) resolveRecordingPinTarget(ctx context.Context, local a
 		resolvedRecordingID: resolvedRecordingID,
 		clusterID:           clusterID,
 		profile:             profile,
+		exactRequested:      false,
 	}, nil
 }
 
@@ -1928,20 +2017,40 @@ func (s *PlaybackService) validateAlbumPinStart(ctx context.Context, local apity
 	if err != nil {
 		return err
 	}
-	facts, err := s.batchRecordingPlaybackFacts(
+	partition := partitionResolvedRecordingRequests(recordingIDs, resolution)
+	exactFacts, err := s.batchRecordingPlaybackFacts(
 		ctx,
 		local.LibraryID,
 		local.DeviceID,
-		resolution.resolvedRecordingIDs,
+		partition.exactResolvedIDs,
 		resolution.profile,
 		normalizedPlaybackProfileAlias(resolution.profile),
 		time.Now().UTC().Add(-availabilityOnlineWindow),
+		true,
 	)
 	if err != nil {
 		return err
 	}
-	for _, recordingID := range resolution.resolvedRecordingIDs {
-		if !facts[strings.TrimSpace(recordingID)].hasLocalSource {
+	logicalFacts, err := s.batchRecordingPlaybackFacts(
+		ctx,
+		local.LibraryID,
+		local.DeviceID,
+		partition.logicalResolvedIDs,
+		resolution.profile,
+		normalizedPlaybackProfileAlias(resolution.profile),
+		time.Now().UTC().Add(-availabilityOnlineWindow),
+		false,
+	)
+	if err != nil {
+		return err
+	}
+	for _, recordingID := range recordingIDs {
+		resolvedRecordingID := strings.TrimSpace(resolution.resolvedByRecording[recordingID])
+		fact := logicalFacts[resolvedRecordingID]
+		if resolution.exactRequestedByID[recordingID] {
+			fact = exactFacts[resolvedRecordingID]
+		}
+		if !fact.hasLocalSource {
 			return nil
 		}
 	}
@@ -2098,12 +2207,12 @@ func (s *PlaybackService) materializePinScopeWithJob(ctx context.Context, local 
 		go func() {
 			defer workers.Done()
 			for recordingID := range workCh {
-				resolvedRecordingID, _, err := s.resolvePlaybackVariant(workCtx, local, recordingID, profile)
+				resolvedRecordingID, _, exactRequested, err := s.resolvePlaybackRequest(workCtx, local, recordingID, profile)
 				if err != nil {
 					resultCh <- resultItem{recordingID: recordingID, err: err}
 					continue
 				}
-				result, err := s.prepareRecordingPinResult(workCtx, local, resolvedRecordingID, profile)
+				result, err := s.prepareRecordingPinResult(workCtx, local, recordingID, resolvedRecordingID, profile, exactRequested)
 				if err != nil {
 					resultCh <- resultItem{recordingID: recordingID, err: err}
 					continue
@@ -2163,7 +2272,7 @@ func (s *PlaybackService) materializeRecordingPinBestEffort(ctx context.Context,
 	if len(recordings) == 0 {
 		return apitypes.PlaybackRecordingResult{}, len(pending) > 0, nil
 	}
-	result, err := s.prepareRecordingPinResult(ctx, local, target.resolvedRecordingID, target.profile)
+	result, err := s.prepareRecordingPinResult(ctx, local, target.scopeRecordingID, target.resolvedRecordingID, target.profile, target.exactRequested)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return apitypes.PlaybackRecordingResult{}, false, err
@@ -2184,14 +2293,29 @@ func (s *PlaybackService) recordingsReadyForPinFetch(ctx context.Context, local 
 	if err != nil {
 		return nil, nil, err
 	}
-	facts, err := s.batchRecordingPlaybackFacts(
+	partition := partitionResolvedRecordingRequests(recordingIDs, resolution)
+	exactFacts, err := s.batchRecordingPlaybackFacts(
 		ctx,
 		local.LibraryID,
 		local.DeviceID,
-		resolution.resolvedRecordingIDs,
+		partition.exactResolvedIDs,
 		resolution.profile,
 		normalizedPlaybackProfileAlias(resolution.profile),
 		time.Now().UTC().Add(-availabilityOnlineWindow),
+		true,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	logicalFacts, err := s.batchRecordingPlaybackFacts(
+		ctx,
+		local.LibraryID,
+		local.DeviceID,
+		partition.logicalResolvedIDs,
+		resolution.profile,
+		normalizedPlaybackProfileAlias(resolution.profile),
+		time.Now().UTC().Add(-availabilityOnlineWindow),
+		false,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -2201,7 +2325,10 @@ func (s *PlaybackService) recordingsReadyForPinFetch(ctx context.Context, local 
 	pending := make([]string, 0, len(recordingIDs))
 	for _, recordingID := range recordingIDs {
 		resolvedRecordingID := strings.TrimSpace(resolution.resolvedByRecording[recordingID])
-		fact := facts[resolvedRecordingID]
+		fact := logicalFacts[resolvedRecordingID]
+		if resolution.exactRequestedByID[recordingID] {
+			fact = exactFacts[resolvedRecordingID]
+		}
 		canFetch := fact.hasLocalSource || fact.hasLocalCached
 		if !canFetch && networkRunning && (fact.hasRemoteCachedOnline || fact.hasRemoteSourceOnline) {
 			canFetch = true
@@ -2260,8 +2387,10 @@ func maxInt(left, right int) int {
 	return right
 }
 
-func (s *PlaybackService) prepareRecordingPinResult(ctx context.Context, local apitypes.LocalContext, recordingID, profile string) (apitypes.PlaybackRecordingResult, error) {
-	blobID, encodingID, ok, err := s.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, recordingID, profile)
+func (s *PlaybackService) prepareRecordingPinResult(ctx context.Context, local apitypes.LocalContext, requestRecordingID, resolvedRecordingID, profile string, exactRequested bool) (apitypes.PlaybackRecordingResult, error) {
+	requestRecordingID = strings.TrimSpace(requestRecordingID)
+	resolvedRecordingID = strings.TrimSpace(resolvedRecordingID)
+	blobID, encodingID, ok, err := s.bestCachedEncodingWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile, exactRequested)
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
@@ -2291,7 +2420,7 @@ func (s *PlaybackService) prepareRecordingPinResult(ctx context.Context, local a
 		}, nil
 	}
 
-	if localPath, ok, err := s.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, recordingID); err != nil {
+	if localPath, ok, err := s.bestLocalRecordingPathWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, exactRequested); err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	} else if ok {
 		info, err := os.Stat(localPath)
@@ -2307,13 +2436,17 @@ func (s *PlaybackService) prepareRecordingPinResult(ctx context.Context, local a
 		}, nil
 	}
 
-	if result, fetched, err := s.ensureRemotePlaybackRecording(ctx, local, recordingID, profile); err != nil {
+	remoteRecordingID := resolvedRecordingID
+	if !exactRequested {
+		remoteRecordingID = requestRecordingID
+	}
+	if result, fetched, err := s.ensureRemotePlaybackRecording(ctx, local, remoteRecordingID, profile); err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	} else if fetched {
 		return result, nil
 	}
 
-	return apitypes.PlaybackRecordingResult{}, fmt.Errorf("recording %s has no local or cached asset available for offline pinning", recordingID)
+	return apitypes.PlaybackRecordingResult{}, fmt.Errorf("recording %s has no local or cached asset available for offline pinning", requestRecordingID)
 }
 
 func (s *PlaybackService) recordingIDsForAlbum(ctx context.Context, libraryID, deviceID, albumID string) ([]string, error) {
@@ -2468,7 +2601,12 @@ func (s *PlaybackService) albumAvailabilitySummaries(ctx context.Context, local 
 	profile := resolution.profile
 	aliasProfile := normalizedPlaybackProfileAlias(profile)
 	cutoff := time.Now().UTC().Add(-availabilityOnlineWindow)
-	facts, err := s.batchRecordingAvailabilityFacts(ctx, local.LibraryID, local.DeviceID, resolution.resolvedRecordingIDs, profile, aliasProfile, s.app.NetworkStatus().Running, cutoff)
+	partition := partitionResolvedRecordingRequests(recordingIDs, resolution)
+	exactFacts, err := s.batchRecordingPlaybackFacts(ctx, local.LibraryID, local.DeviceID, partition.exactResolvedIDs, profile, aliasProfile, cutoff, true)
+	if err != nil {
+		return nil, err
+	}
+	logicalFacts, err := s.batchRecordingPlaybackFacts(ctx, local.LibraryID, local.DeviceID, partition.logicalResolvedIDs, profile, aliasProfile, cutoff, false)
 	if err != nil {
 		return nil, err
 	}
@@ -2491,7 +2629,12 @@ func (s *PlaybackService) albumAvailabilitySummaries(ctx context.Context, local 
 		albumPinned := albumPins[pinScopeByRequested[trimmedAlbumID]]
 		summary.ScopePinned = albumPinned
 		for _, recordingID := range recordings {
-			fact := facts[resolution.resolvedByRecording[recordingID]]
+			resolvedRecordingID := strings.TrimSpace(resolution.resolvedByRecording[recordingID])
+			playbackFacts := logicalFacts[resolvedRecordingID]
+			if resolution.exactRequestedByID[recordingID] {
+				playbackFacts = exactFacts[resolvedRecordingID]
+			}
+			fact := playbackFacts.summary(s.app.NetworkStatus().Running)
 			if fact.isLocal {
 				summary.IsLocal = true
 				summary.LocalTrackCount++
@@ -2561,7 +2704,7 @@ func (f recordingPlaybackFacts) summary(networkRunning bool) recordingAvailabili
 	}
 }
 
-func (s *PlaybackService) batchRecordingPlaybackFacts(ctx context.Context, libraryID, localDeviceID string, recordingIDs []string, profile, aliasProfile string, cutoff time.Time) (map[string]recordingPlaybackFacts, error) {
+func (s *PlaybackService) batchRecordingPlaybackFacts(ctx context.Context, libraryID, localDeviceID string, recordingIDs []string, profile, aliasProfile string, cutoff time.Time, exactVariant bool) (map[string]recordingPlaybackFacts, error) {
 	recordingIDs = compactNonEmptyStrings(recordingIDs)
 	if len(recordingIDs) == 0 {
 		return map[string]recordingPlaybackFacts{}, nil
@@ -2586,6 +2729,20 @@ LEFT JOIN memberships m ON m.library_id = sf.library_id AND m.device_id = sf.dev
 LEFT JOIN devices d ON d.device_id = sf.device_id
 WHERE req.library_id = ? AND req.track_variant_id IN ?
 GROUP BY req.track_variant_id`
+	if exactVariant {
+		sourceQuery = `
+SELECT
+	req.track_variant_id AS recording_id,
+	MAX(CASE WHEN sf.device_id = ? AND sf.is_present = 1 THEN 1 ELSE 0 END) AS has_local_source,
+	MAX(CASE WHEN sf.device_id <> ? AND sf.is_present = 1 AND COALESCE(m.role, '') IN ('owner', 'admin', 'member') THEN 1 ELSE 0 END) AS has_remote_source,
+	MAX(CASE WHEN sf.device_id <> ? AND sf.is_present = 1 AND COALESCE(m.role, '') IN ('owner', 'admin', 'member') AND d.last_seen_at >= ? THEN 1 ELSE 0 END) AS has_remote_source_online
+FROM track_variants req
+LEFT JOIN source_files sf ON sf.library_id = req.library_id AND sf.track_variant_id = req.track_variant_id
+LEFT JOIN memberships m ON m.library_id = sf.library_id AND m.device_id = sf.device_id
+LEFT JOIN devices d ON d.device_id = sf.device_id
+WHERE req.library_id = ? AND req.track_variant_id IN ?
+GROUP BY req.track_variant_id`
+	}
 	var sourceRows []sourceRow
 	if err := s.app.storage.WithContext(ctx).Raw(sourceQuery, localDeviceID, localDeviceID, localDeviceID, cutoff, libraryID, recordingIDs).Scan(&sourceRows).Error; err != nil {
 		return nil, err
@@ -2611,6 +2768,21 @@ LEFT JOIN device_asset_caches dac ON dac.library_id = oa.library_id AND dac.opti
 LEFT JOIN devices d ON d.device_id = dac.device_id
 WHERE req.library_id = ? AND req.track_variant_id IN ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
 GROUP BY req.track_variant_id`
+	if exactVariant {
+		cacheQuery = `
+SELECT
+	req.track_variant_id AS recording_id,
+	MAX(CASE WHEN dac.device_id = ? AND dac.is_cached = 1 THEN 1 ELSE 0 END) AS has_local_cached,
+	MAX(CASE WHEN dac.device_id <> ? AND dac.is_cached = 1 THEN 1 ELSE 0 END) AS has_remote_cached,
+	MAX(CASE WHEN dac.device_id <> ? AND dac.is_cached = 1 AND d.last_seen_at >= ? THEN 1 ELSE 0 END) AS has_remote_cached_online
+FROM track_variants req
+LEFT JOIN source_files sf ON sf.library_id = req.library_id AND sf.track_variant_id = req.track_variant_id
+LEFT JOIN optimized_assets oa ON oa.library_id = sf.library_id AND oa.source_file_id = sf.source_file_id
+LEFT JOIN device_asset_caches dac ON dac.library_id = oa.library_id AND dac.optimized_asset_id = oa.optimized_asset_id
+LEFT JOIN devices d ON d.device_id = dac.device_id
+WHERE req.library_id = ? AND req.track_variant_id IN ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
+GROUP BY req.track_variant_id`
+	}
 	var cacheRows []cacheRow
 	if err := s.app.storage.WithContext(ctx).Raw(cacheQuery, localDeviceID, localDeviceID, localDeviceID, cutoff, libraryID, recordingIDs, profile, profile, aliasProfile).Scan(&cacheRows).Error; err != nil {
 		return nil, err
@@ -2635,19 +2807,6 @@ GROUP BY req.track_variant_id`
 	}
 
 	return combined, nil
-}
-
-func (s *PlaybackService) batchRecordingAvailabilityFacts(ctx context.Context, libraryID, localDeviceID string, recordingIDs []string, profile, aliasProfile string, networkRunning bool, cutoff time.Time) (map[string]recordingAvailabilityFacts, error) {
-	combined, err := s.batchRecordingPlaybackFacts(ctx, libraryID, localDeviceID, recordingIDs, profile, aliasProfile, cutoff)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make(map[string]recordingAvailabilityFacts, len(recordingIDs))
-	for _, recordingID := range recordingIDs {
-		out[recordingID] = combined[recordingID].summary(networkRunning)
-	}
-	return out, nil
 }
 
 func (s *PlaybackService) batchAlbumPins(ctx context.Context, libraryID, localDeviceID string, albumIDs []string, profile, aliasProfile string) (map[string]bool, error) {

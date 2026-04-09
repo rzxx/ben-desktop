@@ -124,7 +124,7 @@ func upsertIngestTx(tx *gorm.DB, in ingestRecord, mutatedAt time.Time, isPresent
 		}, "|"))
 	}
 	trackVariantID := explicitTrackVariantID(recordingKey, editionScopeKey, in.Tags.DiscNo, in.Tags.TrackNo)
-	trackClusterID := stableNameID("track_cluster", recordingKey)
+	trackClusterID := stableNameID("track_cluster", normalizedTrackClusterKey(recordingKey, groupKey))
 	albumVariantID := explicitAlbumVariantID(albumKey, editionScopeKey)
 	albumClusterID := stableNameID("library_album", groupKey)
 

@@ -1148,6 +1148,15 @@ func normalizedRecordKeys(tags Tags) (recordingKey, albumKey, groupKey string) {
 	return recordingKey, albumKey, groupKey
 }
 
+func normalizedTrackClusterKey(recordingKey, groupKey string) string {
+	recordingKey = strings.TrimSpace(recordingKey)
+	groupKey = strings.TrimSpace(groupKey)
+	if groupKey == "" {
+		return recordingKey
+	}
+	return normalizeCatalogKey(strings.Join([]string{recordingKey, groupKey}, "|"))
+}
+
 func normalizeCatalogKey(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	return strings.Join(strings.Fields(value), " ")

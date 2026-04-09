@@ -217,12 +217,12 @@ func (i *Inspector) TracePlaybackContext(ctx context.Context, req TracePlaybackC
 					"error",
 					"logical album context entry resolves outside the owning album family",
 					map[string]any{
-						"context_album_cluster_id":   albumFamily,
-						"logical_recording_id":       item.Target.LogicalRecordingID,
+						"context_album_cluster_id":    albumFamily,
+						"logical_recording_id":        item.Target.LogicalRecordingID,
 						"logical_resolved_variant_id": logicalResolvedVariantID,
-						"exact_variant_recording_id": item.Target.ExactVariantRecordingID,
-						"resolved_album_cluster_ids": families,
-						"context_index":              index,
+						"exact_variant_recording_id":  item.Target.ExactVariantRecordingID,
+						"resolved_album_cluster_ids":  families,
+						"context_index":               index,
 					},
 				))
 			}
@@ -230,9 +230,9 @@ func (i *Inspector) TracePlaybackContext(ctx context.Context, req TracePlaybackC
 	}
 
 	trace.ComputedOutput = map[string]any{
-		"kind":                   contextInput.Kind,
-		"id":                     contextInput.ID,
-		"start_index":            contextInput.StartIndex,
+		"kind":                       contextInput.Kind,
+		"id":                         contextInput.ID,
+		"start_index":                contextInput.StartIndex,
 		"materialized_session_items": entryOutputs,
 	}
 	trace.Anomalies = sortAnomalies(trace.Anomalies)
@@ -240,7 +240,8 @@ func (i *Inspector) TracePlaybackContext(ctx context.Context, req TracePlaybackC
 }
 
 func (i *Inspector) getRecordingAvailabilityForLocal(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string, networkRunning bool) (apitypes.RecordingPlaybackAvailability, error) {
-	resolvedRecordingID, profile, err := i.app.playback.resolvePlaybackVariant(ctx, local, recordingID, preferredProfile)
+	recordingID = strings.TrimSpace(recordingID)
+	resolvedRecordingID, profile, exactRequested, err := i.app.playback.resolvePlaybackRequest(ctx, local, recordingID, preferredProfile)
 	if err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
 	}
@@ -253,7 +254,7 @@ func (i *Inspector) getRecordingAvailabilityForLocal(ctx context.Context, local 
 	} else {
 		out.Pinned = pinned
 	}
-	if localPath, ok, err := i.app.playback.bestLocalRecordingPath(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID); err != nil {
+	if localPath, ok, err := i.app.playback.bestLocalRecordingPathWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, exactRequested); err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
 	} else if ok {
 		out.State = apitypes.AvailabilityPlayableLocalFile
@@ -261,14 +262,14 @@ func (i *Inspector) getRecordingAvailabilityForLocal(ctx context.Context, local 
 		out.LocalPath = localPath
 		return out, nil
 	}
-	if _, _, ok, err := i.app.playback.bestCachedEncoding(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile); err != nil {
+	if _, _, ok, err := i.app.playback.bestCachedEncodingWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile, exactRequested); err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
 	} else if ok {
 		out.State = apitypes.AvailabilityPlayableCachedOpt
 		out.SourceKind = apitypes.PlaybackSourceCachedOpt
 		return out, nil
 	}
-	items, err := i.listRecordingAvailabilityForLocal(ctx, local, resolvedRecordingID, profile)
+	items, err := i.listRecordingAvailabilityForLocal(ctx, local, recordingID, profile)
 	if err != nil {
 		return apitypes.RecordingPlaybackAvailability{}, err
 	}
@@ -321,7 +322,11 @@ func (i *Inspector) getRecordingAvailabilityForLocal(ctx context.Context, local 
 
 func (i *Inspector) listRecordingAvailabilityForLocal(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {
 	recordingID = strings.TrimSpace(recordingID)
-	aliasProfile := normalizedPlaybackProfileAlias(preferredProfile)
+	resolvedRecordingID, profile, exactVariant, err := i.app.playback.resolvePlaybackRequest(ctx, local, recordingID, preferredProfile)
+	if err != nil {
+		return nil, err
+	}
+	aliasProfile := normalizedPlaybackProfileAlias(profile)
 	type row struct {
 		DeviceID         string
 		Role             string
@@ -368,14 +373,52 @@ LEFT JOIN devices d ON d.device_id = m.device_id
 LEFT JOIN peer_sync_states pss ON pss.library_id = m.library_id AND pss.device_id = m.device_id
 WHERE m.library_id = ?
 ORDER BY CASE WHEN m.device_id = ? THEN 0 ELSE 1 END, m.device_id ASC`
-	var rows []row
-	if err := i.app.storage.WithContext(ctx).Raw(
-		query,
-		recordingID,
-		recordingID, preferredProfile, preferredProfile, aliasProfile,
-		recordingID, preferredProfile, preferredProfile, aliasProfile,
+	args := []any{
+		resolvedRecordingID,
+		resolvedRecordingID, profile, profile, aliasProfile,
+		resolvedRecordingID, profile, profile, aliasProfile,
 		local.LibraryID, local.DeviceID,
-	).Scan(&rows).Error; err != nil {
+	}
+	if exactVariant {
+		query = `
+SELECT
+	m.device_id,
+	m.role,
+	COALESCE(d.peer_id, '') AS peer_id,
+	d.last_seen_at,
+	pss.last_success_at,
+	CASE WHEN EXISTS (
+		SELECT 1
+		FROM source_files sf
+		WHERE sf.library_id = m.library_id AND sf.device_id = m.device_id AND sf.is_present = 1 AND sf.track_variant_id = ?
+	) THEN 1 ELSE 0 END AS source_present,
+	CASE WHEN EXISTS (
+		SELECT 1
+		FROM optimized_assets oa
+		JOIN source_files sf ON sf.library_id = oa.library_id AND sf.source_file_id = oa.source_file_id
+		WHERE oa.library_id = m.library_id AND oa.created_by_device_id = m.device_id AND sf.track_variant_id = ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
+	) THEN 1 ELSE 0 END AS optimized_present,
+	CASE WHEN EXISTS (
+		SELECT 1
+		FROM device_asset_caches dac
+		JOIN optimized_assets oa ON oa.library_id = dac.library_id AND oa.optimized_asset_id = dac.optimized_asset_id
+		JOIN source_files sf ON sf.library_id = oa.library_id AND sf.source_file_id = oa.source_file_id
+		WHERE dac.library_id = m.library_id AND dac.device_id = m.device_id AND dac.is_cached = 1 AND sf.track_variant_id = ? AND (? = '' OR oa.profile = ? OR oa.profile = ?)
+	) THEN 1 ELSE 0 END AS cached_optimized
+FROM memberships m
+LEFT JOIN devices d ON d.device_id = m.device_id
+LEFT JOIN peer_sync_states pss ON pss.library_id = m.library_id AND pss.device_id = m.device_id
+WHERE m.library_id = ?
+ORDER BY CASE WHEN m.device_id = ? THEN 0 ELSE 1 END, m.device_id ASC`
+		args = []any{
+			resolvedRecordingID,
+			resolvedRecordingID, profile, profile, aliasProfile,
+			resolvedRecordingID, profile, profile, aliasProfile,
+			local.LibraryID, local.DeviceID,
+		}
+	}
+	var rows []row
+	if err := i.app.storage.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]apitypes.RecordingAvailabilityItem, 0, len(rows))

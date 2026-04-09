@@ -326,7 +326,7 @@ func deriveCatalogMaterializationRows(rows []SourceFileModel) (catalogMaterializ
 		if trackVariantID == "" {
 			trackVariantID = explicitTrackVariantID(recordingKey, editionScopeKey, tags.DiscNo, tags.TrackNo)
 		}
-		trackClusterID := stableNameID("track_cluster", recordingKey)
+		trackClusterID := stableNameID("track_cluster", normalizedTrackClusterKey(recordingKey, groupKey))
 		albumVariantID := explicitAlbumVariantID(albumKey, editionScopeKey)
 		mutatedAt := latestNonZeroTime(row.UpdatedAt, row.LastSeenAt, row.CreatedAt)
 

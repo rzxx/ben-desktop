@@ -116,6 +116,9 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	if err := app.runContextIdentityMigration(ctx); err != nil {
 		return nil, fmt.Errorf("run context identity migration: %w", err)
 	}
+	if err := app.runCatalogMaterializationMigration(ctx); err != nil {
+		return nil, fmt.Errorf("run catalog materialization migration: %w", err)
+	}
 	if err := runPinStorageMigration(app.db); err != nil {
 		return nil, fmt.Errorf("run pin storage migration: %w", err)
 	}

@@ -124,7 +124,9 @@ func autoMigrate(db *gorm.DB) error {
 const (
 	pathPrivacyEpoch                 = "2"
 	contextIdentityEpoch             = "3"
+	catalogMaterializationEpoch      = "1"
 	localSettingCatalogIdentityEpoch = "catalog_identity_epoch"
+	localSettingCatalogMaterialEpoch = "catalog_materialization_epoch"
 )
 
 func (a *App) runPathPrivacyMigration(ctx context.Context) error {
@@ -275,6 +277,44 @@ func (a *App) runContextIdentityMigration(ctx context.Context) error {
 			return err
 		}
 		return upsertLocalSettingTx(tx, localSettingCatalogIdentityEpoch, contextIdentityEpoch, now)
+	})
+}
+
+func (a *App) runCatalogMaterializationMigration(ctx context.Context) error {
+	if a == nil || a.storage == nil {
+		return nil
+	}
+
+	var setting LocalSetting
+	err := a.storage.WithContext(ctx).Where("key = ?", localSettingCatalogMaterialEpoch).Take(&setting).Error
+	switch {
+	case err == nil && strings.TrimSpace(setting.Value) == catalogMaterializationEpoch:
+		return nil
+	case err != nil && err != gorm.ErrRecordNotFound:
+		return err
+	}
+
+	var libraryIDs []string
+	if err := a.storage.WithContext(ctx).
+		Model(&Library{}).
+		Select("library_id").
+		Order("library_id ASC").
+		Scan(&libraryIDs).Error; err != nil {
+		return err
+	}
+	for _, libraryID := range libraryIDs {
+		libraryID = strings.TrimSpace(libraryID)
+		if libraryID == "" {
+			continue
+		}
+		if err := a.rebuildCatalogMaterializationFull(ctx, libraryID, nil); err != nil {
+			return fmt.Errorf("rebuild catalog materialization for %s: %w", libraryID, err)
+		}
+	}
+
+	now := time.Now().UTC()
+	return a.storage.Transaction(ctx, func(tx *gorm.DB) error {
+		return upsertLocalSettingTx(tx, localSettingCatalogMaterialEpoch, catalogMaterializationEpoch, now)
 	})
 }
 
