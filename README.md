@@ -26,6 +26,30 @@ wails3 build
 
 Playback uses `libmpv` by default. On Windows, place `libmpv.dll` at `build/windows/runtime/libmpv.dll` before `wails3 build` or packaging so the built app and NSIS installer include it. To intentionally build without mpv support, use the `nompv` build tag.
 
+## Inspector
+
+`beninspect` is a separate read-only inspector for tracing music identity, context resolution, and cache attribution directly from the SQLite library database. It does not start the main desktop runtime, run migrations, or mutate library state.
+
+Run it directly:
+
+```bash
+go run ./cmd/beninspect env resolve-context --db ./library.db --blob-root ./blobs
+go run ./cmd/beninspect music trace-recording --db ./library.db --blob-root ./blobs --library-id <library> --device-id <device> --id <recording-or-cluster>
+go run ./cmd/beninspect music trace-album --db ./library.db --blob-root ./blobs --library-id <library> --device-id <device> --id <album-or-cluster>
+go run ./cmd/beninspect music trace-context --db ./library.db --blob-root ./blobs --library-id <library> --device-id <device> --kind album --id <album-id>
+go run ./cmd/beninspect cache trace-recording --db ./library.db --blob-root ./blobs --library-id <library> --device-id <device> --id <recording-or-cluster>
+go run ./cmd/beninspect cache trace-blob --db ./library.db --blob-root ./blobs --library-id <library> --device-id <device> --blob-id <blob-id>
+```
+
+Task wrappers are also available:
+
+```bash
+task inspect CLI_ARGS="env resolve-context --db ./library.db --blob-root ./blobs"
+task inspect:recording ID=<recording-or-cluster> CLI_ARGS="--db ./library.db --blob-root ./blobs --library-id <library> --device-id <device>"
+```
+
+All inspector commands emit JSON by default and include `schema_version` so traces can be consumed by tests, agents, and shell automation.
+
 ## Playback Service
 
 The desktop host exposes a `PlaybackService`.

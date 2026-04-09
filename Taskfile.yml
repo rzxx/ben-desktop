@@ -58,3 +58,13 @@ tasks:
     summary: Builds and runs the Docker image
     cmds:
       - task: common:run:docker
+
+  inspect:
+    summary: Runs the beninspect inspector CLI. Pass CLI_ARGS with the desired subcommand and flags.
+    cmds:
+      - go run ./cmd/beninspect {{.CLI_ARGS}}
+
+  inspect:recording:
+    summary: Traces a recording with beninspect. Pass ID and optional CLI_ARGS for shared flags such as --db or --blob-root.
+    cmds:
+      - go run ./cmd/beninspect music trace-recording --id {{.ID}} {{.CLI_ARGS}}

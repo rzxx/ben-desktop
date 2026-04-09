@@ -1,0 +1,170 @@
+{
+  "anomalies": [
+    {
+      "code": "album_context_entry_resolves_to_foreign_album_variant",
+      "evidence": {
+        "context_album_cluster_id": "album-cluster-alpha",
+        "context_index": 0,
+        "exact_variant_recording_id": "recording-alpha",
+        "logical_recording_id": "cluster-shared",
+        "logical_resolved_variant_id": "recording-beta",
+        "resolved_album_cluster_ids": [
+          "album-cluster-beta"
+        ]
+      },
+      "message": "logical album context entry resolves outside the owning album family",
+      "severity": "error"
+    }
+  ],
+  "computed_outputs": {
+    "id": "album-alpha",
+    "kind": "album",
+    "materialized_session_items": [
+      {
+        "availability": {
+          "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha.flac",
+          "pinned": false,
+          "preferred_profile": "aac_lc_vbr_high",
+          "reason": "",
+          "recording_id": "recording-alpha",
+          "source_kind": "local_file",
+          "state": "PLAYABLE:LOCAL_FILE"
+        },
+        "exact_resolution_variant_id": "recording-alpha",
+        "index": 0,
+        "item": {
+          "album_id": "album-alpha",
+          "library_recording_id": "cluster-shared",
+          "recording_id": "recording-alpha",
+          "source_id": "album-alpha",
+          "source_item_id": "",
+          "source_kind": "album",
+          "title": "Opening",
+          "variant_album_id": "album-alpha",
+          "variant_recording_id": "recording-alpha"
+        },
+        "logical_resolution_variant_id": "recording-beta",
+        "resolved_variant_id": "recording-alpha",
+        "target": {
+          "exact_variant_recording_id": "recording-alpha",
+          "logical_recording_id": "cluster-shared",
+          "resolution_policy": "exact"
+        }
+      },
+      {
+        "availability": {
+          "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha-bonus.flac",
+          "pinned": false,
+          "preferred_profile": "aac_lc_vbr_high",
+          "reason": "",
+          "recording_id": "recording-alpha-bonus",
+          "source_kind": "local_file",
+          "state": "PLAYABLE:LOCAL_FILE"
+        },
+        "exact_resolution_variant_id": "recording-alpha-bonus",
+        "index": 1,
+        "item": {
+          "album_id": "album-alpha",
+          "library_recording_id": "cluster-alpha-bonus",
+          "recording_id": "recording-alpha-bonus",
+          "source_id": "album-alpha",
+          "source_item_id": "",
+          "source_kind": "album",
+          "title": "Bonus",
+          "variant_album_id": "album-alpha",
+          "variant_recording_id": "recording-alpha-bonus"
+        },
+        "logical_resolution_variant_id": "recording-alpha-bonus",
+        "resolved_variant_id": "recording-alpha-bonus",
+        "target": {
+          "exact_variant_recording_id": "recording-alpha-bonus",
+          "logical_recording_id": "cluster-alpha-bonus",
+          "resolution_policy": "exact"
+        }
+      }
+    ],
+    "start_index": 0
+  },
+  "context": {
+    "ambiguous": false,
+    "available_devices": [
+      {
+        "device_id": "device-inspect",
+        "last_seen_at": "2026-01-02T03:04:05Z",
+        "name": "Inspect Device",
+        "peer_id": "peer-inspect",
+        "role": "owner"
+      }
+    ],
+    "available_libraries": [
+      {
+        "library_id": "library-inspect",
+        "name": "Inspect Library"
+      }
+    ],
+    "inference_source": "explicit",
+    "selected": {
+      "device_id": "device-inspect",
+      "library_id": "library-inspect",
+      "network_running": false,
+      "preferred_profile": "aac_lc_vbr_high"
+    }
+  },
+  "decisions": [
+    {
+      "inputs": {
+        "id": "album-alpha",
+        "kind": "album"
+      },
+      "reason": "materialize playback context through internal/playback.CatalogLoader using the inspector's explicit read-only context",
+      "result": {
+        "item_count": 2,
+        "start_index": 0
+      },
+      "step": "materialize_context"
+    }
+  ],
+  "identity": {
+    "context_id": "album-alpha",
+    "context_kind": "album"
+  },
+  "raw_rows": {
+    "album_tracks": [
+      {
+        "album_variant_id": "album-alpha",
+        "disc_no": 1,
+        "library_id": "library-inspect",
+        "title_override": null,
+        "track_no": 1,
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "album_variant_id": "album-alpha",
+        "disc_no": 1,
+        "library_id": "library-inspect",
+        "title_override": null,
+        "track_no": 2,
+        "track_variant_id": "recording-alpha-bonus"
+      }
+    ],
+    "album_variants": [
+      {
+        "album_cluster_id": "album-cluster-alpha",
+        "album_variant_id": "album-alpha",
+        "edition": "",
+        "key_norm": "album-alpha",
+        "library_id": "library-inspect",
+        "title": "Album Alpha",
+        "year": null
+      }
+    ]
+  },
+  "request": {
+    "device_id": "device-inspect",
+    "id": "album-alpha",
+    "kind": "album",
+    "library_id": "library-inspect",
+    "preferred_profile": "desktop"
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,208 @@
+{
+  "anomalies": [],
+  "computed_outputs": {
+    "album_variants": [
+      {
+        "album_cluster_id": "album-cluster-alpha",
+        "album_variant_id": "album-alpha",
+        "artists": null,
+        "best_quality_rank": 220,
+        "edition": "",
+        "local_track_count": 2,
+        "title": "Album Alpha",
+        "track_count": 2,
+        "year": null
+      }
+    ],
+    "explicit_preferred_variant_id": "",
+    "heuristic_preferred_variant_id": "album-alpha",
+    "selected_album_tracks": [
+      {
+        "album_variant_id": "album-alpha",
+        "cross_album_memberships": [
+          {
+            "album_cluster_id": "album-cluster-alpha",
+            "album_variant_id": "album-alpha",
+            "track_cluster_id": "cluster-shared"
+          }
+        ],
+        "disc_no": 1,
+        "title": "Opening",
+        "track_cluster_id": "cluster-shared",
+        "track_no": 1,
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "album_variant_id": "album-alpha",
+        "cross_album_memberships": [
+          {
+            "album_cluster_id": "album-cluster-alpha",
+            "album_variant_id": "album-alpha",
+            "track_cluster_id": "cluster-alpha-bonus"
+          }
+        ],
+        "disc_no": 1,
+        "title": "Bonus",
+        "track_cluster_id": "cluster-alpha-bonus",
+        "track_no": 2,
+        "track_variant_id": "recording-alpha-bonus"
+      }
+    ],
+    "selected_album_variant_id": "album-alpha"
+  },
+  "context": {
+    "ambiguous": false,
+    "available_devices": [
+      {
+        "device_id": "device-inspect",
+        "last_seen_at": "2026-01-02T03:04:05Z",
+        "name": "Inspect Device",
+        "peer_id": "peer-inspect",
+        "role": "owner"
+      }
+    ],
+    "available_libraries": [
+      {
+        "library_id": "library-inspect",
+        "name": "Inspect Library"
+      }
+    ],
+    "inference_source": "explicit",
+    "selected": {
+      "device_id": "device-inspect",
+      "library_id": "library-inspect",
+      "network_running": false,
+      "preferred_profile": "aac_lc_vbr_high"
+    }
+  },
+  "decisions": [
+    {
+      "inputs": {
+        "explicit_preferred_variant_id": "",
+        "variants": [
+          {
+            "album_cluster_id": "album-cluster-alpha",
+            "album_variant_id": "album-alpha",
+            "best_quality_rank": 220,
+            "explicit_preferred": false,
+            "local_track_count": 2,
+            "title": "Album Alpha",
+            "track_count": 2
+          }
+        ]
+      },
+      "reason": "reuse compareAlbumVariants and album preference resolution to mirror current album winner selection",
+      "result": {
+        "heuristic_preferred_variant_id": "album-alpha",
+        "selected_album_variant_id": "album-alpha"
+      },
+      "step": "compare_album_variants"
+    }
+  ],
+  "identity": {
+    "cluster_id": "album-cluster-alpha",
+    "requested_id": "album-alpha",
+    "requested_kind": "variant"
+  },
+  "raw_rows": {
+    "album_tracks": [
+      {
+        "album_variant_id": "album-alpha",
+        "disc_no": 1,
+        "library_id": "library-inspect",
+        "title_override": null,
+        "track_no": 1,
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "album_variant_id": "album-alpha",
+        "disc_no": 1,
+        "library_id": "library-inspect",
+        "title_override": null,
+        "track_no": 2,
+        "track_variant_id": "recording-alpha-bonus"
+      }
+    ],
+    "album_variants": [
+      {
+        "album_cluster_id": "album-cluster-alpha",
+        "album_variant_id": "album-alpha",
+        "edition": "",
+        "key_norm": "album-alpha",
+        "library_id": "library-inspect",
+        "title": "Album Alpha",
+        "year": null
+      }
+    ],
+    "device_variant_preferences": [],
+    "source_files": [
+      {
+        "bitrate": 1400000,
+        "channels": 2,
+        "codec": "flac",
+        "container": "flac",
+        "device_id": "device-inspect",
+        "duration_ms": 180000,
+        "edition_scope_key": "",
+        "hash_algo": "b3",
+        "hash_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "is_lossless": true,
+        "is_present": true,
+        "library_id": "library-inspect",
+        "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha.flac",
+        "quality_rank": 220,
+        "sample_rate": 44100,
+        "size_bytes": 2048,
+        "source_file_id": "source-alpha",
+        "source_fingerprint": "source-alpha-fp",
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "bitrate": 900000,
+        "channels": 2,
+        "codec": "flac",
+        "container": "flac",
+        "device_id": "device-inspect",
+        "duration_ms": 200000,
+        "edition_scope_key": "",
+        "hash_algo": "b3",
+        "hash_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "is_lossless": true,
+        "is_present": true,
+        "library_id": "library-inspect",
+        "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha-bonus.flac",
+        "quality_rank": 180,
+        "sample_rate": 44100,
+        "size_bytes": 1024,
+        "source_file_id": "source-alpha-bonus",
+        "source_fingerprint": "source-alpha-bonus-fp",
+        "track_variant_id": "recording-alpha-bonus"
+      }
+    ],
+    "track_variants": [
+      {
+        "duration_ms": 180000,
+        "key_norm": "opening",
+        "library_id": "library-inspect",
+        "title": "Opening",
+        "track_cluster_id": "cluster-shared",
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "duration_ms": 200000,
+        "key_norm": "bonus",
+        "library_id": "library-inspect",
+        "title": "Bonus",
+        "track_cluster_id": "cluster-alpha-bonus",
+        "track_variant_id": "recording-alpha-bonus"
+      }
+    ]
+  },
+  "request": {
+    "device_id": "device-inspect",
+    "id": "album-alpha",
+    "library_id": "library-inspect",
+    "preferred_profile": "desktop"
+  },
+  "schema_version": 1
+}

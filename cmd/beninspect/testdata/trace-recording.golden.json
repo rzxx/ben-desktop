@@ -1,0 +1,376 @@
+{
+  "anomalies": [
+    {
+      "code": "explicit_variant_differs_from_preferred_resolution",
+      "evidence": {
+        "explicit_preferred_variant_id": "recording-beta",
+        "heuristic_preferred_variant_id": "recording-alpha"
+      },
+      "message": "explicit preferred recording variant overrides the heuristic winner",
+      "severity": "warning"
+    },
+    {
+      "code": "recording_cluster_spans_multiple_album_clusters",
+      "evidence": {
+        "album_cluster_ids": [
+          "album-cluster-alpha",
+          "album-cluster-beta"
+        ],
+        "track_cluster_id": "cluster-shared"
+      },
+      "message": "recording cluster belongs to more than one album cluster",
+      "severity": "warning"
+    },
+    {
+      "code": "requested_exact_variant_would_be_shadowed_by_cluster_resolution",
+      "evidence": {
+        "logical_winner_id": "recording-beta",
+        "requested_variant_id": "recording-alpha"
+      },
+      "message": "an exact variant request would resolve to another variant when treated as a logical recording",
+      "severity": "warning"
+    }
+  ],
+  "computed_outputs": {
+    "cache_blob_ids": [
+      "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "candidate_variants": [
+      {
+        "album_cluster_ids": [
+          "album-cluster-beta"
+        ],
+        "album_variant_id": "album-beta",
+        "album_variant_ids": [
+          "album-beta"
+        ],
+        "artists": null,
+        "bitrate": 700000,
+        "codec": "flac",
+        "container": "flac",
+        "duration_ms": 180000,
+        "is_cached_local": false,
+        "is_present_local": true,
+        "quality_rank": 120,
+        "source_file_id": "source-beta",
+        "title": "Opening",
+        "track_cluster_id": "cluster-shared",
+        "track_variant_id": "recording-beta"
+      },
+      {
+        "album_cluster_ids": [
+          "album-cluster-alpha"
+        ],
+        "album_variant_id": "album-alpha",
+        "album_variant_ids": [
+          "album-alpha"
+        ],
+        "artists": null,
+        "bitrate": 1400000,
+        "codec": "flac",
+        "container": "flac",
+        "duration_ms": 180000,
+        "is_cached_local": false,
+        "is_present_local": true,
+        "quality_rank": 220,
+        "source_file_id": "source-alpha",
+        "title": "Opening",
+        "track_cluster_id": "cluster-shared",
+        "track_variant_id": "recording-alpha"
+      }
+    ],
+    "explicit_preferred_variant_id": "recording-beta",
+    "heuristic_preferred_variant_id": "recording-alpha",
+    "resolved_playback_availability": {
+      "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha.flac",
+      "pinned": false,
+      "preferred_profile": "aac_lc_vbr_high",
+      "reason": "",
+      "recording_id": "recording-alpha",
+      "source_kind": "local_file",
+      "state": "PLAYABLE:LOCAL_FILE"
+    },
+    "resolved_playback_profile": "aac_lc_vbr_high",
+    "resolved_playback_variant_id": "recording-alpha"
+  },
+  "context": {
+    "ambiguous": false,
+    "available_devices": [
+      {
+        "device_id": "device-inspect",
+        "last_seen_at": "2026-01-02T03:04:05Z",
+        "name": "Inspect Device",
+        "peer_id": "peer-inspect",
+        "role": "owner"
+      }
+    ],
+    "available_libraries": [
+      {
+        "library_id": "library-inspect",
+        "name": "Inspect Library"
+      }
+    ],
+    "inference_source": "explicit",
+    "selected": {
+      "device_id": "device-inspect",
+      "library_id": "library-inspect",
+      "network_running": false,
+      "preferred_profile": "aac_lc_vbr_high"
+    }
+  },
+  "decisions": [
+    {
+      "inputs": {
+        "requested_id": "recording-alpha"
+      },
+      "reason": "resolve the requested recording into its logical track cluster before tracing candidate variants",
+      "result": {
+        "cluster_id": "cluster-shared",
+        "requested_kind": "variant"
+      },
+      "step": "identify_recording"
+    },
+    {
+      "inputs": {
+        "explicit_preferred_variant_id": "recording-beta",
+        "variants": [
+          {
+            "album_variant_id": "album-beta",
+            "bitrate": 700000,
+            "explicit_preferred": true,
+            "is_cached_local": false,
+            "is_present_local": true,
+            "quality_rank": 120,
+            "source_file_id": "source-beta",
+            "track_cluster_id": "cluster-shared",
+            "track_variant_id": "recording-beta"
+          },
+          {
+            "album_variant_id": "album-alpha",
+            "bitrate": 1400000,
+            "explicit_preferred": false,
+            "is_cached_local": false,
+            "is_present_local": true,
+            "quality_rank": 220,
+            "source_file_id": "source-alpha",
+            "track_cluster_id": "cluster-shared",
+            "track_variant_id": "recording-alpha"
+          }
+        ]
+      },
+      "reason": "reuse compareRecordingVariants and resolvePlaybackVariant to mirror current playback winner selection",
+      "result": {
+        "heuristic_preferred_variant_id": "recording-alpha",
+        "resolved_playback_variant_id": "recording-alpha"
+      },
+      "step": "compare_recording_variants"
+    },
+    {
+      "inputs": {
+        "network_running": false,
+        "preferred_profile": "aac_lc_vbr_high",
+        "requested_id": "recording-alpha"
+      },
+      "reason": "evaluate local sources, cached assets, remote providers, and pin state for the resolved playback variant",
+      "result": {
+        "availability": {
+          "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha.flac",
+          "pinned": false,
+          "preferred_profile": "aac_lc_vbr_high",
+          "reason": "",
+          "recording_id": "recording-alpha",
+          "source_kind": "local_file",
+          "state": "PLAYABLE:LOCAL_FILE"
+        }
+      },
+      "step": "resolve_recording_availability"
+    }
+  ],
+  "identity": {
+    "cluster_id": "cluster-shared",
+    "requested_id": "recording-alpha",
+    "requested_kind": "variant"
+  },
+  "raw_rows": {
+    "album_tracks": [
+      {
+        "album_variant_id": "album-alpha",
+        "disc_no": 1,
+        "library_id": "library-inspect",
+        "title_override": null,
+        "track_no": 1,
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "album_variant_id": "album-beta",
+        "disc_no": 1,
+        "library_id": "library-inspect",
+        "title_override": null,
+        "track_no": 1,
+        "track_variant_id": "recording-beta"
+      }
+    ],
+    "album_variants": [
+      {
+        "album_cluster_id": "album-cluster-alpha",
+        "album_variant_id": "album-alpha",
+        "edition": "",
+        "key_norm": "album-alpha",
+        "library_id": "library-inspect",
+        "title": "Album Alpha",
+        "year": null
+      },
+      {
+        "album_cluster_id": "album-cluster-beta",
+        "album_variant_id": "album-beta",
+        "edition": "",
+        "key_norm": "album-beta",
+        "library_id": "library-inspect",
+        "title": "Album Beta",
+        "year": null
+      }
+    ],
+    "device_asset_caches": [
+      {
+        "device_id": "device-inspect",
+        "is_cached": true,
+        "last_verified_at": "2026-01-02T03:04:05Z",
+        "library_id": "library-inspect",
+        "optimized_asset_id": "asset-alpha"
+      },
+      {
+        "device_id": "device-inspect",
+        "is_cached": true,
+        "last_verified_at": "2026-01-02T03:04:05Z",
+        "library_id": "library-inspect",
+        "optimized_asset_id": "asset-beta"
+      }
+    ],
+    "device_variant_preferences": [
+      {
+        "chosen_variant_id": "recording-beta",
+        "cluster_id": "cluster-shared",
+        "device_id": "device-inspect",
+        "library_id": "library-inspect",
+        "scope_type": "track"
+      }
+    ],
+    "devices": [
+      {
+        "active_library_id": "library-inspect",
+        "device_id": "device-inspect",
+        "last_seen_at": "2026-01-02T03:04:05Z",
+        "name": "Inspect Device",
+        "peer_id": "peer-inspect"
+      }
+    ],
+    "memberships": [
+      {
+        "device_id": "device-inspect",
+        "library_id": "library-inspect",
+        "role": "owner"
+      }
+    ],
+    "optimized_assets": [
+      {
+        "bitrate": 128000,
+        "blob_id": "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "codec": "aac",
+        "container": "m4a",
+        "created_by_device_id": "device-inspect",
+        "duration_ms": 180000,
+        "library_id": "library-inspect",
+        "mime": "audio/mp4",
+        "optimized_asset_id": "asset-alpha",
+        "profile": "desktop",
+        "source_file_id": "source-alpha",
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "bitrate": 96000,
+        "blob_id": "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "codec": "aac",
+        "container": "m4a",
+        "created_by_device_id": "device-inspect",
+        "duration_ms": 180000,
+        "library_id": "library-inspect",
+        "mime": "audio/mp4",
+        "optimized_asset_id": "asset-beta",
+        "profile": "desktop",
+        "source_file_id": "source-beta",
+        "track_variant_id": "recording-beta"
+      }
+    ],
+    "pin_blob_refs": [],
+    "pin_members": [],
+    "source_files": [
+      {
+        "bitrate": 1400000,
+        "channels": 2,
+        "codec": "flac",
+        "container": "flac",
+        "device_id": "device-inspect",
+        "duration_ms": 180000,
+        "edition_scope_key": "",
+        "hash_algo": "b3",
+        "hash_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "is_lossless": true,
+        "is_present": true,
+        "library_id": "library-inspect",
+        "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha.flac",
+        "quality_rank": 220,
+        "sample_rate": 44100,
+        "size_bytes": 2048,
+        "source_file_id": "source-alpha",
+        "source_fingerprint": "source-alpha-fp",
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "bitrate": 700000,
+        "channels": 2,
+        "codec": "flac",
+        "container": "flac",
+        "device_id": "device-inspect",
+        "duration_ms": 180000,
+        "edition_scope_key": "",
+        "hash_algo": "b3",
+        "hash_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "is_lossless": true,
+        "is_present": true,
+        "library_id": "library-inspect",
+        "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-beta.flac",
+        "quality_rank": 120,
+        "sample_rate": 44100,
+        "size_bytes": 1800,
+        "source_file_id": "source-beta",
+        "source_fingerprint": "source-beta-fp",
+        "track_variant_id": "recording-beta"
+      }
+    ],
+    "track_variants": [
+      {
+        "duration_ms": 180000,
+        "key_norm": "opening",
+        "library_id": "library-inspect",
+        "title": "Opening",
+        "track_cluster_id": "cluster-shared",
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "duration_ms": 180000,
+        "key_norm": "opening",
+        "library_id": "library-inspect",
+        "title": "Opening",
+        "track_cluster_id": "cluster-shared",
+        "track_variant_id": "recording-beta"
+      }
+    ]
+  },
+  "request": {
+    "device_id": "device-inspect",
+    "id": "recording-alpha",
+    "library_id": "library-inspect",
+    "preferred_profile": "desktop"
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,217 @@
+{
+  "anomalies": [
+    {
+      "code": "cache_blob_associated_with_multiple_album_clusters",
+      "evidence": {
+        "album_cluster_ids": [
+          "album-cluster-alpha",
+          "album-cluster-beta"
+        ],
+        "blob_id": "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "message": "cached blob is associated with multiple album clusters",
+      "severity": "warning"
+    }
+  ],
+  "computed_outputs": {
+    "blob_album_clusters": {
+      "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": [
+        "album-cluster-alpha",
+        "album-cluster-beta"
+      ]
+    },
+    "blob_files": {
+      "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+        "available": true,
+        "path": "\u003cTEST_ROOT\u003e\\blobs\\b3\\aa\\aa\\aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "size_bytes": 64
+      }
+    },
+    "blob_ids": [
+      "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ]
+  },
+  "context": {
+    "ambiguous": false,
+    "available_devices": [
+      {
+        "device_id": "device-inspect",
+        "last_seen_at": "2026-01-02T03:04:05Z",
+        "name": "Inspect Device",
+        "peer_id": "peer-inspect",
+        "role": "owner"
+      }
+    ],
+    "available_libraries": [
+      {
+        "library_id": "library-inspect",
+        "name": "Inspect Library"
+      }
+    ],
+    "inference_source": "explicit",
+    "selected": {
+      "device_id": "device-inspect",
+      "library_id": "library-inspect",
+      "network_running": false,
+      "preferred_profile": "aac_lc_vbr_high"
+    }
+  },
+  "decisions": [
+    {
+      "inputs": {
+        "requested_id": "cluster-shared"
+      },
+      "reason": "follow recording variants through source files, optimized assets, cache rows, and pin references",
+      "result": {
+        "blob_ids": [
+          "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "variant_count": 2
+      },
+      "step": "collect_recording_cache_rows"
+    }
+  ],
+  "identity": {
+    "cluster_id": "cluster-shared",
+    "requested_id": "cluster-shared",
+    "requested_kind": "cluster"
+  },
+  "raw_rows": {
+    "album_tracks": [
+      {
+        "album_variant_id": "album-alpha",
+        "disc_no": 1,
+        "library_id": "library-inspect",
+        "title_override": null,
+        "track_no": 1,
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "album_variant_id": "album-beta",
+        "disc_no": 1,
+        "library_id": "library-inspect",
+        "title_override": null,
+        "track_no": 1,
+        "track_variant_id": "recording-beta"
+      }
+    ],
+    "album_variants": [
+      {
+        "album_cluster_id": "album-cluster-alpha",
+        "album_variant_id": "album-alpha",
+        "edition": "",
+        "key_norm": "album-alpha",
+        "library_id": "library-inspect",
+        "title": "Album Alpha",
+        "year": null
+      },
+      {
+        "album_cluster_id": "album-cluster-beta",
+        "album_variant_id": "album-beta",
+        "edition": "",
+        "key_norm": "album-beta",
+        "library_id": "library-inspect",
+        "title": "Album Beta",
+        "year": null
+      }
+    ],
+    "device_asset_caches": [
+      {
+        "device_id": "device-inspect",
+        "is_cached": true,
+        "last_verified_at": "2026-01-02T03:04:05Z",
+        "library_id": "library-inspect",
+        "optimized_asset_id": "asset-alpha"
+      },
+      {
+        "device_id": "device-inspect",
+        "is_cached": true,
+        "last_verified_at": "2026-01-02T03:04:05Z",
+        "library_id": "library-inspect",
+        "optimized_asset_id": "asset-beta"
+      }
+    ],
+    "optimized_assets": [
+      {
+        "bitrate": 128000,
+        "blob_id": "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "codec": "aac",
+        "container": "m4a",
+        "created_by_device_id": "device-inspect",
+        "duration_ms": 180000,
+        "library_id": "library-inspect",
+        "mime": "audio/mp4",
+        "optimized_asset_id": "asset-alpha",
+        "profile": "desktop",
+        "source_file_id": "source-alpha",
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "bitrate": 96000,
+        "blob_id": "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "codec": "aac",
+        "container": "m4a",
+        "created_by_device_id": "device-inspect",
+        "duration_ms": 180000,
+        "library_id": "library-inspect",
+        "mime": "audio/mp4",
+        "optimized_asset_id": "asset-beta",
+        "profile": "desktop",
+        "source_file_id": "source-beta",
+        "track_variant_id": "recording-beta"
+      }
+    ],
+    "pin_blob_refs": [],
+    "source_files": [
+      {
+        "bitrate": 1400000,
+        "channels": 2,
+        "codec": "flac",
+        "container": "flac",
+        "device_id": "device-inspect",
+        "duration_ms": 180000,
+        "edition_scope_key": "",
+        "hash_algo": "b3",
+        "hash_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "is_lossless": true,
+        "is_present": true,
+        "library_id": "library-inspect",
+        "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha.flac",
+        "quality_rank": 220,
+        "sample_rate": 44100,
+        "size_bytes": 2048,
+        "source_file_id": "source-alpha",
+        "source_fingerprint": "source-alpha-fp",
+        "track_variant_id": "recording-alpha"
+      },
+      {
+        "bitrate": 700000,
+        "channels": 2,
+        "codec": "flac",
+        "container": "flac",
+        "device_id": "device-inspect",
+        "duration_ms": 180000,
+        "edition_scope_key": "",
+        "hash_algo": "b3",
+        "hash_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "is_lossless": true,
+        "is_present": true,
+        "library_id": "library-inspect",
+        "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-beta.flac",
+        "quality_rank": 120,
+        "sample_rate": 44100,
+        "size_bytes": 1800,
+        "source_file_id": "source-beta",
+        "source_fingerprint": "source-beta-fp",
+        "track_variant_id": "recording-beta"
+      }
+    ]
+  },
+  "request": {
+    "device_id": "device-inspect",
+    "id": "cluster-shared",
+    "library_id": "library-inspect",
+    "preferred_profile": "desktop"
+  },
+  "schema_version": 1
+}
