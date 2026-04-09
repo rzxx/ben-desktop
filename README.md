@@ -26,6 +26,8 @@ wails3 build
 
 Playback uses `libmpv` by default. On Windows, place `libmpv.dll` at `build/windows/runtime/libmpv.dll` before `wails3 build` or packaging so the built app and NSIS installer include it. To intentionally build without mpv support, use the `nompv` build tag.
 
+Windows thumbnail toolbar icons are compiled into the Windows binary from `internal/platform/thumbbar`, so they do not need separate runtime path resolution or installer entries.
+
 ## Inspector
 
 `beninspect` is a separate read-only inspector for tracing music identity, context resolution, and cache attribution directly from the SQLite library database. It does not start the main desktop runtime, run migrations, or mutate library state.

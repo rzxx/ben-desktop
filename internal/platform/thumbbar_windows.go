@@ -56,6 +56,8 @@ type thumbbarService struct {
 	lastHasQueue  bool
 	lastHasNext   bool
 	lastHasTrack  bool
+
+	icons thumbbarIconSet
 }
 
 func newThumbbarService(session *playback.Session) *thumbbarService {
@@ -74,6 +76,11 @@ func (s *thumbbarService) Start(hwnd win32.HWND) error {
 			return nil
 		}
 		s.mu.Unlock()
+
+		icons, err := loadThumbbarIconSet()
+		if err != nil {
+			log.Printf("thumbnail toolbar custom icons unavailable, using defaults: %v", err)
+		}
 
 		var taskbar *win32.ITaskbarList3
 		hr := win32.CoCreateInstance(
@@ -116,6 +123,7 @@ func (s *thumbbarService) Start(hwnd win32.HWND) error {
 		s.installed = true
 		s.started = true
 		s.taskbarButtonCreatedMsg = taskbarButtonCreatedMsg
+		s.icons = icons
 		hasState := s.hasLastState
 		state := s.lastState
 		s.mu.Unlock()
@@ -140,6 +148,8 @@ func (s *thumbbarService) Close() error {
 		s.installed = false
 		s.taskbar = nil
 		s.hwnd = 0
+		icons := s.icons
+		s.icons = thumbbarIconSet{}
 		s.mu.Unlock()
 
 		if hwnd != 0 {
@@ -153,6 +163,7 @@ func (s *thumbbarService) Close() error {
 		if taskbar != nil {
 			taskbar.Release()
 		}
+		destroyThumbbarIconSet(&icons)
 		return nil
 	})
 }
@@ -183,9 +194,7 @@ func (s *thumbbarService) addButtons() error {
 		return nil
 	}
 
-	prevIcon, _ := win32.LoadIcon(0, win32.IDI_HAND)
-	playIcon, _ := win32.LoadIcon(0, win32.IDI_APPLICATION)
-	nextIcon, _ := win32.LoadIcon(0, win32.IDI_INFORMATION)
+	prevIcon, playIcon, _, nextIcon := s.buttonIcons()
 
 	s.mu.Lock()
 	hasState := s.hasLastState
@@ -243,10 +252,7 @@ func (s *thumbbarService) applyState(snapshot playback.SessionSnapshot) {
 		return
 	}
 
-	prevIcon, _ := win32.LoadIcon(0, win32.IDI_HAND)
-	playIcon, _ := win32.LoadIcon(0, win32.IDI_APPLICATION)
-	pauseIcon, _ := win32.LoadIcon(0, win32.IDI_ASTERISK)
-	nextIcon, _ := win32.LoadIcon(0, win32.IDI_INFORMATION)
+	prevIcon, playIcon, pauseIcon, nextIcon := s.buttonIcons()
 
 	playPauseIcon := playIcon
 	playPauseTip := "Play"
@@ -323,6 +329,22 @@ func (s *thumbbarService) runAction(name string, action func() error) {
 	if err := action(); err != nil {
 		log.Printf("thumbnail toolbar %s action failed: %v", name, err)
 	}
+}
+
+func (s *thumbbarService) buttonIcons() (win32.HICON, win32.HICON, win32.HICON, win32.HICON) {
+	s.mu.Lock()
+	icons := s.icons
+	s.mu.Unlock()
+
+	if icons.previous != 0 && icons.play != 0 && icons.pause != 0 && icons.next != 0 {
+		return icons.previous, icons.play, icons.pause, icons.next
+	}
+
+	prevIcon, _ := win32.LoadIcon(0, win32.IDI_HAND)
+	playIcon, _ := win32.LoadIcon(0, win32.IDI_APPLICATION)
+	pauseIcon, _ := win32.LoadIcon(0, win32.IDI_ASTERISK)
+	nextIcon, _ := win32.LoadIcon(0, win32.IDI_INFORMATION)
+	return prevIcon, playIcon, pauseIcon, nextIcon
 }
 
 func newThumbButton(id uint32, icon win32.HICON, tooltip string, enabled bool) win32.THUMBBUTTON {
