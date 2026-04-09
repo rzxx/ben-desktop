@@ -22,7 +22,9 @@ export function SectionHeading({
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-theme-100 text-xl font-semibold">{title}</h1>
+          <h1 className="text-theme-900 dark:text-theme-100 text-xl font-semibold">
+            {title}
+          </h1>
           {meta ? <div className="flex flex-wrap gap-2">{meta}</div> : null}
         </div>
         {description ? (

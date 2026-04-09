@@ -23,6 +23,7 @@ declare module "@wailsio/runtime" {
             "notifications:snapshot": apitypes$0.NotificationSnapshot;
             "pin:changed": apitypes$0.PinChangeEvent;
             "playback:snapshot": playback$0.SessionSnapshot;
+            "theme:preferences": apitypes$0.ThemePreferences;
         }
     }
 }

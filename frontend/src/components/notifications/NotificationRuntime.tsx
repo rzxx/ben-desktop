@@ -180,16 +180,16 @@ function NotificationToastViewport() {
                     {toast.description}
                   </Toast.Description>
                   <NotificationCard
-                    className="bg-theme-900/82 border-theme-500/12 shadow-2xl shadow-black/35 backdrop-blur-xl"
+                    className="border-theme-300/75 shadow-theme-900/14 dark:border-theme-500/12 dark:bg-theme-900/82 bg-white/92 shadow-2xl backdrop-blur-xl dark:shadow-black/35"
                     compact
                     notification={toast.data.notification}
                   />
                   {!isNotificationActive(toast.data.notification.phase) && (
-                    <div className="pointer-events-none absolute inset-0 rounded-[1.2rem] ring-1 ring-white/6" />
+                    <div className="ring-theme-300/70 pointer-events-none absolute inset-0 rounded-[1.2rem] ring-1 dark:ring-white/6" />
                   )}
                   <Toast.Close
                     aria-label="Dismiss notification"
-                    className="absolute top-3 right-3 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/20 text-white/55 transition hover:border-white/18 hover:text-white"
+                    className="text-theme-600 border-theme-300/75 hover:border-theme-400/75 hover:text-theme-900 absolute top-3 right-3 inline-flex h-7 w-7 items-center justify-center rounded-full border bg-white/88 transition dark:border-white/10 dark:bg-black/20 dark:text-white/55 dark:hover:border-white/18 dark:hover:text-white"
                   >
                     <X className="h-3.5 w-3.5" />
                   </Toast.Close>

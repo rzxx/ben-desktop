@@ -26,12 +26,12 @@ export function ModalDialog({
       open={open}
     >
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-60 bg-black/60 backdrop-blur-sm" />
+        <Dialog.Backdrop className="bg-theme-950/22 fixed inset-0 z-60 backdrop-blur-sm dark:bg-black/60" />
         <div className="fixed inset-0 z-60 flex items-center justify-center px-4 py-6">
-          <Dialog.Popup className="border-theme-500/15 bg-theme-900 w-full max-w-lg rounded-2xl border p-5 shadow-2xl shadow-black/40 outline-none">
+          <Dialog.Popup className="border-theme-300/70 shadow-theme-900/14 dark:border-theme-500/15 dark:bg-theme-900 w-full max-w-lg rounded-2xl border bg-white/94 p-5 shadow-2xl outline-none dark:shadow-black/40">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <Dialog.Title className="text-theme-100 text-lg font-semibold">
+                <Dialog.Title className="text-theme-900 dark:text-theme-100 text-lg font-semibold">
                   {title}
                 </Dialog.Title>
                 {description ? (
@@ -42,7 +42,7 @@ export function ModalDialog({
               </div>
               <Dialog.Close
                 aria-label="Close dialog"
-                className="text-theme-500 hover:text-theme-100 rounded p-1 transition-colors"
+                className="text-theme-500 hover:text-theme-900 dark:hover:text-theme-100 rounded p-1 transition-colors"
               >
                 x
               </Dialog.Close>

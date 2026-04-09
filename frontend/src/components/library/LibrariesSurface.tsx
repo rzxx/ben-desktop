@@ -24,12 +24,16 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-[1.6rem] border border-dashed border-white/10 bg-black/10 px-8 py-10 text-center">
-      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/40">
+    <div className="border-theme-300/75 rounded-[1.6rem] border border-dashed bg-white/78 px-8 py-10 text-center dark:border-white/10 dark:bg-black/10">
+      <div className="text-theme-400 border-theme-300/75 bg-theme-100 mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border dark:border-white/10 dark:bg-white/5 dark:text-white/40">
         {icon}
       </div>
-      <h2 className="text-lg font-semibold text-white/90">{title}</h2>
-      <p className="mx-auto mt-2 max-w-md text-sm text-white/50">{body}</p>
+      <h2 className="text-theme-900 text-lg font-semibold dark:text-white/90">
+        {title}
+      </h2>
+      <p className="text-theme-500 mx-auto mt-2 max-w-md text-sm dark:text-white/50">
+        {body}
+      </p>
     </div>
   );
 }
@@ -53,7 +57,7 @@ export function LibrariesSurface() {
   if (state.loading) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center">
-        <div className="rounded-[1.4rem] border border-white/8 bg-black/15 px-5 py-4 text-sm text-white/65">
+        <div className="text-theme-600 border-theme-300/70 rounded-[1.4rem] border bg-white/82 px-5 py-4 text-sm dark:border-white/8 dark:bg-black/15 dark:text-white/65">
           Loading library management...
         </div>
       </div>
@@ -62,16 +66,16 @@ export function LibrariesSurface() {
 
   return (
     <div className="ben-scrollbar ben-shell-scroll-offset flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
-      <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(135deg,rgba(34,197,94,0.16),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
+      <section className="border-theme-300/70 shadow-theme-900/8 rounded-[1.6rem] border bg-[linear-gradient(135deg,rgba(34,197,94,0.18),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-6 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(135deg,rgba(34,197,94,0.16),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] dark:shadow-none">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
+            <p className="text-theme-500 text-[0.68rem] tracking-[0.35em] uppercase dark:text-white/35">
               Libraries
             </p>
-            <h1 className="mt-3 text-3xl font-semibold text-white">
+            <h1 className="text-theme-900 mt-3 text-3xl font-semibold dark:text-white">
               Library management
             </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">
+            <p className="text-theme-600 mt-3 max-w-3xl text-sm leading-6 dark:text-white/55">
               Manage desktop-core libraries directly through the rewritten Wails
               facades. This screen covers library selection, lifecycle actions,
               and active-library membership controls.
@@ -97,7 +101,7 @@ export function LibrariesSurface() {
             </div>
           </div>
           <button
-            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+            className="text-theme-900 border-theme-300/75 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
             onClick={() => {
               void refresh();
             }}
@@ -127,7 +131,7 @@ export function LibrariesSurface() {
           }}
         >
           <input
-            className="min-w-[220px] flex-1 rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white transition outline-none placeholder:text-white/24 focus:border-emerald-300/50"
+            className="text-theme-900 border-theme-300/75 placeholder:text-theme-400 min-w-[220px] flex-1 rounded-[1rem] border bg-white/88 px-4 py-3 text-sm transition outline-none focus:border-emerald-400/45 dark:border-white/10 dark:bg-black/15 dark:text-white dark:placeholder:text-white/24 dark:focus:border-emerald-300/50"
             onChange={(event) => {
               setCreateName(event.target.value);
             }}
@@ -135,7 +139,7 @@ export function LibrariesSurface() {
             value={createName}
           />
           <button
-            className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
+            className="border-theme-900 bg-theme-900 text-theme-50 hover:bg-theme-800 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
             disabled={pendingAction === "create-library"}
             type="submit"
           >
@@ -148,17 +152,17 @@ export function LibrariesSurface() {
       {(state.error || actionError || notice) && (
         <section className="grid gap-3 xl:grid-cols-2">
           {state.error && (
-            <div className="rounded-[1.25rem] border border-amber-400/18 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+            <div className="rounded-[1.25rem] border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-100">
               {state.error}
             </div>
           )}
           {actionError && (
-            <div className="rounded-[1.25rem] border border-rose-400/18 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+            <div className="rounded-[1.25rem] border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-100">
               {actionError}
             </div>
           )}
           {notice && (
-            <div className="rounded-[1.25rem] border border-emerald-400/18 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+            <div className="rounded-[1.25rem] border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-100">
               {notice}
             </div>
           )}
@@ -166,16 +170,16 @@ export function LibrariesSurface() {
       )}
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-        <div className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+        <div className="border-theme-300/70 shadow-theme-900/8 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+            <div className="text-theme-700 border-theme-300/75 bg-theme-100 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
               <FolderCog className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">
+              <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                 Your libraries
               </h2>
-              <p className="text-sm text-white/48">
+              <p className="text-theme-600 text-sm dark:text-white/48">
                 Select which library owns the active desktop runtime.
               </p>
             </div>
@@ -196,35 +200,35 @@ export function LibrariesSurface() {
                     className={`rounded-[1.2rem] border px-4 py-4 ${
                       isActive
                         ? "border-emerald-300/30 bg-emerald-300/10"
-                        : "border-white/8 bg-black/10"
+                        : "border-theme-300/70 bg-white/78 dark:border-white/8 dark:bg-black/10"
                     }`}
                     key={library.LibraryID}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-base font-semibold text-white">
+                          <p className="text-theme-900 text-base font-semibold dark:text-white">
                             {library.Name}
                           </p>
-                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[0.65rem] tracking-[0.22em] text-white/52 uppercase">
+                          <span className="text-theme-500 border-theme-300/75 bg-theme-100 rounded-full border px-2 py-1 text-[0.65rem] tracking-[0.22em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                             {library.Role}
                           </span>
                           {isActive && (
-                            <span className="rounded-full border border-emerald-300/30 bg-emerald-300/12 px-2 py-1 text-[0.65rem] tracking-[0.22em] text-emerald-100 uppercase">
+                            <span className="rounded-full border border-emerald-300/30 bg-emerald-300/12 px-2 py-1 text-[0.65rem] tracking-[0.22em] text-emerald-700 uppercase dark:text-emerald-100">
                               Active
                             </span>
                           )}
                         </div>
-                        <p className="mt-2 text-sm break-all text-white/50">
+                        <p className="text-theme-500 mt-2 text-sm break-all dark:text-white/50">
                           {library.LibraryID}
                         </p>
-                        <p className="mt-1 text-sm text-white/42">
+                        <p className="text-theme-500 mt-1 text-sm dark:text-white/42">
                           Joined {formatRelativeDate(library.JoinedAt)}
                         </p>
                       </div>
                       {!isActive && (
                         <button
-                          className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
+                          className="border-theme-900 bg-theme-900 text-theme-50 hover:bg-theme-800 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
                           disabled={
                             pendingAction === `select:${library.LibraryID}`
                           }
@@ -248,16 +252,16 @@ export function LibrariesSurface() {
           </div>
         </div>
 
-        <div className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+        <div className="border-theme-300/70 shadow-theme-900/8 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+            <div className="text-theme-700 border-theme-300/75 bg-theme-100 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
               <UsersRound className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">
+              <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                 Active library
               </h2>
-              <p className="text-sm text-white/48">
+              <p className="text-theme-600 text-sm dark:text-white/48">
                 Rename the active library and manage its current members.
               </p>
             </div>
@@ -273,14 +277,14 @@ export function LibrariesSurface() {
             </div>
           ) : (
             <>
-              <div className="mt-5 rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+              <div className="border-theme-300/70 mt-5 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                   Active library
                 </p>
-                <p className="mt-2 text-lg font-semibold text-white">
+                <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
                   {state.active.Name}
                 </p>
-                <p className="mt-1 text-sm text-white/48">
+                <p className="text-theme-600 mt-1 text-sm dark:text-white/48">
                   Role {state.active.Role}
                 </p>
 
@@ -304,7 +308,7 @@ export function LibrariesSurface() {
                   }}
                 >
                   <input
-                    className="min-w-[220px] flex-1 rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white transition outline-none placeholder:text-white/24 focus:border-emerald-300/50"
+                    className="text-theme-900 border-theme-300/75 placeholder:text-theme-400 min-w-[220px] flex-1 rounded-[1rem] border bg-white/88 px-4 py-3 text-sm transition outline-none focus:border-emerald-400/45 dark:border-white/10 dark:bg-black/15 dark:text-white dark:placeholder:text-white/24 dark:focus:border-emerald-300/50"
                     disabled={!canManage}
                     onChange={(event) => {
                       setRenameName(event.target.value);
@@ -313,14 +317,14 @@ export function LibrariesSurface() {
                     value={renameName}
                   />
                   <button
-                    className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                    className="text-theme-900 border-theme-300/75 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                     disabled={!canManage || pendingAction === "rename-library"}
                     type="submit"
                   >
                     <span>Rename</span>
                   </button>
                   <button
-                    className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                    className="text-theme-900 border-theme-300/75 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                     disabled={pendingAction === "leave-library"}
                     onClick={() => {
                       void runAction(
@@ -334,7 +338,7 @@ export function LibrariesSurface() {
                     <span>Leave</span>
                   </button>
                   <button
-                    className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                    className="text-theme-900 border-theme-300/75 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                     disabled={!canManage || pendingAction === "delete-library"}
                     onClick={() => {
                       if (
@@ -369,40 +373,40 @@ export function LibrariesSurface() {
 
                   return (
                     <div
-                      className="rounded-[1.2rem] border border-white/8 bg-black/10 px-4 py-4"
+                      className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 px-4 py-4 dark:border-white/8 dark:bg-black/10"
                       key={member.DeviceID}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-semibold text-white">
+                            <p className="text-theme-900 font-semibold dark:text-white">
                               {member.DeviceID}
                             </p>
                             {isLocalDevice && (
-                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[0.65rem] tracking-[0.22em] text-white/52 uppercase">
+                              <span className="text-theme-500 border-theme-300/75 bg-theme-100 rounded-full border px-2 py-1 text-[0.65rem] tracking-[0.22em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                                 This device
                               </span>
                             )}
                           </div>
-                          <p className="mt-2 text-sm text-white/48">
+                          <p className="text-theme-600 mt-2 text-sm dark:text-white/48">
                             Peer {member.PeerID || "unassigned"}
                           </p>
-                          <p className="mt-1 text-sm text-white/42">
+                          <p className="text-theme-500 mt-1 text-sm dark:text-white/42">
                             Last seen {formatDateTime(member.LastSeenAt)}
                           </p>
-                          <p className="mt-1 text-sm text-white/42">
+                          <p className="text-theme-500 mt-1 text-sm dark:text-white/42">
                             Last successful sync{" "}
                             {formatDateTime(member.LastSyncSuccessAt)}
                           </p>
                           {member.LastSyncError && (
-                            <p className="mt-2 text-sm text-rose-200">
+                            <p className="mt-2 text-sm text-rose-700 dark:text-rose-100">
                               {member.LastSyncError}
                             </p>
                           )}
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <select
-                            className="rounded-[0.95rem] border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none"
+                            className="text-theme-900 border-theme-300/75 rounded-[0.95rem] border bg-white/88 px-3 py-2 text-sm outline-none dark:border-white/10 dark:bg-black/20 dark:text-white"
                             defaultValue={normalizedRole}
                             disabled={
                               !canManage ||
@@ -429,7 +433,7 @@ export function LibrariesSurface() {
                             ))}
                           </select>
                           <button
-                            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                            className="text-theme-900 border-theme-300/75 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                             disabled={
                               !canManage ||
                               isLocalDevice ||
@@ -461,7 +465,7 @@ export function LibrariesSurface() {
                 })}
 
                 {state.members.length === 0 && (
-                  <div className="rounded-[1.2rem] border border-dashed border-white/10 bg-black/10 px-4 py-5 text-sm text-white/48">
+                  <div className="text-theme-600 border-theme-300/75 rounded-[1.2rem] border border-dashed bg-white/78 px-4 py-5 text-sm dark:border-white/10 dark:bg-black/10 dark:text-white/48">
                     No members found for the active library.
                   </div>
                 )}

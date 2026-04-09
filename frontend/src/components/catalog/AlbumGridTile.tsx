@@ -40,13 +40,13 @@ export function AlbumGridTile({
       <ArtworkTile
         alt={`${album.Title} cover`}
         className={[
-          "mb-2 w-full rounded-lg border-black/10 transition-[filter]",
+          "border-theme-300/70 mb-2 w-full rounded-lg transition-[filter] dark:border-black/10",
           unavailable ? "grayscale" : "",
         ].join(" ")}
         src={artworkUrl}
         title={album.Title}
       />
-      <p className="text-theme-100 line-clamp-1 text-base font-medium">
+      <p className="text-theme-900 dark:text-theme-100 line-clamp-1 text-base font-medium">
         {album.Title}
       </p>
       <p className="text-theme-500 line-clamp-1 text-xs">

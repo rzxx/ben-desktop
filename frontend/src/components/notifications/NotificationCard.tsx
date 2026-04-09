@@ -41,7 +41,7 @@ export function NotificationCard({
   return (
     <article
       className={[
-        "rounded-[1.2rem] border border-white/8 bg-black/10",
+        "border-theme-300/70 rounded-[1.2rem] border bg-white/75 dark:border-white/8 dark:bg-black/10",
         compact ? "p-3" : "p-4",
         muted ? "opacity-70" : "",
         className,
@@ -61,7 +61,7 @@ export function NotificationCard({
               title={title}
             />
           ) : (
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+            <div className="text-theme-700 border-theme-300/70 bg-theme-100 flex h-12 w-12 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
               <NotificationGlyph notification={notification} />
             </div>
           )}
@@ -70,11 +70,11 @@ export function NotificationCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">
+              <p className="text-theme-900 truncate text-sm font-semibold dark:text-white">
                 {title}
               </p>
               {notification.subject?.subtitle ? (
-                <p className="mt-1 truncate text-xs text-white/45">
+                <p className="text-theme-500 mt-1 truncate text-xs dark:text-white/45">
                   {notification.subject.subtitle}
                 </p>
               ) : null}
@@ -86,11 +86,13 @@ export function NotificationCard({
             </span>
           </div>
 
-          <p className="mt-2 text-sm leading-5 text-white/70">{description}</p>
+          <p className="text-theme-700 mt-2 text-sm leading-5 dark:text-white/70">
+            {description}
+          </p>
 
           {(notification.phase === "queued" ||
             notification.phase === "running") && (
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8">
+            <div className="bg-theme-200 mt-3 h-1.5 overflow-hidden rounded-full dark:bg-white/8">
               <div
                 className="h-full rounded-full bg-[linear-gradient(90deg,rgba(251,146,60,0.92),rgba(14,165,233,0.8))] transition-[width] duration-300"
                 style={{ width: `${Math.max(8, progress)}%` }}
@@ -98,7 +100,7 @@ export function NotificationCard({
             </div>
           )}
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[0.68rem] tracking-[0.18em] text-white/35 uppercase">
+          <div className="text-theme-500 mt-3 flex flex-wrap items-center justify-between gap-2 text-[0.68rem] tracking-[0.18em] uppercase dark:text-white/35">
             <span>{meta || "Core"}</span>
             <span>{relativeNotificationTime(notification.updatedAt)}</span>
           </div>

@@ -52,7 +52,7 @@ export function CacheSurface() {
   if (state.loading) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center">
-        <div className="rounded-[1.4rem] border border-white/8 bg-black/15 px-5 py-4 text-sm text-white/65">
+        <div className="border-theme-300/70 text-theme-900 rounded-[1.4rem] border bg-white/82 px-5 py-4 text-sm dark:border-white/8 dark:bg-black/15 dark:text-white/65">
           Loading cache state...
         </div>
       </div>
@@ -61,32 +61,32 @@ export function CacheSurface() {
 
   return (
     <div className="ben-scrollbar ben-shell-scroll-offset flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
-      <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(140deg,rgba(14,165,233,0.14),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
+      <section className="border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(140deg,rgba(14,165,233,0.14),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6 dark:border-white/8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
+            <p className="text-theme-500 text-[0.68rem] tracking-[0.35em] uppercase dark:text-white/35">
               Cache
             </p>
-            <h1 className="mt-3 text-3xl font-semibold text-white">
+            <h1 className="text-theme-900 mt-3 text-3xl font-semibold dark:text-white">
               Local cache management
             </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">
+            <p className="text-theme-600 mt-3 max-w-3xl text-sm leading-6 dark:text-white/55">
               Inspect optimized audio and artwork blobs, see what stays pinned,
               and run reclaim actions against the desktop-core cache service.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                 {state.library
                   ? `${state.library.Name} • ${state.library.Role}`
                   : "No active library"}
               </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                 {state.local?.Device || "Unknown device"}
               </span>
             </div>
           </div>
           <button
-            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+            className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
             onClick={() => {
               void refresh();
             }}
@@ -101,17 +101,17 @@ export function CacheSurface() {
       {(state.error || actionError || feedback) && (
         <section className="grid gap-3 xl:grid-cols-2">
           {state.error && (
-            <div className="rounded-[1.25rem] border border-amber-400/18 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+            <div className="rounded-[1.25rem] border border-amber-400/18 bg-amber-400/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-100">
               {state.error}
             </div>
           )}
           {actionError && (
-            <div className="rounded-[1.25rem] border border-rose-400/18 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+            <div className="rounded-[1.25rem] border border-rose-400/18 bg-rose-400/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-100">
               {actionError}
             </div>
           )}
           {feedback && (
-            <div className="rounded-[1.25rem] border border-emerald-400/18 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+            <div className="rounded-[1.25rem] border border-emerald-400/18 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-100">
               {feedback}
             </div>
           )}
@@ -119,28 +119,30 @@ export function CacheSurface() {
       )}
 
       {!state.library || !state.overview ? (
-        <section className="rounded-[1.6rem] border border-dashed border-white/10 bg-black/10 px-8 py-10 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/40">
+        <section className="border-theme-300/75 rounded-[1.6rem] border border-dashed bg-white/78 px-8 py-10 text-center dark:border-white/10 dark:bg-black/10">
+          <div className="border-theme-300/75 bg-theme-100 text-theme-400 mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border dark:border-white/10 dark:bg-white/5 dark:text-white/40">
             <ShieldAlert className="h-5 w-5" />
           </div>
-          <h2 className="text-lg font-semibold text-white/90">
+          <h2 className="text-theme-900 text-lg font-semibold dark:text-white/90">
             No active library
           </h2>
-          <p className="mx-auto mt-2 max-w-md text-sm text-white/50">
+          <p className="text-theme-500 mx-auto mt-2 max-w-md text-sm dark:text-white/50">
             Select or join a library before inspecting the local cache.
           </p>
         </section>
       ) : (
         <>
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-            <div className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+            <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                   <HardDrive className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Overview</h2>
-                  <p className="text-sm text-white/48">
+                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
+                    Overview
+                  </h2>
+                  <p className="text-theme-600 text-sm dark:text-white/48">
                     Capacity, pinned usage, and reclaimable bytes for this
                     device.
                   </p>
@@ -179,19 +181,19 @@ export function CacheSurface() {
                   const Icon = kindIcon(row.Kind);
                   return (
                     <div
-                      className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4"
+                      className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10"
                       key={row.Kind}
                     >
-                      <div className="flex items-center gap-2 text-white/72">
+                      <div className="text-theme-700 flex items-center gap-2 dark:text-white/72">
                         <Icon className="h-4 w-4" />
-                        <p className="text-sm font-semibold text-white">
+                        <p className="text-theme-900 text-sm font-semibold dark:text-white">
                           {kindLabel(row.Kind)}
                         </p>
                       </div>
-                      <p className="mt-3 text-lg font-semibold text-white">
+                      <p className="text-theme-900 mt-3 text-lg font-semibold dark:text-white">
                         {formatBytes(row.Bytes)}
                       </p>
-                      <p className="mt-2 text-sm text-white/55">
+                      <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                         {row.Entries} entries, {formatBytes(row.PinnedBytes)}{" "}
                         pinned
                       </p>
@@ -201,16 +203,16 @@ export function CacheSurface() {
               </div>
             </div>
 
-            <div className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+            <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                   <Trash2 className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">
+                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                     Cleanup actions
                   </h2>
-                  <p className="text-sm text-white/48">
+                  <p className="text-theme-600 text-sm dark:text-white/48">
                     Remove unpinned blobs while preserving pinned offline assets
                     and artwork references.
                   </p>
@@ -219,7 +221,7 @@ export function CacheSurface() {
 
               <div className="mt-5 flex flex-wrap gap-3">
                 <button
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
+                  className="border-theme-900 bg-theme-900 text-theme-50 hover:bg-theme-800 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
                   disabled={pendingAction === "cleanup-over-limit"}
                   onClick={() => {
                     void runCleanup(
@@ -236,7 +238,7 @@ export function CacheSurface() {
                   <span>Trim over limit</span>
                 </button>
                 <button
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                  className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                   disabled={pendingAction === "cleanup-unpinned"}
                   onClick={() => {
                     void runCleanup(
@@ -254,7 +256,7 @@ export function CacheSurface() {
                 </button>
               </div>
 
-              <div className="mt-5 space-y-2 text-sm text-white/48">
+              <div className="text-theme-600 mt-5 space-y-2 text-sm dark:text-white/48">
                 <p>
                   Artwork blobs stay pinned while any artwork variant references
                   them.
@@ -267,17 +269,17 @@ export function CacheSurface() {
             </div>
           </section>
 
-          <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+          <section className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-white">
+                <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                   Pinned scopes
                 </h2>
-                <p className="text-sm text-white/48">
+                <p className="text-theme-600 text-sm dark:text-white/48">
                   Durable scopes that currently keep blobs retained.
                 </p>
               </div>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                 {(state.overview.PinScopes ?? []).length} scope
                 {(state.overview.PinScopes ?? []).length === 1 ? "" : "s"}
               </span>
@@ -285,25 +287,25 @@ export function CacheSurface() {
 
             <div className="mt-5 flex flex-wrap gap-3">
               {(state.overview.PinScopes ?? []).length === 0 ? (
-                <div className="rounded-[1.2rem] border border-dashed border-white/10 bg-black/10 px-4 py-5 text-sm text-white/48">
+                <div className="border-theme-300/75 text-theme-600 rounded-[1.2rem] border border-dashed bg-white/78 px-4 py-5 text-sm dark:border-white/10 dark:bg-black/10 dark:text-white/48">
                   No durable pin scopes recorded.
                 </div>
               ) : (
                 state.overview.PinScopes.map((scope) => (
                   <div
-                    className="rounded-[1.1rem] border border-white/8 bg-black/10 px-4 py-3"
+                    className="border-theme-300/70 rounded-[1.1rem] border bg-white/78 px-4 py-3 dark:border-white/8 dark:bg-black/10"
                     key={`${scope.Scope}:${scope.ScopeID}`}
                   >
-                    <div className="flex items-center gap-2 text-white/72">
+                    <div className="text-theme-700 flex items-center gap-2 dark:text-white/72">
                       <Pin className="h-4 w-4" />
-                      <span className="text-sm font-semibold text-white">
+                      <span className="text-theme-900 text-sm font-semibold dark:text-white">
                         {scope.Scope}
                       </span>
                     </div>
-                    <p className="mt-2 font-mono text-xs text-white/42">
+                    <p className="text-theme-500 mt-2 font-mono text-xs dark:text-white/42">
                       {scope.ScopeID}
                     </p>
-                    <p className="mt-2 text-sm text-white/55">
+                    <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                       {scope.BlobCount} blob(s), {formatBytes(scope.Bytes)}
                     </p>
                   </div>
@@ -312,19 +314,19 @@ export function CacheSurface() {
             </div>
           </section>
 
-          <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+          <section className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-white">
+                <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                   Cache entries
                 </h2>
-                <p className="text-sm text-white/48">
+                <p className="text-theme-600 text-sm dark:text-white/48">
                   Current page of retained blobs for this device.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                  className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                   disabled={offset <= 0}
                   onClick={() => {
                     setOffset((current) => Math.max(0, current - pageSize));
@@ -334,7 +336,7 @@ export function CacheSurface() {
                   Previous
                 </button>
                 <button
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                  className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                   disabled={!state.page?.HasMore}
                   onClick={() => {
                     setOffset(state.page?.NextOffset ?? offset);
@@ -348,7 +350,7 @@ export function CacheSurface() {
 
             <div className="mt-5 space-y-3">
               {state.entries.length === 0 ? (
-                <div className="rounded-[1.2rem] border border-dashed border-white/10 bg-black/10 px-4 py-5 text-sm text-white/48">
+                <div className="border-theme-300/75 text-theme-600 rounded-[1.2rem] border border-dashed bg-white/78 px-4 py-5 text-sm dark:border-white/10 dark:bg-black/10 dark:text-white/48">
                   No cache entries on this page.
                 </div>
               ) : (
@@ -356,32 +358,32 @@ export function CacheSurface() {
                   const Icon = kindIcon(entry.Kind);
                   return (
                     <div
-                      className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4"
+                      className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10"
                       key={entry.BlobID}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/72">
+                            <span className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-8 w-8 items-center justify-center rounded-full border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                               <Icon className="h-4 w-4" />
                             </span>
-                            <p className="text-sm font-semibold text-white">
+                            <p className="text-theme-900 text-sm font-semibold dark:text-white">
                               {kindLabel(entry.Kind)}
                             </p>
                             <span
                               className={`rounded-full border px-2 py-1 text-[0.68rem] tracking-[0.22em] uppercase ${
                                 entry.Pinned
-                                  ? "border-emerald-400/18 bg-emerald-400/10 text-emerald-100"
-                                  : "border-white/10 bg-white/5 text-white/55"
+                                  ? "border-emerald-400/18 bg-emerald-400/10 text-emerald-700 dark:text-emerald-100"
+                                  : "border-theme-300/75 bg-theme-100 text-theme-600 dark:border-white/10 dark:bg-white/5 dark:text-white/55"
                               }`}
                             >
                               {entry.Pinned ? "Pinned" : "Unpinned"}
                             </span>
                           </div>
-                          <p className="mt-2 font-mono text-xs break-all text-white/42">
+                          <p className="text-theme-500 mt-2 font-mono text-xs break-all dark:text-white/42">
                             {entry.BlobID}
                           </p>
-                          <div className="mt-3 flex flex-wrap gap-3 text-sm text-white/55">
+                          <div className="text-theme-600 mt-3 flex flex-wrap gap-3 text-sm dark:text-white/55">
                             <span>{formatBytes(entry.SizeBytes)}</span>
                             <span>{entryTarget(entry)}</span>
                             <span>{formatDateTime(entry.LastAccessed)}</span>
@@ -390,7 +392,7 @@ export function CacheSurface() {
                             <div className="mt-3 flex flex-wrap gap-2">
                               {entry.PinScopes.map((scope) => (
                                 <span
-                                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.18em] text-white/52 uppercase"
+                                  className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.18em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52"
                                   key={`${entry.BlobID}:${scope.Scope}:${scope.ScopeID}`}
                                 >
                                   {scope.Scope}:{scope.ScopeID}
@@ -401,7 +403,7 @@ export function CacheSurface() {
                         </div>
 
                         <button
-                          className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                          className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                           disabled={
                             entry.Pinned ||
                             pendingAction === `delete:${entry.BlobID}`
@@ -430,7 +432,7 @@ export function CacheSurface() {
             </div>
 
             {state.page && (
-              <p className="mt-4 text-sm text-white/48">
+              <p className="text-theme-600 mt-4 text-sm dark:text-white/48">
                 Showing {state.page.Offset + 1}-
                 {state.page.Offset + state.page.Returned} of {state.page.Total}.
                 Refreshed {formatRelativeDate(new Date())}.
@@ -453,12 +455,14 @@ function StatCard({
   title: string;
 }) {
   return (
-    <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-      <p className="text-[0.68rem] tracking-[0.24em] text-white/35 uppercase">
+    <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+      <p className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
         {title}
       </p>
-      <p className="mt-2 text-lg font-semibold text-white">{children}</p>
-      <p className="mt-2 text-sm text-white/55">{body}</p>
+      <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
+        {children}
+      </p>
+      <p className="text-theme-600 mt-2 text-sm dark:text-white/55">{body}</p>
     </div>
   );
 }

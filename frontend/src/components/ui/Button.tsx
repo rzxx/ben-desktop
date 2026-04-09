@@ -7,13 +7,13 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const toneClasses: Record<NonNullable<ButtonProps["tone"]>, string> = {
   danger:
-    "border-red-500/30 bg-red-500/10 text-red-100 enabled:hover:border-red-400/40 enabled:hover:bg-red-500/15",
+    "border-red-500/25 bg-red-500/10 text-red-700 enabled:hover:border-red-500/35 enabled:hover:bg-red-500/14 dark:text-red-100 dark:enabled:hover:border-red-400/40 dark:enabled:hover:bg-red-500/15",
   default:
-    "border-white/10 bg-white/[0.06] text-theme-100 enabled:hover:border-white/18 enabled:hover:bg-white/[0.09]",
+    "border-theme-300/75 bg-theme-50/78 text-theme-900 enabled:hover:border-theme-400/75 enabled:hover:bg-theme-100/90 dark:border-white/10 dark:bg-white/[0.06] dark:text-theme-100 dark:enabled:hover:border-white/18 dark:enabled:hover:bg-white/[0.09]",
   primary:
-    "border-theme-100 bg-theme-100 text-theme-950 enabled:hover:border-white enabled:hover:bg-white",
+    "border-theme-900 bg-theme-900 text-theme-50 enabled:hover:border-theme-800 enabled:hover:bg-theme-800 dark:border-theme-100 dark:bg-theme-100 dark:text-theme-950 dark:enabled:hover:border-white dark:enabled:hover:bg-white",
   quiet:
-    "border-white/8 bg-transparent text-theme-300 enabled:hover:border-white/14 enabled:hover:bg-white/[0.05]",
+    "border-theme-300/70 bg-transparent text-theme-700 enabled:hover:border-theme-400/70 enabled:hover:bg-theme-100/75 dark:border-white/8 dark:text-theme-300 dark:enabled:hover:border-white/14 dark:enabled:hover:bg-white/[0.05]",
 };
 
 export function Button({
@@ -57,7 +57,7 @@ export function IconButton({
     <button
       aria-label={label}
       className={[
-        "text-theme-200 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] transition enabled:hover:border-white/18 enabled:hover:bg-white/[0.1] disabled:cursor-default disabled:opacity-50",
+        "text-theme-700 border-theme-300/75 enabled:hover:border-theme-400/75 enabled:hover:bg-theme-100/90 dark:text-theme-200 inline-flex h-9 w-9 items-center justify-center rounded-full border bg-white/78 transition disabled:cursor-default disabled:opacity-50 dark:border-white/10 dark:bg-white/6 dark:enabled:hover:border-white/18 dark:enabled:hover:bg-white/10",
         className,
       ].join(" ")}
       disabled={disabled}

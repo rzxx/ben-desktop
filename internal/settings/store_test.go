@@ -67,6 +67,9 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 		Notifications: NotificationUISettings{
 			Verbosity: "everything",
 		},
+		Theme: ThemeUISettings{
+			Mode: "system",
+		},
 	}
 	if state != want {
 		t.Fatalf("expected %#v, got %#v", want, state)
@@ -92,6 +95,21 @@ func TestNormalizeNotificationVerbosity(t *testing.T) {
 	for input, want := range tests {
 		if got := NormalizeNotificationVerbosity(input); got != want {
 			t.Fatalf("normalize notification verbosity(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestNormalizeThemeMode(t *testing.T) {
+	tests := map[string]string{
+		"":         "system",
+		"system":   "system",
+		"  LIGHT ": "light",
+		"dark":     "dark",
+		"auto":     "system",
+	}
+	for input, want := range tests {
+		if got := NormalizeThemeMode(input); got != want {
+			t.Fatalf("normalize theme mode(%q) = %q, want %q", input, got, want)
 		}
 	}
 }

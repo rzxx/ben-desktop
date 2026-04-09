@@ -23,10 +23,7 @@ import {
 } from "@/lib/api/catalog";
 import type { JobSnapshot, PlaylistListItem } from "@/lib/api/models";
 import type { PinState, PinSubjectKind } from "@/lib/api/models";
-import {
-  startPin,
-  unpin,
-} from "@/lib/api/pin";
+import { startPin, unpin } from "@/lib/api/pin";
 import { formatCount } from "@/lib/format";
 
 export type TrackRowRecordingIdentity = {
@@ -37,10 +34,10 @@ export type TrackRowRecordingIdentity = {
 };
 
 const menuPopupClass =
-  "border-theme-500/15 bg-theme-900 min-w-60 rounded-xl border p-1.5 shadow-2xl shadow-black/40 backdrop-blur-xl outline-none";
+  "border-theme-300/75 bg-white/94 min-w-60 rounded-xl border p-1.5 shadow-2xl shadow-theme-900/14 backdrop-blur-xl outline-none dark:border-theme-500/15 dark:bg-theme-900 dark:shadow-black/40";
 const menuItemClass =
-  "text-theme-100 flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-sm outline-none transition data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-white/[0.08] data-[highlighted]:text-white";
-const menuSeparatorClass = "mx-1 my-1 h-px bg-white/8";
+  "text-theme-900 flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-sm outline-none transition data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-theme-100 data-[highlighted]:text-theme-950 dark:text-theme-100 dark:data-[highlighted]:bg-white/[0.08] dark:data-[highlighted]:text-white";
+const menuSeparatorClass = "mx-1 my-1 h-px bg-theme-200 dark:bg-white/8";
 
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -219,7 +216,7 @@ export function TrackRowContextMenu({
                   onQueue();
                 }}
               >
-                <ListPlus className="h-4 w-4 shrink-0 text-white/70" />
+                <ListPlus className="text-theme-600 h-4 w-4 shrink-0 dark:text-white/70" />
                 <span className="min-w-0 flex-1 truncate">Add to queue</span>
               </ContextMenu.Item>
 
@@ -235,9 +232,9 @@ export function TrackRowContextMenu({
                     }}
                   >
                     {pinBusy ? (
-                      <LoaderCircle className="h-4 w-4 animate-spin text-white/60" />
+                      <LoaderCircle className="text-theme-500 h-4 w-4 animate-spin dark:text-white/60" />
                     ) : (
-                      <Download className="h-4 w-4 shrink-0 text-white/70" />
+                      <Download className="text-theme-600 h-4 w-4 shrink-0 dark:text-white/70" />
                     )}
                     <span className="min-w-0 flex-1 truncate">
                       {pinDirect
@@ -261,11 +258,11 @@ export function TrackRowContextMenu({
                     }}
                   >
                     <ContextMenu.SubmenuTrigger className={menuItemClass}>
-                      <FolderPlus className="h-4 w-4 shrink-0 text-white/70" />
+                      <FolderPlus className="text-theme-600 h-4 w-4 shrink-0 dark:text-white/70" />
                       <span className="min-w-0 flex-1 truncate">
                         Add to playlist
                       </span>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-white/45" />
+                      <ChevronRight className="text-theme-500 h-4 w-4 shrink-0 dark:text-white/45" />
                     </ContextMenu.SubmenuTrigger>
                     <ContextMenu.Portal>
                       <ContextMenu.Positioner alignOffset={-6} sideOffset={6}>
@@ -275,7 +272,7 @@ export function TrackRowContextMenu({
                               className={menuItemClass}
                               disabled
                             >
-                              <LoaderCircle className="h-4 w-4 animate-spin text-white/60" />
+                              <LoaderCircle className="text-theme-500 h-4 w-4 animate-spin dark:text-white/60" />
                               <span>Loading playlists...</span>
                             </ContextMenu.Item>
                           ) : null}
@@ -305,9 +302,9 @@ export function TrackRowContextMenu({
                                     }}
                                   >
                                     {busy ? (
-                                      <LoaderCircle className="h-4 w-4 animate-spin text-white/60" />
+                                      <LoaderCircle className="text-theme-500 h-4 w-4 animate-spin dark:text-white/60" />
                                     ) : (
-                                      <Plus className="h-4 w-4 shrink-0 text-white/70" />
+                                      <Plus className="text-theme-600 h-4 w-4 shrink-0 dark:text-white/70" />
                                     )}
                                     <span className="min-w-0 flex-1">
                                       <span className="block truncate">
@@ -344,7 +341,7 @@ export function TrackRowContextMenu({
                               setMenuOpen(false);
                             }}
                           >
-                            <Plus className="h-4 w-4 shrink-0 text-white/70" />
+                            <Plus className="text-theme-600 h-4 w-4 shrink-0 dark:text-white/70" />
                             <span className="min-w-0 flex-1 truncate">
                               New playlist...
                             </span>

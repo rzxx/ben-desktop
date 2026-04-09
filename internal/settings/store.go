@@ -10,8 +10,9 @@ import (
 )
 
 type State struct {
-	Core          CoreRuntimeSettings      `json:"core,omitempty"`
-	Notifications NotificationUISettings  `json:"notifications,omitempty"`
+	Core          CoreRuntimeSettings    `json:"core,omitempty"`
+	Notifications NotificationUISettings `json:"notifications,omitempty"`
+	Theme         ThemeUISettings        `json:"theme,omitempty"`
 }
 
 type CoreRuntimeSettings struct {
@@ -24,6 +25,10 @@ type CoreRuntimeSettings struct {
 
 type NotificationUISettings struct {
 	Verbosity string `json:"verbosity,omitempty"`
+}
+
+type ThemeUISettings struct {
+	Mode string `json:"mode,omitempty"`
 }
 
 const (
@@ -112,6 +117,7 @@ func (s *Store) Close() error {
 func normalizeState(state State) State {
 	state.Core = normalizeCoreRuntimeSettings(state.Core)
 	state.Notifications = normalizeNotificationUISettings(state.Notifications)
+	state.Theme = normalizeThemeUISettings(state.Theme)
 	return state
 }
 
@@ -126,6 +132,11 @@ func normalizeCoreRuntimeSettings(settings CoreRuntimeSettings) CoreRuntimeSetti
 
 func normalizeNotificationUISettings(settings NotificationUISettings) NotificationUISettings {
 	settings.Verbosity = NormalizeNotificationVerbosity(settings.Verbosity)
+	return settings
+}
+
+func normalizeThemeUISettings(settings ThemeUISettings) ThemeUISettings {
+	settings.Mode = NormalizeThemeMode(settings.Mode)
 	return settings
 }
 
@@ -153,5 +164,16 @@ func NormalizeNotificationVerbosity(value string) string {
 		return "everything"
 	default:
 		return "user_activity"
+	}
+}
+
+func NormalizeThemeMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "light":
+		return "light"
+	case "dark":
+		return "dark"
+	default:
+		return "system"
 	}
 }

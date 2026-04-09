@@ -105,7 +105,7 @@ function PlaylistNameDialogBody({
         </span>
         <input
           autoFocus
-          className="border-theme-500/15 bg-theme-950 text-theme-100 mt-2 w-full rounded-xl border px-3 py-2 transition outline-none focus:border-white/18"
+          className="border-theme-300/75 text-theme-900 focus:border-theme-500/65 dark:border-theme-500/15 dark:bg-theme-950 dark:text-theme-100 mt-2 w-full rounded-xl border bg-white px-3 py-2 transition outline-none dark:focus:border-white/18"
           onChange={(event) => {
             setName(event.target.value);
           }}
@@ -135,7 +135,9 @@ function PlaylistNameDialogBody({
           value={name}
         />
       </label>
-      {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
+      {error ? (
+        <p className="mt-3 text-sm text-red-600 dark:text-red-300">{error}</p>
+      ) : null}
     </ModalDialog>
   );
 }
@@ -227,7 +229,9 @@ function ConfirmPlaylistDeleteDialogBody({
       open
       title={title}
     >
-      {error ? <p className="text-sm text-red-300">{error}</p> : null}
+      {error ? (
+        <p className="text-sm text-red-600 dark:text-red-300">{error}</p>
+      ) : null}
     </ModalDialog>
   );
 }

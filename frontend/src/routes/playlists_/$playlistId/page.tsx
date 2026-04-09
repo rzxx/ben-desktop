@@ -20,7 +20,11 @@ import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
-import { pinSubjectKey, usePinState, usePinStates } from "@/hooks/pins/usePinStates";
+import {
+  pinSubjectKey,
+  usePinState,
+  usePinStates,
+} from "@/hooks/pins/usePinStates";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import {
   isJobActive,
@@ -41,9 +45,7 @@ import {
   renamePlaylist,
   setPlaylistCover,
 } from "@/lib/api/catalog";
-import {
-  Types,
-} from "@/lib/api/models";
+import { Types } from "@/lib/api/models";
 import { startPin, unpin } from "@/lib/api/pin";
 import {
   formatCount,
@@ -196,7 +198,7 @@ export function PlaylistDetailPage() {
       <section className="flex flex-wrap items-end gap-5">
         <ArtworkTile
           alt={detail.data?.Name ?? "Playlist"}
-          className="h-40 w-40 shrink-0 border-black/10"
+          className="border-theme-300/70 h-40 w-40 shrink-0 dark:border-black/10"
           src={artworkUrl}
           subtitle="Playlist"
           title={detail.data?.Name ?? "Playlist"}
@@ -336,7 +338,7 @@ export function PlaylistDetailPage() {
                   ? "Unpin playlist"
                   : playlistPinState?.Covered
                     ? "Pin playlist directly"
-                  : "Pin playlist"}
+                    : "Pin playlist"}
             </Button>
           </div>
           {pinFeedback ? (
@@ -348,10 +350,12 @@ export function PlaylistDetailPage() {
             </p>
           ) : null}
           {!pinFeedback && pinError ? (
-            <p className="text-xs text-red-300">{pinError}</p>
+            <p className="text-xs text-red-600 dark:text-red-300">{pinError}</p>
           ) : null}
           {coverError ? (
-            <p className="text-sm text-red-300">{coverError}</p>
+            <p className="text-sm text-red-600 dark:text-red-300">
+              {coverError}
+            </p>
           ) : null}
         </div>
       </section>

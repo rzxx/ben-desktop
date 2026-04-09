@@ -23,6 +23,7 @@ function configure() {
         "notifications:snapshot": $$createType2,
         "pin:changed": $$createType3,
         "playback:snapshot": $$createType4,
+        "theme:preferences": $$createType5,
     }));
 }
 
@@ -32,5 +33,6 @@ const $$createType1 = desktopcore$0.JobSnapshot.createFrom;
 const $$createType2 = apitypes$0.NotificationSnapshot.createFrom;
 const $$createType3 = apitypes$0.PinChangeEvent.createFrom;
 const $$createType4 = playback$0.SessionSnapshot.createFrom;
+const $$createType5 = apitypes$0.ThemePreferences.createFrom;
 
 configure();

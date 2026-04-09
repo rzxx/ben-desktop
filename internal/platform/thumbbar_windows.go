@@ -233,6 +233,10 @@ func (s *thumbbarService) applyState(snapshot playback.SessionSnapshot) {
 		return
 	}
 
+	s.updateButtons(snapshot, false)
+}
+
+func (s *thumbbarService) updateButtons(snapshot playback.SessionSnapshot, force bool) {
 	hasQueue := snapshot.QueueLength > 0
 	hasNext := playback.HasNextAction(snapshot)
 	hasTrack := snapshot.CurrentItem != nil
@@ -240,15 +244,17 @@ func (s *thumbbarService) applyState(snapshot playback.SessionSnapshot) {
 
 	s.mu.Lock()
 	changed := isPlaying != s.lastIsPlaying || hasQueue != s.lastHasQueue || hasNext != s.lastHasNext || hasTrack != s.lastHasTrack
-	if changed {
+	if changed || force {
 		s.lastIsPlaying = isPlaying
 		s.lastHasQueue = hasQueue
 		s.lastHasNext = hasNext
 		s.lastHasTrack = hasTrack
 	}
+	taskbar := s.taskbar
+	hwnd := s.hwnd
 	s.mu.Unlock()
 
-	if !changed {
+	if !force && !changed {
 		return
 	}
 
@@ -296,6 +302,9 @@ func (s *thumbbarService) handleWindowMessage(hwnd win32.HWND, msg uint32, wPara
 		if hasState {
 			s.applyState(state)
 		}
+	}
+	if IsSystemThemeChangeMessage(msg, lParam) {
+		s.refreshIconsForSystemTheme()
 	}
 
 	return win32.DefSubclassProc(hwnd, msg, wParam, lParam)
@@ -345,6 +354,35 @@ func (s *thumbbarService) buttonIcons() (win32.HICON, win32.HICON, win32.HICON, 
 	pauseIcon, _ := win32.LoadIcon(0, win32.IDI_ASTERISK)
 	nextIcon, _ := win32.LoadIcon(0, win32.IDI_INFORMATION)
 	return prevIcon, playIcon, pauseIcon, nextIcon
+}
+
+func (s *thumbbarService) refreshIconsForSystemTheme() {
+	icons, err := loadThumbbarIconSet()
+	if err != nil {
+		log.Printf("thumbnail toolbar theme icon reload failed: %v", err)
+		return
+	}
+
+	s.mu.Lock()
+	oldIcons := s.icons
+	s.icons = icons
+	started := s.started
+	hasState := s.hasLastState
+	state := s.lastState
+	s.mu.Unlock()
+
+	destroyThumbbarIconSet(&oldIcons)
+
+	if !started {
+		return
+	}
+	if hasState {
+		s.updateButtons(state, true)
+		return
+	}
+	if err := s.addButtons(); err != nil {
+		log.Printf("thumbnail toolbar add buttons failed after theme change: %v", err)
+	}
 }
 
 func newThumbButton(id uint32, icon win32.HICON, tooltip string, enabled bool) win32.THUMBBUTTON {

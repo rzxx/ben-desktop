@@ -76,12 +76,12 @@ export function PlayerBar() {
     !isLoadingOnly && (hasCurrent || (snapshot?.queueLength ?? 0) > 0);
 
   return (
-    <footer className="border-theme-500/15 bg-theme-900/75 rounded-2xl border px-6 py-4 shadow-xl shadow-black/25 backdrop-blur-xl backdrop-saturate-150 lg:px-8">
+    <footer className="border-theme-500/15 dark:border-theme-500/15 dark:bg-theme-900/75 bg-theme-100-desat/90 rounded-2xl border px-6 py-4 shadow-xl shadow-black/20 backdrop-blur-xl backdrop-saturate-150 lg:px-8 dark:shadow-black/25">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
         <div className="flex min-w-0 items-center gap-3 lg:w-72 lg:shrink-0">
           <ArtworkTile
             alt={currentTitle}
-            className="h-12 w-12 shrink-0 rounded-md border-black/10"
+            className="border-theme-300/70 h-12 w-12 shrink-0 rounded-md dark:border-black/10"
             rounded="soft"
             src={artworkUrl}
             title={currentTitle}
@@ -89,14 +89,14 @@ export function PlayerBar() {
           <div className="min-w-0">
             {visibleItem?.albumId ? (
               <Link
-                className="text-theme-100 hover:text-theme-50 block truncate text-left text-sm font-medium transition-colors"
+                className="text-theme-900 hover:text-theme-700 dark:text-theme-100 dark:hover:text-theme-50 block truncate text-left text-sm font-medium transition-colors"
                 params={{ albumId: visibleItem.albumId }}
                 to="/albums/$albumId"
               >
                 {currentTitle}
               </Link>
             ) : (
-              <h2 className="text-theme-100 truncate text-sm font-medium">
+              <h2 className="text-theme-900 dark:text-theme-100 truncate text-sm font-medium">
                 {currentTitle}
               </h2>
             )}
@@ -107,7 +107,9 @@ export function PlayerBar() {
               </p>
             )}
             {error && (
-              <p className="truncate text-[11px] text-red-300">{error}</p>
+              <p className="truncate text-[11px] text-red-600 dark:text-red-300">
+                {error}
+              </p>
             )}
           </div>
           {likeState.hasIdentity ? (
@@ -151,7 +153,7 @@ export function PlayerBar() {
               <SkipBack className="h-4 w-4 fill-current" />
             </PlayerIconButton>
             <button
-              className="bg-accent-100 text-accent-950 hover:bg-accent-50 inline-flex h-11 w-11 items-center justify-center rounded-full bg-linear-to-b from-white/21 to-black/21 shadow-md shadow-black/25 transition hover:scale-105 active:scale-95 disabled:cursor-default disabled:opacity-50"
+              className="bg-accent-700 text-accent-50 hover:bg-accent-600 dark:bg-accent-200 dark:text-accent-950 dark:hover:bg-accent-50 inline-flex h-11 w-11 items-center justify-center rounded-full bg-linear-to-b from-white/15 to-black/15 shadow-md shadow-black/25 transition hover:scale-105 active:scale-95 disabled:cursor-default disabled:opacity-50 dark:from-white/21 dark:to-black/21"
               disabled={!canResume}
               onClick={() => {
                 void togglePlayback();
@@ -159,9 +161,9 @@ export function PlayerBar() {
               type="button"
             >
               {isPlaying ? (
-                <Pause size={18} fill="true" />
+                <Pause size={18} fill="currentColor" />
               ) : (
-                <Play size={18} fill="true" />
+                <Play size={18} fill="currentColor" />
               )}
             </button>
             <PlayerIconButton
@@ -208,7 +210,7 @@ export function PlayerBar() {
         </div>
 
         <div className="flex items-center gap-2 lg:w-56 lg:shrink-0">
-          <Volume2 className="text-theme-400 h-4 w-4" />
+          <Volume2 className="text-theme-500 dark:text-theme-400 h-4 w-4" />
           <PlayerSlider
             ariaLabel="Volume"
             max={100}
@@ -245,8 +247,8 @@ function PlayerIconButton({
       className={[
         "rounded p-2 transition-colors disabled:cursor-default disabled:opacity-50",
         active
-          ? "text-accent-200 hover:text-accent-100"
-          : "text-theme-400 hover:text-theme-100",
+          ? "text-accent-800 hover:text-accent-600 dark:text-accent-200 dark:hover:text-accent-50"
+          : "text-theme-700 hover:text-theme-600 dark:text-theme-300 dark:hover:text-theme-100",
         className,
       ].join(" ")}
       disabled={disabled}
@@ -292,10 +294,10 @@ function PlayerSlider({
       value={clampedValue}
     >
       <Slider.Control className="flex h-4 w-full items-center">
-        <Slider.Track className="relative h-1.5 w-full rounded-full bg-black/50">
-          <Slider.Indicator className="bg-theme-300 absolute h-full rounded-full bg-linear-to-b from-white/7 to-black/7" />
+        <Slider.Track className="bg-theme-200 relative h-1.5 w-full rounded-full dark:bg-black/50">
+          <Slider.Indicator className="bg-theme-700 dark:bg-theme-300 absolute h-full rounded-full bg-linear-to-b from-white/10 to-black/8 dark:from-white/7 dark:to-black/7" />
           <Slider.Thumb
-            className="bg-theme-100 focus-visible:outline-theme-100 block h-4 w-4 rounded-full border border-black/28 bg-linear-to-b from-white/15 to-black/15 shadow-md focus-visible:outline-2 focus-visible:outline-offset-2"
+            className="focus-visible:outline-theme-700 border-theme-300/80 to-theme-100 shadow-theme-900/15 dark:bg-theme-100 dark:focus-visible:outline-theme-100 bg-theme-50 block h-4 w-4 rounded-full border bg-linear-to-b from-white shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-black/28 dark:from-white/15 dark:to-black/15 dark:shadow-black/24"
             getAriaLabel={() => ariaLabel}
           />
         </Slider.Track>

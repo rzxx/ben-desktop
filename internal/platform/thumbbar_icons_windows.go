@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"path"
 
-	"golang.org/x/sys/windows/registry"
-
 	"github.com/zzl/go-win32api/v2/win32"
 )
 
@@ -49,17 +47,7 @@ func loadThumbbarIconSet() (thumbbarIconSet, error) {
 }
 
 func preferredThumbbarIconTheme() string {
-	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.QUERY_VALUE)
-	if err != nil {
-		return thumbbarIconThemeDark
-	}
-	defer key.Close()
-
-	value, _, err := key.GetIntegerValue("AppsUseLightTheme")
-	if err != nil {
-		return thumbbarIconThemeDark
-	}
-	if value != 0 {
+	if CurrentSystemTheme() == "light" {
 		return thumbbarIconThemeLight
 	}
 	return thumbbarIconThemeDark

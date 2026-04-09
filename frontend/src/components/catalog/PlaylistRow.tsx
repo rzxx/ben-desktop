@@ -41,7 +41,7 @@ export function PlaylistRow({
       <p className="text-theme-500 text-[11px] tracking-[0.28em] uppercase">
         {isLiked ? "Reserved playlist" : "Playlist"}
       </p>
-      <h2 className="text-theme-100 mt-1 truncate text-base font-medium">
+      <h2 className="text-theme-900 dark:text-theme-100 mt-1 truncate text-base font-medium">
         {playlist.Name}
       </h2>
       <p className="text-theme-500 mt-1 truncate text-xs">
@@ -53,7 +53,7 @@ export function PlaylistRow({
   );
 
   return (
-    <div className="group flex items-center gap-4 rounded-xl border border-white/6 bg-white/[0.035] px-4 py-3 transition hover:border-white/12 hover:bg-white/[0.05]">
+    <div className="group border-theme-300/70 shadow-theme-900/6 hover:border-theme-400/70 hover:bg-theme-50 flex items-center gap-4 rounded-xl border bg-white/78 px-4 py-3 shadow-sm transition dark:border-white/6 dark:bg-white/[0.035] dark:shadow-none dark:hover:border-white/12 dark:hover:bg-white/[0.05]">
       {isLiked ? (
         <Link
           className="flex min-w-0 flex-1 items-center gap-4"

@@ -12,7 +12,11 @@ import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
-import { pinSubjectKey, usePinState, usePinStates } from "@/hooks/pins/usePinStates";
+import {
+  pinSubjectKey,
+  usePinState,
+  usePinStates,
+} from "@/hooks/pins/usePinStates";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import {
   isJobActive,
@@ -150,7 +154,7 @@ export function LikedPlaylistPage() {
       <section className="flex flex-wrap items-end gap-5">
         <ArtworkTile
           alt="Liked songs"
-          className="h-40 w-40 shrink-0 border-black/10"
+          className="border-theme-300/70 h-40 w-40 shrink-0 dark:border-black/10"
           subtitle="Liked"
           title="Liked songs"
         />
@@ -196,7 +200,7 @@ export function LikedPlaylistPage() {
                 ? "Unpin liked"
                 : likedPinState?.Covered
                   ? "Pin liked directly"
-                : "Pin liked"}
+                  : "Pin liked"}
           </Button>
           {pinFeedback ? (
             <p className="text-theme-500 text-xs">{pinFeedback}</p>
@@ -207,7 +211,7 @@ export function LikedPlaylistPage() {
             </p>
           ) : null}
           {!pinFeedback && pinError ? (
-            <p className="text-xs text-red-300">{pinError}</p>
+            <p className="text-xs text-red-600 dark:text-red-300">{pinError}</p>
           ) : null}
         </div>
       </section>

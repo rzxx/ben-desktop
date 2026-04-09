@@ -36,8 +36,8 @@ function InlineActionButton({
       className={[
         "rounded-full p-2 transition disabled:pointer-events-none disabled:opacity-45",
         tone === "danger"
-          ? "text-theme-500 hover:text-red-200"
-          : "text-theme-500 hover:text-theme-100",
+          ? "text-theme-500 hover:text-red-600 dark:hover:text-red-200"
+          : "text-theme-500 hover:text-theme-900 dark:hover:text-theme-100",
       ].join(" ")}
       disabled={disabled}
       onClick={(event) => {
@@ -117,7 +117,9 @@ export function TrackListRow({
             className={[
               "flex min-w-0 flex-1 items-center text-left transition-colors disabled:pointer-events-none",
               compact ? "rounded-xl px-3 py-2.5" : "rounded-2xl px-3 py-3",
-              open ? "bg-theme-800" : "hover:bg-theme-800",
+              open
+                ? "bg-theme-100 dark:bg-theme-800"
+                : "hover:bg-theme-100 dark:hover:bg-theme-800",
             ].join(" ")}
             disabled={!actionable}
             onClick={onPlay}
@@ -144,12 +146,14 @@ export function TrackListRow({
                 className={[
                   "truncate font-medium",
                   compact ? "text-sm" : "",
-                  isActive ? "text-accent-300" : "text-theme-100",
+                  isActive
+                    ? "text-accent-700 dark:text-accent-300"
+                    : "text-theme-900 dark:text-theme-100",
                   isActive
                     ? ""
                     : compact
-                      ? "group-hover:text-white"
-                      : "group-hover:text-theme-50",
+                      ? "group-hover:text-theme-950 dark:group-hover:text-white"
+                      : "group-hover:text-theme-800 dark:group-hover:text-theme-50",
                 ].join(" ")}
               >
                 {title}

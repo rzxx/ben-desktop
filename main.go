@@ -23,6 +23,7 @@ func init() {
 	application.RegisterEvent[apitypes.CatalogChangeEvent](desktopcore.EventCatalogChanged)
 	application.RegisterEvent[apitypes.PinChangeEvent](desktopcore.EventPinChanged)
 	application.RegisterEvent[apitypes.NotificationSnapshot](EventNotificationChanged)
+	application.RegisterEvent[apitypes.ThemePreferences](EventThemePreferencesChanged)
 	application.RegisterEvent[playback.SessionSnapshot](playback.EventSnapshotChanged)
 }
 
@@ -33,6 +34,7 @@ func main() {
 	host := newCoreHost()
 	playbackService := NewPlaybackServiceWithHost(host)
 	notificationsFacade := NewNotificationsFacade(host, playbackService)
+	windowBackground := initialWindowBackgroundColour()
 	app := application.New(application.Options{
 		Name:        "ben-desktop",
 		Description: "Desktop host for ben playback and core services",
@@ -70,11 +72,23 @@ func main() {
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
-		BackgroundColour: application.NewRGB(10, 10, 10),
+		BackgroundColour: windowBackground,
 		URL:              "/",
 	})
 	err := app.Run()
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func initialWindowBackgroundColour() application.RGBA {
+	mode := apitypes.AppThemeModeSystem
+	if state, err := loadSettingsState(); err == nil {
+		mode = apitypes.NormalizeAppThemeMode(apitypes.AppThemeMode(state.Theme.Mode))
+	}
+
+	if apitypes.ResolveTheme(mode, detectSystemTheme()) == apitypes.ResolvedThemeDark {
+		return application.NewRGB(10, 10, 10)
+	}
+	return application.NewRGB(247, 248, 250)
 }

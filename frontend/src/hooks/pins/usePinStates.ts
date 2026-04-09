@@ -1,11 +1,9 @@
 import { Events } from "@wailsio/runtime";
 import { useEffect, useState } from "react";
-import {
-  listPinStates,
-  PIN_PROFILE,
-  subscribePinEvents,
-} from "@/lib/api/pin";
+import { listPinStates, PIN_PROFILE, subscribePinEvents } from "@/lib/api/pin";
 import { Types, type PinState, type PinSubjectRef } from "@/lib/api/models";
+
+const EMPTY_PIN_STATES: Record<string, PinState> = {};
 
 function normalizeSubjects(subjects: PinSubjectRef[]) {
   const out: PinSubjectRef[] = [];
@@ -48,7 +46,13 @@ export function usePinStates(subjects: PinSubjectRef[], profile = PIN_PROFILE) {
       Kind: subject.Kind,
     })),
   });
-  const [states, setStates] = useState<Record<string, PinState>>({});
+  const [states, setStates] = useState<{
+    signature: string;
+    values: Record<string, PinState>;
+  }>({
+    signature,
+    values: EMPTY_PIN_STATES,
+  });
 
   useEffect(() => {
     const payload = JSON.parse(signature) as {
@@ -64,7 +68,6 @@ export function usePinStates(subjects: PinSubjectRef[], profile = PIN_PROFILE) {
     );
 
     if (requestedSubjects.length === 0) {
-      setStates({});
       return;
     }
 
@@ -72,7 +75,10 @@ export function usePinStates(subjects: PinSubjectRef[], profile = PIN_PROFILE) {
     let stopListening: (() => void) | undefined;
 
     const load = async () => {
-      const nextStates = await listPinStates(requestedSubjects, payload.profile);
+      const nextStates = await listPinStates(
+        requestedSubjects,
+        payload.profile,
+      );
       if (disposed) {
         return;
       }
@@ -83,7 +89,10 @@ export function usePinStates(subjects: PinSubjectRef[], profile = PIN_PROFILE) {
           byKey[key] = state;
         }
       }
-      setStates(byKey);
+      setStates({
+        signature,
+        values: byKey,
+      });
     };
 
     void load().catch(() => {});
@@ -104,7 +113,11 @@ export function usePinStates(subjects: PinSubjectRef[], profile = PIN_PROFILE) {
     };
   }, [signature]);
 
-  return states;
+  if (normalizedSubjects.length === 0 || states.signature !== signature) {
+    return EMPTY_PIN_STATES;
+  }
+
+  return states.values;
 }
 
 export function usePinState(
@@ -113,5 +126,5 @@ export function usePinState(
 ) {
   const states = usePinStates(subject ? [subject] : [], profile);
   const key = pinSubjectKey(subject);
-  return key ? states[key] ?? null : null;
+  return key ? (states[key] ?? null) : null;
 }

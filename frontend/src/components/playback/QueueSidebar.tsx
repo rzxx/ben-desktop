@@ -80,10 +80,10 @@ export function QueueSidebar() {
   const hasVisibleEntries = rows.length > 0;
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l border-white/5 px-4 pt-6 pb-4">
+    <aside className="border-theme-300/15 flex h-full min-h-0 flex-col border-l px-4 pt-6 pb-4 dark:border-white/5">
       <div className="mb-4 flex items-center justify-between gap-3 px-1">
         <div>
-          <h2 className="text-theme-100 mt-1 text-xl font-semibold tracking-[-0.03em]">
+          <h2 className="text-theme-900 dark:text-theme-100 mt-1 text-xl font-semibold tracking-[-0.03em]">
             Queue
           </h2>
         </div>
@@ -98,7 +98,7 @@ export function QueueSidebar() {
       </div>
       <div className="min-h-0 flex-1">
         {!hasVisibleEntries ? (
-          <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-white/8 px-6 text-center">
+          <div className="border-theme-300/70 flex h-full flex-col items-center justify-center rounded-xl border border-dashed bg-white/50 px-6 text-center dark:border-white/8 dark:bg-transparent">
             <ListMusic className="text-theme-500 mb-3 h-7 w-7" />
             <p className="text-theme-500 text-sm">
               Tracks you queue or leave in the current context will show here.
@@ -195,7 +195,9 @@ function QueueEntryRow(props: QueueEntryRowProps) {
     <div
       className={[
         "group flex min-w-0 items-center gap-2 rounded-md p-2 transition-colors",
-        props.isActive || !props.selectable ? "" : "hover:bg-theme-800",
+        props.isActive || !props.selectable
+          ? ""
+          : "hover:bg-theme-100 dark:hover:bg-theme-800",
         props.actionable ? "" : "opacity-40",
       ].join(" ")}
     >
@@ -207,7 +209,9 @@ function QueueEntryRow(props: QueueEntryRowProps) {
       >
         <p
           className={`truncate text-sm font-medium ${
-            props.isActive ? "text-accent-300" : "text-theme-100"
+            props.isActive
+              ? "text-accent-700 dark:text-accent-300"
+              : "text-theme-900 dark:text-theme-100"
           }`}
         >
           {props.entry.item.title}
@@ -217,7 +221,7 @@ function QueueEntryRow(props: QueueEntryRowProps) {
       {props.onRemove && (
         <button
           aria-label="Remove queued entry"
-          className="wails-no-drag group-hover:text-theme-400 hover:text-accent-200 rounded p-1 transition-colors not-group-hover:hidden"
+          className="wails-no-drag group-hover:text-theme-500 hover:text-accent-700 dark:group-hover:text-theme-400 dark:hover:text-accent-200 rounded p-1 transition-colors not-group-hover:hidden"
           onClick={props.onRemove}
           type="button"
         >

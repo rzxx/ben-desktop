@@ -63,7 +63,6 @@ export function startEnsurePlaylistEncodings(
   );
 }
 
-
 export function listRecordingPlaybackAvailability(
   recordingIds: string[],
   preferredProfile = "",

@@ -56,7 +56,7 @@ export function ArtistDetailPage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-5">
       <section className="flex flex-wrap items-end gap-5">
-        <div className="text-theme-100 flex h-28 w-28 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-4xl font-semibold">
+        <div className="text-theme-900 border-theme-300/75 shadow-theme-900/8 dark:text-theme-100 flex h-28 w-28 items-center justify-center rounded-full border bg-white/82 text-4xl font-semibold shadow-sm dark:border-white/10 dark:bg-white/[0.06] dark:shadow-none">
           {detail.data?.Name?.slice(0, 1).toUpperCase() || "A"}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -74,7 +74,9 @@ export function ArtistDetailPage() {
             title={detail.data?.Name ?? "Artist"}
           />
           {detail.error ? (
-            <p className="text-sm text-amber-300">{detail.error}</p>
+            <p className="text-sm text-amber-600 dark:text-amber-300">
+              {detail.error}
+            </p>
           ) : null}
         </div>
       </section>

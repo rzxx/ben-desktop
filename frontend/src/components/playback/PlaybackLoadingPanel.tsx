@@ -25,11 +25,11 @@ export function PlaybackLoadingPanel({
 
   return (
     <section
-      className={`bg-theme-900/75 border-theme-500/15 rounded-2xl border p-4 shadow-xl shadow-black/25 backdrop-blur-xl ${className}`.trim()}
+      className={`border-theme-300/70 shadow-theme-900/10 dark:border-theme-500/15 dark:bg-theme-900/75 rounded-2xl border bg-white/82 p-4 shadow-xl backdrop-blur-xl dark:shadow-black/25 ${className}`.trim()}
     >
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-theme-100 text-lg font-semibold">
+          <h2 className="text-theme-900 dark:text-theme-100 text-lg font-semibold">
             Preparing playback
           </h2>
         </div>
@@ -47,7 +47,7 @@ export function PlaybackLoadingPanel({
           title={item.title}
         />
         <div className="min-w-0 flex-1">
-          <p className="text-theme-100 truncate text-sm font-semibold">
+          <p className="text-theme-900 dark:text-theme-100 truncate text-sm font-semibold">
             {item.title}
           </p>
           <p className="text-theme-500 truncate text-sm">{item.subtitle}</p>

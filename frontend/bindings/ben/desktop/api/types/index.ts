@@ -16,6 +16,7 @@ export {
     AlbumVariantAvailabilityOverview,
     AlbumVariantItem,
     AlbumVariantListRequest,
+    AppThemeMode,
     ArtistAlbumListRequest,
     ArtistListItem,
     ArtistListRequest,
@@ -103,8 +104,10 @@ export {
     RecordingVariantAvailabilityOverview,
     RecordingVariantItem,
     RecordingVariantListRequest,
+    ResolvedTheme,
     ScanActivityStatus,
     ScanMaintenanceStatus,
+    ThemePreferences,
     TrackAvailabilitySummary,
     TranscodeActivityStatus,
     TranscodeOplogDiagnostics

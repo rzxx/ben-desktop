@@ -11,7 +11,6 @@ import (
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/playback"
-	"ben/desktop/internal/settings"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -1277,30 +1276,4 @@ func notificationSubjectsEqual(left, right *apitypes.NotificationSubject) bool {
 			left.Subtitle == right.Subtitle &&
 			left.ArtworkRef == right.ArtworkRef
 	}
-}
-
-func loadSettingsState() (settings.State, error) {
-	settingsPath, err := settings.DefaultPath("ben-desktop")
-	if err != nil {
-		return settings.State{}, err
-	}
-	store, err := settings.NewStore(settingsPath)
-	if err != nil {
-		return settings.State{}, err
-	}
-	defer store.Close()
-	return store.Load()
-}
-
-func saveSettingsState(state settings.State) error {
-	settingsPath, err := settings.DefaultPath("ben-desktop")
-	if err != nil {
-		return err
-	}
-	store, err := settings.NewStore(settingsPath)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	return store.Save(state)
 }

@@ -68,7 +68,7 @@ export function OperationsSurface() {
   if (state.loading) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center">
-        <div className="rounded-[1.4rem] border border-white/8 bg-black/15 px-5 py-4 text-sm text-white/65">
+        <div className="border-theme-300/70 text-theme-900 rounded-[1.4rem] border bg-white/82 px-5 py-4 text-sm dark:border-white/8 dark:bg-black/15 dark:text-white/65">
           Loading operations state...
         </div>
       </div>
@@ -77,16 +77,16 @@ export function OperationsSurface() {
 
   return (
     <div className="ben-scrollbar ben-shell-scroll-offset flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
-      <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(135deg,rgba(14,165,233,0.16),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
+      <section className="border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(135deg,rgba(14,165,233,0.16),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6 dark:border-white/8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[0.68rem] tracking-[0.35em] text-white/35 uppercase">
+            <p className="text-theme-500 text-[0.68rem] tracking-[0.35em] uppercase dark:text-white/35">
               Operations
             </p>
-            <h1 className="mt-3 text-3xl font-semibold text-white">
+            <h1 className="text-theme-900 mt-3 text-3xl font-semibold dark:text-white">
               Desktop core controls
             </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">
+            <p className="text-theme-600 mt-3 max-w-3xl text-sm leading-6 dark:text-white/55">
               Manual actions, background work, playback preparation, scan
               activity, and transcodes now converge into one normalized work
               feed. This page keeps the deeper operator diagnostics while
@@ -94,26 +94,26 @@ export function OperationsSurface() {
               shell toasts and the activity center.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                 {state.library
                   ? `${state.library.Name} • ${state.library.Role}`
                   : "No active library"}
               </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                 Scan {scanPhase}
               </span>
               {maintenance?.RepairRequired && (
-                <span className="rounded-full border border-amber-300/20 bg-amber-300/12 px-3 py-1 text-xs tracking-[0.2em] text-amber-100 uppercase">
+                <span className="rounded-full border border-amber-300/20 bg-amber-300/12 px-3 py-1 text-xs tracking-[0.2em] text-amber-700 uppercase dark:text-amber-100">
                   Repair recommended
                 </span>
               )}
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                 {checkpointSummary(state.checkpoint)}
               </span>
             </div>
           </div>
           <button
-            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+            className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
             onClick={() => {
               void refresh();
             }}
@@ -128,17 +128,17 @@ export function OperationsSurface() {
       {(state.error || actionError || feedback) && (
         <section className="grid gap-3 xl:grid-cols-2">
           {state.error && (
-            <div className="rounded-[1.25rem] border border-amber-400/18 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+            <div className="rounded-[1.25rem] border border-amber-400/18 bg-amber-400/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-100">
               {state.error}
             </div>
           )}
           {actionError && (
-            <div className="rounded-[1.25rem] border border-rose-400/18 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+            <div className="rounded-[1.25rem] border border-rose-400/18 bg-rose-400/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-100">
               {actionError}
             </div>
           )}
           {feedback && (
-            <div className="rounded-[1.25rem] border border-emerald-400/18 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+            <div className="rounded-[1.25rem] border border-emerald-400/18 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-100">
               {feedback}
             </div>
           )}
@@ -146,23 +146,23 @@ export function OperationsSurface() {
       )}
 
       {!state.library ? (
-        <section className="rounded-[1.6rem] border border-dashed border-white/10 bg-black/10 px-8 py-10 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/40">
+        <section className="border-theme-300/75 rounded-[1.6rem] border border-dashed bg-white/78 px-8 py-10 text-center dark:border-white/10 dark:bg-black/10">
+          <div className="border-theme-300/75 bg-theme-100 text-theme-400 mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border dark:border-white/10 dark:bg-white/5 dark:text-white/40">
             <CircleAlert className="h-5 w-5" />
           </div>
-          <h2 className="text-lg font-semibold text-white/90">
+          <h2 className="text-theme-900 text-lg font-semibold dark:text-white/90">
             No active library
           </h2>
-          <p className="mx-auto mt-2 max-w-md text-sm text-white/50">
+          <p className="text-theme-500 mx-auto mt-2 max-w-md text-sm dark:text-white/50">
             Select or create a library before running repair or checkpoint
             operations.
           </p>
           {state.local && (
             <div className="mt-5 inline-flex flex-wrap justify-center gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.22em] text-white/52 uppercase">
+              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.22em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                 {state.local.Device || "Unknown device"}
               </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.22em] text-white/52 uppercase">
+              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.22em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                 {state.local.DeviceID || "No device id"}
               </span>
             </div>
@@ -171,16 +171,16 @@ export function OperationsSurface() {
       ) : (
         <>
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-            <div className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+            <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                   <Activity className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">
+                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                     Runtime context
                   </h2>
-                  <p className="text-sm text-white/48">
+                  <p className="text-theme-600 text-sm dark:text-white/48">
                     Active library, local device identity, and current scan
                     activity.
                   </p>
@@ -188,49 +188,49 @@ export function OperationsSurface() {
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Library
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
                     {state.library.Name}
                   </p>
-                  <p className="mt-2 text-sm text-white/55">
+                  <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                     {state.library.LibraryID}
                   </p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Device
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
                     {state.local?.Device || "Unknown device"}
                   </p>
-                  <p className="mt-2 text-sm text-white/55">
+                  <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                     {state.local?.PeerID || "No peer identity"}
                   </p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Role
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white capitalize">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold capitalize dark:text-white">
                     {normalizeRole(state.local?.Role ?? "") || "unknown"}
                   </p>
-                  <p className="mt-2 text-sm text-white/55">
+                  <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                     {canScan
                       ? "Can contribute local media"
                       : "Cannot contribute local media"}
                   </p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Scan activity
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white capitalize">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold capitalize dark:text-white">
                     {scanPhase}
                   </p>
-                  <p className="mt-2 text-sm text-white/55">
+                  <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                     {formatCount(
                       state.activity?.Scan?.TracksDone ?? 0,
                       "track",
@@ -245,71 +245,71 @@ export function OperationsSurface() {
               </div>
             </div>
 
-            <div className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+            <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                   <ShieldCheck className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">
+                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                     Checkpoint state
                   </h2>
-                  <p className="text-sm text-white/48">
+                  <p className="text-theme-600 text-sm dark:text-white/48">
                     Latest published checkpoint and device coverage.
                   </p>
                 </div>
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Checkpoint id
                   </p>
-                  <p className="mt-2 font-mono text-sm break-all text-white/80">
+                  <p className="text-theme-800 mt-2 font-mono text-sm break-all dark:text-white/80">
                     {state.checkpoint?.CheckpointID ||
                       "No published checkpoint"}
                   </p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Coverage
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
                     {state.checkpoint?.AckedDevices ?? 0}/
                     {state.checkpoint?.TotalDevices ?? 0}
                   </p>
-                  <p className="mt-2 text-sm text-white/55">
+                  <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                     {state.checkpoint?.Compactable
                       ? "Ready to compact"
                       : "Waiting for device coverage"}
                   </p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Entries
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
                     {formatCount(state.checkpoint?.EntryCount ?? 0, "op")}
                   </p>
-                  <p className="mt-2 text-sm text-white/55">
+                  <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                     {formatCount(state.checkpoint?.ChunkCount ?? 0, "chunk")}
                   </p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Published
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
                     {formatDateTime(state.checkpoint?.PublishedAt)}
                   </p>
                   {checkpointNeedsRepublish && (
-                    <p className="mt-2 text-sm text-amber-100">
+                    <p className="mt-2 text-sm text-amber-700 dark:text-amber-100">
                       Protocol epoch v2 is active. Publish a fresh checkpoint
                       after the privacy scrub before relying on checkpoint sync.
                     </p>
                   )}
                   {state.checkpoint?.LastError && (
-                    <p className="mt-2 text-sm text-rose-200">
+                    <p className="mt-2 text-sm text-rose-700 dark:text-rose-100">
                       {state.checkpoint.LastError}
                     </p>
                   )}
@@ -319,16 +319,16 @@ export function OperationsSurface() {
           </section>
 
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-            <div className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+            <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                   <HardDrive className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">
+                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                     Manual actions
                   </h2>
-                  <p className="text-sm text-white/48">
+                  <p className="text-theme-600 text-sm dark:text-white/48">
                     Actions return immediately with a job handle and continue in
                     the background.
                   </p>
@@ -336,19 +336,19 @@ export function OperationsSurface() {
               </div>
 
               {maintenance?.RepairRequired && (
-                <div className="mt-5 rounded-[1.2rem] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm text-amber-100">
+                <div className="mt-5 rounded-[1.2rem] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm text-amber-700 dark:text-amber-100">
                   <p className="font-semibold">Repair recommended</p>
-                  <p className="mt-2 text-amber-50/85">
+                  <p className="mt-2 text-amber-700 dark:text-amber-100/90">
                     Automatic scans detected library state that needs an
                     explicit repair run.
                   </p>
                   {maintenance.Reason && (
-                    <p className="mt-2 text-xs tracking-[0.22em] text-amber-100/70 uppercase">
+                    <p className="mt-2 text-xs tracking-[0.22em] text-amber-700 uppercase dark:text-amber-100/70">
                       {maintenance.Reason}
                     </p>
                   )}
                   {maintenance.Detail && (
-                    <p className="mt-2 text-sm text-amber-50/80">
+                    <p className="mt-2 text-sm text-amber-700 dark:text-amber-100/85">
                       {maintenance.Detail}
                     </p>
                   )}
@@ -357,7 +357,7 @@ export function OperationsSurface() {
 
               <div className="mt-5 flex flex-wrap gap-3">
                 <button
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-500 bg-zinc-100 px-3 py-2 text-sm text-zinc-950 transition hover:bg-white disabled:cursor-default disabled:opacity-50"
+                  className="border-theme-900 bg-theme-900 text-theme-50 hover:bg-theme-800 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
                   disabled={!canScan || pendingAction === "repair-library"}
                   onClick={() => {
                     void runAction(
@@ -372,7 +372,7 @@ export function OperationsSurface() {
                   <span>Repair library</span>
                 </button>
                 <button
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                  className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                   disabled={pendingAction === "sync-now"}
                   onClick={() => {
                     void runAction("sync-now", startSyncNow, "Started");
@@ -383,7 +383,7 @@ export function OperationsSurface() {
                   <span>Sync now</span>
                 </button>
                 <button
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                  className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                   disabled={
                     !canCheckpoint || pendingAction === "checkpoint-publish"
                   }
@@ -400,7 +400,7 @@ export function OperationsSurface() {
                   <span>Publish checkpoint</span>
                 </button>
                 <button
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                  className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                   disabled={
                     !canCheckpoint || pendingAction === "checkpoint-compact"
                   }
@@ -417,7 +417,7 @@ export function OperationsSurface() {
                   <span>Compact checkpoint</span>
                 </button>
                 <button
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                  className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                   disabled={
                     !canCheckpoint || pendingAction === "checkpoint-force"
                   }
@@ -435,22 +435,22 @@ export function OperationsSurface() {
                 </button>
               </div>
 
-              <p className="mt-4 text-sm text-white/48">
-                Repair requires owner, admin, or member role. Checkpoint
-                actions require admin or owner role.
+              <p className="text-theme-600 mt-4 text-sm dark:text-white/48">
+                Repair requires owner, admin, or member role. Checkpoint actions
+                require admin or owner role.
               </p>
             </div>
 
-            <div className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+            <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                   <FolderOpen className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">
+                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                     Scan roots
                   </h2>
-                  <p className="text-sm text-white/48">
+                  <p className="text-theme-600 text-sm dark:text-white/48">
                     Per-device roots for the active library. Roots stay
                     local-only and are excluded from sync and checkpoints.
                   </p>
@@ -458,7 +458,7 @@ export function OperationsSurface() {
                 {canScan && (
                   <div className="ml-auto">
                     <button
-                      className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
+                      className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                       disabled={pendingAction === "root-config:add"}
                       onClick={() => {
                         void handleAddRoot();
@@ -474,29 +474,31 @@ export function OperationsSurface() {
 
               <div className="mt-5 space-y-3">
                 {state.roots.length === 0 ? (
-                  <div className="rounded-[1.2rem] border border-dashed border-white/10 bg-black/10 px-4 py-5 text-sm text-white/48">
+                  <div className="border-theme-300/75 text-theme-600 rounded-[1.2rem] border border-dashed bg-white/78 px-4 py-5 text-sm dark:border-white/10 dark:bg-black/10 dark:text-white/48">
                     No scan roots configured for this device.
                   </div>
                 ) : (
                   state.roots.map((root) => {
                     return (
                       <div
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-white/8 bg-black/10 px-4 py-3"
+                        className="border-theme-300/70 flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border bg-white/78 px-4 py-3 dark:border-white/8 dark:bg-black/10"
                         key={root}
                       >
                         <div className="min-w-0">
-                          <p className="truncate font-mono text-sm text-white/80">
+                          <p className="text-theme-800 truncate font-mono text-sm dark:text-white/80">
                             {root}
                           </p>
-                          <p className="mt-1 text-xs tracking-[0.22em] text-white/32 uppercase">
+                          <p className="text-theme-900 mt-1 text-xs tracking-[0.22em] uppercase dark:text-white/32">
                             Local root
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {canScan && (
                             <button
-                              className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-default disabled:opacity-50"
-                              disabled={pendingAction === `root-config:remove:${root}`}
+                              className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                              disabled={
+                                pendingAction === `root-config:remove:${root}`
+                              }
                               onClick={() => {
                                 void handleRemoveRoot(root);
                               }}
@@ -516,16 +518,16 @@ export function OperationsSurface() {
           </section>
 
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+            <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                   <Activity className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">
+                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                     Diagnostics
                   </h2>
-                  <p className="text-sm text-white/48">
+                  <p className="text-theme-600 text-sm dark:text-white/48">
                     Inspect counts and operator diagnostics for the active
                     library.
                   </p>
@@ -533,65 +535,65 @@ export function OperationsSurface() {
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Libraries
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
                     {state.inspect?.Libraries ?? 0}
                   </p>
-                  <p className="mt-2 text-sm text-white/55">
+                  <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                     {state.inspect?.Devices ?? 0} devices,{" "}
                     {state.inspect?.Memberships ?? 0} memberships
                   </p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Catalog
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
                     {state.inspect?.Content ?? 0} sources
                   </p>
-                  <p className="mt-2 text-sm text-white/55">
+                  <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                     {state.inspect?.Albums ?? 0} albums,{" "}
                     {state.inspect?.Recordings ?? 0} recordings
                   </p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Oplog
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
                     {state.inspect?.OplogEntries ?? 0} entries
                   </p>
-                  <p className="mt-2 text-sm text-white/55">
+                  <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                     {state.inspect?.DeviceClocks ?? 0} device clocks
                   </p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Media
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-white">
+                  <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
                     {state.inspect?.Encodings ?? 0} encodings
                   </p>
-                  <p className="mt-2 text-sm text-white/55">
+                  <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                     {state.inspect?.ArtworkVariants ?? 0} artwork variants
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+            <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                   <ShieldCheck className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">
+                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
                     Oplog spread
                   </h2>
-                  <p className="text-sm text-white/48">
+                  <p className="text-theme-600 text-sm dark:text-white/48">
                     Highest-volume entity types and devices in the active
                     library oplog.
                   </p>
@@ -599,35 +601,39 @@ export function OperationsSurface() {
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Entity types
                   </p>
-                  <div className="mt-3 space-y-2 text-sm text-white/70">
+                  <div className="text-theme-900 mt-3 space-y-2 text-sm dark:text-white/70">
                     {oplogEntityCounts.length === 0 ? (
-                      <p className="text-white/48">No oplog diagnostics yet.</p>
+                      <p className="text-theme-600 dark:text-white/48">
+                        No oplog diagnostics yet.
+                      </p>
                     ) : (
                       oplogEntityCounts.map(([name, count]) => (
                         <div
                           className="flex items-center justify-between gap-3"
                           key={name}
                         >
-                          <span className="truncate font-mono text-xs text-white/58">
+                          <span className="text-theme-900 truncate font-mono text-xs dark:text-white/58">
                             {name}
                           </span>
-                          <span className="text-white">{count}</span>
+                          <span className="text-theme-900 dark:text-white">
+                            {count}
+                          </span>
                         </div>
                       ))
                     )}
                   </div>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
-                  <p className="text-[0.68rem] tracking-[0.26em] text-white/35 uppercase">
+                <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
+                  <p className="text-theme-500 text-[0.68rem] tracking-[0.26em] uppercase dark:text-white/35">
                     Devices
                   </p>
-                  <div className="mt-3 space-y-2 text-sm text-white/70">
+                  <div className="text-theme-900 mt-3 space-y-2 text-sm dark:text-white/70">
                     {oplogDeviceCounts.length === 0 ? (
-                      <p className="text-white/48">
+                      <p className="text-theme-600 dark:text-white/48">
                         No device oplog diagnostics yet.
                       </p>
                     ) : (
@@ -636,10 +642,12 @@ export function OperationsSurface() {
                           className="flex items-center justify-between gap-3"
                           key={name}
                         >
-                          <span className="truncate font-mono text-xs text-white/58">
+                          <span className="text-theme-900 truncate font-mono text-xs dark:text-white/58">
                             {name}
                           </span>
-                          <span className="text-white">{count}</span>
+                          <span className="text-theme-900 dark:text-white">
+                            {count}
+                          </span>
                         </div>
                       ))
                     )}
@@ -651,43 +659,47 @@ export function OperationsSurface() {
         </>
       )}
 
-      <section className="rounded-[1.6rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5">
+      <section className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/72">
+            <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
               <Clock3 className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">Work feed</h2>
-              <p className="text-sm text-white/48">
+              <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
+                Work feed
+              </h2>
+              <p className="text-theme-600 text-sm dark:text-white/48">
                 Shared notification stream used by the shell activity center,
                 Base UI toasts, and this debug surface.
               </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+            <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
               {formatCount(activeNotifications.length, "active")}
             </span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+            <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
               {formatCount(userNotificationCount, "user")}
             </span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-white/52 uppercase">
+            <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
               {formatCount(systemNotificationCount, "system")}
             </span>
           </div>
         </div>
 
         <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-          <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
+          <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-white">Active work</h3>
-              <span className="text-[0.68rem] tracking-[0.2em] text-white/35 uppercase">
+              <h3 className="text-theme-900 text-sm font-semibold dark:text-white">
+                Active work
+              </h3>
+              <span className="text-theme-500 text-[0.68rem] tracking-[0.2em] uppercase dark:text-white/35">
                 {formatCount(activeNotifications.length, "item")}
               </span>
             </div>
             {activeNotifications.length === 0 ? (
-              <div className="rounded-[1.2rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-white/42">
+              <div className="border-theme-300/75 text-theme-500 rounded-[1.2rem] border border-dashed bg-white/[0.03] px-4 py-5 text-sm dark:border-white/10 dark:text-white/42">
                 No active notifications right now.
               </div>
             ) : (
@@ -702,17 +714,17 @@ export function OperationsSurface() {
             )}
           </div>
 
-          <div className="rounded-[1.2rem] border border-white/8 bg-black/10 p-4">
+          <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-white">
+              <h3 className="text-theme-900 text-sm font-semibold dark:text-white">
                 Recent history
               </h3>
-              <span className="text-[0.68rem] tracking-[0.2em] text-white/35 uppercase">
+              <span className="text-theme-500 text-[0.68rem] tracking-[0.2em] uppercase dark:text-white/35">
                 {formatCount(recentNotifications.length, "item")}
               </span>
             </div>
             {recentNotifications.length === 0 ? (
-              <div className="rounded-[1.2rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-white/42">
+              <div className="border-theme-300/75 text-theme-500 rounded-[1.2rem] border border-dashed bg-white/[0.03] px-4 py-5 text-sm dark:border-white/10 dark:text-white/42">
                 No completed or failed notifications captured yet.
               </div>
             ) : (

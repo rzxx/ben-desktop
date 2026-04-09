@@ -10,7 +10,11 @@ import { Button } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { AlbumTracksEmptyState } from "@/components/catalog/EmptyState";
 import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
-import { pinSubjectKey, usePinState, usePinStates } from "@/hooks/pins/usePinStates";
+import {
+  pinSubjectKey,
+  usePinState,
+  usePinStates,
+} from "@/hooks/pins/usePinStates";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import {
   isJobActive,
@@ -31,9 +35,7 @@ import {
   joinArtists,
   pinStateLabel,
 } from "@/lib/format";
-import {
-  resolveAlbumArtworkURL,
-} from "@/lib/api/playback";
+import { resolveAlbumArtworkURL } from "@/lib/api/playback";
 import { startPin, unpin } from "@/lib/api/pin";
 import { Types } from "@/lib/api/models";
 import { router } from "@/app/router/router-instance";
@@ -283,7 +285,7 @@ export function AlbumDetailPage() {
       <aside className="max-xl:w-full xl:sticky xl:top-4 xl:h-fit xl:w-2/5 xl:shrink-0">
         <div className="space-y-4">
           <button
-            className="text-theme-500 hover:text-theme-100 inline-flex w-fit items-center gap-2 rounded-md py-1 text-sm transition-colors"
+            className="text-theme-600 hover:text-theme-900 dark:text-theme-400 dark:hover:text-theme-100 inline-flex w-fit items-center gap-2 rounded-md py-1 text-sm transition-colors"
             onClick={handleBackToAlbums}
             type="button"
           >
@@ -293,17 +295,19 @@ export function AlbumDetailPage() {
 
           <ArtworkTile
             alt={heroTitle}
-            className="w-full rounded-2xl border-black/10 shadow-[0_24px_65px_rgba(0,0,0,0.3)]"
+            className="border-theme-300/70 shadow-theme-900/16 w-full rounded-2xl shadow-[0_24px_65px_rgba(15,23,42,0.18)] dark:border-black/10 dark:shadow-[0_24px_65px_rgba(0,0,0,0.3)]"
             src={highResArtworkUrl || lowResArtworkUrl}
             title={heroTitle}
           />
 
           <div className="space-y-4">
             <div className="space-y-1">
-              <h1 className="text-theme-100 text-xl font-bold lg:text-2xl">
+              <h1 className="text-theme-900 dark:text-theme-100 text-xl font-bold lg:text-2xl">
                 {heroTitle}
               </h1>
-              <p className="text-theme-300">{joinArtists(heroArtists)}</p>
+              <p className="text-theme-600 dark:text-theme-300">
+                {joinArtists(heroArtists)}
+              </p>
               <p className="text-theme-500 text-xs">
                 {releaseDateLabel} • {formatCount(trackCount, "track")}
               </p>
@@ -341,7 +345,7 @@ export function AlbumDetailPage() {
                       ? "Unpin album"
                       : albumPinState?.Covered
                         ? "Pin album directly"
-                      : "Pin album"}
+                        : "Pin album"}
                 </Button>
               ) : null}
             </div>
@@ -354,7 +358,9 @@ export function AlbumDetailPage() {
               </p>
             ) : null}
             {!pinFeedback && pinError ? (
-              <p className="text-xs text-red-300">{pinError}</p>
+              <p className="text-xs text-red-600 dark:text-red-300">
+                {pinError}
+              </p>
             ) : null}
 
             <dl className="grid grid-cols-2 gap-3 rounded-xl">
@@ -362,7 +368,7 @@ export function AlbumDetailPage() {
                 <dt className="text-theme-500 text-xs tracking-wide uppercase">
                   Length
                 </dt>
-                <dd className="text-theme-100 text-sm font-medium">
+                <dd className="text-theme-900 dark:text-theme-100 text-sm font-medium">
                   {formatDuration(totalDurationMs)}
                 </dd>
               </div>
@@ -370,7 +376,7 @@ export function AlbumDetailPage() {
                 <dt className="text-theme-500 text-xs tracking-wide uppercase">
                   Discs
                 </dt>
-                <dd className="text-theme-100 text-sm font-medium">
+                <dd className="text-theme-900 dark:text-theme-100 text-sm font-medium">
                   {discCount}
                 </dd>
               </div>
@@ -378,7 +384,7 @@ export function AlbumDetailPage() {
                 <dt className="text-theme-500 text-xs tracking-wide uppercase">
                   Variants
                 </dt>
-                <dd className="text-theme-100 text-sm font-medium">
+                <dd className="text-theme-900 dark:text-theme-100 text-sm font-medium">
                   {detail.data?.VariantCount ?? variants.data?.length ?? 1}
                 </dd>
               </div>
@@ -386,7 +392,7 @@ export function AlbumDetailPage() {
                 <dt className="text-theme-500 text-xs tracking-wide uppercase">
                   Availability
                 </dt>
-                <dd className="text-theme-100 text-sm font-medium">
+                <dd className="text-theme-900 dark:text-theme-100 text-sm font-medium">
                   {aggregateAvailabilityLabel(heroAvailability)}
                 </dd>
               </div>
@@ -405,8 +411,8 @@ export function AlbumDetailPage() {
                   className={[
                     "shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium transition",
                     variant.AlbumID === selectedVariantId
-                      ? "text-theme-100 border-white/18 bg-white/[0.08]"
-                      : "text-theme-300 border-white/8 bg-white/[0.03] hover:border-white/14 hover:bg-white/[0.05]",
+                      ? "border-theme-900 bg-theme-900 text-theme-50 dark:text-theme-100 dark:border-white/18 dark:bg-white/8"
+                      : "border-theme-300/75 text-theme-700 hover:border-theme-400/75 hover:bg-theme-100 dark:text-theme-300 bg-white/82 dark:border-white/8 dark:bg-white/3 dark:hover:border-white/14 dark:hover:bg-white/5",
                   ].join(" ")}
                   key={variant.AlbumID}
                   onClick={() => {

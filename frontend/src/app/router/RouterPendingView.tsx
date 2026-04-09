@@ -1,6 +1,6 @@
 export function RouterPendingView() {
   return (
-    <div className="flex h-full items-center justify-center text-sm text-white/55">
+    <div className="text-theme-500 flex h-full items-center justify-center text-sm dark:text-white/55">
       Loading...
     </div>
   );

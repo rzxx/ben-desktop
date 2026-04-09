@@ -617,6 +617,17 @@ export class AlbumVariantListRequest {
     }
 }
 
+export enum AppThemeMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    AppThemeModeSystem = "system",
+    AppThemeModeLight = "light",
+    AppThemeModeDark = "dark",
+};
+
 export class ArtistAlbumListRequest {
     "ArtistID": string;
     "Limit": number;
@@ -3878,6 +3889,16 @@ export class RecordingVariantListRequest {
     }
 }
 
+export enum ResolvedTheme {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    ResolvedThemeLight = "light",
+    ResolvedThemeDark = "dark",
+};
+
 export class ScanActivityStatus {
     "Phase": string;
     "RootsTotal": number;
@@ -3969,6 +3990,35 @@ export class ScanMaintenanceStatus {
     static createFrom($$source: any = {}): ScanMaintenanceStatus {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new ScanMaintenanceStatus($$parsedSource as Partial<ScanMaintenanceStatus>);
+    }
+}
+
+export class ThemePreferences {
+    "mode": AppThemeMode;
+    "system": ResolvedTheme;
+    "effective": ResolvedTheme;
+
+    /** Creates a new ThemePreferences instance. */
+    constructor($$source: Partial<ThemePreferences> = {}) {
+        if (!("mode" in $$source)) {
+            this["mode"] = AppThemeMode.$zero;
+        }
+        if (!("system" in $$source)) {
+            this["system"] = ResolvedTheme.$zero;
+        }
+        if (!("effective" in $$source)) {
+            this["effective"] = ResolvedTheme.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ThemePreferences instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ThemePreferences {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ThemePreferences($$parsedSource as Partial<ThemePreferences>);
     }
 }
 

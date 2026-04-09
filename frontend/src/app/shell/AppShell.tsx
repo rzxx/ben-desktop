@@ -104,8 +104,11 @@ export function AppShell({ children }: PropsWithChildren) {
   }, [isQueueSidebarOpen]);
 
   return (
-    <div className="text-theme-100 h-screen overflow-hidden" ref={shellRef}>
-      <div className="bg-theme-950 fixed -z-100 h-screen w-screen"></div>
+    <div
+      className="text-theme-900 dark:text-theme-100 h-screen overflow-hidden"
+      ref={shellRef}
+    >
+      <div className="bg-theme-50 dark:bg-theme-950 fixed -z-100 h-screen w-screen"></div>
       <ThemeRuntime />
       <TitleBar />
       <NotificationRuntime />
