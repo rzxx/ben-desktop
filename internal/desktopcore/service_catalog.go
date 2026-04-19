@@ -156,15 +156,25 @@ func (s *CatalogService) ListArtistAlbums(ctx context.Context, req apitypes.Arti
 	if err != nil {
 		return apitypes.Page[apitypes.AlbumListItem]{}, err
 	}
-	query := `
+	countQuery := `
+SELECT COUNT(*) FROM (
+	SELECT COALESCE(NULLIF(a.album_cluster_id, ''), a.album_variant_id) AS album_cluster_id
+	FROM credits c
+	JOIN album_variants a ON a.library_id = c.library_id AND a.album_variant_id = c.entity_id
+	WHERE a.library_id = ? AND c.entity_type = 'album' AND c.artist_id = ?
+	GROUP BY COALESCE(NULLIF(a.album_cluster_id, ''), a.album_variant_id)
+) grouped`
+	seedQuery := `
 SELECT
-	a.album_variant_id AS album_id,
-	a.album_cluster_id AS album_cluster_id
+	MIN(a.album_variant_id) AS album_id,
+	COALESCE(NULLIF(a.album_cluster_id, ''), a.album_variant_id) AS album_cluster_id
 FROM credits c
 JOIN album_variants a ON a.library_id = c.library_id AND a.album_variant_id = c.entity_id
 WHERE a.library_id = ? AND c.entity_type = 'album' AND c.artist_id = ?
-ORDER BY LOWER(a.title) ASC, a.album_variant_id ASC`
-	return s.listCollapsedAlbums(ctx, local.LibraryID, local.DeviceID, req.PageRequest, query, local.LibraryID, strings.TrimSpace(req.ArtistID))
+GROUP BY COALESCE(NULLIF(a.album_cluster_id, ''), a.album_variant_id)
+ORDER BY MIN(LOWER(a.title)) ASC, MIN(a.album_variant_id) ASC
+LIMIT ? OFFSET ?`
+	return s.listCollapsedAlbumsPage(ctx, local.LibraryID, local.DeviceID, req.PageRequest, countQuery, seedQuery, local.LibraryID, strings.TrimSpace(req.ArtistID))
 }
 
 func (s *CatalogService) ListAlbums(ctx context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
@@ -172,14 +182,23 @@ func (s *CatalogService) ListAlbums(ctx context.Context, req apitypes.AlbumListR
 	if err != nil {
 		return apitypes.Page[apitypes.AlbumListItem]{}, err
 	}
-	query := `
+	countQuery := `
+SELECT COUNT(*) FROM (
+	SELECT COALESCE(NULLIF(a.album_cluster_id, ''), a.album_variant_id) AS album_cluster_id
+	FROM album_variants a
+	WHERE a.library_id = ?
+	GROUP BY COALESCE(NULLIF(a.album_cluster_id, ''), a.album_variant_id)
+) grouped`
+	seedQuery := `
 SELECT
-	a.album_variant_id AS album_id,
-	a.album_cluster_id AS album_cluster_id
+	MIN(a.album_variant_id) AS album_id,
+	COALESCE(NULLIF(a.album_cluster_id, ''), a.album_variant_id) AS album_cluster_id
 FROM album_variants a
 WHERE a.library_id = ?
-ORDER BY LOWER(a.title) ASC, a.album_variant_id ASC`
-	return s.listCollapsedAlbums(ctx, local.LibraryID, local.DeviceID, req.PageRequest, query, local.LibraryID)
+GROUP BY COALESCE(NULLIF(a.album_cluster_id, ''), a.album_variant_id)
+ORDER BY MIN(LOWER(a.title)) ASC, MIN(a.album_variant_id) ASC
+LIMIT ? OFFSET ?`
+	return s.listCollapsedAlbumsPage(ctx, local.LibraryID, local.DeviceID, req.PageRequest, countQuery, seedQuery, local.LibraryID)
 }
 
 func (s *CatalogService) GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error) {
@@ -724,25 +743,36 @@ func (s *CatalogService) ListLikedRecordingsCursor(ctx context.Context, req apit
 	}, nil
 }
 
-func (s *CatalogService) listCollapsedAlbums(ctx context.Context, libraryID, deviceID string, req apitypes.PageRequest, query string, args ...any) (apitypes.Page[apitypes.AlbumListItem], error) {
-	var rows []albumSeedRow
-	if err := s.app.storage.ReadWithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
+func (s *CatalogService) listCollapsedAlbumsPage(
+	ctx context.Context,
+	libraryID, deviceID string,
+	req apitypes.PageRequest,
+	countQuery string,
+	seedQuery string,
+	args ...any,
+) (apitypes.Page[apitypes.AlbumListItem], error) {
+	limit, offset := normalizePageRequest(req)
+	var total int64
+	if err := s.app.storage.ReadWithContext(ctx).Raw(countQuery, args...).Scan(&total).Error; err != nil {
 		return apitypes.Page[apitypes.AlbumListItem]{}, err
 	}
-	seeds := make([]albumSeedRow, 0, len(rows))
-	seen := make(map[string]struct{}, len(rows))
-	for _, item := range rows {
-		groupID := strings.TrimSpace(item.AlbumClusterID)
-		if groupID == "" {
-			groupID = item.AlbumID
-		}
-		if _, ok := seen[groupID]; ok {
-			continue
-		}
-		seen[groupID] = struct{}{}
-		seeds = append(seeds, albumSeedRow{AlbumID: item.AlbumID, AlbumClusterID: groupID})
+
+	seedArgs := append([]any{}, args...)
+	seedArgs = append(seedArgs, limit, offset)
+	var seeds []albumSeedRow
+	if err := s.app.storage.ReadWithContext(ctx).Raw(seedQuery, seedArgs...).Scan(&seeds).Error; err != nil {
+		return apitypes.Page[apitypes.AlbumListItem]{}, err
 	}
-	return s.listCollapsedAlbumsForSeeds(ctx, libraryID, deviceID, seeds, req)
+
+	page, err := s.listCollapsedAlbumsForSeeds(ctx, libraryID, deviceID, seeds, apitypes.PageRequest{
+		Limit:  limit,
+		Offset: 0,
+	})
+	if err != nil {
+		return apitypes.Page[apitypes.AlbumListItem]{}, err
+	}
+	page.Page = newOffsetPageInfo(limit, offset, len(page.Items), int(total))
+	return page, nil
 }
 
 func (s *CatalogService) listCollapsedRecordings(ctx context.Context, libraryID, deviceID string, seeds []recordingSeedRow, pageInfo apitypes.PageInfo) (apitypes.Page[apitypes.RecordingListItem], error) {
