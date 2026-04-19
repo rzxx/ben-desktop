@@ -228,33 +228,43 @@ func TestPlaylistAndLikedListingsExposePreferredVariantRecordingID(t *testing.T)
 	if err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-
-	now := time.Now().UTC()
-	for _, row := range []TrackVariantModel{
-		{
-			LibraryID:      library.LibraryID,
-			TrackVariantID: "variant-a",
-			TrackClusterID: "cluster-a",
-			KeyNorm:        "Track A",
-			Title:          "Track A",
-			DurationMS:     180000,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		},
-		{
-			LibraryID:      library.LibraryID,
-			TrackVariantID: "variant-b",
-			TrackClusterID: "cluster-a",
-			KeyNorm:        "Track B",
-			Title:          "Track B",
-			DurationMS:     181000,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		},
-	} {
-		if err := app.db.Create(&row).Error; err != nil {
-			t.Fatalf("seed variant %s: %v", row.TrackVariantID, err)
-		}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "variant-a",
+		TrackClusterID: "cluster-a",
+		AlbumID:        "album-a",
+		AlbumClusterID: "album-a",
+		SourceFileID:   "src-a",
+		QualityRank:    100,
+	})
+	seedSourceOnlyRecording(t, app, library.LibraryID, local.DeviceID, playbackSeedInput{
+		RecordingID:    "variant-b",
+		TrackClusterID: "cluster-a",
+		AlbumID:        "album-a",
+		AlbumClusterID: "album-a",
+		SourceFileID:   "src-b",
+		QualityRank:    120,
+	})
+	if err := app.db.Model(&TrackVariantModel{}).
+		Where("library_id = ? AND track_variant_id = ?", library.LibraryID, "variant-a").
+		Updates(map[string]any{
+			"title":       "Track A",
+			"key_norm":    "Track A",
+			"duration_ms": int64(180000),
+		}).Error; err != nil {
+		t.Fatalf("set title for variant-a: %v", err)
+	}
+	if err := app.db.Model(&TrackVariantModel{}).
+		Where("library_id = ? AND track_variant_id = ?", library.LibraryID, "variant-b").
+		Updates(map[string]any{
+			"title":       "Track B",
+			"key_norm":    "Track B",
+			"duration_ms": int64(181000),
+		}).Error; err != nil {
+		t.Fatalf("set title for variant-b: %v", err)
 	}
 	if err := app.SetPreferredRecordingVariant(ctx, "cluster-a", "variant-b"); err != nil {
 		t.Fatalf("set preferred recording variant: %v", err)
@@ -290,6 +300,9 @@ func TestPlaylistAndLikedListingsExposePreferredVariantRecordingID(t *testing.T)
 	if tracks.Items[0].Title != "Track B" {
 		t.Fatalf("playlist title = %q, want Track B", tracks.Items[0].Title)
 	}
+	if tracks.Items[0].AlbumID == "" {
+		t.Fatalf("playlist album id is empty")
+	}
 	if tracks.Items[0].DurationMS != 181000 {
 		t.Fatalf("playlist duration = %d, want 181000", tracks.Items[0].DurationMS)
 	}
@@ -309,6 +322,9 @@ func TestPlaylistAndLikedListingsExposePreferredVariantRecordingID(t *testing.T)
 	}
 	if liked.Items[0].Title != "Track B" {
 		t.Fatalf("liked title = %q, want Track B", liked.Items[0].Title)
+	}
+	if liked.Items[0].AlbumID == "" {
+		t.Fatalf("liked album id is empty")
 	}
 }
 

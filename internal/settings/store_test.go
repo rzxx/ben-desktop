@@ -45,6 +45,9 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 		Notifications: NotificationUISettings{
 			Verbosity: "  everything  ",
 		},
+		PlaybackTrace: PlaybackTraceSettings{
+			Enabled: true,
+		},
 	}
 
 	if err := store.Save(input); err != nil {
@@ -66,6 +69,9 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 		},
 		Notifications: NotificationUISettings{
 			Verbosity: "everything",
+		},
+		PlaybackTrace: PlaybackTraceSettings{
+			Enabled: true,
 		},
 		Theme: ThemeUISettings{
 			Mode: "system",

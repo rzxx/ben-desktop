@@ -1983,6 +1983,7 @@ export class LibrarySummary {
 export class LikedRecordingItem {
     "LibraryRecordingID": string;
     "RecordingID": string;
+    "AlbumID": string;
     "Title": string;
     "DurationMS": number;
     "Artists": string[];
@@ -1995,6 +1996,9 @@ export class LikedRecordingItem {
         }
         if (!("RecordingID" in $$source)) {
             this["RecordingID"] = "";
+        }
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
         }
         if (!("Title" in $$source)) {
             this["Title"] = "";
@@ -2016,10 +2020,10 @@ export class LikedRecordingItem {
      * Creates a new LikedRecordingItem instance from a string or object.
      */
     static createFrom($$source: any = {}): LikedRecordingItem {
-        const $$createField4_0 = $$createType10;
+        const $$createField5_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
-            $$parsedSource["Artists"] = $$createField4_0($$parsedSource["Artists"]);
+            $$parsedSource["Artists"] = $$createField5_0($$parsedSource["Artists"]);
         }
         return new LikedRecordingItem($$parsedSource as Partial<LikedRecordingItem>);
     }
@@ -3338,6 +3342,7 @@ export class PlaylistTrackItem {
     "ItemID": string;
     "LibraryRecordingID": string;
     "RecordingID": string;
+    "AlbumID": string;
     "Title": string;
     "DurationMS": number;
     "Artists": string[];
@@ -3353,6 +3358,9 @@ export class PlaylistTrackItem {
         }
         if (!("RecordingID" in $$source)) {
             this["RecordingID"] = "";
+        }
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
         }
         if (!("Title" in $$source)) {
             this["Title"] = "";
@@ -3374,10 +3382,10 @@ export class PlaylistTrackItem {
      * Creates a new PlaylistTrackItem instance from a string or object.
      */
     static createFrom($$source: any = {}): PlaylistTrackItem {
-        const $$createField5_0 = $$createType10;
+        const $$createField6_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
-            $$parsedSource["Artists"] = $$createField5_0($$parsedSource["Artists"]);
+            $$parsedSource["Artists"] = $$createField6_0($$parsedSource["Artists"]);
         }
         return new PlaylistTrackItem($$parsedSource as Partial<PlaylistTrackItem>);
     }
@@ -3547,6 +3555,7 @@ export class RecordingListItem {
     "PreferredVariantRecordingID": string;
     "TrackClusterID": string;
     "RecordingID": string;
+    "AlbumID": string;
     "Title": string;
     "DurationMS": number;
     "Artists": string[];
@@ -3566,6 +3575,9 @@ export class RecordingListItem {
         }
         if (!("RecordingID" in $$source)) {
             this["RecordingID"] = "";
+        }
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
         }
         if (!("Title" in $$source)) {
             this["Title"] = "";
@@ -3590,10 +3602,10 @@ export class RecordingListItem {
      * Creates a new RecordingListItem instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingListItem {
-        const $$createField6_0 = $$createType10;
+        const $$createField7_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Artists" in $$parsedSource) {
-            $$parsedSource["Artists"] = $$createField6_0($$parsedSource["Artists"]);
+            $$parsedSource["Artists"] = $$createField7_0($$parsedSource["Artists"]);
         }
         return new RecordingListItem($$parsedSource as Partial<RecordingListItem>);
     }

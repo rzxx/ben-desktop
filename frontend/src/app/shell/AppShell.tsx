@@ -2,6 +2,7 @@ import type { PropsWithChildren } from "react";
 import { useEffect, useRef } from "react";
 import { NotificationCenter } from "@/components/notifications/NotificationCenter";
 import { NotificationRuntime } from "@/components/notifications/NotificationRuntime";
+import { PlaybackDebugPanel } from "@/components/playback/PlaybackDebugPanel";
 import { PlayerBar } from "@/components/playback/PlayerBar";
 import { QueueSidebar } from "@/components/playback/QueueSidebar";
 import { ThemeRuntime } from "@/components/theme/ThemeRuntime";
@@ -113,6 +114,7 @@ export function AppShell({ children }: PropsWithChildren) {
       <TitleBar />
       <NotificationRuntime />
       <NotificationCenter />
+      <PlaybackDebugPanel />
 
       <NavigationSidebar />
 

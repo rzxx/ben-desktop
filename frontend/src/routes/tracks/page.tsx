@@ -3,18 +3,25 @@ import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
+import { Button } from "@/components/ui/Button";
 import { pinSubjectKey, usePinStates } from "@/hooks/pins/usePinStates";
 import { VirtualRows } from "@/components/ui/VirtualRows";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
 import { Types } from "@/lib/api/models";
-import { formatCount, joinArtists } from "@/lib/format";
+import {
+  formatCount,
+  isTrackCollectionPlayable,
+  joinArtists,
+} from "@/lib/format";
 import { getValueQuery, useCatalogStore } from "@/stores/catalog/store";
 import { usePlaybackStore } from "@/stores/playback/store";
 import { selectValueQuery } from "@/stores/catalog/query-state";
 
 export function TracksPage() {
-  const playRecording = usePlaybackStore((state) => state.playRecording);
+  const playTracks = usePlaybackStore((state) => state.playTracks);
+  const shuffleTracks = usePlaybackStore((state) => state.shuffleTracks);
+  const playTracksFrom = usePlaybackStore((state) => state.playTracksFrom);
   const queueRecording = usePlaybackStore((state) => state.queueRecording);
   const trackAvailabilityByRecordingId = useCatalogStore(
     (state) => state.trackAvailabilityByRecordingId,
@@ -42,20 +49,40 @@ export function TracksPage() {
         new Types.PinSubjectRef({
           ID: track.LibraryRecordingID || track.RecordingID,
           Kind: Types.PinSubjectKind.PinSubjectRecordingCluster,
-        }),
+      }),
     ),
   );
+  const totalTrackCount = query.pageInfo?.Total ?? query.items.length;
+  const canPlayTracks = isTrackCollectionPlayable({
+    trackCount: totalTrackCount,
+  });
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <SectionHeading
         meta={
-          <MetricPill
-            label={formatCount(
-              query.pageInfo?.Total ?? query.items.length,
-              "track",
-            )}
-          />
+          <MetricPill label={formatCount(totalTrackCount, "track")} />
+        }
+        actions={
+          <>
+            <Button
+              disabled={!canPlayTracks}
+              onClick={() => {
+                void playTracks();
+              }}
+            >
+              Play All
+            </Button>
+            <Button
+              disabled={!canPlayTracks}
+              onClick={() => {
+                void shuffleTracks();
+              }}
+              tone="quiet"
+            >
+              Shuffle All
+            </Button>
+          </>
         }
         title="Tracks"
       />
@@ -83,7 +110,7 @@ export function TracksPage() {
               libraryRecordingId={track.LibraryRecordingID}
               mode="list"
               onPlay={() => {
-                void playRecording(track.RecordingID);
+                void playTracksFrom(track.RecordingID);
               }}
               onQueue={() => {
                 void queueRecording(track.RecordingID);

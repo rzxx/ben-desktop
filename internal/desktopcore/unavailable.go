@@ -96,6 +96,10 @@ func (c *UnavailableCore) ListRecordings(context.Context, apitypes.RecordingList
 	return apitypes.Page[apitypes.RecordingListItem]{}, c.err
 }
 
+func (c *UnavailableCore) ListRecordingsCursor(context.Context, apitypes.RecordingCursorRequest) (apitypes.CursorPage[apitypes.RecordingListItem], error) {
+	return apitypes.CursorPage[apitypes.RecordingListItem]{}, c.err
+}
+
 func (c *UnavailableCore) GetRecording(context.Context, string) (apitypes.RecordingListItem, error) {
 	return apitypes.RecordingListItem{}, c.err
 }
@@ -132,8 +136,16 @@ func (c *UnavailableCore) ListPlaylistTracks(context.Context, apitypes.PlaylistT
 	return apitypes.Page[apitypes.PlaylistTrackItem]{}, c.err
 }
 
+func (c *UnavailableCore) ListPlaylistTracksCursor(context.Context, apitypes.PlaylistTrackCursorRequest) (apitypes.CursorPage[apitypes.PlaylistTrackItem], error) {
+	return apitypes.CursorPage[apitypes.PlaylistTrackItem]{}, c.err
+}
+
 func (c *UnavailableCore) ListLikedRecordings(context.Context, apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
 	return apitypes.Page[apitypes.LikedRecordingItem]{}, c.err
+}
+
+func (c *UnavailableCore) ListLikedRecordingsCursor(context.Context, apitypes.LikedRecordingCursorRequest) (apitypes.CursorPage[apitypes.LikedRecordingItem], error) {
+	return apitypes.CursorPage[apitypes.LikedRecordingItem]{}, c.err
 }
 
 func (c *UnavailableCore) SubscribeCatalogChanges(func(apitypes.CatalogChangeEvent)) func() {

@@ -22,8 +22,9 @@ function configure() {
         "jobs:snapshot": $$createType1,
         "notifications:snapshot": $$createType2,
         "pin:changed": $$createType3,
-        "playback:snapshot": $$createType4,
-        "theme:preferences": $$createType5,
+        "playback:queue": $$createType4,
+        "playback:transport": $$createType5,
+        "theme:preferences": $$createType6,
     }));
 }
 
@@ -32,7 +33,8 @@ const $$createType0 = apitypes$0.CatalogChangeEvent.createFrom;
 const $$createType1 = desktopcore$0.JobSnapshot.createFrom;
 const $$createType2 = apitypes$0.NotificationSnapshot.createFrom;
 const $$createType3 = apitypes$0.PinChangeEvent.createFrom;
-const $$createType4 = playback$0.SessionSnapshot.createFrom;
-const $$createType5 = apitypes$0.ThemePreferences.createFrom;
+const $$createType4 = playback$0.QueueEventSnapshot.createFrom;
+const $$createType5 = playback$0.TransportEventSnapshot.createFrom;
+const $$createType6 = apitypes$0.ThemePreferences.createFrom;
 
 configure();

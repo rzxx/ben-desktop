@@ -10,7 +10,8 @@ import (
 const txCommitHooksKey = "desktopcore:tx-commit-hooks"
 
 type DBService struct {
-	db *gorm.DB
+	db     *gorm.DB
+	reader *gorm.DB
 }
 
 type txStateKey struct{}
@@ -26,7 +27,7 @@ type txCommitHookState struct {
 }
 
 func OpenDBService(path string) (*DBService, error) {
-	db, err := openSQLite(path)
+	db, err := openSQLiteWithConns(path, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -34,14 +35,19 @@ func OpenDBService(path string) (*DBService, error) {
 		_ = closeSQL(db)
 		return nil, err
 	}
-	return &DBService{db: db}, nil
+	reader, err := openSQLiteWithConns(path, 4)
+	if err != nil {
+		_ = closeSQL(db)
+		return nil, err
+	}
+	return &DBService{db: db, reader: reader}, nil
 }
 
 func NewDBService(db *gorm.DB) *DBService {
 	if db == nil {
 		return nil
 	}
-	return &DBService{db: db}
+	return &DBService{db: db, reader: db}
 }
 
 func (s *DBService) DB() *gorm.DB {
@@ -56,6 +62,24 @@ func (s *DBService) WithContext(ctx context.Context) *gorm.DB {
 		return nil
 	}
 	return s.db.WithContext(ctx)
+}
+
+func (s *DBService) ReadDB() *gorm.DB {
+	if s == nil {
+		return nil
+	}
+	if s.reader != nil {
+		return s.reader
+	}
+	return s.db
+}
+
+func (s *DBService) ReadWithContext(ctx context.Context) *gorm.DB {
+	db := s.ReadDB()
+	if db == nil {
+		return nil
+	}
+	return db.WithContext(ctx)
 }
 
 func (s *DBService) Transaction(ctx context.Context, fn func(*gorm.DB) error) error {
@@ -77,6 +101,12 @@ func (s *DBService) Transaction(ctx context.Context, fn func(*gorm.DB) error) er
 func (s *DBService) Close() error {
 	if s == nil || s.db == nil {
 		return nil
+	}
+	if s.reader != nil && s.reader != s.db {
+		if err := closeSQL(s.reader); err != nil {
+			_ = closeSQL(s.db)
+			return err
+		}
 	}
 	return closeSQL(s.db)
 }

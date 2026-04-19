@@ -580,6 +580,10 @@ func (a *App) ListRecordings(ctx context.Context, req apitypes.RecordingListRequ
 	return a.catalog.ListRecordings(ctx, req)
 }
 
+func (a *App) ListRecordingsCursor(ctx context.Context, req apitypes.RecordingCursorRequest) (apitypes.CursorPage[apitypes.RecordingListItem], error) {
+	return a.catalog.ListRecordingsCursor(ctx, req)
+}
+
 func (a *App) GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error) {
 	return a.catalog.GetRecording(ctx, recordingID)
 }
@@ -616,8 +620,16 @@ func (a *App) ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrack
 	return a.catalog.ListPlaylistTracks(ctx, req)
 }
 
+func (a *App) ListPlaylistTracksCursor(ctx context.Context, req apitypes.PlaylistTrackCursorRequest) (apitypes.CursorPage[apitypes.PlaylistTrackItem], error) {
+	return a.catalog.ListPlaylistTracksCursor(ctx, req)
+}
+
 func (a *App) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
 	return a.catalog.ListLikedRecordings(ctx, req)
+}
+
+func (a *App) ListLikedRecordingsCursor(ctx context.Context, req apitypes.LikedRecordingCursorRequest) (apitypes.CursorPage[apitypes.LikedRecordingItem], error) {
+	return a.catalog.ListLikedRecordingsCursor(ctx, req)
 }
 
 func (a *App) CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error) {

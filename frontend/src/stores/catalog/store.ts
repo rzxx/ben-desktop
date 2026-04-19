@@ -20,7 +20,11 @@ import {
   getValueQuery,
 } from "./selectors";
 import type { CatalogStore, CatalogStoreState } from "./types";
-import type { CatalogValueQueryItem, QueryPageRecord } from "./types";
+import type {
+  CatalogTrackLookupItem,
+  CatalogValueQueryItem,
+  QueryPageRecord,
+} from "./types";
 
 function createCatalogState(): CatalogStoreState {
   return {
@@ -32,10 +36,69 @@ function createCatalogState(): CatalogStoreState {
     artistsById: {},
     idQueries: {},
     playlistSummaries: {},
+    playlistTrackItemsByItemId: {},
     playlistsById: {},
+    trackItemsByLibraryRecordingId: {},
+    trackItemsByRecordingId: {},
     trackAvailabilityByRecordingId: {},
     valueQueries: {},
   };
+}
+
+function isCatalogTrackLookupItem(
+  item: CatalogValueQueryItem,
+): item is CatalogTrackLookupItem {
+  return "RecordingID" in item && "Title" in item;
+}
+
+function indexCatalogTrackItem(
+  indexes: {
+    playlistTrackItemsByItemId: CatalogStoreState["playlistTrackItemsByItemId"];
+    trackItemsByLibraryRecordingId: CatalogStoreState["trackItemsByLibraryRecordingId"];
+    trackItemsByRecordingId: CatalogStoreState["trackItemsByRecordingId"];
+  },
+  item: CatalogTrackLookupItem,
+) {
+  if (item.RecordingID) {
+    indexes.trackItemsByRecordingId[item.RecordingID] = item;
+  }
+  if ("LibraryRecordingID" in item && item.LibraryRecordingID) {
+    indexes.trackItemsByLibraryRecordingId[item.LibraryRecordingID] = item;
+  }
+  if ("ItemID" in item && item.ItemID) {
+    indexes.playlistTrackItemsByItemId[item.ItemID] = item;
+  }
+}
+
+function rebuildCatalogTrackIndexes(draft: Draft<CatalogStore>) {
+  const indexes = {
+    playlistTrackItemsByItemId:
+      {} as CatalogStoreState["playlistTrackItemsByItemId"],
+    trackItemsByLibraryRecordingId:
+      {} as CatalogStoreState["trackItemsByLibraryRecordingId"],
+    trackItemsByRecordingId:
+      {} as CatalogStoreState["trackItemsByRecordingId"],
+  };
+
+  for (const record of Object.values(draft.valueQueries)) {
+    for (const page of Object.values(
+      record.pages as Record<string, QueryPageRecord<CatalogValueQueryItem>>,
+    )) {
+      if (page.fetchedAt === null || page.stale) {
+        continue;
+      }
+      for (const item of page.items) {
+        if (isCatalogTrackLookupItem(item)) {
+          indexCatalogTrackItem(indexes, item);
+        }
+      }
+    }
+  }
+
+  draft.playlistTrackItemsByItemId = indexes.playlistTrackItemsByItemId;
+  draft.trackItemsByLibraryRecordingId =
+    indexes.trackItemsByLibraryRecordingId;
+  draft.trackItemsByRecordingId = indexes.trackItemsByRecordingId;
 }
 
 function createCatalogDraftSetter(
@@ -127,6 +190,7 @@ export const useCatalogStore = create<CatalogStore>((set) => {
         }
         if (options?.clear) {
           draft.valueQueries[key] = createValueQueryRecord();
+          rebuildCatalogTrackIndexes(draft);
           return;
         }
         if (
@@ -139,6 +203,7 @@ export const useCatalogStore = create<CatalogStore>((set) => {
           page.stale = true;
         }
         rebuildValueQueryRecord(record);
+        rebuildCatalogTrackIndexes(draft);
       });
     },
 
@@ -283,6 +348,7 @@ export const useCatalogStore = create<CatalogStore>((set) => {
         page.pageInfo = pageInfo;
         page.stale = false;
         rebuildValueQueryRecord(record);
+        rebuildCatalogTrackIndexes(draft);
       });
     },
 

@@ -32,6 +32,10 @@ func (b *stubBackend) Load(_ context.Context, uri string) error {
 	return errNoMPVBackend
 }
 
+func (b *stubBackend) ActivatePreloaded(context.Context, string) (BackendActivationRef, error) {
+	return BackendActivationRef{}, ErrUnsupportedPreloadActivation
+}
+
 func (b *stubBackend) Play(context.Context) error {
 	if b.loadedURI == "" {
 		return errNoMPVBackend

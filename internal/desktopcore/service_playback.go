@@ -1450,7 +1450,7 @@ func (s *PlaybackService) resolvePlaybackVariantsBatch(ctx context.Context, loca
 		ClusterID string
 	}
 	var rows []row
-	if err := s.app.storage.WithContext(ctx).
+	if err := s.app.storage.ReadWithContext(ctx).
 		Model(&TrackVariantModel{}).
 		Select("track_variant_id AS variant_id, track_cluster_id AS cluster_id").
 		Where("library_id = ? AND (track_variant_id IN ? OR track_cluster_id IN ?)", local.LibraryID, recordingIDs, recordingIDs).
@@ -1571,7 +1571,7 @@ func (s *PlaybackService) resolvePlaybackRequest(ctx context.Context, local apit
 
 func (s *PlaybackService) trackVariantExists(ctx context.Context, libraryID, recordingID string) (string, bool, error) {
 	var row TrackVariantModel
-	if err := s.app.storage.WithContext(ctx).
+	if err := s.app.storage.ReadWithContext(ctx).
 		Select("track_variant_id").
 		Where("library_id = ? AND track_variant_id = ?", libraryID, strings.TrimSpace(recordingID)).
 		Take(&row).Error; err != nil {
@@ -1645,7 +1645,7 @@ func (s *PlaybackService) exactTrackVariantIDsSet(ctx context.Context, libraryID
 
 	type row struct{ RecordingID string }
 	var rows []row
-	if err := s.app.storage.WithContext(ctx).
+	if err := s.app.storage.ReadWithContext(ctx).
 		Model(&TrackVariantModel{}).
 		Select("track_variant_id AS recording_id").
 		Where("library_id = ? AND track_variant_id IN ?", libraryID, recordingIDs).
@@ -1706,7 +1706,7 @@ LIMIT 1`
 		args = []any{libraryID, deviceID, recordingID}
 	}
 	var result localPathRow
-	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&result).Error; err != nil {
+	if err := s.app.storage.ReadWithContext(ctx).Raw(query, args...).Scan(&result).Error; err != nil {
 		return "", false, err
 	}
 	if strings.TrimSpace(result.LocalPath) == "" {
@@ -1759,7 +1759,7 @@ LIMIT 1`
 		args = []any{deviceID, libraryID, recordingID, profile, profile, aliasProfile}
 	}
 	var result encodingRow
-	if err := s.app.storage.WithContext(ctx).Raw(query, args...).Scan(&result).Error; err != nil {
+	if err := s.app.storage.ReadWithContext(ctx).Raw(query, args...).Scan(&result).Error; err != nil {
 		return "", "", false, err
 	}
 	if strings.TrimSpace(result.BlobID) == "" {
@@ -1800,7 +1800,7 @@ WHERE req.library_id = ? AND req.track_variant_id IN ? AND sf.device_id = ? AND 
 ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_variant_id THEN 0 ELSE 1 END ASC, sf.last_seen_at DESC, sf.quality_rank DESC, sf.size_bytes DESC, sf.local_path ASC`
 	}
 	var rows []row
-	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, recordingIDs, deviceID).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.ReadWithContext(ctx).Raw(query, libraryID, recordingIDs, deviceID).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
@@ -1860,7 +1860,7 @@ WHERE req.library_id = ? AND req.track_variant_id IN ? AND COALESCE(de.is_cached
 ORDER BY req.track_variant_id ASC, CASE WHEN sf.track_variant_id = req.track_variant_id THEN 0 ELSE 1 END ASC, e.bitrate DESC, e.optimized_asset_id ASC`
 	}
 	var rows []row
-	if err := s.app.storage.WithContext(ctx).Raw(query, deviceID, libraryID, recordingIDs, profile, profile, aliasProfile).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.ReadWithContext(ctx).Raw(query, deviceID, libraryID, recordingIDs, profile, profile, aliasProfile).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
@@ -2744,7 +2744,7 @@ WHERE req.library_id = ? AND req.track_variant_id IN ?
 GROUP BY req.track_variant_id`
 	}
 	var sourceRows []sourceRow
-	if err := s.app.storage.WithContext(ctx).Raw(sourceQuery, localDeviceID, localDeviceID, localDeviceID, cutoff, libraryID, recordingIDs).Scan(&sourceRows).Error; err != nil {
+	if err := s.app.storage.ReadWithContext(ctx).Raw(sourceQuery, localDeviceID, localDeviceID, localDeviceID, cutoff, libraryID, recordingIDs).Scan(&sourceRows).Error; err != nil {
 		return nil, err
 	}
 
@@ -2784,7 +2784,7 @@ WHERE req.library_id = ? AND req.track_variant_id IN ? AND (? = '' OR oa.profile
 GROUP BY req.track_variant_id`
 	}
 	var cacheRows []cacheRow
-	if err := s.app.storage.WithContext(ctx).Raw(cacheQuery, localDeviceID, localDeviceID, localDeviceID, cutoff, libraryID, recordingIDs, profile, profile, aliasProfile).Scan(&cacheRows).Error; err != nil {
+	if err := s.app.storage.ReadWithContext(ctx).Raw(cacheQuery, localDeviceID, localDeviceID, localDeviceID, cutoff, libraryID, recordingIDs, profile, profile, aliasProfile).Scan(&cacheRows).Error; err != nil {
 		return nil, err
 	}
 
@@ -2821,7 +2821,7 @@ func (s *PlaybackService) batchAlbumPins(ctx context.Context, libraryID, localDe
 SELECT scope_id
 FROM pin_roots
 WHERE library_id = ? AND device_id = ? AND scope = 'album' AND scope_id IN ? AND (profile = ? OR profile = ?)`
-	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, localDeviceID, albumIDs, profile, aliasProfile).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.ReadWithContext(ctx).Raw(query, libraryID, localDeviceID, albumIDs, profile, aliasProfile).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
@@ -2843,7 +2843,7 @@ func (s *PlaybackService) batchTrackPins(ctx context.Context, libraryID, localDe
 		TrackClusterID string
 	}
 	var variants []variantRow
-	if err := s.app.storage.WithContext(ctx).
+	if err := s.app.storage.ReadWithContext(ctx).
 		Model(&TrackVariantModel{}).
 		Select("track_variant_id, track_cluster_id").
 		Where("library_id = ? AND (track_variant_id IN ? OR track_cluster_id IN ?)", libraryID, recordingIDs, recordingIDs).
@@ -2925,7 +2925,7 @@ func (s *PlaybackService) batchTrackPins(ctx context.Context, libraryID, localDe
 SELECT library_recording_id, variant_recording_id, resolution_policy
 FROM pin_members
 WHERE library_id = ? AND device_id = ? AND scope = 'recording' AND (profile = ? OR profile = ?) AND (library_recording_id IN ? OR variant_recording_id IN ?)`
-	if err := s.app.storage.WithContext(ctx).Raw(query, libraryID, localDeviceID, profile, aliasProfile, clusterIDs, exactRecordingIDs).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.ReadWithContext(ctx).Raw(query, libraryID, localDeviceID, profile, aliasProfile, clusterIDs, exactRecordingIDs).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 

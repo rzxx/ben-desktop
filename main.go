@@ -24,7 +24,8 @@ func init() {
 	application.RegisterEvent[apitypes.PinChangeEvent](desktopcore.EventPinChanged)
 	application.RegisterEvent[apitypes.NotificationSnapshot](EventNotificationChanged)
 	application.RegisterEvent[apitypes.ThemePreferences](EventThemePreferencesChanged)
-	application.RegisterEvent[playback.SessionSnapshot](playback.EventSnapshotChanged)
+	application.RegisterEvent[playback.TransportEventSnapshot](playback.EventTransportChanged)
+	application.RegisterEvent[playback.QueueEventSnapshot](playback.EventQueueChanged)
 }
 
 // main function serves as the application's entry point. It initializes the application, creates a window,

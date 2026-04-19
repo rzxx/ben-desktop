@@ -50,6 +50,7 @@ type CatalogRuntime interface {
 	ListAlbums(ctx context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error)
 	GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error)
 	ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error)
+	ListRecordingsCursor(ctx context.Context, req apitypes.RecordingCursorRequest) (apitypes.CursorPage[apitypes.RecordingListItem], error)
 	GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error)
 	ListRecordingVariants(ctx context.Context, req apitypes.RecordingVariantListRequest) (apitypes.Page[apitypes.RecordingVariantItem], error)
 	ListAlbumVariants(ctx context.Context, req apitypes.AlbumVariantListRequest) (apitypes.Page[apitypes.AlbumVariantItem], error)
@@ -59,7 +60,9 @@ type CatalogRuntime interface {
 	ListPlaylists(ctx context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error)
 	GetPlaylistSummary(ctx context.Context, playlistID string) (apitypes.PlaylistListItem, error)
 	ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error)
+	ListPlaylistTracksCursor(ctx context.Context, req apitypes.PlaylistTrackCursorRequest) (apitypes.CursorPage[apitypes.PlaylistTrackItem], error)
 	ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error)
+	ListLikedRecordingsCursor(ctx context.Context, req apitypes.LikedRecordingCursorRequest) (apitypes.CursorPage[apitypes.LikedRecordingItem], error)
 	CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error)
 	RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error)
 	DeletePlaylist(ctx context.Context, playlistID string) error

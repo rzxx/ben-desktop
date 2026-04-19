@@ -9,9 +9,19 @@ import { useCatalogStore } from "@/stores/catalog/store";
 import { usePlaybackStore } from "@/stores/playback/store";
 
 export function QueueSidebar() {
-  const snapshot = usePlaybackStore((state) => state.snapshot);
+  const queue = usePlaybackStore((state) => state.queue);
+  const transport = usePlaybackStore((state) => state.transport);
   const trackAvailabilityByRecordingId = useCatalogStore(
     (state) => state.trackAvailabilityByRecordingId,
+  );
+  const trackItemsByRecordingId = useCatalogStore(
+    (state) => state.trackItemsByRecordingId,
+  );
+  const trackItemsByLibraryRecordingId = useCatalogStore(
+    (state) => state.trackItemsByLibraryRecordingId,
+  );
+  const playlistTrackItemsByItemId = useCatalogStore(
+    (state) => state.playlistTrackItemsByItemId,
   );
   const selectEntry = usePlaybackStore((state) => state.selectEntry);
   const removeQueuedEntry = usePlaybackStore(
@@ -20,11 +30,11 @@ export function QueueSidebar() {
   const clearQueue = usePlaybackStore((state) => state.clearQueue);
 
   const activeEntryId =
-    snapshot?.currentEntry?.entryId ?? snapshot?.loadingEntry?.entryId ?? "";
+    transport?.currentEntry?.entryId ?? transport?.loadingEntry?.entryId ?? "";
   const missingRecordingIds = useMemo(() => {
-    const playbackAvailabilityByEntryId = snapshot?.entryAvailability ?? {};
+    const playbackAvailabilityByEntryId = queue?.entryAvailability ?? {};
     const missing = new Set<string>();
-    for (const entry of snapshot?.userQueue ?? []) {
+    for (const entry of queue?.userQueue ?? []) {
       if (
         !playbackAvailabilityByEntryId[entry.entryId]?.State &&
         entry.item.recordingId
@@ -32,7 +42,7 @@ export function QueueSidebar() {
         missing.add(entry.item.recordingId);
       }
     }
-    for (const entry of snapshot?.contextQueue?.entries ?? []) {
+    for (const entry of queue?.contextQueue?.entries ?? []) {
       if (
         !playbackAvailabilityByEntryId[entry.entryId]?.State &&
         entry.item.recordingId
@@ -42,9 +52,9 @@ export function QueueSidebar() {
     }
     return Array.from(missing);
   }, [
-    snapshot?.contextQueue?.entries,
-    snapshot?.entryAvailability,
-    snapshot?.userQueue,
+    queue?.contextQueue?.entries,
+    queue?.entryAvailability,
+    queue?.userQueue,
   ]);
 
   useEffect(() => {
@@ -56,16 +66,22 @@ export function QueueSidebar() {
 
   const rows = useMemo(() => {
     return buildQueueRows(
-      snapshot?.userQueue ?? [],
-      snapshot?.contextQueue?.entries ?? [],
-      snapshot?.entryAvailability ?? {},
+      queue?.userQueue ?? [],
+      queue?.contextQueue,
+      queue?.entryAvailability ?? {},
+      trackItemsByRecordingId,
+      trackItemsByLibraryRecordingId,
+      playlistTrackItemsByItemId,
       trackAvailabilityByRecordingId,
     );
   }, [
-    snapshot?.contextQueue?.entries,
-    snapshot?.entryAvailability,
-    snapshot?.userQueue,
+    queue?.contextQueue,
+    queue?.entryAvailability,
+    queue?.userQueue,
+    playlistTrackItemsByItemId,
     trackAvailabilityByRecordingId,
+    trackItemsByLibraryRecordingId,
+    trackItemsByRecordingId,
   ]);
   const parentRef = useRef<HTMLDivElement | null>(null);
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -73,7 +89,12 @@ export function QueueSidebar() {
     count: rows.length,
     getScrollElement: () => parentRef.current,
     getItemKey: (index) => rows[index]?.id ?? index,
-    estimateSize: (index) => (rows[index]?.type === "section" ? 20 : 52),
+    estimateSize: (index) =>
+      rows[index]?.type === "entry"
+        ? 52
+        : rows[index]?.type === "section"
+          ? 20
+          : 28,
     gap: 8,
     overscan: 8,
   });
@@ -130,7 +151,7 @@ export function QueueSidebar() {
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
-                    {row.type === "section" ? (
+                    {row.type === "section" || row.type === "marker" ? (
                       <QueueSectionTitle title={row.title} />
                     ) : (
                       <QueueEntryRow
@@ -141,6 +162,7 @@ export function QueueSidebar() {
                           row.actionable && row.entry.entryId !== activeEntryId
                         }
                         secondaryText={row.secondaryText}
+                        title={row.title}
                         onRemove={
                           row.entry.origin === "queued"
                             ? () => {
@@ -185,6 +207,7 @@ type QueueEntryRowProps = {
   isActive: boolean;
   actionable: boolean;
   selectable: boolean;
+  title: string;
   secondaryText: string;
   onSelect?: () => void;
   onRemove?: () => void;
@@ -214,7 +237,7 @@ function QueueEntryRow(props: QueueEntryRowProps) {
               : "text-theme-900 dark:text-theme-100"
           }`}
         >
-          {props.entry.item.title}
+          {props.title}
         </p>
         <p className="text-theme-400 truncate text-xs">{props.secondaryText}</p>
       </button>

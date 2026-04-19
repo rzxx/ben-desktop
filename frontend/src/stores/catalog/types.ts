@@ -68,6 +68,11 @@ export type CatalogValueQueryItem =
   | PlaylistTrackItem
   | RecordingListItem;
 
+export type CatalogTrackLookupItem =
+  | LikedRecordingItem
+  | PlaylistTrackItem
+  | RecordingListItem;
+
 export type CatalogStoreState = {
   albumsById: Record<string, AlbumListItem>;
   albumAvailabilityByAlbumId: Record<
@@ -80,7 +85,10 @@ export type CatalogStoreState = {
   artistsById: Record<string, ArtistListItem>;
   idQueries: Record<string, IdQueryRecord>;
   playlistSummaries: Record<string, DetailRecord<PlaylistListItem>>;
+  playlistTrackItemsByItemId: Record<string, PlaylistTrackItem>;
   playlistsById: Record<string, PlaylistListItem>;
+  trackItemsByLibraryRecordingId: Record<string, CatalogTrackLookupItem>;
+  trackItemsByRecordingId: Record<string, CatalogTrackLookupItem>;
   trackAvailabilityByRecordingId: Record<
     string,
     DetailRecord<RecordingPlaybackAvailability>

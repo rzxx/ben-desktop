@@ -9,10 +9,8 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as playback$0 from "./internal/playback/models.js";
 
-export function AppendToQueue(items: playback$0.SessionItem[]): $CancellablePromise<playback$0.SessionSnapshot> {
-    return $Call.ByID(3298980760, items).then(($result: any) => {
-        return $$createType0($result);
-    });
+export function ClearPlaybackDebugTrace(): $CancellablePromise<void> {
+    return $Call.ByID(3207061124);
 }
 
 export function ClearQueue(): $CancellablePromise<playback$0.SessionSnapshot> {
@@ -21,16 +19,18 @@ export function ClearQueue(): $CancellablePromise<playback$0.SessionSnapshot> {
     });
 }
 
+export function GetPlaybackDebugDump(): $CancellablePromise<string> {
+    return $Call.ByID(2669322034);
+}
+
 export function GetPlaybackSnapshot(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2883480393).then(($result: any) => {
         return $$createType0($result);
     });
 }
 
-export function MoveQueueItem(fromIndex: number, toIndex: number): $CancellablePromise<playback$0.SessionSnapshot> {
-    return $Call.ByID(2310336635, fromIndex, toIndex).then(($result: any) => {
-        return $$createType0($result);
-    });
+export function GetPlaybackTraceEnabled(): $CancellablePromise<boolean> {
+    return $Call.ByID(3686764407);
 }
 
 export function MoveQueuedEntry(entryID: string, toIndex: number): $CancellablePromise<playback$0.SessionSnapshot> {
@@ -99,6 +99,18 @@ export function PlayRecording(recordingID: string): $CancellablePromise<playback
     });
 }
 
+export function PlayTracks(): $CancellablePromise<playback$0.SessionSnapshot> {
+    return $Call.ByID(3164083506).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+export function PlayTracksFrom(recordingID: string): $CancellablePromise<playback$0.SessionSnapshot> {
+    return $Call.ByID(1585042038, recordingID).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
 export function Previous(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(466195825).then(($result: any) => {
         return $$createType0($result);
@@ -141,20 +153,8 @@ export function QueueRecording(recordingID: string): $CancellablePromise<playbac
     });
 }
 
-export function RemoveQueueItem(index: number): $CancellablePromise<playback$0.SessionSnapshot> {
-    return $Call.ByID(1105181348, index).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
 export function RemoveQueuedEntry(entryID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(622032947, entryID).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
-export function ReplaceQueue(items: playback$0.SessionItem[], startIndex: number): $CancellablePromise<playback$0.SessionSnapshot> {
-    return $Call.ByID(3788593979, items, startIndex).then(($result: any) => {
         return $$createType0($result);
     });
 }
@@ -171,16 +171,8 @@ export function SelectEntry(entryID: string): $CancellablePromise<playback$0.Ses
     });
 }
 
-export function SelectQueueIndex(index: number): $CancellablePromise<playback$0.SessionSnapshot> {
-    return $Call.ByID(325081569, index).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
-export function SetPlaybackContext(input: playback$0.PlaybackContextInput): $CancellablePromise<playback$0.SessionSnapshot> {
-    return $Call.ByID(2760603892, input).then(($result: any) => {
-        return $$createType0($result);
-    });
+export function SetPlaybackTraceEnabled(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2789310531, enabled);
 }
 
 export function SetRepeatMode(mode: string): $CancellablePromise<playback$0.SessionSnapshot> {
@@ -201,8 +193,10 @@ export function SetVolume(volume: number): $CancellablePromise<playback$0.Sessio
     });
 }
 
-export function SubscribePlaybackEvents(): $CancellablePromise<string> {
-    return $Call.ByID(4115999572);
+export function ShuffleTracks(): $CancellablePromise<playback$0.SessionSnapshot> {
+    return $Call.ByID(3397938813).then(($result: any) => {
+        return $$createType0($result);
+    });
 }
 
 export function TogglePlayback(): $CancellablePromise<playback$0.SessionSnapshot> {

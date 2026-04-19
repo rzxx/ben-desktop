@@ -15,6 +15,10 @@ import (
 )
 
 func openSQLite(path string) (*gorm.DB, error) {
+	return openSQLiteWithConns(path, 1)
+}
+
+func openSQLiteWithConns(path string, maxOpenConns int) (*gorm.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir db dir: %w", err)
 	}
@@ -32,9 +36,10 @@ func openSQLite(path string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Keep SQLite on a single shared connection to avoid concurrent writer
-	// contention in the embedded desktop runtime.
-	sqlDB.SetMaxOpenConns(1)
+	if maxOpenConns <= 0 {
+		maxOpenConns = 1
+	}
+	sqlDB.SetMaxOpenConns(maxOpenConns)
 	return db, nil
 }
 
@@ -79,7 +84,7 @@ func closeSQL(database *gorm.DB) error {
 }
 
 func autoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&Library{},
 		&Device{},
 		&LocalSetting{},
@@ -117,7 +122,28 @@ func autoMigrate(db *gorm.DB) error {
 		&LibraryCheckpoint{},
 		&LibraryCheckpointChunk{},
 		&DeviceCheckpointAck{},
-	)
+	); err != nil {
+		return err
+	}
+	return ensureReadOptimizedIndexes(db)
+}
+
+func ensureReadOptimizedIndexes(db *gorm.DB) error {
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_source_files_playback_device ON source_files(library_id, device_id, track_variant_id, is_present, last_seen_at DESC, quality_rank DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_source_files_playback_variant ON source_files(library_id, track_variant_id, is_present, device_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_optimized_assets_playback_profile ON optimized_assets(library_id, track_variant_id, profile, created_by_device_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_device_asset_caches_playback ON device_asset_caches(library_id, device_id, optimized_asset_id, is_cached)`,
+		`CREATE INDEX IF NOT EXISTS idx_playlist_items_position ON playlist_items(library_id, playlist_id, deleted_at, position_key, item_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_playlist_items_added_at ON playlist_items(library_id, playlist_id, deleted_at, added_at DESC, item_id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_track_variants_browse_title ON track_variants(library_id, LOWER(title), track_cluster_id, track_variant_id)`,
+	}
+	for _, query := range indexes {
+		if err := db.Exec(query).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *App) ensureDatabaseBaseline(ctx context.Context) error {

@@ -10,6 +10,7 @@ const (
 	SourceKindAlbum     = "album"
 	SourceKindPlaylist  = "playlist"
 	SourceKindLiked     = "liked"
+	SourceKindTracks    = "tracks"
 	SourceKindRecording = "recording"
 )
 
@@ -20,6 +21,8 @@ func ItemFromRecording(recording apitypes.RecordingListItem) SessionItem {
 		LibraryRecordingID: recording.LibraryRecordingID,
 		VariantRecordingID: exactVariantID,
 		RecordingID:        logicalRecordingID,
+		AlbumID:            strings.TrimSpace(recording.AlbumID),
+		VariantAlbumID:     strings.TrimSpace(recording.AlbumID),
 		Title:              recording.Title,
 		Subtitle:           joinArtists(recording.Artists),
 		DurationMS:         recording.DurationMS,
@@ -92,6 +95,8 @@ func ItemsFromPlaylistTracks(playlistID string, tracks []apitypes.PlaylistTrackI
 			LibraryRecordingID: libraryRecordingID,
 			VariantRecordingID: variantRecordingID,
 			RecordingID:        recordingID,
+			AlbumID:            strings.TrimSpace(track.AlbumID),
+			VariantAlbumID:     strings.TrimSpace(track.AlbumID),
 			Title:              track.Title,
 			Subtitle:           joinArtists(track.Artists),
 			DurationMS:         track.DurationMS,
@@ -123,6 +128,8 @@ func ItemsFromLikedRecordings(recordings []apitypes.LikedRecordingItem) []Sessio
 			LibraryRecordingID: libraryRecordingID,
 			VariantRecordingID: variantRecordingID,
 			RecordingID:        recordingID,
+			AlbumID:            strings.TrimSpace(recording.AlbumID),
+			VariantAlbumID:     strings.TrimSpace(recording.AlbumID),
 			Title:              recording.Title,
 			Subtitle:           joinArtists(recording.Artists),
 			DurationMS:         recording.DurationMS,

@@ -22,7 +22,8 @@ declare module "@wailsio/runtime" {
             "jobs:snapshot": desktopcore$0.JobSnapshot;
             "notifications:snapshot": apitypes$0.NotificationSnapshot;
             "pin:changed": apitypes$0.PinChangeEvent;
-            "playback:snapshot": playback$0.SessionSnapshot;
+            "playback:queue": playback$0.QueueEventSnapshot;
+            "playback:transport": playback$0.TransportEventSnapshot;
             "theme:preferences": apitypes$0.ThemePreferences;
         }
     }

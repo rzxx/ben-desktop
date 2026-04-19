@@ -7,6 +7,7 @@ describe("likedPlaybackRecordingId", () => {
     const track: LikedRecordingItem = {
       LibraryRecordingID: "library-rec-1",
       RecordingID: "variant-rec-1",
+      AlbumID: "album-1",
       Title: "Track 1",
       DurationMS: 1000,
       Artists: [],
@@ -20,6 +21,7 @@ describe("likedPlaybackRecordingId", () => {
     const track: LikedRecordingItem = {
       LibraryRecordingID: "",
       RecordingID: "variant-rec-2",
+      AlbumID: "album-2",
       Title: "Track 2",
       DurationMS: 1000,
       Artists: [],

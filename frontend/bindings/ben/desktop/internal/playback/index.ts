@@ -4,18 +4,26 @@
 export {
     ContextKind,
     ContextQueue,
+    ContextQueueEventSnapshot,
+    ContextRebasePolicy,
+    ContextWindowEntry,
     CurrentLane,
     EntryOrigin,
     EntryPreparation,
-    PlaybackContextInput,
     PlaybackSkipEvent,
+    PlaybackSourceAnchor,
+    PlaybackSourceDescriptor,
     PlaybackTargetRef,
     PlaybackTargetResolution,
+    QueueEntryEventSnapshot,
+    QueueEventSnapshot,
     QueuePlan,
     RepeatMode,
     ResolutionMode,
     SessionEntry,
     SessionItem,
+    SessionItemEvent,
     SessionSnapshot,
-    Status
+    Status,
+    TransportEventSnapshot
 } from "./models.js";

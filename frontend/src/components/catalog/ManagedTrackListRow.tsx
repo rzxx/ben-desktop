@@ -42,7 +42,9 @@ export function ManagedTrackListRow({
   });
   const playbackItem = usePlaybackStore(
     (state) =>
-      state.snapshot?.currentItem ?? state.snapshot?.loadingItem ?? null,
+      state.transport?.currentEntry?.item ??
+      state.transport?.loadingEntry?.item ??
+      null,
   );
   const isActive = isTrackListRowActive(playbackItem, {
     libraryRecordingId,

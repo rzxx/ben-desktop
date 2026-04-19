@@ -63,12 +63,14 @@ type AlbumListItem struct {
 }
 
 type RecordingListRequest struct{ PageRequest }
+type RecordingCursorRequest struct{ CursorPageRequest }
 
 type RecordingListItem struct {
 	LibraryRecordingID          string
 	PreferredVariantRecordingID string
 	TrackClusterID              string
 	RecordingID                 string
+	AlbumID                     string
 	Title                       string
 	DurationMS                  int64
 	Artists                     []string
@@ -186,10 +188,16 @@ type PlaylistTrackListRequest struct {
 	PageRequest
 }
 
+type PlaylistTrackCursorRequest struct {
+	PlaylistID string
+	CursorPageRequest
+}
+
 type PlaylistTrackItem struct {
 	ItemID             string
 	LibraryRecordingID string
 	RecordingID        string
+	AlbumID            string
 	Title              string
 	DurationMS         int64
 	Artists            []string
@@ -197,10 +205,12 @@ type PlaylistTrackItem struct {
 }
 
 type LikedRecordingListRequest struct{ PageRequest }
+type LikedRecordingCursorRequest struct{ CursorPageRequest }
 
 type LikedRecordingItem struct {
 	LibraryRecordingID string
 	RecordingID        string
+	AlbumID            string
 	Title              string
 	DurationMS         int64
 	Artists            []string
@@ -246,6 +256,7 @@ type CatalogSurface interface {
 	ListAlbums(ctx context.Context, req AlbumListRequest) (Page[AlbumListItem], error)
 	GetAlbum(ctx context.Context, albumID string) (AlbumListItem, error)
 	ListRecordings(ctx context.Context, req RecordingListRequest) (Page[RecordingListItem], error)
+	ListRecordingsCursor(ctx context.Context, req RecordingCursorRequest) (CursorPage[RecordingListItem], error)
 	GetRecording(ctx context.Context, recordingID string) (RecordingListItem, error)
 	ListAlbumTracks(ctx context.Context, req AlbumTrackListRequest) (Page[AlbumTrackItem], error)
 	ListRecordingVariants(ctx context.Context, req RecordingVariantListRequest) (Page[RecordingVariantItem], error)
@@ -258,6 +269,8 @@ type CatalogSurface interface {
 	ListPlaylists(ctx context.Context, req PlaylistListRequest) (Page[PlaylistListItem], error)
 	GetPlaylistSummary(ctx context.Context, playlistID string) (PlaylistListItem, error)
 	ListPlaylistTracks(ctx context.Context, req PlaylistTrackListRequest) (Page[PlaylistTrackItem], error)
+	ListPlaylistTracksCursor(ctx context.Context, req PlaylistTrackCursorRequest) (CursorPage[PlaylistTrackItem], error)
 	ListLikedRecordings(ctx context.Context, req LikedRecordingListRequest) (Page[LikedRecordingItem], error)
+	ListLikedRecordingsCursor(ctx context.Context, req LikedRecordingCursorRequest) (CursorPage[LikedRecordingItem], error)
 	SubscribeCatalogChanges(listener func(CatalogChangeEvent)) func()
 }

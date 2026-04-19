@@ -143,14 +143,7 @@ func compactNonEmptyStrings(items []string) []string {
 }
 
 func pageItems[T any](items []T, req apitypes.PageRequest) ([]T, apitypes.PageInfo) {
-	limit := req.Limit
-	if limit <= 0 || limit > maxPageLimit {
-		limit = 100
-	}
-	offset := req.Offset
-	if offset < 0 {
-		offset = 0
-	}
+	limit, offset := normalizePageRequest(req)
 	total := len(items)
 	if offset >= total {
 		return []T{}, apitypes.PageInfo{
@@ -181,6 +174,41 @@ func pageItems[T any](items []T, req apitypes.PageRequest) ([]T, apitypes.PageIn
 func paginateItems[T any](items []T, req apitypes.PageRequest) apitypes.Page[T] {
 	paged, info := pageItems(items, req)
 	return apitypes.Page[T]{Items: paged, Page: info}
+}
+
+func normalizePageRequest(req apitypes.PageRequest) (limit int, offset int) {
+	limit = req.Limit
+	if limit <= 0 || limit > maxPageLimit {
+		limit = 100
+	}
+	offset = req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
+func normalizeCursorPageRequest(req apitypes.CursorPageRequest) int {
+	limit := req.Limit
+	if limit <= 0 || limit > maxPageLimit {
+		return 100
+	}
+	return limit
+}
+
+func newOffsetPageInfo(limit, offset, returned, total int) apitypes.PageInfo {
+	nextOffset := offset + returned
+	if nextOffset > total {
+		nextOffset = total
+	}
+	return apitypes.PageInfo{
+		Limit:      limit,
+		Offset:     offset,
+		Returned:   returned,
+		Total:      total,
+		HasMore:    nextOffset < total,
+		NextOffset: nextOffset,
+	}
 }
 
 func fileURIFromPath(path string) (string, error) {

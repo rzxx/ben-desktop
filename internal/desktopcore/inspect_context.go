@@ -17,24 +17,92 @@ type inspectorCatalogAdapter struct {
 
 func (a *inspectorCatalogAdapter) Close() error { return nil }
 
-func (a *inspectorCatalogAdapter) ListRecordings(context.Context, apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
-	return apitypes.Page[apitypes.RecordingListItem]{}, fmt.Errorf("not implemented")
+func (a *inspectorCatalogAdapter) ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
+	return a.inspector.listRecordingsForLocal(ctx, a.local, req)
+}
+
+func (a *inspectorCatalogAdapter) ListRecordingsCursor(ctx context.Context, req apitypes.RecordingCursorRequest) (apitypes.CursorPage[apitypes.RecordingListItem], error) {
+	return a.inspector.listRecordingsCursorForLocal(ctx, a.local, req)
 }
 
 func (a *inspectorCatalogAdapter) GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error) {
 	return a.inspector.getRecordingForLocal(ctx, a.local, recordingID)
 }
 
+func (a *inspectorCatalogAdapter) GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error) {
+	albumID = strings.TrimSpace(albumID)
+	if albumID == "" {
+		return apitypes.AlbumListItem{}, fmt.Errorf("album id is required")
+	}
+
+	rows, err := a.inspector.loadAlbumVariants(ctx, a.local.LibraryID, []string{albumID})
+	if err != nil {
+		return apitypes.AlbumListItem{}, err
+	}
+	if len(rows) == 0 {
+		rows, err = a.inspector.loadAlbumVariantsByCluster(ctx, a.local.LibraryID, albumID)
+		if err != nil {
+			return apitypes.AlbumListItem{}, err
+		}
+	}
+	if len(rows) == 0 {
+		return apitypes.AlbumListItem{}, fmt.Errorf("album %s not found", albumID)
+	}
+
+	album := rows[0]
+	return apitypes.AlbumListItem{
+		LibraryAlbumID:          strings.TrimSpace(album.AlbumClusterID),
+		PreferredVariantAlbumID: strings.TrimSpace(album.AlbumVariantID),
+		AlbumID:                 strings.TrimSpace(album.AlbumVariantID),
+		AlbumClusterID:          strings.TrimSpace(album.AlbumClusterID),
+		Title:                   strings.TrimSpace(album.Title),
+	}, nil
+}
+
 func (a *inspectorCatalogAdapter) ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
 	return a.inspector.listAlbumTracksForLocal(ctx, a.local, req)
+}
+
+func (a *inspectorCatalogAdapter) GetPlaylistSummary(ctx context.Context, playlistID string) (apitypes.PlaylistListItem, error) {
+	playlistID = strings.TrimSpace(playlistID)
+	if playlistID == "" {
+		return apitypes.PlaylistListItem{}, fmt.Errorf("playlist id is required")
+	}
+
+	var playlist Playlist
+	if err := a.inspector.app.storage.WithContext(ctx).
+		Where("library_id = ? AND playlist_id = ? AND deleted_at IS NULL", a.local.LibraryID, playlistID).
+		Take(&playlist).Error; err != nil {
+		return apitypes.PlaylistListItem{}, err
+	}
+
+	return apitypes.PlaylistListItem{
+		PlaylistID: strings.TrimSpace(playlist.PlaylistID),
+		Name:       strings.TrimSpace(playlist.Name),
+		Kind:       apitypes.PlaylistKind(strings.TrimSpace(playlist.Kind)),
+		CreatedBy:  strings.TrimSpace(playlist.CreatedBy),
+		UpdatedAt:  playlist.UpdatedAt,
+	}, nil
 }
 
 func (a *inspectorCatalogAdapter) ListPlaylistTracks(ctx context.Context, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {
 	return a.inspector.listPlaylistTracksForLocal(ctx, a.local, req)
 }
 
+func (a *inspectorCatalogAdapter) ListPlaylistTracksCursor(ctx context.Context, req apitypes.PlaylistTrackCursorRequest) (apitypes.CursorPage[apitypes.PlaylistTrackItem], error) {
+	return a.inspector.listPlaylistTracksCursorForLocal(ctx, a.local, req)
+}
+
 func (a *inspectorCatalogAdapter) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
 	return a.inspector.listLikedRecordingsForLocal(ctx, a.local, req)
+}
+
+func (a *inspectorCatalogAdapter) ListLikedRecordingsCursor(ctx context.Context, req apitypes.LikedRecordingCursorRequest) (apitypes.CursorPage[apitypes.LikedRecordingItem], error) {
+	return a.inspector.listLikedRecordingsCursorForLocal(ctx, a.local, req)
+}
+
+func (a *inspectorCatalogAdapter) SubscribeCatalogChanges(func(apitypes.CatalogChangeEvent)) func() {
+	return func() {}
 }
 
 func (a *inspectorCatalogAdapter) InspectPlaybackRecording(context.Context, string, string) (apitypes.PlaybackPreparationStatus, error) {
@@ -111,24 +179,25 @@ func (i *Inspector) TracePlaybackContext(ctx context.Context, req TracePlaybackC
 
 	var (
 		contextInput playbackcore.PlaybackContextInput
+		sourceReq    playbackcore.PlaybackSourceRequest
 		rawRows      map[string]any
 		albumFamily  string
 	)
 	switch strings.ToLower(strings.TrimSpace(req.Kind)) {
 	case "album":
-		contextInput, err = loader.LoadAlbumContext(ctx, req.ID)
+		sourceReq = loader.BuildAlbumSource(req.ID)
 		if err == nil {
 			albumFamily, err = i.albumFamilyForRequest(ctx, local, req.ID)
 		}
 		rawRows, _ = i.albumContextRawRows(ctx, local, req.ID)
 	case "playlist":
-		contextInput, err = loader.LoadPlaylistContext(ctx, req.ID)
+		sourceReq = loader.BuildPlaylistSource(req.ID)
 		rawRows, _ = i.playlistContextRawRows(ctx, local, req.ID)
 	case "liked":
-		contextInput, err = loader.LoadLikedContext(ctx)
+		sourceReq = loader.BuildLikedSource()
 		rawRows, _ = i.likedContextRawRows(ctx, local)
 	case "recording":
-		contextInput, err = loader.LoadRecordingContext(ctx, req.ID)
+		sourceReq = loader.BuildRecordingSource(req.ID)
 		rawRows = map[string]any{}
 	default:
 		err = fmt.Errorf("unsupported context kind %q", req.Kind)
@@ -136,6 +205,10 @@ func (i *Inspector) TracePlaybackContext(ctx context.Context, req TracePlaybackC
 	if rawRows != nil {
 		trace.RawRows = rawRows
 	}
+	if err != nil {
+		return trace, err
+	}
+	contextInput, err = loader.MaterializeSource(ctx, sourceReq)
 	if err != nil {
 		return trace, err
 	}
@@ -490,128 +563,100 @@ ORDER BY at.disc_no ASC, at.track_no ASC, at.track_variant_id ASC`
 	return apitypes.Page[apitypes.AlbumTrackItem]{Items: out, Page: pageInfo}, nil
 }
 
+func (i *Inspector) listRecordingsForLocal(ctx context.Context, local apitypes.LocalContext, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
+	seeds, pageInfo, err := i.app.catalog.listTrackSourceSeedsPage(ctx, local.LibraryID, req.PageRequest)
+	if err != nil {
+		return apitypes.Page[apitypes.RecordingListItem]{}, err
+	}
+	return i.app.catalog.listCollapsedRecordings(ctx, local.LibraryID, local.DeviceID, seeds, pageInfo)
+}
+
+func (i *Inspector) listRecordingsCursorForLocal(ctx context.Context, local apitypes.LocalContext, req apitypes.RecordingCursorRequest) (apitypes.CursorPage[apitypes.RecordingListItem], error) {
+	seeds, pageInfo, err := i.app.catalog.listTrackSourceSeedsCursor(ctx, local.LibraryID, req.CursorPageRequest)
+	if err != nil {
+		return apitypes.CursorPage[apitypes.RecordingListItem]{}, err
+	}
+	page, err := i.app.catalog.listCollapsedRecordings(ctx, local.LibraryID, local.DeviceID, seeds, apitypes.PageInfo{
+		Limit:    pageInfo.Limit,
+		Returned: len(seeds),
+		HasMore:  pageInfo.HasMore,
+	})
+	if err != nil {
+		return apitypes.CursorPage[apitypes.RecordingListItem]{}, err
+	}
+	return apitypes.CursorPage[apitypes.RecordingListItem]{
+		Items: page.Items,
+		Page: apitypes.CursorPageInfo{
+			Limit:      pageInfo.Limit,
+			Returned:   len(page.Items),
+			HasMore:    pageInfo.HasMore,
+			NextCursor: pageInfo.NextCursor,
+		},
+	}, nil
+}
+
 func (i *Inspector) listPlaylistTracksForLocal(ctx context.Context, local apitypes.LocalContext, req apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error) {
-	type seedRow struct {
-		ItemID             string
-		LibraryRecordingID string
-		AddedAt            time.Time
-	}
-	query := `
-SELECT
-	pi.item_id,
-	pi.track_variant_id AS library_recording_id,
-	pi.added_at
-FROM playlist_items pi
-JOIN playlists p ON p.library_id = pi.library_id AND p.playlist_id = pi.playlist_id
-WHERE pi.library_id = ? AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.deleted_at IS NULL
-GROUP BY pi.item_id, pi.track_variant_id, pi.position_key, pi.added_at, p.kind
-ORDER BY CASE WHEN p.kind = 'liked' THEN 0 ELSE 1 END ASC,
-	CASE WHEN p.kind = 'liked' THEN pi.added_at END DESC,
-	CASE WHEN p.kind <> 'liked' THEN pi.position_key END ASC,
-	pi.item_id ASC`
-	var seeds []seedRow
-	if err := i.app.storage.WithContext(ctx).Raw(query, local.LibraryID, strings.TrimSpace(req.PlaylistID)).Scan(&seeds).Error; err != nil {
-		return apitypes.Page[apitypes.PlaylistTrackItem]{}, err
-	}
-	pagedSeeds, pageInfo := pageItems(seeds, req.PageRequest)
-	clusterIDs := make([]string, 0, len(pagedSeeds))
-	for _, seed := range pagedSeeds {
-		clusterIDs = append(clusterIDs, strings.TrimSpace(seed.LibraryRecordingID))
-	}
-	rowsByCluster, err := i.app.catalog.listRecordingVariantRowsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs, i.resolvePreferredProfile(""))
+	seeds, pageInfo, err := i.app.catalog.listPlaylistSourceSeedsPage(ctx, local.LibraryID, strings.TrimSpace(req.PlaylistID), req.PageRequest)
 	if err != nil {
 		return apitypes.Page[apitypes.PlaylistTrackItem]{}, err
 	}
-	preferredByCluster, err := i.app.catalog.preferredRecordingVariantIDsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs)
+	items, err := i.app.catalog.buildPlaylistTrackItems(ctx, local.LibraryID, local.DeviceID, seeds)
 	if err != nil {
 		return apitypes.Page[apitypes.PlaylistTrackItem]{}, err
 	}
-	out := make([]apitypes.PlaylistTrackItem, 0, len(pagedSeeds))
-	for _, seed := range pagedSeeds {
-		clusterID := strings.TrimSpace(seed.LibraryRecordingID)
-		variants := rowsByCluster[clusterID]
-		if len(variants) == 0 {
-			continue
-		}
-		preferredID := chooseRecordingVariantID(variants, preferredByCluster[clusterID])
-		chosen := variants[0]
-		for _, variant := range variants {
-			if variant.TrackVariantID == preferredID {
-				chosen = variant
-				break
-			}
-		}
-		out = append(out, apitypes.PlaylistTrackItem{
-			ItemID:             strings.TrimSpace(seed.ItemID),
-			LibraryRecordingID: clusterID,
-			RecordingID:        strings.TrimSpace(chosen.TrackVariantID),
-			Title:              strings.TrimSpace(chosen.Title),
-			DurationMS:         chosen.DurationMS,
-			Artists:            append([]string(nil), chosen.Artists...),
-			AddedAt:            seed.AddedAt,
-		})
+	return apitypes.Page[apitypes.PlaylistTrackItem]{Items: items, Page: pageInfo}, nil
+}
+
+func (i *Inspector) listPlaylistTracksCursorForLocal(ctx context.Context, local apitypes.LocalContext, req apitypes.PlaylistTrackCursorRequest) (apitypes.CursorPage[apitypes.PlaylistTrackItem], error) {
+	seeds, pageInfo, err := i.app.catalog.listPlaylistSourceSeedsCursor(ctx, local.LibraryID, strings.TrimSpace(req.PlaylistID), req.CursorPageRequest)
+	if err != nil {
+		return apitypes.CursorPage[apitypes.PlaylistTrackItem]{}, err
 	}
-	pageInfo.Returned = len(out)
-	return apitypes.Page[apitypes.PlaylistTrackItem]{Items: out, Page: pageInfo}, nil
+	items, err := i.app.catalog.buildPlaylistTrackItems(ctx, local.LibraryID, local.DeviceID, seeds)
+	if err != nil {
+		return apitypes.CursorPage[apitypes.PlaylistTrackItem]{}, err
+	}
+	return apitypes.CursorPage[apitypes.PlaylistTrackItem]{
+		Items: items,
+		Page: apitypes.CursorPageInfo{
+			Limit:      pageInfo.Limit,
+			Returned:   len(items),
+			HasMore:    pageInfo.HasMore,
+			NextCursor: pageInfo.NextCursor,
+		},
+	}, nil
 }
 
 func (i *Inspector) listLikedRecordingsForLocal(ctx context.Context, local apitypes.LocalContext, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
-	type seedRow struct {
-		LibraryRecordingID string
-		AddedAt            time.Time
-	}
-	query := `
-SELECT
-	pi.track_variant_id AS library_recording_id,
-	pi.added_at
-FROM playlist_items pi
-JOIN playlists p ON p.library_id = pi.library_id AND p.playlist_id = pi.playlist_id
-WHERE pi.library_id = ? AND pi.playlist_id = ? AND pi.deleted_at IS NULL AND p.deleted_at IS NULL
-GROUP BY pi.item_id, pi.track_variant_id, pi.added_at
-ORDER BY pi.added_at DESC, pi.item_id DESC`
-	var seeds []seedRow
-	if err := i.app.storage.WithContext(ctx).Raw(query, local.LibraryID, likedPlaylistIDForLibrary(local.LibraryID)).Scan(&seeds).Error; err != nil {
-		return apitypes.Page[apitypes.LikedRecordingItem]{}, err
-	}
-	pagedSeeds, pageInfo := pageItems(seeds, req.PageRequest)
-	clusterIDs := make([]string, 0, len(pagedSeeds))
-	for _, seed := range pagedSeeds {
-		clusterIDs = append(clusterIDs, strings.TrimSpace(seed.LibraryRecordingID))
-	}
-	rowsByCluster, err := i.app.catalog.listRecordingVariantRowsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs, i.resolvePreferredProfile(""))
+	seeds, pageInfo, err := i.app.catalog.listLikedSourceSeedsPage(ctx, local.LibraryID, req.PageRequest)
 	if err != nil {
 		return apitypes.Page[apitypes.LikedRecordingItem]{}, err
 	}
-	preferredByCluster, err := i.app.catalog.preferredRecordingVariantIDsForClusters(ctx, local.LibraryID, local.DeviceID, clusterIDs)
+	items, err := i.app.catalog.buildLikedRecordingItems(ctx, local.LibraryID, local.DeviceID, seeds)
 	if err != nil {
 		return apitypes.Page[apitypes.LikedRecordingItem]{}, err
 	}
-	out := make([]apitypes.LikedRecordingItem, 0, len(pagedSeeds))
-	for _, seed := range pagedSeeds {
-		clusterID := strings.TrimSpace(seed.LibraryRecordingID)
-		variants := rowsByCluster[clusterID]
-		if len(variants) == 0 {
-			continue
-		}
-		preferredID := chooseRecordingVariantID(variants, preferredByCluster[clusterID])
-		chosen := variants[0]
-		for _, variant := range variants {
-			if variant.TrackVariantID == preferredID {
-				chosen = variant
-				break
-			}
-		}
-		out = append(out, apitypes.LikedRecordingItem{
-			LibraryRecordingID: clusterID,
-			RecordingID:        strings.TrimSpace(chosen.TrackVariantID),
-			Title:              strings.TrimSpace(chosen.Title),
-			DurationMS:         chosen.DurationMS,
-			Artists:            append([]string(nil), chosen.Artists...),
-			AddedAt:            seed.AddedAt,
-		})
+	return apitypes.Page[apitypes.LikedRecordingItem]{Items: items, Page: pageInfo}, nil
+}
+
+func (i *Inspector) listLikedRecordingsCursorForLocal(ctx context.Context, local apitypes.LocalContext, req apitypes.LikedRecordingCursorRequest) (apitypes.CursorPage[apitypes.LikedRecordingItem], error) {
+	seeds, pageInfo, err := i.app.catalog.listLikedSourceSeedsCursor(ctx, local.LibraryID, req.CursorPageRequest)
+	if err != nil {
+		return apitypes.CursorPage[apitypes.LikedRecordingItem]{}, err
 	}
-	pageInfo.Returned = len(out)
-	return apitypes.Page[apitypes.LikedRecordingItem]{Items: out, Page: pageInfo}, nil
+	items, err := i.app.catalog.buildLikedRecordingItems(ctx, local.LibraryID, local.DeviceID, seeds)
+	if err != nil {
+		return apitypes.CursorPage[apitypes.LikedRecordingItem]{}, err
+	}
+	return apitypes.CursorPage[apitypes.LikedRecordingItem]{
+		Items: items,
+		Page: apitypes.CursorPageInfo{
+			Limit:      pageInfo.Limit,
+			Returned:   len(items),
+			HasMore:    pageInfo.HasMore,
+			NextCursor: pageInfo.NextCursor,
+		},
+	}, nil
 }
 
 func (i *Inspector) albumFamilyForRequest(ctx context.Context, local apitypes.LocalContext, albumID string) (string, error) {

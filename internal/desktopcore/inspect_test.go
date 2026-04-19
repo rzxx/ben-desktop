@@ -2,6 +2,7 @@ package desktopcore
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -345,6 +346,98 @@ func TestTracePlaybackContextPreservesPlaylistAndLikedIdentity(t *testing.T) {
 	}
 }
 
+func TestTracePlaybackContextPaginatesLargePlaylistAndLikedSources(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "inspect-large-context")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	playlist, err := app.CreatePlaylist(ctx, "inspect-large-playlist", string(apitypes.PlaylistKindNormal))
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+
+	const itemCount = 520
+	for i := 0; i < itemCount; i++ {
+		recordingID := fmt.Sprintf("cluster-large-%03d", i)
+		seedPlaylistRecording(t, app, library.LibraryID, recordingID, fmt.Sprintf("Track %03d", i))
+		if _, err := app.AddPlaylistItem(ctx, apitypes.PlaylistAddItemRequest{
+			PlaylistID:  playlist.PlaylistID,
+			RecordingID: recordingID,
+		}); err != nil {
+			t.Fatalf("add playlist item %s: %v", recordingID, err)
+		}
+		if err := app.LikeRecording(ctx, recordingID); err != nil {
+			t.Fatalf("like recording %s: %v", recordingID, err)
+		}
+	}
+
+	likedPlaylistID := likedPlaylistIDForLibrary(local.LibraryID)
+	for i := 0; i < itemCount; i++ {
+		recordingID := fmt.Sprintf("cluster-large-%03d", i)
+		ts := time.Unix(int64(1_000+i), 0).UTC()
+		if err := app.db.Model(&PlaylistItem{}).
+			Where("library_id = ? AND playlist_id = ? AND track_variant_id = ?", library.LibraryID, likedPlaylistID, recordingID).
+			Updates(map[string]any{
+				"added_at":   ts,
+				"updated_at": ts,
+			}).Error; err != nil {
+			t.Fatalf("update liked timestamp %s: %v", recordingID, err)
+		}
+	}
+
+	inspector := openInspectorFromApp(t, app)
+	playlistTrace, err := inspector.TracePlaybackContext(ctx, TracePlaybackContextRequest{
+		Kind: "playlist",
+		ID:   playlist.PlaylistID,
+		ResolveInspectContextRequest: ResolveInspectContextRequest{
+			LibraryID: local.LibraryID,
+			DeviceID:  local.DeviceID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("trace playlist context: %v", err)
+	}
+	playlistItems := materializedTraceItems(t, playlistTrace.ComputedOutput["materialized_session_items"])
+	if len(playlistItems) != itemCount {
+		t.Fatalf("playlist materialized item count = %d, want %d", len(playlistItems), itemCount)
+	}
+	if got := traceLogicalRecordingID(t, playlistItems[0]); got != "cluster-large-000" {
+		t.Fatalf("first playlist logical recording id = %v, want cluster-large-000", got)
+	}
+	if got := traceLogicalRecordingID(t, playlistItems[itemCount-1]); got != "cluster-large-519" {
+		t.Fatalf("last playlist logical recording id = %v, want cluster-large-519", got)
+	}
+
+	likedTrace, err := inspector.TracePlaybackContext(ctx, TracePlaybackContextRequest{
+		Kind: "liked",
+		ResolveInspectContextRequest: ResolveInspectContextRequest{
+			LibraryID: local.LibraryID,
+			DeviceID:  local.DeviceID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("trace liked context: %v", err)
+	}
+	likedItems := materializedTraceItems(t, likedTrace.ComputedOutput["materialized_session_items"])
+	if len(likedItems) != itemCount {
+		t.Fatalf("liked materialized item count = %d, want %d", len(likedItems), itemCount)
+	}
+	if got := traceLogicalRecordingID(t, likedItems[0]); got != "cluster-large-519" {
+		t.Fatalf("first liked logical recording id = %v, want cluster-large-519", got)
+	}
+	if got := traceLogicalRecordingID(t, likedItems[itemCount-1]); got != "cluster-large-000" {
+		t.Fatalf("last liked logical recording id = %v, want cluster-large-000", got)
+	}
+}
+
 func TestTraceAlbumKeepsSameNamedTracksDistinctAcrossVariants(t *testing.T) {
 	t.Parallel()
 
@@ -551,6 +644,25 @@ func TestTraceRecordingCacheDetectsMultiAlbumBlobAssociation(t *testing.T) {
 	if !hasAnomaly(trace.Anomalies, anomalyCacheBlobAssociatedWithMultipleAlbumClusters) {
 		t.Fatalf("expected blob multi-album anomaly, got %+v", trace.Anomalies)
 	}
+}
+
+func materializedTraceItems(t *testing.T, raw any) []map[string]any {
+	t.Helper()
+	items, ok := raw.([]map[string]any)
+	if !ok {
+		t.Fatalf("materialized trace items = %#v", raw)
+	}
+	return items
+}
+
+func traceLogicalRecordingID(t *testing.T, raw map[string]any) string {
+	t.Helper()
+	target, ok := raw["target"].(map[string]any)
+	if !ok {
+		t.Fatalf("trace target = %#v", raw["target"])
+	}
+	logicalID, _ := target["logical_recording_id"].(string)
+	return logicalID
 }
 
 func hasAnomaly(items []InspectAnomaly, code string) bool {

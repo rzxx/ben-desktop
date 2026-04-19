@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"ben/desktop/internal/platform"
 	"ben/desktop/internal/playback"
@@ -24,7 +26,15 @@ type PlaybackService struct {
 
 	subscribers    map[uint64]func(playback.SessionSnapshot)
 	nextSubscriber uint64
+
+	lastQueueVersion int64
+	queueVersionSet  bool
 }
+
+var (
+	loadPlaybackSettingsState = loadSettingsState
+	savePlaybackSettingsState = saveSettingsState
+)
 
 func NewPlaybackService() *PlaybackService {
 	return NewPlaybackServiceWithHost(newCoreHost())
@@ -47,6 +57,12 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		return fmt.Errorf("application is not available")
 	}
 
+	traceEnabled, err := loadPlaybackTraceEnabledSetting()
+	if err != nil {
+		return fmt.Errorf("load playback trace settings: %w", err)
+	}
+	playback.SetDebugTraceEnabled(traceEnabled)
+
 	storePath, err := playback.DefaultStorePath("ben-desktop")
 	if err != nil {
 		return err
@@ -62,6 +78,7 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		return err
 	}
 	playbackCore := host
+	playback.ClearDebugTrace()
 
 	session := playback.NewSession(
 		playbackCore,
@@ -111,6 +128,8 @@ func (s *PlaybackService) ServiceShutdown() error {
 	s.host = nil
 	s.store = nil
 	s.app = nil
+	s.lastQueueVersion = 0
+	s.queueVersionSet = false
 	s.mu.Unlock()
 
 	var shutdownErr error
@@ -149,8 +168,50 @@ func (s *PlaybackService) GetPlaybackSnapshot() (playback.SessionSnapshot, error
 	return session.Snapshot(), nil
 }
 
-func (s *PlaybackService) SubscribePlaybackEvents() string {
-	return playback.EventSnapshotChanged
+func (s *PlaybackService) GetPlaybackDebugDump() (string, error) {
+	var current *playback.DebugTraceEntry
+
+	s.mu.RLock()
+	session := s.session
+	s.mu.RUnlock()
+
+	if session != nil {
+		snapshot := session.Snapshot()
+		entry := playback.NewDebugTraceEntry("service.current", &snapshot)
+		current = &entry
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"generatedAtMs": time.Now().UTC().UnixMilli(),
+		"enabled":       playback.DebugTraceEnabled(),
+		"current":       current,
+		"entries":       playback.SnapshotDebugTrace(),
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(payload), nil
+}
+
+func (s *PlaybackService) ClearPlaybackDebugTrace() {
+	playback.ClearDebugTrace()
+}
+
+func (s *PlaybackService) GetPlaybackTraceEnabled() bool {
+	return playback.DebugTraceEnabled()
+}
+
+func (s *PlaybackService) SetPlaybackTraceEnabled(enabled bool) error {
+	state, err := loadPlaybackSettingsState()
+	if err != nil {
+		return fmt.Errorf("load playback trace settings: %w", err)
+	}
+	state.PlaybackTrace.Enabled = enabled
+	if err := savePlaybackSettingsState(state); err != nil {
+		return fmt.Errorf("save playback trace settings: %w", err)
+	}
+	playback.SetDebugTraceEnabled(enabled)
+	return nil
 }
 
 func (s *PlaybackService) subscribeSnapshots(listener func(playback.SessionSnapshot)) func() {
@@ -169,14 +230,6 @@ func (s *PlaybackService) subscribeSnapshots(listener func(playback.SessionSnaps
 		delete(s.subscribers, id)
 		s.mu.Unlock()
 	}
-}
-
-func (s *PlaybackService) SetPlaybackContext(input playback.PlaybackContextInput) (playback.SessionSnapshot, error) {
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.SetContext(input)
 }
 
 func (s *PlaybackService) QueueItems(items []playback.SessionItem, mode string) (playback.SessionSnapshot, error) {
@@ -209,42 +262,6 @@ func (s *PlaybackService) SelectEntry(ctx context.Context, entryID string) (play
 		return playback.SessionSnapshot{}, err
 	}
 	return session.SelectEntry(ctx, entryID)
-}
-
-func (s *PlaybackService) ReplaceQueue(items []playback.SessionItem, startIndex int) (playback.SessionSnapshot, error) {
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceQueue(items, startIndex)
-}
-
-func (s *PlaybackService) AppendToQueue(items []playback.SessionItem) (playback.SessionSnapshot, error) {
-	return s.QueueItems(items, string(playback.QueueInsertLast))
-}
-
-func (s *PlaybackService) RemoveQueueItem(index int) (playback.SessionSnapshot, error) {
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.RemoveQueueItem(index)
-}
-
-func (s *PlaybackService) MoveQueueItem(fromIndex int, toIndex int) (playback.SessionSnapshot, error) {
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.MoveQueueItem(fromIndex, toIndex)
-}
-
-func (s *PlaybackService) SelectQueueIndex(ctx context.Context, index int) (playback.SessionSnapshot, error) {
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.SelectQueueIndex(ctx, index)
 }
 
 func (s *PlaybackService) ClearQueue() (playback.SessionSnapshot, error) {
@@ -300,7 +317,24 @@ func (s *PlaybackService) SeekTo(ctx context.Context, positionMS int64) (playbac
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	return session.SeekTo(ctx, positionMS)
+	before := session.Snapshot()
+	start := playback.NewDebugTraceEntry("rpc.seek.start", &before)
+	start.TargetPositionMS = &positionMS
+	playback.RecordDebugTrace(start)
+
+	snapshot, seekErr := session.SeekTo(ctx, positionMS)
+	if seekErr != nil {
+		failed := playback.NewDebugTraceEntry("rpc.seek.error", &before)
+		failed.TargetPositionMS = &positionMS
+		failed.Message = seekErr.Error()
+		playback.RecordDebugTrace(failed)
+		return playback.SessionSnapshot{}, seekErr
+	}
+
+	result := playback.NewDebugTraceEntry("rpc.seek.result", &snapshot)
+	result.TargetPositionMS = &positionMS
+	playback.RecordDebugTrace(result)
+	return snapshot, nil
 }
 
 func (s *PlaybackService) SetVolume(ctx context.Context, volume int) (playback.SessionSnapshot, error) {
@@ -332,11 +366,11 @@ func (s *PlaybackService) PlayAlbum(ctx context.Context, albumID string) (playba
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	contextInput, err := loader.LoadAlbumContext(ctx, albumID)
+	session, err := s.requireSession()
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	return s.replaceContextAndPlay(ctx, contextInput)
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildAlbumSource(albumID), false)
 }
 
 func (s *PlaybackService) PlayAlbumTrack(ctx context.Context, albumID string, recordingID string) (playback.SessionSnapshot, error) {
@@ -344,11 +378,11 @@ func (s *PlaybackService) PlayAlbumTrack(ctx context.Context, albumID string, re
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	contextInput, err := loader.LoadAlbumTrackContext(ctx, albumID, recordingID)
+	session, err := s.requireSession()
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	return s.replaceContextAndPlay(ctx, contextInput)
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildAlbumTrackSource(albumID, recordingID), false)
 }
 
 func (s *PlaybackService) QueueAlbum(ctx context.Context, albumID string) (playback.SessionSnapshot, error) {
@@ -356,7 +390,7 @@ func (s *PlaybackService) QueueAlbum(ctx context.Context, albumID string) (playb
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	contextInput, err := loader.LoadAlbumContext(ctx, albumID)
+	contextInput, err := loader.MaterializeSource(ctx, loader.BuildAlbumSource(albumID))
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -368,11 +402,11 @@ func (s *PlaybackService) PlayPlaylist(ctx context.Context, playlistID string) (
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	contextInput, err := loader.LoadPlaylistContext(ctx, playlistID)
+	session, err := s.requireSession()
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	return s.replaceContextAndPlay(ctx, contextInput)
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildPlaylistSource(playlistID), false)
 }
 
 func (s *PlaybackService) PlayPlaylistTrack(ctx context.Context, playlistID string, itemID string) (playback.SessionSnapshot, error) {
@@ -380,11 +414,11 @@ func (s *PlaybackService) PlayPlaylistTrack(ctx context.Context, playlistID stri
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	contextInput, err := loader.LoadPlaylistTrackContext(ctx, playlistID, itemID)
+	session, err := s.requireSession()
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	return s.replaceContextAndPlay(ctx, contextInput)
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildPlaylistTrackSource(playlistID, itemID), false)
 }
 
 func (s *PlaybackService) QueuePlaylist(ctx context.Context, playlistID string) (playback.SessionSnapshot, error) {
@@ -392,7 +426,7 @@ func (s *PlaybackService) QueuePlaylist(ctx context.Context, playlistID string) 
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	contextInput, err := loader.LoadPlaylistContext(ctx, playlistID)
+	contextInput, err := loader.MaterializeSource(ctx, loader.BuildPlaylistSource(playlistID))
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -404,7 +438,7 @@ func (s *PlaybackService) QueuePlaylistTrack(ctx context.Context, playlistID str
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	item, err := loader.LoadPlaylistItem(ctx, playlistID, itemID)
+	item, err := loader.ResolveSourceItem(ctx, loader.BuildPlaylistTrackSource(playlistID, itemID))
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -416,11 +450,11 @@ func (s *PlaybackService) PlayRecording(ctx context.Context, recordingID string)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	contextInput, err := loader.LoadRecordingContext(ctx, recordingID)
+	session, err := s.requireSession()
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	return s.replaceContextAndPlay(ctx, contextInput)
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildRecordingSource(recordingID), false)
 }
 
 func (s *PlaybackService) QueueRecording(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
@@ -428,7 +462,7 @@ func (s *PlaybackService) QueueRecording(ctx context.Context, recordingID string
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	contextInput, err := loader.LoadRecordingContext(ctx, recordingID)
+	contextInput, err := loader.MaterializeSource(ctx, loader.BuildRecordingSource(recordingID))
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -440,11 +474,11 @@ func (s *PlaybackService) PlayLiked(ctx context.Context) (playback.SessionSnapsh
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	contextInput, err := loader.LoadLikedContext(ctx)
+	session, err := s.requireSession()
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	return s.replaceContextAndPlay(ctx, contextInput)
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildLikedSource(), false)
 }
 
 func (s *PlaybackService) PlayLikedTrack(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
@@ -452,11 +486,47 @@ func (s *PlaybackService) PlayLikedTrack(ctx context.Context, recordingID string
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	contextInput, err := loader.LoadLikedTrackContext(ctx, recordingID)
+	session, err := s.requireSession()
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	return s.replaceContextAndPlay(ctx, contextInput)
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildLikedTrackSource(recordingID), false)
+}
+
+func (s *PlaybackService) PlayTracks(ctx context.Context) (playback.SessionSnapshot, error) {
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	session, err := s.requireSession()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildTracksSource(), false)
+}
+
+func (s *PlaybackService) ShuffleTracks(ctx context.Context) (playback.SessionSnapshot, error) {
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	session, err := s.requireSession()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildTracksSource(), true)
+}
+
+func (s *PlaybackService) PlayTracksFrom(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	session, err := s.requireSession()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildTracksTrackSource(recordingID), false)
 }
 
 func (s *PlaybackService) QueueLikedTrack(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
@@ -464,7 +534,7 @@ func (s *PlaybackService) QueueLikedTrack(ctx context.Context, recordingID strin
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	item, err := loader.LoadLikedItem(ctx, recordingID)
+	item, err := loader.ResolveSourceItem(ctx, loader.BuildLikedTrackSource(recordingID))
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
@@ -472,14 +542,17 @@ func (s *PlaybackService) QueueLikedTrack(ctx context.Context, recordingID strin
 }
 
 func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapshot) {
-	s.mu.RLock()
+	s.mu.Lock()
 	app := s.app
 	controller := s.platform
 	subscribers := make([]func(playback.SessionSnapshot), 0, len(s.subscribers))
 	for _, subscriber := range s.subscribers {
 		subscribers = append(subscribers, subscriber)
 	}
-	s.mu.RUnlock()
+	queueChanged := !s.queueVersionSet || snapshot.QueueVersion != s.lastQueueVersion
+	s.lastQueueVersion = snapshot.QueueVersion
+	s.queueVersionSet = true
+	s.mu.Unlock()
 
 	if controller != nil {
 		controller.HandlePlaybackSnapshot(snapshot)
@@ -488,16 +561,15 @@ func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapsh
 		subscriber(snapshot)
 	}
 	if app != nil && app.Event != nil {
-		app.Event.Emit(playback.EventSnapshotChanged, snapshot)
+		playback.RecordDebugTrace(playback.NewDebugTraceEntry("service.emit.transport", &snapshot))
+		app.Event.Emit(playback.EventTransportChanged, playback.BuildTransportEventSnapshot(snapshot))
+		if queueChanged {
+			queueTrace := playback.NewDebugTraceEntry("service.emit.queue", &snapshot)
+			queueTrace.Reason = "queue_changed"
+			playback.RecordDebugTrace(queueTrace)
+			app.Event.Emit(playback.EventQueueChanged, playback.BuildQueueEventSnapshot(snapshot))
+		}
 	}
-}
-
-func (s *PlaybackService) replaceContextAndPlay(ctx context.Context, input playback.PlaybackContextInput) (playback.SessionSnapshot, error) {
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceContextAndPlay(ctx, input)
 }
 
 func (s *PlaybackService) requireLoader() (*playback.CatalogLoader, error) {
@@ -538,6 +610,14 @@ func (s *PlaybackService) requireSession() (*playback.Session, error) {
 
 func preferredProfile(coreSettings settings.CoreRuntimeSettings) string {
 	return settings.EffectiveTranscodeProfile(coreSettings.TranscodeProfile)
+}
+
+func loadPlaybackTraceEnabledSetting() (bool, error) {
+	state, err := loadPlaybackSettingsState()
+	if err != nil {
+		return false, err
+	}
+	return state.PlaybackTrace.Enabled, nil
 }
 
 type serviceLogger struct{}

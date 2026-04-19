@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/playback"
 	"ben/desktop/internal/settings"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type passthroughRuntimeStub struct {
@@ -257,11 +260,31 @@ func (b *passthroughBridgeStub) ListAlbums(ctx context.Context, req apitypes.Alb
 }
 
 func (b *passthroughBridgeStub) GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error) {
+	if b.getAlbumFn == nil {
+		return apitypes.AlbumListItem{AlbumID: albumID, Title: albumID}, nil
+	}
 	return b.getAlbumFn(ctx, albumID)
 }
 
 func (b *passthroughBridgeStub) ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
 	return b.listRecordingsFn(ctx, req)
+}
+
+func (b *passthroughBridgeStub) ListRecordingsCursor(ctx context.Context, req apitypes.RecordingCursorRequest) (apitypes.CursorPage[apitypes.RecordingListItem], error) {
+	page, err := b.listRecordingsFn(ctx, apitypes.RecordingListRequest{
+		PageRequest: apitypes.PageRequest{Limit: req.Limit},
+	})
+	if err != nil {
+		return apitypes.CursorPage[apitypes.RecordingListItem]{}, err
+	}
+	return apitypes.CursorPage[apitypes.RecordingListItem]{
+		Items: page.Items,
+		Page: apitypes.CursorPageInfo{
+			Limit:    req.Limit,
+			Returned: len(page.Items),
+			HasMore:  page.Page.HasMore,
+		},
+	}, nil
 }
 
 func (b *passthroughBridgeStub) GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error) {
@@ -293,6 +316,9 @@ func (b *passthroughBridgeStub) ListPlaylists(ctx context.Context, req apitypes.
 }
 
 func (b *passthroughBridgeStub) GetPlaylistSummary(ctx context.Context, playlistID string) (apitypes.PlaylistListItem, error) {
+	if b.getPlaylistSummaryFn == nil {
+		return apitypes.PlaylistListItem{PlaylistID: playlistID, Name: playlistID}, nil
+	}
 	return b.getPlaylistSummaryFn(ctx, playlistID)
 }
 
@@ -300,8 +326,43 @@ func (b *passthroughBridgeStub) ListPlaylistTracks(ctx context.Context, req apit
 	return b.listPlaylistTracksFn(ctx, req)
 }
 
+func (b *passthroughBridgeStub) ListPlaylistTracksCursor(ctx context.Context, req apitypes.PlaylistTrackCursorRequest) (apitypes.CursorPage[apitypes.PlaylistTrackItem], error) {
+	page, err := b.listPlaylistTracksFn(ctx, apitypes.PlaylistTrackListRequest{
+		PlaylistID:  req.PlaylistID,
+		PageRequest: apitypes.PageRequest{Limit: req.Limit},
+	})
+	if err != nil {
+		return apitypes.CursorPage[apitypes.PlaylistTrackItem]{}, err
+	}
+	return apitypes.CursorPage[apitypes.PlaylistTrackItem]{
+		Items: page.Items,
+		Page: apitypes.CursorPageInfo{
+			Limit:    req.Limit,
+			Returned: len(page.Items),
+			HasMore:  page.Page.HasMore,
+		},
+	}, nil
+}
+
 func (b *passthroughBridgeStub) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
 	return b.listLikedRecordingsFn(ctx, req)
+}
+
+func (b *passthroughBridgeStub) ListLikedRecordingsCursor(ctx context.Context, req apitypes.LikedRecordingCursorRequest) (apitypes.CursorPage[apitypes.LikedRecordingItem], error) {
+	page, err := b.listLikedRecordingsFn(ctx, apitypes.LikedRecordingListRequest{
+		PageRequest: apitypes.PageRequest{Limit: req.Limit},
+	})
+	if err != nil {
+		return apitypes.CursorPage[apitypes.LikedRecordingItem]{}, err
+	}
+	return apitypes.CursorPage[apitypes.LikedRecordingItem]{
+		Items: page.Items,
+		Page: apitypes.CursorPageInfo{
+			Limit:    req.Limit,
+			Returned: len(page.Items),
+			HasMore:  page.Page.HasMore,
+		},
+	}, nil
 }
 
 func (b *passthroughBridgeStub) CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
@@ -545,6 +606,110 @@ func newPassthroughHost(stub *passthroughRuntimeStub) *coreHost {
 	}
 }
 
+type playbackBackendStub struct {
+	events chan playback.BackendEvent
+}
+
+func newPlaybackBackendStub() *playbackBackendStub {
+	return &playbackBackendStub{events: make(chan playback.BackendEvent)}
+}
+
+func (b *playbackBackendStub) Load(context.Context, string) error { return nil }
+
+func (b *playbackBackendStub) ActivatePreloaded(context.Context, string) (playback.BackendActivationRef, error) {
+	return playback.BackendActivationRef{}, nil
+}
+
+func (b *playbackBackendStub) Play(context.Context) error { return nil }
+
+func (b *playbackBackendStub) Pause(context.Context) error { return nil }
+
+func (b *playbackBackendStub) Stop(context.Context) error { return nil }
+
+func (b *playbackBackendStub) SeekTo(context.Context, int64) error { return nil }
+
+func (b *playbackBackendStub) SetVolume(context.Context, int) error { return nil }
+
+func (b *playbackBackendStub) PositionMS() (int64, error) { return 0, nil }
+
+func (b *playbackBackendStub) DurationMS() (*int64, error) { return nil, nil }
+
+func (b *playbackBackendStub) Events() <-chan playback.BackendEvent { return b.events }
+
+func (b *playbackBackendStub) SupportsPreload() bool { return false }
+
+func (b *playbackBackendStub) PreloadNext(context.Context, string) error { return nil }
+
+func (b *playbackBackendStub) ClearPreloaded(context.Context) error { return nil }
+
+func (b *playbackBackendStub) Close() error {
+	close(b.events)
+	return nil
+}
+
+func makePlaybackResolveResult(recordingID string) apitypes.PlaybackResolveResult {
+	return apitypes.PlaybackResolveResult{
+		LibraryRecordingID: recordingID,
+		RecordingID:        recordingID,
+		State:              apitypes.AvailabilityPlayableLocalFile,
+		SourceKind:         apitypes.PlaybackSourceLocalFile,
+		PlayableURI:        "file:///" + recordingID,
+	}
+}
+
+func makePlaybackAvailability(recordingID string) apitypes.RecordingPlaybackAvailability {
+	return apitypes.RecordingPlaybackAvailability{
+		LibraryRecordingID: recordingID,
+		RecordingID:        recordingID,
+		State:              apitypes.AvailabilityPlayableLocalFile,
+		SourceKind:         apitypes.PlaybackSourceLocalFile,
+		LocalPath:          "C:/music/" + recordingID + ".mp3",
+	}
+}
+
+func selectedPlaybackEntry(snapshot playback.SessionSnapshot) *playback.SessionEntry {
+	if snapshot.CurrentEntry != nil {
+		return snapshot.CurrentEntry
+	}
+	return snapshot.LoadingEntry
+}
+
+func testApplication() *application.App {
+	app := application.Get()
+	if app != nil {
+		app.Event.Reset()
+		return app
+	}
+	return application.New(application.Options{
+		Name:        "playbackservice-test",
+		Description: "playbackservice test app",
+		Assets:      application.AlphaAssets,
+	})
+}
+
+func waitForEvent[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+
+	select {
+	case event := <-ch:
+		return event
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for event")
+		var zero T
+		return zero
+	}
+}
+
+func ensureNoEvent[T any](t *testing.T, ch <-chan T) {
+	t.Helper()
+
+	select {
+	case <-ch:
+		t.Fatal("unexpected event")
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
 func TestPreferredProfileDefaultsToSupportedAACProfile(t *testing.T) {
 	t.Parallel()
 
@@ -643,5 +808,251 @@ func TestPlaybackServiceQueueLikedTrackUsesLikedItemContext(t *testing.T) {
 	}
 	if item.Target.ResolutionPolicy != playback.PlaybackTargetResolutionPreferred {
 		t.Fatalf("resolution policy = %q, want %q", item.Target.ResolutionPolicy, playback.PlaybackTargetResolutionPreferred)
+	}
+}
+
+func TestLoadPlaybackTraceEnabledSetting(t *testing.T) {
+	originalLoader := loadPlaybackSettingsState
+	loadPlaybackSettingsState = func() (settings.State, error) {
+		return settings.State{
+			PlaybackTrace: settings.PlaybackTraceSettings{Enabled: true},
+		}, nil
+	}
+	t.Cleanup(func() {
+		loadPlaybackSettingsState = originalLoader
+	})
+
+	enabled, err := loadPlaybackTraceEnabledSetting()
+	if err != nil {
+		t.Fatalf("load playback trace enabled setting: %v", err)
+	}
+	if !enabled {
+		t.Fatal("expected playback trace to load as enabled")
+	}
+}
+
+func TestLoadPlaybackTraceEnabledSettingReturnsError(t *testing.T) {
+	originalLoader := loadPlaybackSettingsState
+	loadPlaybackSettingsState = func() (settings.State, error) {
+		return settings.State{}, errors.New("boom")
+	}
+	t.Cleanup(func() {
+		loadPlaybackSettingsState = originalLoader
+	})
+
+	if _, err := loadPlaybackTraceEnabledSetting(); err == nil {
+		t.Fatal("expected load playback trace enabled setting to fail")
+	}
+}
+
+func TestPlaybackServiceSetPlaybackTraceEnabledPersistsAndUpdatesRuntime(t *testing.T) {
+	originalLoader := loadPlaybackSettingsState
+	originalSaver := savePlaybackSettingsState
+	playback.SetDebugTraceEnabled(false)
+
+	var saved settings.State
+	loadPlaybackSettingsState = func() (settings.State, error) {
+		return settings.State{
+			Notifications: settings.NotificationUISettings{Verbosity: "everything"},
+		}, nil
+	}
+	savePlaybackSettingsState = func(state settings.State) error {
+		saved = state
+		return nil
+	}
+	t.Cleanup(func() {
+		loadPlaybackSettingsState = originalLoader
+		savePlaybackSettingsState = originalSaver
+		playback.SetDebugTraceEnabled(false)
+	})
+
+	service := &PlaybackService{}
+	if err := service.SetPlaybackTraceEnabled(true); err != nil {
+		t.Fatalf("set playback trace enabled: %v", err)
+	}
+	if !saved.PlaybackTrace.Enabled {
+		t.Fatalf("saved state = %+v, want playback trace enabled", saved)
+	}
+	if saved.Notifications.Verbosity != "everything" {
+		t.Fatalf("expected unrelated settings to be preserved, got %+v", saved)
+	}
+	if !playback.DebugTraceEnabled() {
+		t.Fatal("expected runtime playback trace toggle to be enabled")
+	}
+}
+
+func TestPlaybackServiceTracksActionsUseTracksSource(t *testing.T) {
+	t.Parallel()
+
+	recordings := []apitypes.RecordingListItem{
+		{
+			LibraryRecordingID:          "cluster-1",
+			PreferredVariantRecordingID: "variant-1",
+			RecordingID:                 "variant-1",
+			AlbumID:                     "album-1",
+			Title:                       "One",
+			Artists:                     []string{"Artist"},
+			DurationMS:                  1000,
+		},
+		{
+			LibraryRecordingID:          "cluster-2",
+			PreferredVariantRecordingID: "variant-2",
+			RecordingID:                 "variant-2",
+			AlbumID:                     "album-2",
+			Title:                       "Two",
+			Artists:                     []string{"Artist"},
+			DurationMS:                  2000,
+		},
+	}
+
+	stub := &passthroughRuntimeStub{
+		listRecordingsFn: func(_ context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
+			return apitypes.Page[apitypes.RecordingListItem]{
+				Items: recordings,
+				Page:  apitypes.PageInfo{Limit: req.Limit, Total: len(recordings)},
+			}, nil
+		},
+		resolvePlaybackRecordingFn: func(_ context.Context, recordingID, _ string) (apitypes.PlaybackResolveResult, error) {
+			return makePlaybackResolveResult(recordingID), nil
+		},
+		preparePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+			result := makePlaybackResolveResult(recordingID)
+			return apitypes.PlaybackPreparationStatus{
+				LibraryRecordingID: result.LibraryRecordingID,
+				RecordingID:        recordingID,
+				PreferredProfile:   preferredProfile,
+				Purpose:            purpose,
+				Phase:              apitypes.PlaybackPreparationReady,
+				SourceKind:         result.SourceKind,
+				PlayableURI:        result.PlayableURI,
+				UpdatedAt:          time.Now().UTC(),
+			}, nil
+		},
+		getPlaybackPreparationFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+			result := makePlaybackResolveResult(recordingID)
+			return apitypes.PlaybackPreparationStatus{
+				LibraryRecordingID: result.LibraryRecordingID,
+				RecordingID:        recordingID,
+				PreferredProfile:   preferredProfile,
+				Purpose:            apitypes.PlaybackPreparationPlayNow,
+				Phase:              apitypes.PlaybackPreparationReady,
+				SourceKind:         result.SourceKind,
+				PlayableURI:        result.PlayableURI,
+				UpdatedAt:          time.Now().UTC(),
+			}, nil
+		},
+		getRecordingAvailabilityFn: func(_ context.Context, recordingID, _ string) (apitypes.RecordingPlaybackAvailability, error) {
+			return makePlaybackAvailability(recordingID), nil
+		},
+	}
+
+	session := playback.NewSession(stub, newPlaybackBackendStub(), nil, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	service := &PlaybackService{
+		core:    stub,
+		session: session,
+	}
+
+	playAll, err := service.PlayTracks(context.Background())
+	if err != nil {
+		t.Fatalf("play tracks: %v", err)
+	}
+	if playAll.ContextQueue == nil || playAll.ContextQueue.Kind != playback.ContextKindTracks || playAll.ContextQueue.ID != "tracks" {
+		t.Fatalf("unexpected tracks context queue: %+v", playAll.ContextQueue)
+	}
+	selectedAll := selectedPlaybackEntry(playAll)
+	if selectedAll == nil || selectedAll.Item.SourceKind != playback.SourceKindTracks || selectedAll.Item.SourceID != "tracks" {
+		t.Fatalf("unexpected selected tracks entry: %+v", selectedAll)
+	}
+	if selectedAll.Item.RecordingID != "cluster-1" {
+		t.Fatalf("selected recording = %q, want cluster-1", selectedAll.Item.RecordingID)
+	}
+
+	playFrom, err := service.PlayTracksFrom(context.Background(), "cluster-2")
+	if err != nil {
+		t.Fatalf("play tracks from: %v", err)
+	}
+	selectedFrom := selectedPlaybackEntry(playFrom)
+	if selectedFrom == nil || selectedFrom.Item.RecordingID != "cluster-2" {
+		t.Fatalf("selected tracks-from entry = %+v, want cluster-2", selectedFrom)
+	}
+
+	shuffled, err := service.ShuffleTracks(context.Background())
+	if err != nil {
+		t.Fatalf("shuffle tracks: %v", err)
+	}
+	if !shuffled.Shuffle {
+		t.Fatalf("expected shuffle tracks to enable shuffle, got %+v", shuffled)
+	}
+	if shuffled.ContextQueue == nil || shuffled.ContextQueue.Kind != playback.ContextKindTracks {
+		t.Fatalf("unexpected shuffled tracks context queue: %+v", shuffled.ContextQueue)
+	}
+}
+
+func TestPlaybackServiceHandlePlaybackSnapshotEmitsQueueOnlyOnQueueVersionChange(t *testing.T) {
+	app := testApplication()
+	app.Event.Reset()
+
+	transportEvents := make(chan playback.TransportEventSnapshot, 4)
+	queueEvents := make(chan playback.QueueEventSnapshot, 4)
+	stopTransport := app.Event.On(playback.EventTransportChanged, func(event *application.CustomEvent) {
+		transportEvents <- event.Data.(playback.TransportEventSnapshot)
+	})
+	stopQueue := app.Event.On(playback.EventQueueChanged, func(event *application.CustomEvent) {
+		queueEvents <- event.Data.(playback.QueueEventSnapshot)
+	})
+	defer stopTransport()
+	defer stopQueue()
+	defer app.Event.Reset()
+
+	service := &PlaybackService{
+		app:         app,
+		subscribers: make(map[uint64]func(playback.SessionSnapshot)),
+	}
+
+	service.handlePlaybackSnapshot(playback.SessionSnapshot{
+		Status:       playback.StatusPlaying,
+		PositionMS:   1000,
+		QueueLength:  1,
+		QueueVersion: 4,
+	})
+	firstTransport := waitForEvent(t, transportEvents)
+	firstQueue := waitForEvent(t, queueEvents)
+	if firstTransport.PositionMS != 1000 {
+		t.Fatalf("transport position = %d, want 1000", firstTransport.PositionMS)
+	}
+	if firstQueue.QueueVersion != 4 {
+		t.Fatalf("queue version = %d, want 4", firstQueue.QueueVersion)
+	}
+
+	service.handlePlaybackSnapshot(playback.SessionSnapshot{
+		Status:       playback.StatusPlaying,
+		PositionMS:   2000,
+		QueueLength:  1,
+		QueueVersion: 4,
+	})
+	secondTransport := waitForEvent(t, transportEvents)
+	if secondTransport.PositionMS != 2000 {
+		t.Fatalf("transport position = %d, want 2000", secondTransport.PositionMS)
+	}
+	ensureNoEvent(t, queueEvents)
+
+	service.handlePlaybackSnapshot(playback.SessionSnapshot{
+		Status:       playback.StatusPlaying,
+		PositionMS:   3000,
+		QueueLength:  2,
+		QueueVersion: 5,
+	})
+	thirdTransport := waitForEvent(t, transportEvents)
+	thirdQueue := waitForEvent(t, queueEvents)
+	if thirdTransport.PositionMS != 3000 {
+		t.Fatalf("transport position = %d, want 3000", thirdTransport.PositionMS)
+	}
+	if thirdQueue.QueueVersion != 5 {
+		t.Fatalf("queue version = %d, want 5", thirdQueue.QueueVersion)
 	}
 }

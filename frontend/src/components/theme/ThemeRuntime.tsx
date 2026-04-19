@@ -10,7 +10,9 @@ export function ThemeRuntime() {
   const themePreferences = useThemeStore((state) => state.preferences);
   const themeRecordingId = usePlaybackStore((state) => {
     const item =
-      state.snapshot?.currentItem ?? state.snapshot?.loadingItem ?? null;
+      state.transport?.currentEntry?.item ??
+      state.transport?.loadingEntry?.item ??
+      null;
     return item?.artworkRef?.trim() ?? "";
   });
 

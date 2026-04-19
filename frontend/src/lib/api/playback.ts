@@ -9,6 +9,9 @@ import {
   type SessionSnapshot,
 } from "./models";
 
+export const PLAYBACK_TRANSPORT_EVENT_NAME = "playback:transport";
+export const PLAYBACK_QUEUE_EVENT_NAME = "playback:queue";
+
 export function resolveThumbnailURL(thumb: ArtworkRef) {
   return PlaybackFacade.ResolveThumbnailURL(thumb);
 }
@@ -87,12 +90,20 @@ export function listAlbumAvailabilitySummaries(
   );
 }
 
-export function subscribePlaybackEvents() {
-  return PlaybackService.SubscribePlaybackEvents();
-}
-
 export function getPlaybackSnapshot(): Promise<SessionSnapshot> {
   return PlaybackService.GetPlaybackSnapshot();
+}
+
+export function getPlaybackDebugDump(): Promise<string> {
+  return PlaybackService.GetPlaybackDebugDump();
+}
+
+export function getPlaybackTraceEnabled(): Promise<boolean> {
+  return PlaybackService.GetPlaybackTraceEnabled();
+}
+
+export function clearPlaybackDebugTrace(): Promise<void> {
+  return PlaybackService.ClearPlaybackDebugTrace();
 }
 
 export function togglePlayback() {
@@ -169,6 +180,18 @@ export function playLikedTrack(recordingId: string) {
 
 export function queueLikedTrack(recordingId: string) {
   return PlaybackService.QueueLikedTrack(recordingId);
+}
+
+export function playTracks() {
+  return PlaybackService.PlayTracks();
+}
+
+export function shuffleTracks() {
+  return PlaybackService.ShuffleTracks();
+}
+
+export function playTracksFrom(recordingId: string) {
+  return PlaybackService.PlayTracksFrom(recordingId);
 }
 
 export function selectQueueEntry(entryId: string) {

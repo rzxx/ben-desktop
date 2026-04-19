@@ -14,9 +14,9 @@ type PlaybackLoadingPanelProps = {
 export function PlaybackLoadingPanel({
   className = "",
 }: PlaybackLoadingPanelProps) {
-  const snapshot = usePlaybackStore((state) => state.snapshot);
-  const item = snapshot?.loadingItem ?? null;
-  const status = snapshot?.loadingPreparation?.status ?? null;
+  const transport = usePlaybackStore((state) => state.transport);
+  const item = transport?.loadingEntry?.item ?? null;
+  const status = transport?.loadingPreparation?.status ?? null;
   const artworkUrl = useRecordingArtworkUrl(item?.artworkRef);
 
   if (!item) {
