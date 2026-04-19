@@ -1691,22 +1691,12 @@ func (s *Session) Previous(ctx context.Context) (SessionSnapshot, error) {
 	if pending != nil {
 		current = cloneEntryPtr(&pending.entry)
 	}
-	if current != nil && current.Origin == EntryOriginQueued {
-		if entry, ok := s.returnContextEntryLocked(); ok {
-			s.mu.Unlock()
-			return s.playEntry(ctx, entry, EntryOriginContext, -1, nil, false, true)
-		}
-	}
-	if entry, ok := s.previousContextEntryLocked(); ok {
-		s.mu.Unlock()
-		return s.playEntry(ctx, entry, EntryOriginContext, -1, nil, false, true)
-	}
 	s.mu.Unlock()
 
 	if current == nil {
 		return s.Snapshot(), nil
 	}
-	return s.playEntry(ctx, *current, current.Origin, -1, nil, false, true)
+	return s.playPreviousAvailable(ctx, current, false, true)
 }
 
 func (s *Session) SeekTo(ctx context.Context, positionMS int64) (SessionSnapshot, error) {
@@ -1960,11 +1950,127 @@ func (s *Session) playNextAvailable(
 	}
 }
 
+func (s *Session) playPreviousAvailable(
+	ctx context.Context,
+	previous *SessionEntry,
+	keepPosition bool,
+	preserveCurrentOnPending bool,
+) (SessionSnapshot, error) {
+	var skipped []skippedPlaybackEntry
+	blockedEntries := make(map[string]struct{})
+
+	for {
+		candidate, unavailable, err := s.resolvePreviousPlayableCandidate(ctx, blockedEntries)
+		if err != nil {
+			return s.Snapshot(), err
+		}
+		skipped = append(skipped, unavailable...)
+		if candidate == nil {
+			if len(skipped) > 0 {
+				return s.settleAfterSkipped(skipped), nil
+			}
+			if previous == nil {
+				return s.Snapshot(), nil
+			}
+			return s.playEntry(ctx, *previous, previous.Origin, -1, nil, keepPosition, preserveCurrentOnPending)
+		}
+
+		state, err := s.playEntry(
+			ctx,
+			candidate.Entry,
+			candidate.Origin,
+			candidate.QueueIndex,
+			previous,
+			keepPosition,
+			preserveCurrentOnPending,
+		)
+		if err == nil {
+			if len(skipped) > 0 {
+				state = s.applySkipEvent(skipped, false)
+			}
+			return state, nil
+		}
+
+		var unavailableErr *entryUnavailableError
+		if !errors.As(err, &unavailableErr) {
+			return state, err
+		}
+		blockedEntries[candidate.Entry.EntryID] = struct{}{}
+		skipped = append(skipped, skippedPlaybackEntry{
+			Entry:   candidate.Entry,
+			Status:  unavailableErr.status,
+			Message: unavailableErr.Error(),
+		})
+	}
+}
+
 func (s *Session) resolveNextPlayableCandidate(
 	ctx context.Context,
 	blocked map[string]struct{},
 ) (*playbackCandidate, []skippedPlaybackEntry, error) {
 	return s.resolvePlayableFromPlan(ctx, blocked)
+}
+
+func (s *Session) resolvePreviousPlayableCandidate(
+	ctx context.Context,
+	blocked map[string]struct{},
+) (*playbackCandidate, []skippedPlaybackEntry, error) {
+	s.mu.Lock()
+	snapshot := s.planningSnapshotLocked()
+	core := s.core
+	sourceVersion := int64(0)
+	if snapshot.ContextQueue != nil {
+		sourceVersion = snapshot.ContextQueue.SourceVersion
+	}
+	candidates := buildPreviousActionPlan(snapshot)
+	s.mu.Unlock()
+
+	if len(candidates) == 0 {
+		return nil, nil, nil
+	}
+
+	skipped := make([]skippedPlaybackEntry, 0, len(candidates))
+	now := time.Now()
+	for _, candidate := range candidates {
+		if len(blocked) > 0 {
+			if _, ok := blocked[candidate.EntryID]; ok {
+				continue
+			}
+		}
+
+		var availability apitypes.RecordingPlaybackAvailability
+		knownAvailability := false
+		if core != nil {
+			if cached, ok := s.cachedAvailabilityLocked(candidate.Target, now, sourceVersion); ok {
+				availability = cached
+				knownAvailability = true
+			} else if playbackTargetKey(candidate.Target) != "" {
+				status, err := core.GetPlaybackTargetAvailability(ctx, candidate.Target, s.preferredProfile)
+				if err != nil {
+					return nil, skipped, err
+				}
+				availability = status
+				knownAvailability = true
+				s.cacheAvailabilityLocked(candidate.Target, status, now.Add(availabilityCacheTTL), sourceVersion)
+			}
+		}
+
+		s.mu.Lock()
+		resolved, ok := s.playbackCandidateFromPlannedLocked(candidate)
+		if ok && knownAvailability {
+			s.setEntryAvailabilityLocked(candidate.EntryID, availability)
+		}
+		s.mu.Unlock()
+		if !ok {
+			continue
+		}
+		if knownAvailability && isAvailabilityDefinitivelyUnavailable(availability.State) {
+			skipped = append(skipped, skippedPlaybackEntryFromAvailability(resolved.Entry, availability))
+			continue
+		}
+		return &resolved, skipped, nil
+	}
+	return nil, skipped, nil
 }
 
 func (s *Session) resolvePlayableFromPlan(
@@ -4456,6 +4562,61 @@ func buildNextActionEntries(snapshot SessionSnapshot) []SessionEntry {
 	out = append(out, *cloneEntryPtr(snapshot.CurrentEntry))
 	out = append(out, upcoming...)
 	return out
+}
+
+func buildPreviousActionPlan(snapshot SessionSnapshot) []plannedCandidate {
+	allEntries := contextAllEntries(snapshot)
+	if len(allEntries) == 0 || snapshot.CurrentEntry == nil {
+		return nil
+	}
+
+	indexes := make([]int, 0, len(allEntries))
+	seen := make(map[int]struct{}, len(allEntries))
+	appendIndex := func(index int) bool {
+		if index < 0 || index >= len(allEntries) {
+			return false
+		}
+		if _, ok := seen[index]; ok {
+			return false
+		}
+		seen[index] = struct{}{}
+		indexes = append(indexes, index)
+		return true
+	}
+
+	switch {
+	case snapshot.CurrentEntry.Origin == EntryOriginQueued:
+		anchor := currentContextIndex(snapshot)
+		if !appendIndex(anchor) {
+			return nil
+		}
+		for index := previousContextIndexFromAnchor(snapshot, anchor); appendIndex(index); index = previousContextIndexFromAnchor(snapshot, index) {
+		}
+	case currentMatchesContext(snapshot):
+		for index := previousContextIndexFromAnchor(snapshot, currentContextIndex(snapshot)); appendIndex(index); index = previousContextIndexFromAnchor(snapshot, index) {
+		}
+	default:
+		detachedIndex := detachedCurrentContextIndex(snapshot)
+		if detachedIndex < 0 {
+			return nil
+		}
+		for index := previousDetachedContextIndex(snapshot, detachedIndex); appendIndex(index); index = previousContextIndexFromAnchor(snapshot, index) {
+		}
+	}
+
+	candidates := make([]plannedCandidate, 0, len(indexes))
+	for _, index := range indexes {
+		entry := allEntries[index]
+		candidates = append(candidates, plannedCandidate{
+			EntryID:      entry.EntryID,
+			Origin:       EntryOriginContext,
+			QueueIndex:   -1,
+			ContextIndex: entry.ContextIndex,
+			Target:       entry.Item.Target,
+			RecordingID:  entry.Item.RecordingID,
+		})
+	}
+	return candidates
 }
 
 func HasNextAction(snapshot SessionSnapshot) bool {

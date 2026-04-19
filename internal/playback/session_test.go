@@ -2278,6 +2278,74 @@ func TestSessionPreviousDoesNotStepBeforeShuffleAnchor(t *testing.T) {
 	}
 }
 
+func TestSessionPreviousScansPastSparseUnavailableWrappedSourceBackedTracks(t *testing.T) {
+	t.Parallel()
+
+	const (
+		total        = 1500
+		currentIndex = 0
+		skippedCount = 120
+	)
+	duration := int64(180000)
+	recordings := makeTrackCatalog(total, duration)
+	currentID := recordings[currentIndex].RecordingID
+	targetIndex := total - skippedCount - 1
+	targetID := recordings[targetIndex].RecordingID
+
+	bridge := &mockBridge{
+		recordings: recordings,
+		results: map[string]apitypes.PlaybackResolveResult{
+			currentID: makePlayableResult(currentID),
+			targetID:  makePlayableResult(targetID),
+		},
+		availability: map[string]apitypes.RecordingPlaybackAvailability{
+			currentID: makePlayableAvailability(currentID),
+			targetID:  makePlayableAvailability(targetID),
+		},
+	}
+	for index := len(recordings) - 1; index > targetIndex; index-- {
+		recordingID := recordings[index].RecordingID
+		bridge.availability[recordingID] = makeUnavailableAvailability(recordingID)
+	}
+
+	session := NewSession(bridge, newTestBackend(), &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	initial, err := session.ReplaceSourceAndPlay(context.Background(), NewCatalogLoader(bridge).BuildTracksTrackSource(currentID), false)
+	if err != nil {
+		t.Fatalf("replace source and play: %v", err)
+	}
+	if initial.ContextQueue == nil {
+		t.Fatalf("expected source-backed context queue")
+	}
+	if containsRecording(initial.ContextQueue.Entries, targetID) {
+		t.Fatalf("expected target %s to sit outside the visible window", targetID)
+	}
+	if _, err := session.SetRepeatMode(string(RepeatAll)); err != nil {
+		t.Fatalf("set repeat-all: %v", err)
+	}
+
+	previous, err := session.Previous(context.Background())
+	if err != nil {
+		t.Fatalf("previous: %v", err)
+	}
+	if previous.CurrentEntry == nil || previous.CurrentEntry.Item.RecordingID != targetID {
+		t.Fatalf("expected previous playable target %s, got %+v", targetID, previous.CurrentEntry)
+	}
+	if previous.LastSkipEvent == nil {
+		t.Fatalf("expected skip event after sparse backward traversal")
+	}
+	if previous.LastSkipEvent.Count != skippedCount {
+		t.Fatalf("skip count = %d, want %d", previous.LastSkipEvent.Count, skippedCount)
+	}
+	if previous.LastSkipEvent.FirstEntry == nil || previous.LastSkipEvent.FirstEntry.Item.RecordingID != recordings[len(recordings)-1].RecordingID {
+		t.Fatalf("expected first skipped wrapped entry %s, got %+v", recordings[len(recordings)-1].RecordingID, previous.LastSkipEvent.FirstEntry)
+	}
+}
+
 func TestSessionSetShuffleClearsAndRebuildsPreloadWithoutChangingCurrent(t *testing.T) {
 	t.Parallel()
 
