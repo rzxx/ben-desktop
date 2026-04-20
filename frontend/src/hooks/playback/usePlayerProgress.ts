@@ -31,6 +31,7 @@ type TimelineState = {
   draftPositionMs: number | null;
   isDragging: boolean;
   pendingSeek: {
+    baselinePositionMs: number;
     baselineCapturedAtMs: number;
     requestId: string;
     positionMs: number;
@@ -52,6 +53,32 @@ function hasAuthoritativeCaughtPendingSeek(
     positionCapturedAtMs > pendingSeek.baselineCapturedAtMs &&
     isWithinPendingSeekTolerance(positionMs, pendingSeek.positionMs)
   );
+}
+
+function hasAuthoritativeDivergedFromPendingSeek(
+  positionMs: number,
+  positionCapturedAtMs: number,
+  pendingSeek: NonNullable<TimelineState["pendingSeek"]>,
+) {
+  if (positionCapturedAtMs <= pendingSeek.baselineCapturedAtMs) {
+    return false;
+  }
+  if (isWithinPendingSeekTolerance(positionMs, pendingSeek.positionMs)) {
+    return false;
+  }
+  if (pendingSeek.positionMs > pendingSeek.baselinePositionMs) {
+    return (
+      positionMs <=
+      pendingSeek.baselinePositionMs - pendingSeekMatchToleranceMs
+    );
+  }
+  if (pendingSeek.positionMs < pendingSeek.baselinePositionMs) {
+    return (
+      positionMs >=
+      pendingSeek.baselinePositionMs + pendingSeekMatchToleranceMs
+    );
+  }
+  return true;
 }
 
 function isWithinPendingSeekTolerance(
@@ -103,13 +130,54 @@ export function usePlayerProgress({
     : null;
   const pendingSeek = hasMatchingDragState ? timelineState.pendingSeek : null;
   const isDragging = hasMatchingDragState ? timelineState.isDragging : false;
+  const shouldDiscardPendingSeek =
+    pendingSeek != null &&
+    hasAuthoritativeDivergedFromPendingSeek(
+      positionMs,
+      positionCapturedAtMs,
+      pendingSeek,
+    );
   const shouldUsePendingSeek =
     pendingSeek != null &&
+    !shouldDiscardPendingSeek &&
     !hasAuthoritativeCaughtPendingSeek(
       positionMs,
       positionCapturedAtMs,
       pendingSeek,
     );
+
+  useEffect(() => {
+    if (!hasMatchingDragState || pendingSeek == null || !shouldDiscardPendingSeek) {
+      return;
+    }
+    setTimelineState((currentState) => {
+      if (
+        currentState.entryId !== currentEntryId ||
+        currentState.pendingSeek == null
+      ) {
+        return currentState;
+      }
+      return {
+        ...currentState,
+        pendingSeek: null,
+      };
+    });
+    recordPlaybackDebugTrace({
+      kind: "hook:pendingSeek:cleared",
+      currentEntryId,
+      seekRequestId: pendingSeek.requestId,
+      positionMs,
+      positionCapturedAtMs,
+      message: "authoritative transport diverged from pending seek",
+    });
+  }, [
+    currentEntryId,
+    hasMatchingDragState,
+    pendingSeek,
+    positionCapturedAtMs,
+    positionMs,
+    shouldDiscardPendingSeek,
+  ]);
 
   useEffect(() => {
     if (!hasActiveEntry || !isPlaying || isDragging) {
@@ -249,6 +317,7 @@ export function usePlayerProgress({
       draftPositionMs: null,
       isDragging: false,
       pendingSeek: {
+        baselinePositionMs: positionMs,
         baselineCapturedAtMs: positionCapturedAtMs,
         requestId,
         positionMs: nextSeekMs,

@@ -88,6 +88,26 @@ func TestMPVPlaylistSnapshotEntryForPreloadFallsBackWithoutEntryID(t *testing.T)
 	}
 }
 
+func TestMPVPlaylistSnapshotIsActiveEntryRecognizesCurrentAndPlayingSlots(t *testing.T) {
+	t.Parallel()
+
+	snapshot := mpvPlaylistSnapshot{
+		CurrentPos: 0,
+		PlayingPos: 0,
+		Entries: []mpvPlaylistEntry{
+			{Index: 0, EntryID: 10, Filename: normalizePlaybackURI("file:///tmp/one.mp3"), Current: true, Playing: true},
+			{Index: 1, EntryID: 11, Filename: normalizePlaybackURI("file:///tmp/two.mp3")},
+		},
+	}
+
+	if !snapshot.isActiveEntry(snapshot.Entries[0]) {
+		t.Fatal("expected current entry to be treated as active")
+	}
+	if snapshot.isActiveEntry(snapshot.Entries[1]) {
+		t.Fatal("expected non-current entry to remain removable")
+	}
+}
+
 func TestMPVCommandErrorIncludesTransportContext(t *testing.T) {
 	t.Parallel()
 

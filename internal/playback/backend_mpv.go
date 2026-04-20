@@ -44,6 +44,14 @@ type mpvPendingActivationState struct {
 	Index     int64
 }
 
+type mpvActivePlaybackState struct {
+	URI       string
+	Paused    bool
+	HasPaused bool
+	Position  float64
+	HasPos    bool
+}
+
 type mpvCommandError struct {
 	Op           string
 	Command      []string
@@ -315,8 +323,10 @@ func (b *mpvBackend) PreloadNext(_ context.Context, uri string) error {
 
 	if preload.Verified {
 		if tracked, ok := snapshot.entryForPreload(preload); ok {
-			if err := b.removePreloadEntryLocked(snapshot, tracked, "preload_remove_existing", preload.URI); err != nil {
-				return err
+			if !snapshot.hasActivePlayback() {
+				if err := b.removePreloadEntryLocked(snapshot, tracked, "preload_remove_existing", preload.URI); err != nil {
+					return err
+				}
 			}
 		}
 		b.clearPreloadState()
@@ -377,6 +387,10 @@ func (b *mpvBackend) ClearPreloaded(context.Context) error {
 		b.clearPreloadState()
 		return nil
 	}
+	if snapshot.hasActivePlayback() {
+		b.clearPreloadState()
+		return nil
+	}
 
 	if err := b.removePreloadEntryLocked(snapshot, entry, "clear_preload_remove", preload.URI); err != nil {
 		return err
@@ -386,6 +400,7 @@ func (b *mpvBackend) ClearPreloaded(context.Context) error {
 }
 
 func (b *mpvBackend) removePreloadEntryLocked(snapshot mpvPlaylistSnapshot, entry mpvPlaylistEntry, op string, requestedURI string) error {
+	activeBefore, captureErr := b.captureActivePlaybackStateLocked(snapshot)
 	command := []string{"playlist-remove", strconv.FormatInt(entry.Index, 10)}
 	if err := b.client.Command(command); err != nil {
 		wrapped := b.wrapCommandErrorWithSnapshot(op, command, requestedURI, snapshot, err)
@@ -395,6 +410,11 @@ func (b *mpvBackend) removePreloadEntryLocked(snapshot mpvPlaylistSnapshot, entr
 		}
 		b.clearPreloadState()
 		return errors.Join(errMPVPreloadRecovered, wrapped)
+	}
+	if captureErr == nil {
+		if err := b.restoreActivePlaybackAfterPreloadRemovalLocked(activeBefore); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -795,6 +815,69 @@ func (b *mpvBackend) getFlagPropertyLocked(name string) (bool, bool, error) {
 	return typed, true, nil
 }
 
+func (b *mpvBackend) captureActivePlaybackStateLocked(snapshot mpvPlaylistSnapshot) (mpvActivePlaybackState, error) {
+	activeURI := normalizePlaybackURI(snapshot.ActivePath)
+	if activeURI == "" {
+		activePos := snapshot.PlayingPos
+		if activePos < 0 {
+			activePos = snapshot.CurrentPos
+		}
+		if entry, ok := snapshot.entryAt(activePos); ok {
+			activeURI = normalizePlaybackURI(entry.Filename)
+		}
+	}
+
+	paused, hasPaused, pauseErr := b.getFlagPropertyLocked("pause")
+	if pauseErr != nil {
+		return mpvActivePlaybackState{}, pauseErr
+	}
+	position, hasPos, positionErr := b.getDoublePropertyLocked("time-pos")
+	if positionErr != nil && positionErr != mpv.ErrPropertyUnavailable && positionErr != mpv.ErrPropertyNotFound {
+		return mpvActivePlaybackState{}, positionErr
+	}
+
+	return mpvActivePlaybackState{
+		URI:       activeURI,
+		Paused:    paused,
+		HasPaused: hasPaused,
+		Position:  position,
+		HasPos:    hasPos,
+	}, nil
+}
+
+func (b *mpvBackend) restoreActivePlaybackAfterPreloadRemovalLocked(before mpvActivePlaybackState) error {
+	if before.URI == "" || !before.HasPos || before.Position <= 1 {
+		return nil
+	}
+
+	activeURI, _, _, readErr := b.readActivePlaybackStateLocked()
+	if readErr != nil && readErr != mpv.ErrPropertyUnavailable && readErr != mpv.ErrPropertyNotFound {
+		return readErr
+	}
+	activeURI = normalizePlaybackURI(activeURI)
+	if activeURI == "" || activeURI != before.URI {
+		return nil
+	}
+
+	positionAfter, hasPosAfter, positionErr := b.getDoublePropertyLocked("time-pos")
+	if positionErr != nil && positionErr != mpv.ErrPropertyUnavailable && positionErr != mpv.ErrPropertyNotFound {
+		return positionErr
+	}
+	if !hasPosAfter || positionAfter+1 >= before.Position {
+		return nil
+	}
+
+	if err := b.client.SetProperty("time-pos", mpv.FormatDouble, before.Position); err != nil {
+		return err
+	}
+	if before.HasPaused {
+		if err := b.client.SetProperty("pause", mpv.FormatFlag, before.Paused); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (b *mpvBackend) clearPreloadState() {
 	b.mu.Lock()
 	b.preload = mpvPreloadState{}
@@ -862,6 +945,29 @@ func (s mpvPlaylistSnapshot) entryAt(index int64) (mpvPlaylistEntry, bool) {
 		}
 	}
 	return mpvPlaylistEntry{}, false
+}
+
+func (s mpvPlaylistSnapshot) isActiveEntry(entry mpvPlaylistEntry) bool {
+	if entry.Current || entry.Playing {
+		return true
+	}
+	return entry.Index >= 0 &&
+		(entry.Index == s.CurrentPos || entry.Index == s.PlayingPos)
+}
+
+func (s mpvPlaylistSnapshot) hasActivePlayback() bool {
+	if normalizePlaybackURI(s.ActivePath) != "" {
+		return true
+	}
+	if s.PlayingPos >= 0 || s.CurrentPos >= 0 {
+		return true
+	}
+	for _, entry := range s.Entries {
+		if entry.Current || entry.Playing {
+			return true
+		}
+	}
+	return false
 }
 
 func (s mpvPlaylistSnapshot) newestEntryByURI(uri string) (mpvPlaylistEntry, bool) {

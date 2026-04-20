@@ -333,6 +333,54 @@ describe("usePlayerProgress", () => {
     expect(activeRoot.latest().shownPositionMs).toBe(3_180);
   });
 
+  test("abandons a pending seek when newer authoritative transport moves in the wrong direction", async () => {
+    let resolveSeek:
+      | ((value: PlaybackModels.SessionSnapshot | null) => void)
+      | null = null;
+    const baseTime = Date.now();
+
+    activeRoot = renderUsePlayerProgress({
+      currentEntryId: "entry-a",
+      durationMs: 200_000,
+      hasCurrent: true,
+      isPlaying: false,
+      positionMs: 1_000,
+      positionCapturedAtMs: baseTime,
+      seekTo: () =>
+        new Promise<PlaybackModels.SessionSnapshot | null>((resolve) => {
+          resolveSeek = resolve;
+        }),
+    });
+
+    act(() => {
+      activeRoot?.latest().onValueChange(173_421);
+      activeRoot?.latest().onValueCommitted(173_421, { reason: "drag" });
+    });
+
+    await act(async () => {
+      resolveSeek?.(
+        PlaybackModels.SessionSnapshot.createFrom({
+          status: PlaybackModels.Status.StatusPaused,
+          positionMs: 173_421,
+          positionCapturedAtMs: baseTime + 100,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    activeRoot.rerender({
+      currentEntryId: "entry-a",
+      durationMs: 200_000,
+      hasCurrent: true,
+      isPlaying: false,
+      positionMs: 250,
+      positionCapturedAtMs: baseTime + 1_000,
+      seekTo: async () => null,
+    });
+
+    expect(activeRoot.latest().shownPositionMs).toBe(250);
+  });
+
   test("clears a pending seek when the resolved snapshot does not match the requested position", async () => {
     let resolveSeek:
       | ((value: PlaybackModels.SessionSnapshot | null) => void)
