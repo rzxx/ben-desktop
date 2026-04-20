@@ -164,9 +164,15 @@ func assertGolden(t *testing.T, path string, got []byte) {
 	if err != nil {
 		t.Fatalf("read golden file %s: %v", path, err)
 	}
+	got = normalizeGoldenNewlines(got)
+	want = normalizeGoldenNewlines(want)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("golden mismatch for %s\n--- got ---\n%s\n--- want ---\n%s", path, string(got), string(want))
 	}
+}
+
+func normalizeGoldenNewlines(in []byte) []byte {
+	return bytes.ReplaceAll(in, []byte("\r\n"), []byte("\n"))
 }
 
 func createInspectCLIFixture(t *testing.T) inspectCLIFixture {

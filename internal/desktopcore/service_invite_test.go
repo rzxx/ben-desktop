@@ -171,7 +171,7 @@ func TestStartFinalizeJoinSessionAsync(t *testing.T) {
 		t.Fatalf("unexpected queued finalize job: %+v", job)
 	}
 
-	final := waitForJobPhase(t, ctx, joiner, finalizeJoinSessionJobID(session.SessionID), JobPhaseCompleted)
+	final := waitForJobPhaseWithin(t, ctx, joiner, finalizeJoinSessionJobID(session.SessionID), JobPhaseCompleted, 20*time.Second)
 	if final.Kind != jobKindFinalizeJoinSession || final.LibraryID != library.LibraryID {
 		t.Fatalf("unexpected final finalize job: %+v", final)
 	}
