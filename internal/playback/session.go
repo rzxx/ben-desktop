@@ -2239,6 +2239,9 @@ func newNextActionIterator(snapshot SessionSnapshot, blocked map[string]struct{}
 				}
 				if snapshot.RepeatMode == RepeatAll {
 					wrapLimit = currentPosition
+					if len(cycle) == 1 {
+						wrapLimit = 1
+					}
 				}
 			}
 		} else if resumeIndex := resumeContextIndex(snapshot); resumeIndex >= 0 && resumeIndex < len(allEntries) {
@@ -2263,6 +2266,9 @@ func newNextActionIterator(snapshot SessionSnapshot, blocked map[string]struct{}
 	if snapshot.RepeatMode == RepeatAll {
 		if currentMatchesContext(snapshot) && currentContextIndex(snapshot) >= 0 {
 			iterator.contextWrapLimit = currentContextIndex(snapshot)
+			if len(allEntries) == 1 {
+				iterator.contextWrapLimit = 1
+			}
 		} else if !currentMatchesContext(snapshot) && start > 0 {
 			iterator.contextWrapLimit = start
 		}
@@ -4562,6 +4568,9 @@ func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 					for index := 0; index < position; index++ {
 						out = append(out, allEntries[cycle[index]])
 					}
+					if len(cycle) == 1 {
+						out = append(out, allEntries[cycle[0]])
+					}
 				}
 				startAdded = true
 			}
@@ -4605,6 +4614,9 @@ func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 	if snapshot.RepeatMode == RepeatAll && currentIsInContext && currentContextIndex(snapshot) >= 0 {
 		for index := 0; index < currentContextIndex(snapshot); index++ {
 			out = append(out, allEntries[index])
+		}
+		if len(allEntries) == 1 {
+			out = append(out, allEntries[0])
 		}
 	} else if snapshot.RepeatMode == RepeatAll && !currentIsInContext && start > 0 {
 		for index := 0; index < start; index++ {
@@ -5093,6 +5105,9 @@ func firstUpcomingEntry(snapshot SessionSnapshot) (SessionEntry, bool) {
 	if currentMatchesContext(snapshot) && currentContextIndex(snapshot) > 0 {
 		return allEntries[0], true
 	}
+	if currentMatchesContext(snapshot) && len(allEntries) == 1 {
+		return allEntries[0], true
+	}
 	if !currentMatchesContext(snapshot) && start > 0 {
 		return allEntries[0], true
 	}
@@ -5143,6 +5158,9 @@ func upcomingEntryCount(snapshot SessionSnapshot) int {
 				count += len(cycle) - position - 1
 				if snapshot.RepeatMode == RepeatAll {
 					count += position
+					if len(cycle) == 1 {
+						count++
+					}
 				}
 				return count
 			}
@@ -5168,6 +5186,9 @@ func upcomingEntryCount(snapshot SessionSnapshot) int {
 	if snapshot.RepeatMode == RepeatAll {
 		if currentMatchesContext(snapshot) && currentContextIndex(snapshot) >= 0 {
 			count += currentContextIndex(snapshot)
+			if len(allEntries) == 1 {
+				count++
+			}
 		} else if !currentMatchesContext(snapshot) && start > 0 {
 			count += start
 		}

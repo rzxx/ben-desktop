@@ -6385,6 +6385,62 @@ func TestSessionNextWithRepeatOneRestartsTrack(t *testing.T) {
 	}
 }
 
+func TestSessionNextWithRepeatAllRestartsSingleTrack(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind:  ContextKindCustom,
+		ID:    "custom",
+		Items: []SessionItem{{RecordingID: "rec-1", Title: "One"}},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if _, err := session.SetRepeatMode(string(RepeatAll)); err != nil {
+		t.Fatalf("set repeat mode: %v", err)
+	}
+	backend.position = 5000
+
+	snapshot, err := session.Next(context.Background())
+	if err != nil {
+		t.Fatalf("next: %v", err)
+	}
+	if snapshot.PositionMS != 0 {
+		t.Fatalf("position = %d, want 0", snapshot.PositionMS)
+	}
+	if backend.position != 0 {
+		t.Fatalf("backend position = %d, want 0", backend.position)
+	}
+	if backend.loadCalls != 2 {
+		t.Fatalf("load calls = %d, want 2", backend.loadCalls)
+	}
+	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-1" {
+		t.Fatalf("expected current entry rec-1, got %+v", snapshot.CurrentEntry)
+	}
+	if snapshot.QueueLength != 2 {
+		t.Fatalf("queue length = %d, want 2 with repeat-all single-track wrap", snapshot.QueueLength)
+	}
+	if !HasNextAction(snapshot) {
+		t.Fatalf("expected repeat-all single-track session to expose a next action")
+	}
+	if snapshot.NextPlanned == nil || snapshot.NextPlanned.Entry == nil || snapshot.NextPlanned.Entry.Item.RecordingID != "rec-1" {
+		t.Fatalf("expected next planned entry rec-1, got %+v", snapshot.NextPlanned)
+	}
+}
+
 func TestHasNextActionMatchesRepeatOneAndQueueState(t *testing.T) {
 	t.Parallel()
 
@@ -6419,6 +6475,18 @@ func TestHasNextActionMatchesRepeatOneAndQueueState(t *testing.T) {
 
 	if !HasNextAction(session.Snapshot()) {
 		t.Fatalf("expected repeat-one to expose a next action for the current track")
+	}
+
+	if _, err := session.SetRepeatMode(string(RepeatAll)); err != nil {
+		t.Fatalf("set repeat mode: %v", err)
+	}
+
+	snapshot := session.Snapshot()
+	if !HasNextAction(snapshot) {
+		t.Fatalf("expected repeat-all to expose a next action for a single-track session")
+	}
+	if snapshot.QueueLength != 2 {
+		t.Fatalf("queue length = %d, want 2 when repeat-all wraps the current track", snapshot.QueueLength)
 	}
 }
 
@@ -6523,6 +6591,52 @@ func TestSessionEOFWithRepeatOneRestartsCurrentTrack(t *testing.T) {
 	}
 
 	t.Fatalf("expected repeat-one EOF to restart rec-1, got %+v", session.Snapshot())
+}
+
+func TestSessionEOFWithRepeatAllRestartsSingleTrack(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind:  ContextKindCustom,
+		ID:    "custom",
+		Items: []SessionItem{{RecordingID: "rec-1", Title: "One"}},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if _, err := session.SetRepeatMode(string(RepeatAll)); err != nil {
+		t.Fatalf("set repeat mode: %v", err)
+	}
+
+	loadCallsBeforeEOF := backend.loadCalls
+	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := session.Snapshot()
+		if snapshot.CurrentEntry != nil &&
+			snapshot.CurrentEntry.Item.RecordingID == "rec-1" &&
+			snapshot.Status == StatusPlaying &&
+			backend.loadCalls > loadCallsBeforeEOF {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("expected repeat-all EOF to restart rec-1, got %+v", session.Snapshot())
 }
 
 func TestSessionMidTrackEOFDoesNotAdvancePreloadedNext(t *testing.T) {
