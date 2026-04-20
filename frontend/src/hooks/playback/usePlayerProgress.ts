@@ -157,7 +157,6 @@ export function usePlayerProgress({
     clearedPendingSeekRequestIdRef.current = pendingSeek.requestId;
     // This effect syncs local pending-seek state with newer authoritative
     // transport updates; the extra render is intentional and bounded.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTimelineState((currentState) => {
       if (
         currentState.entryId !== currentEntryId ||

@@ -49,6 +49,18 @@ import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
 const albumDetailRouteApi = getRouteApi("/albums_/$albumId");
 
+type AlbumPinUiState = {
+  albumId: string;
+  busy: boolean;
+  error: string;
+  job: JobSnapshot | null;
+};
+
+type AlbumVariantSelectionState = {
+  albumId: string;
+  selectedVariantId: string;
+};
+
 function albumVariantLocationBucket(variant: AlbumVariantItem) {
   const trackCount = Math.max(0, variant.TrackCount);
   const localTrackCount = Math.max(0, variant.LocalTrackCount);
@@ -87,10 +99,17 @@ function albumVariantLocationLabel(
 
 export function AlbumDetailPage() {
   const { albumId } = albumDetailRouteApi.useParams();
-  const [selectedVariantId, setSelectedVariantId] = useState(albumId);
-  const [pinActionBusy, setPinActionBusy] = useState(false);
-  const [pinError, setPinError] = useState("");
-  const [pinJob, setPinJob] = useState<JobSnapshot | null>(null);
+  const [variantSelectionState, setVariantSelectionState] =
+    useState<AlbumVariantSelectionState>({
+      albumId,
+      selectedVariantId: albumId,
+    });
+  const [pinUiState, setPinUiState] = useState<AlbumPinUiState>({
+    albumId,
+    busy: false,
+    error: "",
+    job: null,
+  });
   const location = useLocation();
   const navigate = useNavigate();
   const playAlbum = usePlaybackStore((state) => state.playAlbum);
@@ -102,11 +121,24 @@ export function AlbumDetailPage() {
   const trackAvailabilityByRecordingId = useCatalogStore(
     (state) => state.trackAvailabilityByRecordingId,
   );
-  const trackedPinJob = useJobSnapshot(pinJob);
+  const scopedPinUiState =
+    pinUiState.albumId === albumId
+      ? pinUiState
+      : {
+          albumId,
+          busy: false,
+          error: "",
+          job: null,
+        };
+  const trackedPinJob = useJobSnapshot(scopedPinUiState.job);
+  const routeSelectedVariantId =
+    variantSelectionState.albumId === albumId
+      ? variantSelectionState.selectedVariantId
+      : albumId;
   const albumPinState = usePinState(
-    selectedVariantId
+    routeSelectedVariantId
       ? new Types.PinSubjectRef({
-          ID: selectedVariantId,
+          ID: routeSelectedVariantId,
           Kind: Types.PinSubjectKind.PinSubjectAlbumVariant,
         })
       : null,
@@ -120,6 +152,12 @@ export function AlbumDetailPage() {
     (state) => selectDetail(getDetailRecord(state.albumVariants, albumId)),
     () => catalogLoaderClient.refetchAlbum(albumId),
   );
+  const albumVariants = variants.data ?? [];
+  const selectedVariantId = albumVariants.some(
+    (variant) => variant.AlbumID === routeSelectedVariantId,
+  )
+    ? routeSelectedVariantId
+    : (albumVariants[0]?.AlbumID ?? routeSelectedVariantId);
   const trackQuery = useStoreInfiniteQuery<AlbumTrackItem>(
     (state) =>
       selectValueQuery<AlbumTrackItem>(
@@ -147,24 +185,6 @@ export function AlbumDetailPage() {
   );
 
   useEffect(() => {
-    setSelectedVariantId(albumId);
-    setPinActionBusy(false);
-    setPinError("");
-    setPinJob(null);
-  }, [albumId]);
-
-  useEffect(() => {
-    if (!variants.data?.length) {
-      return;
-    }
-    if (
-      !variants.data.some((variant) => variant.AlbumID === selectedVariantId)
-    ) {
-      setSelectedVariantId(variants.data[0]!.AlbumID);
-    }
-  }, [selectedVariantId, variants.data]);
-
-  useEffect(() => {
     if (!selectedVariantId) {
       return;
     }
@@ -176,7 +196,6 @@ export function AlbumDetailPage() {
   const activeVariant =
     variants.data?.find((variant) => variant.AlbumID === selectedVariantId) ??
     null;
-  const albumVariants = variants.data ?? [];
   const trackPinStates = usePinStates(
     trackQuery.items.map(
       (track) =>
@@ -208,7 +227,7 @@ export function AlbumDetailPage() {
   const canPlayAlbum = isAggregateAvailabilityPlayable(heroAvailability);
   const albumScopePinnedDirect = Boolean(albumPinState?.Direct);
   const canShowAlbumPinAction = Boolean(selectedVariantId);
-  const pinBusy = pinActionBusy || isJobActive(trackedPinJob);
+  const pinBusy = scopedPinUiState.busy || isJobActive(trackedPinJob);
   const pinFeedback = isJobActive(trackedPinJob)
     ? trackedPinJob?.message?.trim() || "Pinning album..."
     : isJobFailed(trackedPinJob)
@@ -256,8 +275,12 @@ export function AlbumDetailPage() {
       return;
     }
 
-    setPinActionBusy(true);
-    setPinError("");
+    setPinUiState({
+      albumId,
+      busy: true,
+      error: "",
+      job: scopedPinUiState.job,
+    });
 
     try {
       if (albumScopePinnedDirect) {
@@ -265,18 +288,31 @@ export function AlbumDetailPage() {
           ID: selectedVariantId,
           Kind: Types.PinSubjectKind.PinSubjectAlbumVariant,
         });
-        setPinJob(null);
+        setPinUiState({
+          albumId,
+          busy: false,
+          error: "",
+          job: null,
+        });
       } else {
         const job = await startPin({
           ID: selectedVariantId,
           Kind: Types.PinSubjectKind.PinSubjectAlbumVariant,
         });
-        setPinJob(job);
+        setPinUiState({
+          albumId,
+          busy: false,
+          error: "",
+          job,
+        });
       }
     } catch (error) {
-      setPinError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPinActionBusy(false);
+      setPinUiState({
+        albumId,
+        busy: false,
+        error: error instanceof Error ? error.message : String(error),
+        job: scopedPinUiState.job,
+      });
     }
   }
 
@@ -352,14 +388,14 @@ export function AlbumDetailPage() {
             {pinFeedback ? (
               <p className="text-theme-500 text-xs">{pinFeedback}</p>
             ) : null}
-            {!pinFeedback && !pinError && pinStateLabel(albumPinState) ? (
+            {!pinFeedback && !scopedPinUiState.error && pinStateLabel(albumPinState) ? (
               <p className="text-theme-500 text-xs">
                 {pinStateLabel(albumPinState)}
               </p>
             ) : null}
-            {!pinFeedback && pinError ? (
+            {!pinFeedback && scopedPinUiState.error ? (
               <p className="text-xs text-red-600 dark:text-red-300">
-                {pinError}
+                {scopedPinUiState.error}
               </p>
             ) : null}
 
@@ -416,7 +452,10 @@ export function AlbumDetailPage() {
                   ].join(" ")}
                   key={variant.AlbumID}
                   onClick={() => {
-                    setSelectedVariantId(variant.AlbumID);
+                    setVariantSelectionState({
+                      albumId,
+                      selectedVariantId: variant.AlbumID,
+                    });
                   }}
                   title={[
                     variant.Edition || variant.Title,

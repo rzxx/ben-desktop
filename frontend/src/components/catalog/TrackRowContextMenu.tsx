@@ -33,6 +33,13 @@ export type TrackRowRecordingIdentity = {
   recordingId?: string | null;
 };
 
+type PinActionState = {
+  busy: boolean;
+  error: string;
+  job: JobSnapshot | null;
+  targetId: string;
+};
+
 const menuPopupClass =
   "border-theme-300/75 bg-white/94 min-w-60 rounded-xl border p-1.5 shadow-2xl shadow-theme-900/14 backdrop-blur-xl outline-none dark:border-theme-500/15 dark:bg-theme-900 dark:shadow-black/40";
 const menuItemClass =
@@ -69,9 +76,12 @@ export function TrackRowContextMenu({
   const [menuError, setMenuError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingPlaylistId, setPendingPlaylistId] = useState("");
-  const [pinActionBusy, setPinActionBusy] = useState(false);
-  const [pinError, setPinError] = useState("");
-  const [pinJob, setPinJob] = useState<JobSnapshot | null>(null);
+  const [pinActionState, setPinActionState] = useState<PinActionState>({
+    busy: false,
+    error: "",
+    job: null,
+    targetId: "",
+  });
   const [playlists, setPlaylists] = useState<PlaylistListItem[]>([]);
   const attemptedLoadRef = useRef(false);
   const loadedPlaylistsRef = useRef(false);
@@ -85,8 +95,17 @@ export function TrackRowContextMenu({
     "";
   const pinSubjectKind =
     recording?.pinSubjectKind ?? ("recording_cluster" as PinSubjectKind);
-  const trackedPinJob = useJobSnapshot(pinJob);
-  const pinBusy = pinActionBusy || isJobActive(trackedPinJob);
+  const currentPinActionState =
+    pinActionState.targetId === pinTargetId
+      ? pinActionState
+      : {
+          busy: false,
+          error: "",
+          job: null,
+          targetId: pinTargetId,
+        };
+  const trackedPinJob = useJobSnapshot(currentPinActionState.job);
+  const pinBusy = currentPinActionState.busy || isJobActive(trackedPinJob);
 
   const ensurePlaylistsLoaded = useCallback(async () => {
     if (
@@ -113,35 +132,27 @@ export function TrackRowContextMenu({
     }
   }, [canAddToPlaylist, loading]);
 
-  const addToPlaylist = useCallback(
-    async (playlistId: string) => {
-      if (!canAddToPlaylist) {
-        return;
-      }
+  async function addToPlaylist(playlistId: string) {
+    if (!canAddToPlaylist) {
+      return;
+    }
 
-      setPendingPlaylistId(playlistId);
-      setMenuError("");
+    setPendingPlaylistId(playlistId);
+    setMenuError("");
 
-      try {
-        await addPlaylistItem({
-          libraryRecordingId: recording?.libraryRecordingId ?? "",
-          playlistId,
-          recordingId: recording?.recordingId ?? "",
-        });
-        setMenuOpen(false);
-      } catch (error) {
-        setMenuError(toErrorMessage(error));
-      } finally {
-        setPendingPlaylistId("");
-      }
-    },
-    [canAddToPlaylist, recording?.libraryRecordingId, recording?.recordingId],
-  );
-
-  useEffect(() => {
-    setPinError("");
-    setPinJob(null);
-  }, [pinTargetId]);
+    try {
+      await addPlaylistItem({
+        libraryRecordingId: recording?.libraryRecordingId ?? "",
+        playlistId,
+        recordingId: recording?.recordingId ?? "",
+      });
+      setMenuOpen(false);
+    } catch (error) {
+      setMenuError(toErrorMessage(error));
+    } finally {
+      setPendingPlaylistId("");
+    }
+  }
 
   useEffect(() => {
     if (!menuOpen) {
@@ -166,8 +177,12 @@ export function TrackRowContextMenu({
       return;
     }
 
-    setPinActionBusy(true);
-    setPinError("");
+    setPinActionState({
+      busy: true,
+      error: "",
+      job: currentPinActionState.job,
+      targetId: pinTargetId,
+    });
 
     try {
       if (pinDirect) {
@@ -175,20 +190,38 @@ export function TrackRowContextMenu({
           ID: pinTargetId,
           Kind: pinSubjectKind,
         });
-        setPinJob(null);
+        setPinActionState({
+          busy: false,
+          error: "",
+          job: null,
+          targetId: pinTargetId,
+        });
       } else {
         const job = await startPin({
           ID: pinTargetId,
           Kind: pinSubjectKind,
         });
-        setPinJob(job);
+        setPinActionState({
+          busy: false,
+          error: "",
+          job,
+          targetId: pinTargetId,
+        });
       }
     } catch (error) {
-      setPinError(toErrorMessage(error));
-    } finally {
-      setPinActionBusy(false);
+      setPinActionState({
+        busy: false,
+        error: toErrorMessage(error),
+        job: currentPinActionState.job,
+        targetId: pinTargetId,
+      });
     }
-  }, [pinDirect, pinSubjectKind, pinTargetId]);
+  }, [
+    currentPinActionState.job,
+    pinDirect,
+    pinSubjectKind,
+    pinTargetId,
+  ]);
 
   return (
     <>
@@ -353,11 +386,13 @@ export function TrackRowContextMenu({
                 </>
               ) : null}
 
-              {pinError ? (
+              {currentPinActionState.error ? (
                 <>
                   <ContextMenu.Separator className={menuSeparatorClass} />
                   <ContextMenu.Item className={menuItemClass} disabled>
-                    <span className="text-red-200">{pinError}</span>
+                    <span className="text-red-200">
+                      {currentPinActionState.error}
+                    </span>
                   </ContextMenu.Item>
                 </>
               ) : null}

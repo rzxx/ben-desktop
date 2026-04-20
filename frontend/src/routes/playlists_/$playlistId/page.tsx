@@ -1,5 +1,5 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Download,
   ImageUp,
@@ -65,15 +65,25 @@ import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
 
 const playlistDetailRouteApi = getRouteApi("/playlists_/$playlistId");
 
+type PlaylistPinUiState = {
+  busy: boolean;
+  error: string;
+  job: JobSnapshot | null;
+  playlistId: string;
+};
+
 export function PlaylistDetailPage() {
   const navigate = useNavigate();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [coverError, setCoverError] = useState("");
   const [coverBusy, setCoverBusy] = useState(false);
-  const [pinActionBusy, setPinActionBusy] = useState(false);
-  const [pinError, setPinError] = useState("");
-  const [pinJob, setPinJob] = useState<JobSnapshot | null>(null);
+  const [pinUiState, setPinUiState] = useState<PlaylistPinUiState>({
+    busy: false,
+    error: "",
+    job: null,
+    playlistId: "",
+  });
   const { playlistId } = playlistDetailRouteApi.useParams();
   const playPlaylist = usePlaybackStore((state) => state.playPlaylist);
   const queuePlaylist = usePlaybackStore((state) => state.queuePlaylist);
@@ -86,7 +96,16 @@ export function PlaylistDetailPage() {
   const trackAvailabilityByRecordingId = useCatalogStore(
     (state) => state.trackAvailabilityByRecordingId,
   );
-  const trackedPinJob = useJobSnapshot(pinJob);
+  const scopedPinUiState =
+    pinUiState.playlistId === playlistId
+      ? pinUiState
+      : {
+          busy: false,
+          error: "",
+          job: null,
+          playlistId,
+        };
+  const trackedPinJob = useJobSnapshot(scopedPinUiState.job);
   const playlistPinState = usePinState(
     new Types.PinSubjectRef({
       ID: playlistId,
@@ -153,7 +172,7 @@ export function PlaylistDetailPage() {
     hasPlayableLoadedTrack,
   });
   const scopePinnedDirect = Boolean(playlistPinState?.Direct);
-  const pinBusy = pinActionBusy || isJobActive(trackedPinJob);
+  const pinBusy = scopedPinUiState.busy || isJobActive(trackedPinJob);
   const pinFeedback = isJobActive(trackedPinJob)
     ? trackedPinJob?.message?.trim() || "Pinning playlist..."
     : isJobFailed(trackedPinJob)
@@ -162,15 +181,13 @@ export function PlaylistDetailPage() {
         "Playlist pin failed."
       : "";
 
-  useEffect(() => {
-    setPinActionBusy(false);
-    setPinError("");
-    setPinJob(null);
-  }, [playlistId]);
-
   async function handlePlaylistPinToggle() {
-    setPinActionBusy(true);
-    setPinError("");
+    setPinUiState({
+      busy: true,
+      error: "",
+      job: scopedPinUiState.job,
+      playlistId,
+    });
 
     try {
       if (scopePinnedDirect) {
@@ -178,18 +195,31 @@ export function PlaylistDetailPage() {
           ID: playlistId,
           Kind: Types.PinSubjectKind.PinSubjectPlaylist,
         });
-        setPinJob(null);
+        setPinUiState({
+          busy: false,
+          error: "",
+          job: null,
+          playlistId,
+        });
       } else {
         const job = await startPin({
           ID: playlistId,
           Kind: Types.PinSubjectKind.PinSubjectPlaylist,
         });
-        setPinJob(job);
+        setPinUiState({
+          busy: false,
+          error: "",
+          job,
+          playlistId,
+        });
       }
     } catch (error) {
-      setPinError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPinActionBusy(false);
+      setPinUiState({
+        busy: false,
+        error: error instanceof Error ? error.message : String(error),
+        job: scopedPinUiState.job,
+        playlistId,
+      });
     }
   }
 
@@ -344,13 +374,17 @@ export function PlaylistDetailPage() {
           {pinFeedback ? (
             <p className="text-theme-500 text-xs">{pinFeedback}</p>
           ) : null}
-          {!pinFeedback && !pinError && pinStateLabel(playlistPinState) ? (
+          {!pinFeedback &&
+          !scopedPinUiState.error &&
+          pinStateLabel(playlistPinState) ? (
             <p className="text-theme-500 text-xs">
               {pinStateLabel(playlistPinState)}
             </p>
           ) : null}
-          {!pinFeedback && pinError ? (
-            <p className="text-xs text-red-600 dark:text-red-300">{pinError}</p>
+          {!pinFeedback && scopedPinUiState.error ? (
+            <p className="text-xs text-red-600 dark:text-red-300">
+              {scopedPinUiState.error}
+            </p>
           ) : null}
           {coverError ? (
             <p className="text-sm text-red-600 dark:text-red-300">

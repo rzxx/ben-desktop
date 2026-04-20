@@ -1,11 +1,6 @@
 import { Download, LoaderCircle, Play } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import type {
-  JobSnapshot,
-  LikedRecordingItem,
-  PlaylistListItem,
-  PinSubjectRef,
-} from "@/lib/api/models";
+import { useState } from "react";
+import type { JobSnapshot, LikedRecordingItem, PinSubjectRef } from "@/lib/api/models";
 import { Button } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
@@ -25,7 +20,6 @@ import {
 } from "@/hooks/jobs/useJobSnapshot";
 import { useStoreInfiniteQuery } from "@/hooks/catalog/useCatalogQuery";
 import { catalogLoaderClient } from "@/lib/catalog/loader-client";
-import { listPlaylistsPage } from "@/lib/api/catalog";
 import {
   formatCount,
   pinStateLabel,
@@ -42,9 +36,6 @@ import { selectValueQuery } from "@/stores/catalog/query-state";
 import { likedPlaybackRecordingId } from "./-playback-id";
 
 export function LikedPlaylistPage() {
-  const [likedPlaylist, setLikedPlaylist] = useState<PlaylistListItem | null>(
-    null,
-  );
   const [pinActionBusy, setPinActionBusy] = useState(false);
   const [pinError, setPinError] = useState("");
   const [pinJob, setPinJob] = useState<JobSnapshot | null>(null);
@@ -53,6 +44,9 @@ export function LikedPlaylistPage() {
   const queueLikedTrack = usePlaybackStore((state) => state.queueLikedTrack);
   const trackAvailabilityByRecordingId = useCatalogStore(
     (state) => state.trackAvailabilityByRecordingId,
+  );
+  const likedPlaylist = useCatalogStore(
+    (state) => state.playlistsById.liked ?? null,
   );
   const trackedPinJob = useJobSnapshot(pinJob);
   const query = useStoreInfiniteQuery<LikedRecordingItem>(
@@ -112,19 +106,6 @@ export function LikedPlaylistPage() {
         trackedPinJob?.message?.trim() ||
         "Liked songs pin failed."
       : "";
-
-  const refreshLikedPlaylist = useCallback(async () => {
-    const page = await listPlaylistsPage(0, 1000);
-    setLikedPlaylist(
-      page.Items.find((playlist) => playlist.Kind === "liked") ?? null,
-    );
-  }, []);
-
-  useEffect(() => {
-    void refreshLikedPlaylist().catch((error) => {
-      setPinError(error instanceof Error ? error.message : String(error));
-    });
-  }, [refreshLikedPlaylist]);
 
   async function handleLikedPinToggle() {
     if (!likedPinSubject) {

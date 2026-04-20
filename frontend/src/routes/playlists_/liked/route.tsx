@@ -5,7 +5,12 @@ import { LikedPlaylistPage } from "./page";
 export const Route = createFileRoute("/playlists_/liked")({
   component: LikedPlaylistPage,
   loader: async ({ context }) => {
-    await withActiveLibraryRoute(() => context.catalog.ensureLikedRoute());
+    await withActiveLibraryRoute(() =>
+      Promise.all([
+        context.catalog.ensureLikedRoute(),
+        context.catalog.ensurePlaylistsRoute(),
+      ]).then(() => undefined),
+    );
   },
   staleTime: 0,
 });
