@@ -124,6 +124,14 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 		_ = transport.Close()
 		return nil, fmt.Errorf("update local peer id: %w", err)
 	}
+	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:     "info",
+		Kind:      "transport.started",
+		Message:   "libp2p transport started",
+		LibraryID: local.LibraryID,
+		DeviceID:  local.DeviceID,
+		PeerID:    hostNode.ID().String(),
+	})
 	return transport, nil
 }
 
@@ -201,9 +209,37 @@ func (t *libp2pSyncTransport) ResolvePeer(ctx context.Context, _ apitypes.LocalC
 	}
 	connectCtx, cancel := context.WithTimeout(ctx, transportConnectTimeout)
 	defer cancel()
+	t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:     "info",
+		Kind:      "transport.dial.start",
+		Message:   "Dialing peer address",
+		LibraryID: t.libraryID,
+		DeviceID:  t.deviceID,
+		PeerID:    info.ID.String(),
+		Address:   peerAddr,
+	})
 	if err := t.host.Connect(connectCtx, *info); err != nil {
+		t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			Level:     "error",
+			Kind:      "transport.dial.failed",
+			Message:   "Dial to peer failed",
+			LibraryID: t.libraryID,
+			DeviceID:  t.deviceID,
+			PeerID:    info.ID.String(),
+			Address:   peerAddr,
+			Error:     err.Error(),
+		})
 		return nil, fmt.Errorf("connect peer: %w", err)
 	}
+	t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:     "info",
+		Kind:      "transport.dial.succeeded",
+		Message:   "Dial to peer succeeded",
+		LibraryID: t.libraryID,
+		DeviceID:  t.deviceID,
+		PeerID:    info.ID.String(),
+		Address:   peerAddr,
+	})
 
 	deviceID, _, err := t.app.memberDeviceIDForPeer(ctx, t.libraryID, info.ID.String())
 	if err != nil {
@@ -780,9 +816,25 @@ func (t *libp2pSyncTransport) handlePeerConnected(peerID peer.ID) {
 	if deviceID, ok, err := t.app.memberDeviceIDForPeer(ctx, t.libraryID, peerID.String()); err != nil {
 		t.app.logf("desktopcore: resolve connected peer %s failed: %v", peerID.String(), err)
 	} else if ok {
+		t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			Level:     "info",
+			Kind:      "peer.connected",
+			Message:   "Peer connection established",
+			LibraryID: t.libraryID,
+			DeviceID:  deviceID,
+			PeerID:    peerID.String(),
+		})
 		if err := t.app.updateDevicePeerID(ctx, t.libraryID, deviceID, peerID.String(), deviceID); err != nil {
 			t.app.logf("desktopcore: touch connected peer %s failed: %v", peerID.String(), err)
 		}
+	} else {
+		t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			Level:     "info",
+			Kind:      "peer.connected",
+			Message:   "Peer connection established for unresolved membership",
+			LibraryID: t.libraryID,
+			PeerID:    peerID.String(),
+		})
 	}
 
 	local, err := t.app.EnsureLocalContext(ctx)
@@ -811,6 +863,13 @@ func (t *libp2pSyncTransport) handlePeerDisconnected(peerID peer.ID) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportConnectTimeout)
 	defer cancel()
+	t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:     "warn",
+		Kind:      "peer.disconnected",
+		Message:   "Peer disconnected",
+		LibraryID: t.libraryID,
+		PeerID:    peerID.String(),
+	})
 
 	if err := t.app.markDevicePresenceOffline(ctx, t.libraryID, peerID.String()); err != nil {
 		t.app.logf("desktopcore: mark disconnected peer offline failed for %s: %v", peerID.String(), err)

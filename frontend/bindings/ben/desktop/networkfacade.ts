@@ -24,51 +24,73 @@ export function CheckpointStatus(): $CancellablePromise<apitypes$0.LibraryCheckp
     });
 }
 
+export function ClearNetworkDebugTrace(): $CancellablePromise<void> {
+    return $Call.ByID(3950068477);
+}
+
 export function EnsureLocalContext(): $CancellablePromise<apitypes$0.LocalContext> {
     return $Call.ByID(924842624).then(($result: any) => {
         return $$createType2($result);
     });
 }
 
+export function GetNetworkDebugDump(): $CancellablePromise<string> {
+    return $Call.ByID(2272965795);
+}
+
+export function GetNetworkDebugTrace(): $CancellablePromise<apitypes$0.NetworkDebugTraceEntry[]> {
+    return $Call.ByID(4035280858).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+export function GetNetworkTraceEnabled(): $CancellablePromise<boolean> {
+    return $Call.ByID(3467600040);
+}
+
 export function Inspect(): $CancellablePromise<apitypes$0.InspectSummary> {
     return $Call.ByID(2261051216).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
     });
 }
 
 export function InspectLibraryOplog(libraryID: string): $CancellablePromise<apitypes$0.LibraryOplogDiagnostics> {
     return $Call.ByID(1282587142, libraryID).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType6($result);
     });
 }
 
 export function NetworkStatus(): $CancellablePromise<apitypes$0.NetworkStatus> {
     return $Call.ByID(1494915484).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType7($result);
     });
+}
+
+export function SetNetworkTraceEnabled(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(504930284, enabled);
 }
 
 export function StartCompactCheckpoint(force: boolean): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(2841628975, force).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType8($result);
     });
 }
 
 export function StartConnectPeer(peerAddr: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(733933558, peerAddr).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType8($result);
     });
 }
 
 export function StartPublishCheckpoint(): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(3017865945).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType8($result);
     });
 }
 
 export function StartSyncNow(): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(1342290341).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType8($result);
     });
 }
 
@@ -76,7 +98,9 @@ export function StartSyncNow(): $CancellablePromise<desktopcore$0.JobSnapshot> {
 const $$createType0 = apitypes$0.ActivityStatus.createFrom;
 const $$createType1 = apitypes$0.LibraryCheckpointStatus.createFrom;
 const $$createType2 = apitypes$0.LocalContext.createFrom;
-const $$createType3 = apitypes$0.InspectSummary.createFrom;
-const $$createType4 = apitypes$0.LibraryOplogDiagnostics.createFrom;
-const $$createType5 = apitypes$0.NetworkStatus.createFrom;
-const $$createType6 = desktopcore$0.JobSnapshot.createFrom;
+const $$createType3 = apitypes$0.NetworkDebugTraceEntry.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = apitypes$0.InspectSummary.createFrom;
+const $$createType6 = apitypes$0.LibraryOplogDiagnostics.createFrom;
+const $$createType7 = apitypes$0.NetworkStatus.createFrom;
+const $$createType8 = desktopcore$0.JobSnapshot.createFrom;

@@ -8,6 +8,18 @@ export function getActivityStatus() {
   return NetworkFacade.ActivityStatus();
 }
 
+export function getNetworkStatus() {
+  return NetworkFacade.NetworkStatus();
+}
+
+export function getNetworkDebugDump() {
+  return NetworkFacade.GetNetworkDebugDump();
+}
+
+export function getNetworkTraceEnabled() {
+  return NetworkFacade.GetNetworkTraceEnabled();
+}
+
 export function getCheckpointStatus() {
   return NetworkFacade.CheckpointStatus();
 }
@@ -22,6 +34,18 @@ export function getLibraryOplogDiagnostics(libraryId = "") {
 
 export function startConnectPeer(peerAddr: string) {
   return NetworkFacade.StartConnectPeer(peerAddr);
+}
+
+export function getNetworkDebugTrace() {
+  return NetworkFacade.GetNetworkDebugTrace();
+}
+
+export function clearNetworkDebugTrace() {
+  return NetworkFacade.ClearNetworkDebugTrace();
+}
+
+export function setNetworkTraceEnabled(enabled: boolean) {
+  return NetworkFacade.SetNetworkTraceEnabled(enabled);
 }
 
 export function startPublishCheckpoint() {

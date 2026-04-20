@@ -170,6 +170,30 @@ func (s *NetworkFacade) NetworkStatus() apitypes.NetworkStatus {
 	return s.network().NetworkStatus()
 }
 
+func (s *NetworkFacade) GetNetworkDebugDump() (string, error) {
+	return buildNetworkDebugDump(s.network().NetworkStatus())
+}
+
+func (s *NetworkFacade) GetNetworkTraceEnabled() bool {
+	enabled, err := loadNetworkTraceEnabledSetting()
+	if err != nil {
+		return desktopcore.NetworkDebugTraceEnabled()
+	}
+	return enabled
+}
+
+func (s *NetworkFacade) SetNetworkTraceEnabled(enabled bool) error {
+	return setNetworkTraceEnabledSetting(enabled)
+}
+
+func (s *NetworkFacade) GetNetworkDebugTrace() []apitypes.NetworkDebugTraceEntry {
+	return desktopcore.SnapshotNetworkDebugTrace()
+}
+
+func (s *NetworkFacade) ClearNetworkDebugTrace() {
+	desktopcore.ClearNetworkDebugTrace()
+}
+
 func (s *NetworkFacade) StartSyncNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
 	return s.network().StartSyncNow(ctx)
 }

@@ -225,7 +225,14 @@ func loadCoreRuntimeSettings() settings.CoreRuntimeSettings {
 }
 
 func openCoreRuntime(ctx context.Context, coreSettings settings.CoreRuntimeSettings) (*desktopcore.App, error) {
-	runtime, err := desktopcore.OpenFromSettings(ctx, coreSettings)
+	if enabled, err := loadNetworkTraceEnabledSetting(); err == nil {
+		desktopcore.SetNetworkDebugTraceEnabled(enabled)
+	} else {
+		desktopcore.SetNetworkDebugTraceEnabled(false)
+	}
+	cfg := desktopcore.ConfigFromSettings(coreSettings)
+	cfg.Logger = newCoreRuntimeLogger()
+	runtime, err := desktopcore.Open(ctx, cfg)
 	if err != nil {
 		log.Printf("playback: desktop core runtime unavailable: %v", err)
 		return nil, err

@@ -2091,6 +2091,63 @@ export class LocalContext {
     }
 }
 
+export class NetworkDebugTraceEntry {
+    "TimestampMS": number;
+    "Level": string;
+    "Kind": string;
+    "Message": string;
+    "LibraryID": string;
+    "DeviceID": string;
+    "PeerID": string;
+    "Address": string;
+    "Reason": string;
+    "Error": string;
+
+    /** Creates a new NetworkDebugTraceEntry instance. */
+    constructor($$source: Partial<NetworkDebugTraceEntry> = {}) {
+        if (!("TimestampMS" in $$source)) {
+            this["TimestampMS"] = 0;
+        }
+        if (!("Level" in $$source)) {
+            this["Level"] = "";
+        }
+        if (!("Kind" in $$source)) {
+            this["Kind"] = "";
+        }
+        if (!("Message" in $$source)) {
+            this["Message"] = "";
+        }
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("DeviceID" in $$source)) {
+            this["DeviceID"] = "";
+        }
+        if (!("PeerID" in $$source)) {
+            this["PeerID"] = "";
+        }
+        if (!("Address" in $$source)) {
+            this["Address"] = "";
+        }
+        if (!("Reason" in $$source)) {
+            this["Reason"] = "";
+        }
+        if (!("Error" in $$source)) {
+            this["Error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new NetworkDebugTraceEntry instance from a string or object.
+     */
+    static createFrom($$source: any = {}): NetworkDebugTraceEntry {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new NetworkDebugTraceEntry($$parsedSource as Partial<NetworkDebugTraceEntry>);
+    }
+}
+
 export class NetworkStatus {
     "Running": boolean;
     "LibraryID": string;

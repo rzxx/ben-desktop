@@ -11,6 +11,7 @@ import (
 
 type State struct {
 	Core          CoreRuntimeSettings    `json:"core,omitempty"`
+	NetworkTrace  NetworkTraceSettings   `json:"networkTrace,omitempty"`
 	Notifications NotificationUISettings `json:"notifications,omitempty"`
 	PlaybackTrace PlaybackTraceSettings  `json:"playbackTrace,omitempty"`
 	Theme         ThemeUISettings        `json:"theme,omitempty"`
@@ -26,6 +27,10 @@ type CoreRuntimeSettings struct {
 
 type NotificationUISettings struct {
 	Verbosity string `json:"verbosity,omitempty"`
+}
+
+type NetworkTraceSettings struct {
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 type PlaybackTraceSettings struct {
@@ -121,6 +126,7 @@ func (s *Store) Close() error {
 
 func normalizeState(state State) State {
 	state.Core = normalizeCoreRuntimeSettings(state.Core)
+	state.NetworkTrace = normalizeNetworkTraceSettings(state.NetworkTrace)
 	state.Notifications = normalizeNotificationUISettings(state.Notifications)
 	state.PlaybackTrace = normalizePlaybackTraceSettings(state.PlaybackTrace)
 	state.Theme = normalizeThemeUISettings(state.Theme)
@@ -138,6 +144,10 @@ func normalizeCoreRuntimeSettings(settings CoreRuntimeSettings) CoreRuntimeSetti
 
 func normalizeNotificationUISettings(settings NotificationUISettings) NotificationUISettings {
 	settings.Verbosity = NormalizeNotificationVerbosity(settings.Verbosity)
+	return settings
+}
+
+func normalizeNetworkTraceSettings(settings NetworkTraceSettings) NetworkTraceSettings {
 	return settings
 }
 

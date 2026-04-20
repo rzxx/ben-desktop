@@ -51,6 +51,7 @@ export {
     LikedRecordingItem,
     LikedRecordingListRequest,
     LocalContext,
+    NetworkDebugTraceEntry,
     NetworkStatus,
     NetworkSyncActivity,
     NetworkSyncMode,

@@ -2,6 +2,7 @@ import {
   clearPlaybackDebugTrace as clearBackendPlaybackDebugTrace,
   getPlaybackTraceEnabled as getBackendPlaybackTraceEnabled,
   getPlaybackDebugDump,
+  setPlaybackTraceEnabled as setBackendPlaybackTraceEnabled,
 } from "@/lib/api/playback";
 
 const PLAYBACK_DEBUG_PANEL_KEY = "ben.desktop.playbackDebugPanel";
@@ -268,6 +269,11 @@ export async function syncPlaybackTraceEnabled() {
 
 export function isPlaybackTraceEnabled() {
   return enabled;
+}
+
+export async function setPlaybackTraceEnabled(enabled: boolean) {
+  await setBackendPlaybackTraceEnabled(enabled);
+  applyPlaybackTraceEnabled(enabled);
 }
 
 export async function clearPlaybackDebugState() {

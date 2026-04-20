@@ -348,12 +348,66 @@ func (a *SyncService) ConnectPeer(ctx context.Context, peerAddr string) error {
 		return fmt.Errorf("peer transport is not configured")
 	}
 
+	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:     "info",
+		Kind:      "connect.resolve.start",
+		Message:   "Resolving peer address",
+		LibraryID: local.LibraryID,
+		DeviceID:  local.DeviceID,
+		Address:   peerAddr,
+		Reason:    string(apitypes.NetworkSyncReasonConnect),
+	})
+
 	peer, err := transport.ResolvePeer(ctx, local, peerAddr)
 	if err != nil {
+		a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			Level:     "error",
+			Kind:      "connect.resolve.failed",
+			Message:   "Peer resolution failed",
+			LibraryID: local.LibraryID,
+			DeviceID:  local.DeviceID,
+			Address:   peerAddr,
+			Reason:    string(apitypes.NetworkSyncReasonConnect),
+			Error:     err.Error(),
+		})
 		return err
 	}
-	_, err = a.syncPeerCatchup(ctx, local, peer, apitypes.NetworkSyncReasonConnect, nil)
-	return err
+	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:     "info",
+		Kind:      "connect.resolve.succeeded",
+		Message:   "Peer resolved successfully",
+		LibraryID: local.LibraryID,
+		DeviceID:  local.DeviceID,
+		PeerID:    peer.PeerID(),
+		Address:   firstNonEmpty(peer.Address(), peerAddr),
+		Reason:    string(apitypes.NetworkSyncReasonConnect),
+	})
+	applied, err := a.syncPeerCatchup(ctx, local, peer, apitypes.NetworkSyncReasonConnect, nil)
+	if err != nil {
+		a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			Level:     "error",
+			Kind:      "connect.catchup.failed",
+			Message:   "Peer catch-up failed",
+			LibraryID: local.LibraryID,
+			DeviceID:  local.DeviceID,
+			PeerID:    peer.PeerID(),
+			Address:   firstNonEmpty(peer.Address(), peerAddr),
+			Reason:    string(apitypes.NetworkSyncReasonConnect),
+			Error:     err.Error(),
+		})
+		return err
+	}
+	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:     "info",
+		Kind:      "connect.catchup.succeeded",
+		Message:   fmt.Sprintf("Peer catch-up completed with %d applied ops", applied),
+		LibraryID: local.LibraryID,
+		DeviceID:  local.DeviceID,
+		PeerID:    peer.PeerID(),
+		Address:   firstNonEmpty(peer.Address(), peerAddr),
+		Reason:    string(apitypes.NetworkSyncReasonConnect),
+	})
+	return nil
 }
 
 func (a *SyncService) StartConnectPeer(ctx context.Context, peerAddr string) (JobSnapshot, error) {
@@ -410,6 +464,16 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 	}()
 	remoteDeviceID := strings.TrimSpace(peer.DeviceID())
 	remotePeerID := strings.TrimSpace(peer.PeerID())
+	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:     "info",
+		Kind:      "sync.catchup.start",
+		Message:   "Starting peer catch-up",
+		LibraryID: local.LibraryID,
+		DeviceID:  local.DeviceID,
+		PeerID:    remotePeerID,
+		Address:   peer.Address(),
+		Reason:    string(reason),
+	})
 
 	for round := 0; round < maxSyncCatchupRounds; round++ {
 		if err := ctx.Err(); err != nil {
@@ -546,7 +610,16 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 				return totalApplied, err
 			}
 			_ = startedAt
-			_ = reason
+			a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+				Level:     "info",
+				Kind:      "sync.catchup.succeeded",
+				Message:   fmt.Sprintf("Peer catch-up finished in %d rounds with %d applied ops", round+1, totalApplied),
+				LibraryID: local.LibraryID,
+				DeviceID:  local.DeviceID,
+				PeerID:    remotePeerID,
+				Address:   peer.Address(),
+				Reason:    string(reason),
+			})
 			return totalApplied, nil
 		}
 	}
@@ -1300,6 +1373,15 @@ func (a *SyncService) recordPeerSyncFailure(ctx context.Context, libraryID, devi
 	}
 	now := time.Now().UTC()
 	a.upsertPeerSyncState(ctx, libraryID, deviceID, peerID, &now, nil, syncErr.Error(), 0)
+	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:     "error",
+		Kind:      "sync.catchup.failed",
+		Message:   "Peer catch-up failed",
+		LibraryID: libraryID,
+		DeviceID:  deviceID,
+		PeerID:    peerID,
+		Error:     syncErr.Error(),
+	})
 }
 
 func (a *SyncService) upsertPeerSyncState(ctx context.Context, libraryID, deviceID, peerID string, attemptedAt, successAt *time.Time, lastError string, applied int64) {

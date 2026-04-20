@@ -54,6 +54,19 @@ type NetworkStatus struct {
 	NetworkSyncState
 }
 
+type NetworkDebugTraceEntry struct {
+	TimestampMS int64
+	Level       string
+	Kind        string
+	Message     string
+	LibraryID   string
+	DeviceID    string
+	PeerID      string
+	Address     string
+	Reason      string
+	Error       string
+}
+
 type CheckpointDeviceCoverage struct {
 	DeviceID string
 	Role     string

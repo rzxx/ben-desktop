@@ -102,6 +102,10 @@ export function getPlaybackTraceEnabled(): Promise<boolean> {
   return PlaybackService.GetPlaybackTraceEnabled();
 }
 
+export function setPlaybackTraceEnabled(enabled: boolean): Promise<void> {
+  return PlaybackService.SetPlaybackTraceEnabled(enabled);
+}
+
 export function clearPlaybackDebugTrace(): Promise<void> {
   return PlaybackService.ClearPlaybackDebugTrace();
 }
