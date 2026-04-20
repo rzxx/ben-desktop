@@ -22,6 +22,7 @@ const (
 	seekObserveTimeout    = 250 * time.Millisecond
 	seekObserveInterval   = 10 * time.Millisecond
 	seekObserveTolerance  = int64(750)
+	trackEndNearEOFWindow = int64(3000)
 	availabilityBatchSize = 64
 	availabilityCacheTTL  = 2 * time.Second
 	preloadAfterPlayedMS  = int64(45_000)
@@ -3149,10 +3150,18 @@ func (s *Session) runBackendEvents(ctx context.Context, events <-chan BackendEve
 func (s *Session) handleBackendEvent(event BackendEvent) {
 	switch event.Type {
 	case BackendEventTrackEnd:
-		if event.Reason != TrackEndReasonEOF {
+		switch event.Reason {
+		case TrackEndReasonEOF:
+			if s.shouldTreatTrackEndAsInterrupted(event) {
+				s.handleInterruptedTrackEnd(event.Err)
+				return
+			}
+			s.handleTrackEOF(event)
+		case TrackEndReasonError:
+			s.handleInterruptedTrackEnd(event.Err)
+		default:
 			return
 		}
-		s.handleTrackEOF(event)
 	case BackendEventFileLoaded:
 		s.handleFileLoaded(event)
 	case BackendEventShutdown:
@@ -3168,6 +3177,59 @@ func (s *Session) handleBackendEvent(event BackendEvent) {
 			_, _ = s.failPlayback(event.Err)
 		}
 	}
+}
+
+func (s *Session) shouldTreatTrackEndAsInterrupted(event BackendEvent) bool {
+	if event.Err != nil {
+		return true
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.snapshot.Status != StatusPlaying || s.snapshot.CurrentEntry == nil {
+		return false
+	}
+	if s.snapshot.DurationMS == nil || *s.snapshot.DurationMS <= 0 {
+		return false
+	}
+	return s.snapshot.PositionMS+trackEndNearEOFWindow < *s.snapshot.DurationMS
+}
+
+func (s *Session) handleInterruptedTrackEnd(err error) {
+	if err == nil {
+		err = errors.New("playback ended unexpectedly")
+	}
+
+	s.mu.Lock()
+	backend, needsClearPreload := s.invalidatePreloadPlanLocked("track end interrupted", true)
+	s.cancelPendingRetryLocked()
+	s.cancelTransportTransitionLocked("track end interrupted")
+	s.snapshot.Status = StatusPaused
+	s.snapshot.LastError = err.Error()
+	s.clearLoadingStateLocked()
+	s.loadedEntryID = ""
+	s.loadedURI = ""
+	s.snapshot.CurrentSourceKind = ""
+	if s.snapshot.CurrentEntry != nil {
+		failed := apitypes.PlaybackPreparationStatus{
+			RecordingID:      s.snapshot.CurrentEntry.Item.RecordingID,
+			PreferredProfile: s.preferredProfile,
+			Purpose:          apitypes.PlaybackPreparationPlayNow,
+			Phase:            apitypes.PlaybackPreparationFailed,
+		}
+		s.snapshot.CurrentPreparation = &EntryPreparation{EntryID: s.snapshot.CurrentEntry.EntryID, Status: failed}
+	}
+	s.stopTickerLocked()
+	s.touchLocked()
+	state := snapshotCopyLocked(&s.snapshot)
+	s.mu.Unlock()
+
+	if needsClearPreload {
+		s.clearBackendPreload(context.Background(), backend)
+	}
+	s.logErrorf("playback: interrupted track end: %v", err)
+	s.publishSnapshot(state)
 }
 
 func (s *Session) handleFileLoaded(event BackendEvent) {

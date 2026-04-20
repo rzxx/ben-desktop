@@ -2734,6 +2734,8 @@ func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
 	if backend.preloadedURI != "file:///tmp/two.mp3" {
 		t.Fatalf("expected preloaded URI file:///tmp/two.mp3, got %q", backend.preloadedURI)
 	}
+	backend.position = duration - 1000
+	session.refreshPosition("natural_eof")
 
 	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
 
@@ -3656,6 +3658,8 @@ func TestSessionEOFPendingNextStopsStalePreloadedPlayback(t *testing.T) {
 		t.Fatalf("queue items: %v", err)
 	}
 	backend.preloadedURI = "file:///tmp/two.mp3"
+	backend.position = duration - 1000
+	session.refreshPosition("natural_eof_pending_next")
 
 	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
 
@@ -6521,6 +6525,72 @@ func TestSessionEOFWithRepeatOneRestartsCurrentTrack(t *testing.T) {
 	t.Fatalf("expected repeat-one EOF to restart rec-1, got %+v", session.Snapshot())
 }
 
+func TestSessionMidTrackEOFDoesNotAdvancePreloadedNext(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.supportsPreload = true
+	backend.duration = &duration
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+			"rec-2": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/two.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "rec-1", Title: "One", DurationMS: duration},
+			{RecordingID: "rec-2", Title: "Two", DurationMS: duration},
+		},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+
+	backend.position = 60000
+	session.refreshPosition("midtrack_eof")
+	session.preloadNext(context.Background())
+	if backend.preloadedURI != "file:///tmp/two.mp3" {
+		t.Fatalf("expected rec-2 preloaded before eof, got %q", backend.preloadedURI)
+	}
+
+	loadCallsBeforeEOF := backend.loadCalls
+	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := session.Snapshot()
+		if snapshot.Status == StatusPaused {
+			if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-1" {
+				t.Fatalf("expected interrupted eof to keep rec-1 current, got %+v", snapshot.CurrentEntry)
+			}
+			if snapshot.PositionMS != 60000 {
+				t.Fatalf("position = %d, want 60000", snapshot.PositionMS)
+			}
+			if backend.loadCalls != loadCallsBeforeEOF {
+				t.Fatalf("load calls = %d, want %d", backend.loadCalls, loadCallsBeforeEOF)
+			}
+			if backend.preloadedURI != "" {
+				t.Fatalf("expected interrupted eof to clear backend preload, got %q", backend.preloadedURI)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("expected interrupted eof to pause current track, got %+v", session.Snapshot())
+}
+
 func TestSessionEOFAtEndPreservesContextAndReloadsOnPlay(t *testing.T) {
 	t.Parallel()
 
@@ -6570,4 +6640,78 @@ func TestSessionEOFAtEndPreservesContextAndReloadsOnPlay(t *testing.T) {
 	}
 
 	t.Fatalf("expected session to settle into paused state after eof, got %+v", session.Snapshot())
+}
+
+func TestSessionTrackEndErrorPreservesPositionAndReloadsOnPlay(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(120000)
+	backend := newTestBackend()
+	backend.duration = &duration
+	session := NewSession(&mockBridge{
+		results: map[string]apitypes.PlaybackResolveResult{
+			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
+		},
+	}, backend, &memoryStore{}, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	if _, err := session.SetContext(PlaybackContextInput{
+		Kind:  ContextKindCustom,
+		ID:    "custom",
+		Items: []SessionItem{{RecordingID: "rec-1", Title: "One", DurationMS: duration}},
+	}); err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+	if _, err := session.Play(context.Background()); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+
+	backend.position = 5000
+	session.refreshPosition("track_end_error")
+	loadCallsBeforeError := backend.loadCalls
+	backend.events <- BackendEvent{
+		Type:   BackendEventTrackEnd,
+		Reason: TrackEndReasonError,
+		Err:    errors.New("provider disconnected"),
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := session.Snapshot()
+		if snapshot.Status == StatusPaused {
+			if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-1" {
+				t.Fatalf("expected track-end error to keep rec-1 current, got %+v", snapshot.CurrentEntry)
+			}
+			if snapshot.PositionMS != 5000 {
+				t.Fatalf("position = %d, want 5000", snapshot.PositionMS)
+			}
+			if snapshot.LastError == "" {
+				t.Fatal("expected track-end error to set last error")
+			}
+			if backend.loadCalls != loadCallsBeforeError {
+				t.Fatalf("load calls after error = %d, want %d", backend.loadCalls, loadCallsBeforeError)
+			}
+
+			replayed, err := session.Play(context.Background())
+			if err != nil {
+				t.Fatalf("replay after track-end error: %v", err)
+			}
+			if backend.loadCalls != loadCallsBeforeError+1 {
+				t.Fatalf("load calls after replay = %d, want %d", backend.loadCalls, loadCallsBeforeError+1)
+			}
+			if backend.position != 5000 {
+				t.Fatalf("backend position after replay = %d, want 5000", backend.position)
+			}
+			if replayed.PositionMS != 5000 {
+				t.Fatalf("replayed position = %d, want 5000", replayed.PositionMS)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("expected track-end error to pause current track, got %+v", session.Snapshot())
 }
