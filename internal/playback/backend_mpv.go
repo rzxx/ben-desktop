@@ -616,11 +616,7 @@ func (b *mpvBackend) handleEOFEvent(endErr error) (BackendEvent, error) {
 	b.opsMu.Lock()
 	defer b.opsMu.Unlock()
 
-	var stateErr error
 	activeURI, activePos, activeEntryID, readErr := b.readActivePlaybackStateLocked()
-	if readErr != nil && readErr != mpv.ErrPropertyUnavailable && readErr != mpv.ErrPropertyNotFound {
-		stateErr = b.wrapCommandErrorLocked("event_eof_state", nil, "", readErr)
-	}
 
 	b.mu.Lock()
 	endedURI := b.activeURI
@@ -629,9 +625,14 @@ func (b *mpvBackend) handleEOFEvent(endErr error) (BackendEvent, error) {
 	b.hasSeek = false
 	b.pendingURI = ""
 	b.activation = mpvPendingActivationState{}
-	if activeURI == "" && b.preload.Verified {
-		activeURI = b.preload.URI
-	}
+	activeURI, activePos, activeEntryID = resolveEOFState(
+		activeURI,
+		activePos,
+		activeEntryID,
+		readErr,
+		endedURI,
+		b.preload,
+	)
 	b.activeURI = activeURI
 	if b.preload.Verified {
 		if activeEntryID != 0 && b.preload.EntryID == activeEntryID {
@@ -650,7 +651,7 @@ func (b *mpvBackend) handleEOFEvent(endErr error) (BackendEvent, error) {
 		ActiveURI:             activeURI,
 		ActivePlaylistEntryID: activeEntryID,
 		ActivePlaylistPos:     activePos,
-	}, stateErr
+	}, nil
 }
 
 func (b *mpvBackend) readActivePlaybackStateLocked() (string, int64, int64, error) {
@@ -667,6 +668,33 @@ func (b *mpvBackend) readActivePlaybackStateLocked() (string, int64, int64, erro
 		activeEntryID = entry.EntryID
 	}
 	return snapshot.ActivePath, activePos, activeEntryID, nil
+}
+
+func resolveEOFState(
+	activeURI string,
+	activePos int64,
+	activeEntryID int64,
+	readErr error,
+	endedURI string,
+	preload mpvPreloadState,
+) (string, int64, int64) {
+	if readErr != nil {
+		// mpv can clear the active path and playlist pointers before the EOF
+		// callback runs, especially for one-item queues. Treat that as a normal
+		// end-of-track state and fall back to cached transport data.
+		activeURI = ""
+		activePos = -1
+		activeEntryID = 0
+	}
+
+	activeURI = normalizePlaybackURI(activeURI)
+	if activeURI == "" && preload.Verified {
+		activeURI = preload.URI
+	}
+	if activeURI == "" {
+		activeURI = normalizePlaybackURI(endedURI)
+	}
+	return activeURI, activePos, activeEntryID
 }
 
 func (b *mpvBackend) readPlaylistSnapshotLocked() (mpvPlaylistSnapshot, error) {

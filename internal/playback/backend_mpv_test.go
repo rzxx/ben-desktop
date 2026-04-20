@@ -222,3 +222,54 @@ func TestMPVPlaylistSnapshotMatchActivationAttemptRejectsDuplicateURIWithoutIDs(
 		t.Fatalf("expected duplicate-uri fallback to stay unresolved, got ok=%v attemptID=%d", ok, attemptID)
 	}
 }
+
+func TestResolveEOFStateFallsBackToEndedURIWhenMPVClearsActiveState(t *testing.T) {
+	t.Parallel()
+
+	activeURI, activePos, activeEntryID := resolveEOFState(
+		"",
+		0,
+		44,
+		errors.New("unknown error"),
+		"file:///tmp/ended.mp3",
+		mpvPreloadState{},
+	)
+
+	if activeURI != "/tmp/ended.mp3" {
+		t.Fatalf("active uri = %q, want %q", activeURI, "/tmp/ended.mp3")
+	}
+	if activePos != -1 {
+		t.Fatalf("active pos = %d, want -1", activePos)
+	}
+	if activeEntryID != 0 {
+		t.Fatalf("active entry id = %d, want 0", activeEntryID)
+	}
+}
+
+func TestResolveEOFStatePrefersPreloadedURIOverEndedURIAfterReadFailure(t *testing.T) {
+	t.Parallel()
+
+	activeURI, activePos, activeEntryID := resolveEOFState(
+		"",
+		0,
+		44,
+		errors.New("unknown error"),
+		"file:///tmp/ended.mp3",
+		mpvPreloadState{
+			URI:      normalizePlaybackURI("file:///tmp/next.mp3"),
+			EntryID:  55,
+			Index:    1,
+			Verified: true,
+		},
+	)
+
+	if activeURI != "/tmp/next.mp3" {
+		t.Fatalf("active uri = %q, want %q", activeURI, "/tmp/next.mp3")
+	}
+	if activePos != -1 {
+		t.Fatalf("active pos = %d, want -1", activePos)
+	}
+	if activeEntryID != 0 {
+		t.Fatalf("active entry id = %d, want 0", activeEntryID)
+	}
+}
