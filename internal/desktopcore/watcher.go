@@ -319,13 +319,19 @@ func (w *activeScanWatcher) startupRootsForPath(path string) []string {
 	if path == "" {
 		return nil
 	}
-	out := make([]string, 0, len(w.roots))
+	out := make(map[string]string, len(w.roots))
 	for _, root := range w.roots {
-		if scanRootKey(root) == scanRootKey(path) {
-			out = append(out, root)
+		switch {
+		case scanRootKey(root) == scanRootKey(path):
+			out[scanRootKey(root)] = root
+		case pathWithinRoot(path, root):
+			out[scanRootKey(path)] = path
 		}
 	}
-	return out
+	if len(out) == 0 {
+		return nil
+	}
+	return sortedWatcherRoots(out)
 }
 
 func (a *ScannerService) syncActiveScanWatcher(ctx context.Context) error {

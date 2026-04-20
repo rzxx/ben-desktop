@@ -3,6 +3,8 @@ package desktopcore
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -182,6 +184,204 @@ func TestTraceRecordingReportsPreferenceOverrideAndExactShadowing(t *testing.T) 
 	if got := trace.ComputedOutput["heuristic_preferred_variant_id"]; got != variantA {
 		t.Fatalf("heuristic preferred variant = %v, want %s", got, variantA)
 	}
+}
+
+type fakeInspectMediaChecker struct {
+	results map[string]inspectMediaResult
+}
+
+func (f fakeInspectMediaChecker) Check(ctx context.Context, path string, decode bool) (inspectMediaResult, error) {
+	if err := ctx.Err(); err != nil {
+		return inspectMediaResult{}, err
+	}
+	if result, ok := f.results[path]; ok {
+		return result, nil
+	}
+	return inspectMediaResult{}, nil
+}
+
+func TestHealthCheckReportsDecodeProblemsAndFilesystemMisses(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	library, err := app.CreateLibrary(ctx, "inspect-health")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	root := t.TempDir()
+	goodPath := filepath.Join(root, "good.flac")
+	badPath := filepath.Join(root, "bad.flac")
+	extraPath := filepath.Join(root, "extra.flac")
+	if err := os.WriteFile(goodPath, []byte("good"), 0o644); err != nil {
+		t.Fatalf("write good file: %v", err)
+	}
+	if err := os.WriteFile(badPath, []byte("bad"), 0o644); err != nil {
+		t.Fatalf("write bad file: %v", err)
+	}
+	if err := os.WriteFile(extraPath, []byte("extra"), 0o644); err != nil {
+		t.Fatalf("write extra file: %v", err)
+	}
+
+	now := time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
+	for _, path := range []string{goodPath, badPath, extraPath} {
+		if err := os.Chtimes(path, now, now); err != nil {
+			t.Fatalf("chtimes %s: %v", path, err)
+		}
+	}
+
+	mustCreate := func(row any) {
+		t.Helper()
+		if err := app.db.WithContext(ctx).Create(row).Error; err != nil {
+			t.Fatalf("create row %T: %v", row, err)
+		}
+	}
+
+	mustCreate(&ScanRoot{
+		LibraryID: library.LibraryID,
+		DeviceID:  local.DeviceID,
+		RootPath:  root,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	mustCreate(&TrackVariantModel{
+		LibraryID:      library.LibraryID,
+		TrackVariantID: "good-track",
+		TrackClusterID: "good-track",
+		KeyNorm:        "good-track",
+		Title:          "Good Track",
+		DurationMS:     10000,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	})
+	mustCreate(&TrackVariantModel{
+		LibraryID:      library.LibraryID,
+		TrackVariantID: "bad-track",
+		TrackClusterID: "bad-track",
+		KeyNorm:        "bad-track",
+		Title:          "Bad Track",
+		DurationMS:     20000,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	})
+	mustCreate(&SourceFileModel{
+		LibraryID:         library.LibraryID,
+		DeviceID:          local.DeviceID,
+		SourceFileID:      "source-good",
+		TrackVariantID:    "good-track",
+		LocalPath:         goodPath,
+		PathKey:           localPathKey(goodPath),
+		SourceFingerprint: "source-good-fp",
+		HashAlgo:          "b3",
+		HashHex:           "abcd",
+		MTimeNS:           now.UnixNano(),
+		SizeBytes:         4,
+		Container:         "flac",
+		Codec:             "flac",
+		Bitrate:           1411200,
+		SampleRate:        44100,
+		Channels:          2,
+		IsLossless:        true,
+		QualityRank:       100,
+		DurationMS:        10000,
+		TagsJSON:          "{}",
+		LastSeenAt:        now,
+		IsPresent:         true,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	})
+	mustCreate(&SourceFileModel{
+		LibraryID:         library.LibraryID,
+		DeviceID:          local.DeviceID,
+		SourceFileID:      "source-bad",
+		TrackVariantID:    "bad-track",
+		LocalPath:         badPath,
+		PathKey:           localPathKey(badPath),
+		SourceFingerprint: "source-bad-fp",
+		HashAlgo:          "b3",
+		HashHex:           "efgh",
+		MTimeNS:           now.UnixNano(),
+		SizeBytes:         3,
+		Container:         "flac",
+		Codec:             "flac",
+		Bitrate:           1411200,
+		SampleRate:        44100,
+		Channels:          2,
+		IsLossless:        true,
+		QualityRank:       100,
+		DurationMS:        20000,
+		TagsJSON:          "{}",
+		LastSeenAt:        now,
+		IsPresent:         true,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	})
+
+	inspector := openInspectorFromApp(t, app)
+	inspector.mediaChecker = fakeInspectMediaChecker{
+		results: map[string]inspectMediaResult{
+			goodPath: {
+				ProbeDurationSeconds:   ptr(10.0),
+				DecodedDurationSeconds: ptr(10.0),
+			},
+			badPath: {
+				ProbeDurationSeconds:   ptr(20.0),
+				DecodedDurationSeconds: ptr(5.0),
+			},
+		},
+	}
+
+	report, err := inspector.HealthCheck(ctx, HealthCheckRequest{
+		Date:              "2026-01-02",
+		Decode:            true,
+		IncludeFilesystem: true,
+		ResolveInspectContextRequest: ResolveInspectContextRequest{
+			LibraryID: local.LibraryID,
+			DeviceID:  local.DeviceID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("health check: %v", err)
+	}
+	if report.Summary.CandidateCount != 2 {
+		t.Fatalf("candidate count = %d, want 2", report.Summary.CandidateCount)
+	}
+	if report.Summary.CheckedCount != 2 {
+		t.Fatalf("checked count = %d, want 2", report.Summary.CheckedCount)
+	}
+	if report.Summary.ProblemCount != 1 {
+		t.Fatalf("problem count = %d, want 1", report.Summary.ProblemCount)
+	}
+	if report.Summary.MissingFromDBCount != 1 {
+		t.Fatalf("missing_from_db count = %d, want 1", report.Summary.MissingFromDBCount)
+	}
+	if len(report.Problems) != 1 || report.Problems[0].LocalPath != badPath {
+		t.Fatalf("problems = %+v, want bad path %s", report.Problems, badPath)
+	}
+	if !containsString(report.Problems[0].Problems, "decode_duration_mismatch") {
+		t.Fatalf("problem codes = %+v, want decode_duration_mismatch", report.Problems[0].Problems)
+	}
+	if len(report.MissingFromDB) != 1 || report.MissingFromDB[0] != extraPath {
+		t.Fatalf("missing_from_db = %+v, want [%s]", report.MissingFromDB, extraPath)
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func ptr[T any](value T) *T {
+	return &value
 }
 
 func TestTraceRecordingExactAvailabilityDoesNotBorrowSiblingLocalState(t *testing.T) {

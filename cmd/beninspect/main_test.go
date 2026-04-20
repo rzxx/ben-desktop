@@ -40,9 +40,9 @@ func TestCLIJSONGoldens(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name   string
-		path   string
-		args   []string
+		name string
+		path string
+		args []string
 	}{
 		{
 			name: "trace-recording",
@@ -63,6 +63,11 @@ func TestCLIJSONGoldens(t *testing.T) {
 			name: "trace-cache",
 			path: filepath.Join("testdata", "trace-cache.golden.json"),
 			args: append([]string{"cache", "trace-recording"}, append(baseArgs, "--id", fixture.recordingClusterID)...),
+		},
+		{
+			name: "health-check",
+			path: filepath.Join("testdata", "health-check.golden.json"),
+			args: append([]string{"music", "health-check"}, append(baseArgs, "--date", "2026-01-02", "--limit", "2", "--decode=false")...),
 		},
 	}
 

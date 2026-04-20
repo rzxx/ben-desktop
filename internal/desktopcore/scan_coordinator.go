@@ -523,10 +523,15 @@ func pathWithinAnyRoot(path string, roots []string) bool {
 }
 
 func mergeScanStats(left, right apitypes.ScanStats) apitypes.ScanStats {
+	firstError := strings.TrimSpace(left.FirstError)
+	if firstError == "" {
+		firstError = strings.TrimSpace(right.FirstError)
+	}
 	return apitypes.ScanStats{
 		Scanned:          left.Scanned + right.Scanned,
 		Imported:         left.Imported + right.Imported,
 		SkippedUnchanged: left.SkippedUnchanged + right.SkippedUnchanged,
 		Errors:           left.Errors + right.Errors,
+		FirstError:       firstError,
 	}
 }

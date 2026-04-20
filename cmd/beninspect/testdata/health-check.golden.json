@@ -1,0 +1,112 @@
+{
+  "checked": [
+    {
+      "actual_size_bytes": 21,
+      "db_duration_ms": 200000,
+      "db_size_bytes": 1024,
+      "exists": true,
+      "indexed_at": "2026-01-02T03:04:05Z",
+      "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha-bonus.flac",
+      "problems": [
+        "size_changed_since_scan"
+      ],
+      "source_file_id": "source-alpha-bonus",
+      "status": "problem",
+      "title": "Bonus",
+      "track_variant_id": "recording-alpha-bonus"
+    },
+    {
+      "actual_size_bytes": 15,
+      "db_duration_ms": 180000,
+      "db_size_bytes": 2048,
+      "exists": true,
+      "indexed_at": "2026-01-02T03:04:05Z",
+      "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha.flac",
+      "problems": [
+        "size_changed_since_scan"
+      ],
+      "source_file_id": "source-alpha",
+      "status": "problem",
+      "title": "Opening",
+      "track_variant_id": "recording-alpha"
+    }
+  ],
+  "context": {
+    "ambiguous": false,
+    "available_devices": [
+      {
+        "device_id": "device-inspect",
+        "last_seen_at": "2026-01-02T03:04:05Z",
+        "name": "Inspect Device",
+        "peer_id": "peer-inspect",
+        "role": "owner"
+      }
+    ],
+    "available_libraries": [
+      {
+        "library_id": "library-inspect",
+        "name": "Inspect Library"
+      }
+    ],
+    "inference_source": "explicit",
+    "selected": {
+      "device_id": "device-inspect",
+      "library_id": "library-inspect",
+      "network_running": false,
+      "preferred_profile": "aac_lc_vbr_high"
+    }
+  },
+  "problems": [
+    {
+      "actual_size_bytes": 21,
+      "db_duration_ms": 200000,
+      "db_size_bytes": 1024,
+      "exists": true,
+      "indexed_at": "2026-01-02T03:04:05Z",
+      "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha-bonus.flac",
+      "problems": [
+        "size_changed_since_scan"
+      ],
+      "source_file_id": "source-alpha-bonus",
+      "status": "problem",
+      "title": "Bonus",
+      "track_variant_id": "recording-alpha-bonus"
+    },
+    {
+      "actual_size_bytes": 15,
+      "db_duration_ms": 180000,
+      "db_size_bytes": 2048,
+      "exists": true,
+      "indexed_at": "2026-01-02T03:04:05Z",
+      "local_path": "\u003cTEST_ROOT\u003e\\media\\recording-alpha.flac",
+      "problems": [
+        "size_changed_since_scan"
+      ],
+      "source_file_id": "source-alpha",
+      "status": "problem",
+      "title": "Opening",
+      "track_variant_id": "recording-alpha"
+    }
+  ],
+  "request": {
+    "date": "2026-01-02",
+    "decode": false,
+    "device_id": "device-inspect",
+    "include_filesystem": false,
+    "library_id": "library-inspect",
+    "limit": 2,
+    "preferred_profile": "desktop"
+  },
+  "schema_version": 1,
+  "summary": {
+    "candidate_count": 3,
+    "checked_count": 2,
+    "date_filter": "2026-01-02",
+    "decode_enabled": false,
+    "filesystem_compared": false,
+    "limit": 2,
+    "missing_from_db_count": 0,
+    "ok_count": 0,
+    "problem_count": 2
+  }
+}

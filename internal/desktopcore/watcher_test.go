@@ -26,8 +26,8 @@ func TestClassifyEventScopesNestedDirectoryToSubtree(t *testing.T) {
 	if len(artworkRoots) != 0 {
 		t.Fatalf("artwork roots = %+v, want none", artworkRoots)
 	}
-	if len(startupRoots) != 0 {
-		t.Fatalf("startup roots = %+v, want none", startupRoots)
+	if len(startupRoots) != 1 || scanRootKey(startupRoots[0]) != scanRootKey(nested) {
+		t.Fatalf("startup roots = %+v, want [%s]", startupRoots, nested)
 	}
 	if len(presenceRoots) != 1 || scanRootKey(presenceRoots[0]) != scanRootKey(nested) {
 		t.Fatalf("presence roots = %+v, want [%s]", presenceRoots, nested)

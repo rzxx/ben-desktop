@@ -9,6 +9,7 @@ type ScanStats struct {
 	SkippedUnchanged int
 	Imported         int
 	Errors           int
+	FirstError       string
 }
 
 type IngestSurface interface {

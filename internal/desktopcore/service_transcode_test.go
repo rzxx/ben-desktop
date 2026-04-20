@@ -263,7 +263,7 @@ func TestEnsureRecordingEncodingDedupesConcurrentRequests(t *testing.T) {
 	}
 }
 
-func TestEnsurePlaybackRecordingBuildsCachedOptimizedAsset(t *testing.T) {
+func TestEnsurePlaybackRecordingPrefersLocalFileOverCachedBuild(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -292,14 +292,20 @@ func TestEnsurePlaybackRecordingBuildsCachedOptimizedAsset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure playback recording: %v", err)
 	}
-	if result.SourceKind != apitypes.PlaybackSourceCachedOpt {
-		t.Fatalf("source kind = %q, want %q", result.SourceKind, apitypes.PlaybackSourceCachedOpt)
+	if result.SourceKind != apitypes.PlaybackSourceLocalFile {
+		t.Fatalf("source kind = %q, want %q", result.SourceKind, apitypes.PlaybackSourceLocalFile)
 	}
-	if result.BlobID == "" || result.EncodingID == "" {
-		t.Fatalf("expected playback result to include cached asset ids: %+v", result)
+	if result.LocalPath == "" {
+		t.Fatalf("expected playback result to include local path: %+v", result)
 	}
 	if !result.FromLocal {
-		t.Fatalf("expected cached playback result to be local")
+		t.Fatalf("expected local playback result to be local")
+	}
+	if result.BlobID != "" || result.EncodingID != "" {
+		t.Fatalf("expected local playback result without cached asset ids: %+v", result)
+	}
+	if len(builder.calls) != 0 {
+		t.Fatalf("transcode call count = %d, want 0", len(builder.calls))
 	}
 }
 
@@ -359,7 +365,7 @@ func TestGuestCachedRemoteReserveReportsPlayableRemote(t *testing.T) {
 	}
 
 	batchItems, err := app.ListRecordingPlaybackAvailability(ctx, apitypes.RecordingPlaybackAvailabilityListRequest{
-		RecordingIDs:      []string{"rec-remote-cached"},
+		RecordingIDs:     []string{"rec-remote-cached"},
 		PreferredProfile: "desktop",
 	})
 	if err != nil {
@@ -554,11 +560,11 @@ func TestPreparePlaybackRecordingRequestsProviderTranscodeAcrossClusterVariantMi
 	ownerLocal, _ := seedSharedLibraryForSync(t, owner, joiner, library)
 
 	const (
-		clusterID       = "rec-provider-cluster"
-		requestedID     = "rec-provider-requested"
-		providerOnlyID  = "rec-provider-remote-only"
-		albumID         = "album-provider-cluster"
-		sourceFileID    = "src-provider-cluster-remote"
+		clusterID      = "rec-provider-cluster"
+		requestedID    = "rec-provider-requested"
+		providerOnlyID = "rec-provider-remote-only"
+		albumID        = "album-provider-cluster"
+		sourceFileID   = "src-provider-cluster-remote"
 	)
 	seedInput := playbackSeedInput{
 		RecordingID:    providerOnlyID,

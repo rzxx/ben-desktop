@@ -288,19 +288,28 @@ func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recording
 	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
 	}
-	if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, resolvedRecordingID, profile, local.DeviceID); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
+	if localPath, ok, err := s.bestLocalRecordingPathWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, exactRequested); err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
+	} else if ok {
+		info, err := os.Stat(localPath)
+		if err != nil {
+			return apitypes.PlaybackRecordingResult{}, err
+		}
+		return apitypes.PlaybackRecordingResult{
+			Profile:    profile,
+			Bytes:      int(info.Size()),
+			FromLocal:  true,
+			SourceKind: apitypes.PlaybackSourceLocalFile,
+			LocalPath:  localPath,
+		}, nil
 	}
+
 	remoteRecordingID := resolvedRecordingID
 	if !exactRequested {
 		remoteRecordingID = strings.TrimSpace(recordingID)
 	}
 
-	blobID, encodingID, ok, err := s.bestCachedEncodingWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile, exactRequested)
-	if err != nil {
-		return apitypes.PlaybackRecordingResult{}, err
-	}
-	if ok {
+	buildCachedResult := func(blobID, encodingID string) (apitypes.PlaybackRecordingResult, error) {
 		path, err := s.pathForBlob(blobID)
 		if err != nil {
 			return apitypes.PlaybackRecordingResult{}, err
@@ -326,20 +335,23 @@ func (s *PlaybackService) EnsurePlaybackRecording(ctx context.Context, recording
 		}, nil
 	}
 
-	if localPath, ok, err := s.bestLocalRecordingPathWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, exactRequested); err != nil {
+	blobID, encodingID, ok, err := s.bestCachedEncodingWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile, exactRequested)
+	if err != nil {
 		return apitypes.PlaybackRecordingResult{}, err
-	} else if ok {
-		info, err := os.Stat(localPath)
-		if err != nil {
-			return apitypes.PlaybackRecordingResult{}, err
-		}
-		return apitypes.PlaybackRecordingResult{
-			Profile:    profile,
-			Bytes:      int(info.Size()),
-			FromLocal:  true,
-			SourceKind: apitypes.PlaybackSourceLocalFile,
-			LocalPath:  localPath,
-		}, nil
+	}
+	if ok {
+		return buildCachedResult(blobID, encodingID)
+	}
+
+	if _, err := s.app.transcode.EnsureRecordingEncoding(ctx, local, resolvedRecordingID, profile, local.DeviceID); err != nil && !errors.Is(err, ErrProviderOnlyTranscode) {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	blobID, encodingID, ok, err = s.bestCachedEncodingWithExactness(ctx, local.LibraryID, local.DeviceID, resolvedRecordingID, profile, exactRequested)
+	if err != nil {
+		return apitypes.PlaybackRecordingResult{}, err
+	}
+	if ok {
+		return buildCachedResult(blobID, encodingID)
 	}
 
 	availability, err := s.GetRecordingAvailability(ctx, recordingID, profile)

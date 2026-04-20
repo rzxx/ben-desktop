@@ -8,6 +8,7 @@ type InspectConfig struct {
 	DBPath           string
 	BlobRoot         string
 	SettingsAppName  string
+	FFmpegPath       string
 	PreferredProfile string
 }
 
@@ -70,6 +71,55 @@ type TraceRecordingCacheRequest struct {
 type TraceBlobRequest struct {
 	BlobID string `json:"blob_id"`
 	ResolveInspectContextRequest
+}
+
+type HealthCheckRequest struct {
+	Date              string `json:"date,omitempty"`
+	Limit             int    `json:"limit,omitempty"`
+	Decode            bool   `json:"decode"`
+	IncludeFilesystem bool   `json:"include_filesystem"`
+	ResolveInspectContextRequest
+}
+
+type SourceFileHealthItem struct {
+	SourceFileID           string   `json:"source_file_id"`
+	TrackVariantID         string   `json:"track_variant_id"`
+	Title                  string   `json:"title,omitempty"`
+	LocalPath              string   `json:"local_path"`
+	IndexedAt              string   `json:"indexed_at,omitempty"`
+	Exists                 bool     `json:"exists"`
+	DBSizeBytes            int64    `json:"db_size_bytes"`
+	ActualSizeBytes        *int64   `json:"actual_size_bytes,omitempty"`
+	DBDurationMS           int64    `json:"db_duration_ms"`
+	ProbeDurationSeconds   *float64 `json:"probe_duration_seconds,omitempty"`
+	DecodedDurationSeconds *float64 `json:"decoded_duration_seconds,omitempty"`
+	DurationDeltaSeconds   *float64 `json:"duration_delta_seconds,omitempty"`
+	ProbeError             string   `json:"probe_error,omitempty"`
+	DecodeError            string   `json:"decode_error,omitempty"`
+	Status                 string   `json:"status"`
+	Problems               []string `json:"problems,omitempty"`
+}
+
+type HealthCheckSummary struct {
+	CandidateCount     int    `json:"candidate_count"`
+	CheckedCount       int    `json:"checked_count"`
+	ProblemCount       int    `json:"problem_count"`
+	OKCount            int    `json:"ok_count"`
+	MissingFromDBCount int    `json:"missing_from_db_count"`
+	DecodeEnabled      bool   `json:"decode_enabled"`
+	FilesystemCompared bool   `json:"filesystem_compared"`
+	DateFilter         string `json:"date_filter,omitempty"`
+	Limit              int    `json:"limit,omitempty"`
+}
+
+type HealthCheckReport struct {
+	SchemaVersion int                    `json:"schema_version"`
+	Request       any                    `json:"request"`
+	Context       ContextResolution      `json:"context"`
+	Summary       HealthCheckSummary     `json:"summary"`
+	Problems      []SourceFileHealthItem `json:"problems"`
+	MissingFromDB []string               `json:"missing_from_db,omitempty"`
+	Checked       []SourceFileHealthItem `json:"checked"`
 }
 
 type InspectDecision struct {
@@ -142,6 +192,7 @@ type BlobTrace struct {
 }
 
 type Inspector struct {
-	cfg InspectConfig
-	app *App
+	cfg          InspectConfig
+	app          *App
+	mediaChecker inspectMediaChecker
 }

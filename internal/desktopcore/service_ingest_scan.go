@@ -37,6 +37,16 @@ type deltaScanScope struct {
 	artworkRoots  []string
 }
 
+func recordScanError(stats *apitypes.ScanStats, err error) {
+	if stats == nil || err == nil {
+		return
+	}
+	stats.Errors++
+	if strings.TrimSpace(stats.FirstError) == "" {
+		stats.FirstError = strings.TrimSpace(err.Error())
+	}
+}
+
 var supportedAudioExt = map[string]struct{}{
 	".aac":  {},
 	".flac": {},
@@ -233,7 +243,7 @@ func (s *IngestService) runFullScanPass(ctx context.Context, mode scanExecutionM
 				stats.SkippedUnchanged++
 			}
 			if err != nil {
-				stats.Errors++
+				recordScanError(&stats, err)
 			}
 			tracksDone++
 			s.app.updateScanActivity(func(status *apitypes.ScanActivityStatus) {
@@ -244,6 +254,9 @@ func (s *IngestService) runFullScanPass(ctx context.Context, mode scanExecutionM
 				status.Errors = stats.Errors
 			})
 			if err != nil {
+				if mode == scanModeRepair {
+					continue
+				}
 				return stats, err
 			}
 		}
@@ -376,14 +389,14 @@ func (s *IngestService) runDeltaScanPass(ctx context.Context, libraryID, deviceI
 				stats.SkippedUnchanged++
 			}
 			if ingestErr != nil {
-				stats.Errors++
+				recordScanError(&stats, ingestErr)
 				return stats, ingestErr
 			}
 		case errors.Is(statErr, os.ErrNotExist):
 			stats.Scanned++
 			rowsAffected, reconcileErr := s.reconcileMissingPaths(ctx, libraryID, deviceID, []string{path})
 			if reconcileErr != nil {
-				stats.Errors++
+				recordScanError(&stats, reconcileErr)
 				return stats, reconcileErr
 			}
 			if rowsAffected > 0 {
@@ -393,7 +406,7 @@ func (s *IngestService) runDeltaScanPass(ctx context.Context, libraryID, deviceI
 				stats.SkippedUnchanged++
 			}
 		default:
-			stats.Errors++
+			recordScanError(&stats, statErr)
 			return stats, statErr
 		}
 	}
@@ -799,12 +812,12 @@ func (s *IngestService) ingestPath(ctx context.Context, libraryID, deviceID, roo
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return false, false, err
+		return false, false, fmt.Errorf("%s: %w", filepath.Clean(path), err)
 	}
 
 	state, err := s.lookupFileState(ctx, libraryID, deviceID, path)
 	if err != nil {
-		return false, false, err
+		return false, false, fmt.Errorf("%s: %w", filepath.Clean(path), err)
 	}
 	if err := ctx.Err(); err != nil {
 		return false, false, err
@@ -816,14 +829,14 @@ func (s *IngestService) ingestPath(ctx context.Context, libraryID, deviceID, roo
 
 	tags, err := s.app.tagReader.Read(path)
 	if err != nil {
-		return false, false, err
+		return false, false, fmt.Errorf("%s: %w", filepath.Clean(path), err)
 	}
 	if err := ctx.Err(); err != nil {
 		return false, false, err
 	}
 	hashHex, err := sha256File(path)
 	if err != nil {
-		return false, false, err
+		return false, false, fmt.Errorf("%s: %w", filepath.Clean(path), err)
 	}
 	if err := ctx.Err(); err != nil {
 		return false, false, err
@@ -840,7 +853,7 @@ func (s *IngestService) ingestPath(ctx context.Context, libraryID, deviceID, roo
 		EditionScopeKey: editionScopeKeyForPath(root, path, tags),
 		Tags:            tags,
 	}); err != nil {
-		return false, false, err
+		return false, false, fmt.Errorf("%s: %w", filepath.Clean(path), err)
 	}
 	return true, false, nil
 }
@@ -1233,7 +1246,11 @@ func scanProgress(rootsDone, rootsTotal, tracksDone, tracksTotal int) float64 {
 }
 
 func scanCompletionMessage(stats apitypes.ScanStats) string {
-	return fmt.Sprintf("scan complete: %d scanned, %d imported, %d unchanged, %d errors", stats.Scanned, stats.Imported, stats.SkippedUnchanged, stats.Errors)
+	message := fmt.Sprintf("scan complete: %d scanned, %d imported, %d unchanged, %d errors", stats.Scanned, stats.Imported, stats.SkippedUnchanged, stats.Errors)
+	if stats.Errors > 0 && strings.TrimSpace(stats.FirstError) != "" {
+		message += "; first error: " + strings.TrimSpace(stats.FirstError)
+	}
+	return message
 }
 
 func sha256File(path string) (string, error) {

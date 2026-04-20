@@ -47,6 +47,7 @@ func OpenInspector(cfg InspectConfig) (*Inspector, error) {
 	appCfg, err := ResolveConfig(Config{
 		DBPath:           resolved.DBPath,
 		BlobRoot:         resolved.BlobRoot,
+		FFmpegPath:       resolved.FFmpegPath,
 		TranscodeProfile: resolved.PreferredProfile,
 	})
 	if err != nil {
@@ -78,7 +79,11 @@ func OpenInspector(cfg InspectConfig) (*Inspector, error) {
 	app.playlist = &PlaylistService{app: app}
 	app.playback = newPlaybackService(app)
 
-	return &Inspector{cfg: resolved, app: app}, nil
+	return &Inspector{
+		cfg:          resolved,
+		app:          app,
+		mediaChecker: newInspectMediaChecker(strings.TrimSpace(appCfg.FFmpegPath)),
+	}, nil
 }
 
 func (i *Inspector) Close() error {
@@ -96,6 +101,7 @@ func resolveInspectConfig(cfg InspectConfig) (InspectConfig, error) {
 	cfg.DBPath = strings.TrimSpace(cfg.DBPath)
 	cfg.BlobRoot = strings.TrimSpace(cfg.BlobRoot)
 	cfg.SettingsAppName = strings.TrimSpace(cfg.SettingsAppName)
+	cfg.FFmpegPath = strings.TrimSpace(cfg.FFmpegPath)
 	cfg.PreferredProfile = strings.TrimSpace(cfg.PreferredProfile)
 
 	if cfg.DBPath == "" {
@@ -115,7 +121,7 @@ func resolveInspectConfig(cfg InspectConfig) (InspectConfig, error) {
 	if cfg.SettingsAppName == "" {
 		cfg.SettingsAppName = defaultInspectSettingsAppName
 	}
-	if cfg.PreferredProfile == "" {
+	if cfg.PreferredProfile == "" || cfg.FFmpegPath == "" {
 		path, err := settings.DefaultPath(cfg.SettingsAppName)
 		if err == nil {
 			store, storeErr := settings.NewStore(path)
@@ -123,7 +129,12 @@ func resolveInspectConfig(cfg InspectConfig) (InspectConfig, error) {
 				state, loadErr := store.Load()
 				_ = store.Close()
 				if loadErr == nil {
-					cfg.PreferredProfile = settings.EffectiveTranscodeProfile(state.Core.TranscodeProfile)
+					if cfg.PreferredProfile == "" {
+						cfg.PreferredProfile = settings.EffectiveTranscodeProfile(state.Core.TranscodeProfile)
+					}
+					if cfg.FFmpegPath == "" {
+						cfg.FFmpegPath = strings.TrimSpace(state.Core.FFmpegPath)
+					}
 				}
 			}
 		}
@@ -482,25 +493,25 @@ func dumpSourceFiles(rows []SourceFileModel) []map[string]any {
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, map[string]any{
-			"library_id":          strings.TrimSpace(row.LibraryID),
-			"device_id":           strings.TrimSpace(row.DeviceID),
-			"source_file_id":      strings.TrimSpace(row.SourceFileID),
-			"track_variant_id":    strings.TrimSpace(row.TrackVariantID),
-			"source_fingerprint":  strings.TrimSpace(row.SourceFingerprint),
-			"container":           strings.TrimSpace(row.Container),
-			"codec":               strings.TrimSpace(row.Codec),
-			"bitrate":             row.Bitrate,
-			"sample_rate":         row.SampleRate,
-			"channels":            row.Channels,
-			"is_lossless":         row.IsLossless,
-			"quality_rank":        row.QualityRank,
-			"duration_ms":         row.DurationMS,
-			"is_present":          row.IsPresent,
-			"local_path":          strings.TrimSpace(row.LocalPath),
-			"edition_scope_key":   strings.TrimSpace(row.EditionScopeKey),
-			"hash_algo":           strings.TrimSpace(row.HashAlgo),
-			"hash_hex":            strings.TrimSpace(row.HashHex),
-			"size_bytes":          row.SizeBytes,
+			"library_id":         strings.TrimSpace(row.LibraryID),
+			"device_id":          strings.TrimSpace(row.DeviceID),
+			"source_file_id":     strings.TrimSpace(row.SourceFileID),
+			"track_variant_id":   strings.TrimSpace(row.TrackVariantID),
+			"source_fingerprint": strings.TrimSpace(row.SourceFingerprint),
+			"container":          strings.TrimSpace(row.Container),
+			"codec":              strings.TrimSpace(row.Codec),
+			"bitrate":            row.Bitrate,
+			"sample_rate":        row.SampleRate,
+			"channels":           row.Channels,
+			"is_lossless":        row.IsLossless,
+			"quality_rank":       row.QualityRank,
+			"duration_ms":        row.DurationMS,
+			"is_present":         row.IsPresent,
+			"local_path":         strings.TrimSpace(row.LocalPath),
+			"edition_scope_key":  strings.TrimSpace(row.EditionScopeKey),
+			"hash_algo":          strings.TrimSpace(row.HashAlgo),
+			"hash_hex":           strings.TrimSpace(row.HashHex),
+			"size_bytes":         row.SizeBytes,
 		})
 	}
 	return out
@@ -510,17 +521,17 @@ func dumpOptimizedAssets(rows []OptimizedAssetModel) []map[string]any {
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, map[string]any{
-			"library_id":          strings.TrimSpace(row.LibraryID),
-			"optimized_asset_id":  strings.TrimSpace(row.OptimizedAssetID),
-			"source_file_id":      strings.TrimSpace(row.SourceFileID),
-			"track_variant_id":    strings.TrimSpace(row.TrackVariantID),
-			"profile":             strings.TrimSpace(row.Profile),
-			"blob_id":             strings.TrimSpace(row.BlobID),
-			"mime":                strings.TrimSpace(row.MIME),
-			"duration_ms":         row.DurationMS,
-			"bitrate":             row.Bitrate,
-			"codec":               strings.TrimSpace(row.Codec),
-			"container":           strings.TrimSpace(row.Container),
+			"library_id":           strings.TrimSpace(row.LibraryID),
+			"optimized_asset_id":   strings.TrimSpace(row.OptimizedAssetID),
+			"source_file_id":       strings.TrimSpace(row.SourceFileID),
+			"track_variant_id":     strings.TrimSpace(row.TrackVariantID),
+			"profile":              strings.TrimSpace(row.Profile),
+			"blob_id":              strings.TrimSpace(row.BlobID),
+			"mime":                 strings.TrimSpace(row.MIME),
+			"duration_ms":          row.DurationMS,
+			"bitrate":              row.Bitrate,
+			"codec":                strings.TrimSpace(row.Codec),
+			"container":            strings.TrimSpace(row.Container),
 			"created_by_device_id": strings.TrimSpace(row.CreatedByDeviceID),
 		})
 	}
@@ -545,16 +556,16 @@ func dumpPinMembers(rows []PinMember) []map[string]any {
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, map[string]any{
-			"library_id":            strings.TrimSpace(row.LibraryID),
-			"device_id":             strings.TrimSpace(row.DeviceID),
-			"scope":                 strings.TrimSpace(row.Scope),
-			"scope_id":              strings.TrimSpace(row.ScopeID),
-			"profile":               strings.TrimSpace(row.Profile),
-			"variant_recording_id":  strings.TrimSpace(row.VariantRecordingID),
-			"library_recording_id":  strings.TrimSpace(row.LibraryRecordingID),
-			"resolution_policy":     strings.TrimSpace(row.ResolutionPolicy),
-			"pending":               row.Pending,
-			"last_error":            strings.TrimSpace(row.LastError),
+			"library_id":           strings.TrimSpace(row.LibraryID),
+			"device_id":            strings.TrimSpace(row.DeviceID),
+			"scope":                strings.TrimSpace(row.Scope),
+			"scope_id":             strings.TrimSpace(row.ScopeID),
+			"profile":              strings.TrimSpace(row.Profile),
+			"variant_recording_id": strings.TrimSpace(row.VariantRecordingID),
+			"library_recording_id": strings.TrimSpace(row.LibraryRecordingID),
+			"resolution_policy":    strings.TrimSpace(row.ResolutionPolicy),
+			"pending":              row.Pending,
+			"last_error":           strings.TrimSpace(row.LastError),
 		})
 	}
 	return out
@@ -564,18 +575,18 @@ func dumpPinBlobRefs(rows []PinBlobRef) []map[string]any {
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, map[string]any{
-			"library_id":          strings.TrimSpace(row.LibraryID),
-			"device_id":           strings.TrimSpace(row.DeviceID),
-			"scope":               strings.TrimSpace(row.Scope),
-			"scope_id":            strings.TrimSpace(row.ScopeID),
-			"profile":             strings.TrimSpace(row.Profile),
-			"blob_id":             strings.TrimSpace(row.BlobID),
-			"ref_kind":            strings.TrimSpace(row.RefKind),
-			"subject_id":          strings.TrimSpace(row.SubjectID),
-			"recording_id":        strings.TrimSpace(row.RecordingID),
-			"artwork_scope_type":  strings.TrimSpace(row.ArtworkScopeType),
-			"artwork_scope_id":    strings.TrimSpace(row.ArtworkScopeID),
-			"artwork_variant":     strings.TrimSpace(row.ArtworkVariant),
+			"library_id":         strings.TrimSpace(row.LibraryID),
+			"device_id":          strings.TrimSpace(row.DeviceID),
+			"scope":              strings.TrimSpace(row.Scope),
+			"scope_id":           strings.TrimSpace(row.ScopeID),
+			"profile":            strings.TrimSpace(row.Profile),
+			"blob_id":            strings.TrimSpace(row.BlobID),
+			"ref_kind":           strings.TrimSpace(row.RefKind),
+			"subject_id":         strings.TrimSpace(row.SubjectID),
+			"recording_id":       strings.TrimSpace(row.RecordingID),
+			"artwork_scope_type": strings.TrimSpace(row.ArtworkScopeType),
+			"artwork_scope_id":   strings.TrimSpace(row.ArtworkScopeID),
+			"artwork_variant":    strings.TrimSpace(row.ArtworkVariant),
 		})
 	}
 	return out

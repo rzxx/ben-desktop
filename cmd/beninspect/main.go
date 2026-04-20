@@ -40,12 +40,13 @@ func (b *boolFlag) String() string {
 }
 
 type commonFlags struct {
-	db      string
-	blobRoot string
-	libraryID string
-	deviceID  string
-	profile   string
-	network   boolFlag
+	db         string
+	blobRoot   string
+	libraryID  string
+	deviceID   string
+	profile    string
+	ffmpegPath string
+	network    boolFlag
 }
 
 func main() {
@@ -104,7 +105,7 @@ func run(args []string) int {
 			}
 			defer func() { _ = inspector.Close() }()
 			trace, err := inspector.TraceRecording(ctx, desktopcore.TraceRecordingRequest{
-				ID: *id,
+				ID:                           *id,
 				ResolveInspectContextRequest: resolveRequestFromFlags(common),
 			})
 			return writeJSON(trace, err)
@@ -120,7 +121,7 @@ func run(args []string) int {
 			}
 			defer func() { _ = inspector.Close() }()
 			trace, err := inspector.TraceAlbum(ctx, desktopcore.TraceAlbumRequest{
-				ID: *id,
+				ID:                           *id,
 				ResolveInspectContextRequest: resolveRequestFromFlags(common),
 			})
 			return writeJSON(trace, err)
@@ -137,11 +138,33 @@ func run(args []string) int {
 			}
 			defer func() { _ = inspector.Close() }()
 			trace, err := inspector.TracePlaybackContext(ctx, desktopcore.TracePlaybackContextRequest{
-				Kind: *kind,
-				ID:   *id,
+				Kind:                         *kind,
+				ID:                           *id,
 				ResolveInspectContextRequest: resolveRequestFromFlags(common),
 			})
 			return writeJSON(trace, err)
+		case "health-check":
+			common, fs := newCommonFlagSet("music health-check")
+			date := fs.String("date", "", "filter indexed source files to YYYY-MM-DD in local time")
+			limit := fs.Int("limit", 0, "maximum number of files to check")
+			decode := fs.Bool("decode", true, "decode audio to verify full stream duration")
+			includeFilesystem := fs.Bool("include-filesystem", false, "report audio files under scan roots that are missing from source_files")
+			if err := fs.Parse(args[2:]); err != nil {
+				return writeError(nil, err)
+			}
+			inspector, err := openInspector(common)
+			if err != nil {
+				return writeError(nil, err)
+			}
+			defer func() { _ = inspector.Close() }()
+			report, err := inspector.HealthCheck(ctx, desktopcore.HealthCheckRequest{
+				Date:                         *date,
+				Limit:                        *limit,
+				Decode:                       *decode,
+				IncludeFilesystem:            *includeFilesystem,
+				ResolveInspectContextRequest: resolveRequestFromFlags(common),
+			})
+			return writeJSON(report, err)
 		default:
 			return writeError(nil, fmt.Errorf("unknown music command %q", args[1]))
 		}
@@ -163,7 +186,7 @@ func run(args []string) int {
 			}
 			defer func() { _ = inspector.Close() }()
 			trace, err := inspector.TraceRecordingCache(ctx, desktopcore.TraceRecordingCacheRequest{
-				ID: *id,
+				ID:                           *id,
 				ResolveInspectContextRequest: resolveRequestFromFlags(common),
 			})
 			return writeJSON(trace, err)
@@ -179,7 +202,7 @@ func run(args []string) int {
 			}
 			defer func() { _ = inspector.Close() }()
 			trace, err := inspector.TraceBlob(ctx, desktopcore.TraceBlobRequest{
-				BlobID: *blobID,
+				BlobID:                       *blobID,
 				ResolveInspectContextRequest: resolveRequestFromFlags(common),
 			})
 			return writeJSON(trace, err)
@@ -200,6 +223,7 @@ func newCommonFlagSet(name string) (*commonFlags, *flag.FlagSet) {
 	fs.StringVar(&common.libraryID, "library-id", "", "library id")
 	fs.StringVar(&common.deviceID, "device-id", "", "device id")
 	fs.StringVar(&common.profile, "profile", "", "preferred profile")
+	fs.StringVar(&common.ffmpegPath, "ffmpeg", "", "ffmpeg executable path")
 	fs.Var(&common.network, "network-running", "network running override")
 	return common, fs
 }
@@ -208,6 +232,7 @@ func openInspector(common *commonFlags) (*desktopcore.Inspector, error) {
 	return desktopcore.OpenInspector(desktopcore.InspectConfig{
 		DBPath:           common.db,
 		BlobRoot:         common.blobRoot,
+		FFmpegPath:       common.ffmpegPath,
 		PreferredProfile: common.profile,
 	})
 }
