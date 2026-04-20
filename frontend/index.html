@@ -3,6 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (() => {
+        const modeKey = "ben.theme.mode";
+        const normalizeMode = (value) =>
+          value === "light" || value === "dark" || value === "system"
+            ? value
+            : "system";
+        const getSystemTheme = () => {
+          try {
+            return window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+          } catch {
+            return "light";
+          }
+        };
+
+        let mode = "system";
+        try {
+          mode = normalizeMode(window.localStorage.getItem(modeKey));
+        } catch {
+          mode = "system";
+        }
+
+        const systemTheme = getSystemTheme();
+        const effectiveTheme = mode === "system" ? systemTheme : mode;
+        const root = document.documentElement;
+        root.classList.toggle("dark", effectiveTheme === "dark");
+        root.dataset.theme = effectiveTheme;
+        root.dataset.themeMode = mode;
+        root.dataset.systemTheme = systemTheme;
+        root.style.colorScheme = effectiveTheme;
+      })();
+    </script>
     <title>ben-desktop</title>
   </head>
   <body>

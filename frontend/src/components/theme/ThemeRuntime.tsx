@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { generateRecordingTheme } from "@/lib/api/theme";
+import { applyThemeToDocument } from "@/lib/theme/bootstrap";
 import { applyThemePaletteVariables } from "@/lib/theme/palette";
 import { usePlaybackStore } from "@/stores/playback/store";
 import { useThemeStore } from "@/stores/theme/store";
@@ -23,23 +24,12 @@ export function ThemeRuntime() {
     };
   }, [bootstrapTheme, teardownTheme]);
 
-  useEffect(() => {
-    const root = document.documentElement;
-    const effectiveTheme =
-      themePreferences.effective === "light" ? "light" : "dark";
-
-    root.classList.toggle("dark", effectiveTheme === "dark");
-    root.dataset.theme = effectiveTheme;
-    root.dataset.themeMode = themePreferences.mode;
-    root.dataset.systemTheme = themePreferences.system;
-    root.style.colorScheme = effectiveTheme;
-
-    return () => {
-      delete root.dataset.theme;
-      delete root.dataset.themeMode;
-      delete root.dataset.systemTheme;
-      root.style.colorScheme = "";
-    };
+  useLayoutEffect(() => {
+    applyThemeToDocument({
+      mode: themePreferences.mode,
+      system: themePreferences.system,
+      effective: themePreferences.effective,
+    });
   }, [
     themePreferences.effective,
     themePreferences.mode,

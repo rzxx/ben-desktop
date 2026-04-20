@@ -7,6 +7,11 @@ import {
   setThemeMode,
   subscribeThemeEvents,
 } from "@/lib/api/theme";
+import {
+  getInitialThemeState,
+  persistThemeMode,
+  type InitialThemeState,
+} from "@/lib/theme/bootstrap";
 
 type ThemeStore = {
   started: boolean;
@@ -17,11 +22,30 @@ type ThemeStore = {
   setMode: (mode: string) => Promise<void>;
 };
 
-const defaultThemePreferences = new Types.ThemePreferences({
-  mode: Types.AppThemeMode.AppThemeModeSystem,
-  system: Types.ResolvedTheme.ResolvedThemeDark,
-  effective: Types.ResolvedTheme.ResolvedThemeDark,
-});
+function createThemePreferences(input: InitialThemeState): ThemePreferences {
+  const mode =
+    input.mode === "light"
+      ? Types.AppThemeMode.AppThemeModeLight
+      : input.mode === "dark"
+        ? Types.AppThemeMode.AppThemeModeDark
+        : Types.AppThemeMode.AppThemeModeSystem;
+  const system =
+    input.system === "dark"
+      ? Types.ResolvedTheme.ResolvedThemeDark
+      : Types.ResolvedTheme.ResolvedThemeLight;
+  const effective =
+    input.effective === "dark"
+      ? Types.ResolvedTheme.ResolvedThemeDark
+      : Types.ResolvedTheme.ResolvedThemeLight;
+
+  return new Types.ThemePreferences({
+    mode,
+    system,
+    effective,
+  });
+}
+
+const defaultThemePreferences = createThemePreferences(getInitialThemeState());
 
 export const useThemeStore = create<ThemeStore>((set, get) => ({
   started: false,
@@ -38,9 +62,13 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
       subscribeThemeEvents(),
     ]);
 
+    persistThemeMode(preferences.mode);
+
     const stopListening = Events.On(eventName, (event) => {
+      const nextPreferences = Types.ThemePreferences.createFrom(event.data);
+      persistThemeMode(nextPreferences.mode);
       set({
-        preferences: Types.ThemePreferences.createFrom(event.data),
+        preferences: nextPreferences,
       });
     });
 
@@ -61,6 +89,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
 
   setMode: async (mode) => {
     const preferences = await setThemeMode(mode);
+    persistThemeMode(preferences.mode);
     set({ preferences });
   },
 }));

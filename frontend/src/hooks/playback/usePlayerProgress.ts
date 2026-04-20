@@ -122,6 +122,7 @@ export function usePlayerProgress({
     draftPositionMs: null as number | null,
     isDragging: false,
   });
+  const clearedPendingSeekRequestIdRef = useRef("");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const hasMatchingDragState =
     hasActiveEntry && timelineState.entryId === currentEntryId;
@@ -150,10 +151,17 @@ export function usePlayerProgress({
     if (!hasMatchingDragState || pendingSeek == null || !shouldDiscardPendingSeek) {
       return;
     }
+    if (clearedPendingSeekRequestIdRef.current === pendingSeek.requestId) {
+      return;
+    }
+    clearedPendingSeekRequestIdRef.current = pendingSeek.requestId;
+    // This effect syncs local pending-seek state with newer authoritative
+    // transport updates; the extra render is intentional and bounded.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTimelineState((currentState) => {
       if (
         currentState.entryId !== currentEntryId ||
-        currentState.pendingSeek == null
+        currentState.pendingSeek?.requestId !== pendingSeek.requestId
       ) {
         return currentState;
       }
@@ -312,6 +320,7 @@ export function usePlayerProgress({
       draftPositionMs: null,
       isDragging: false,
     };
+    clearedPendingSeekRequestIdRef.current = "";
     setTimelineState({
       entryId: currentEntryId,
       draftPositionMs: null,
