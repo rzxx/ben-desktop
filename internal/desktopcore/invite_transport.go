@@ -9,12 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
-	tcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/crypto/nacl/box"
 	"gorm.io/gorm"
@@ -232,27 +231,9 @@ func (a *App) openInviteClientTransport(serviceTag string) (*inviteClientTranspo
 	if serviceTag == "" {
 		return nil, fmt.Errorf("invite service tag is required")
 	}
-	priv, err := loadOrCreateTransportIdentityKey(a.cfg.IdentityKeyPath)
+	hostNode, err := a.newSharedLibp2pHost(libp2pHostBuildOptions{mode: libp2pHostModeClient})
 	if err != nil {
-		return nil, fmt.Errorf("load transport identity: %w", err)
-	}
-	hostNode, err := libp2p.New(
-		libp2p.Identity(priv),
-		libp2p.ListenAddrStrings(
-			"/ip4/0.0.0.0/tcp/0",
-			"/ip4/127.0.0.1/tcp/0",
-			"/ip6/::/tcp/0",
-			"/ip6/::1/tcp/0",
-		),
-		libp2p.Transport(tcp.NewTCPTransport),
-		libp2p.NATPortMap(),
-		libp2p.EnableNATService(),
-		libp2p.EnableHolePunching(),
-		libp2p.EnableRelay(),
-		libp2p.EnableRelayService(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create invite client host: %w", err)
+		return nil, err
 	}
 
 	client := &inviteClientTransport{
@@ -260,16 +241,18 @@ func (a *App) openInviteClientTransport(serviceTag string) (*inviteClientTranspo
 		host:       hostNode,
 		serviceTag: serviceTag,
 	}
-	service := mdns.NewMdnsService(hostNode, serviceTag, &desktopMDNSNotifee{
-		host:   hostNode,
-		logger: a.cfg.Logger,
-	})
-	if err := service.Start(); err != nil {
-		if a.cfg.Logger != nil {
-			a.cfg.Logger.Errorf("desktopcore: start invite mdns failed for %s: %v", serviceTag, err)
+	if a.cfg.EnableLANDiscovery {
+		service := mdns.NewMdnsService(hostNode, serviceTag, &desktopMDNSNotifee{
+			host:   hostNode,
+			logger: a.cfg.Logger,
+		})
+		if err := service.Start(); err != nil {
+			if a.cfg.Logger != nil {
+				a.cfg.Logger.Errorf("desktopcore: start invite mdns failed for %s: %v", serviceTag, err)
+			}
+		} else {
+			client.mdns = service
 		}
-	} else {
-		client.mdns = service
 	}
 	return client, nil
 }
@@ -303,29 +286,30 @@ func (c *inviteClientTransport) resolvePeer(ctx context.Context, peerAddrHint, e
 		return "", "", fmt.Errorf("invite client transport is not running")
 	}
 	expectedPeerID = strings.TrimSpace(expectedPeerID)
-	peerAddrHint = strings.TrimSpace(peerAddrHint)
 
 	var firstErr error
-	if peerAddrHint != "" {
+	for _, peerAddrHint := range splitPeerAddrHints(peerAddrHint) {
 		ma, err := multiaddr.NewMultiaddr(peerAddrHint)
 		if err != nil {
 			firstErr = fmt.Errorf("parse invite peer address: %w", err)
-		} else {
-			info, err := peer.AddrInfoFromP2pAddr(ma)
-			if err != nil {
-				firstErr = fmt.Errorf("invite peer info from addr: %w", err)
-			} else if expectedPeerID != "" && info.ID.String() != expectedPeerID {
-				firstErr = fmt.Errorf("invite peer hint mismatch")
-			} else {
-				connectCtx, cancel := context.WithTimeout(ctx, transportConnectTimeout)
-				err = c.host.Connect(connectCtx, *info)
-				cancel()
-				if err == nil {
-					return info.ID, c.peerAddr(info.ID), nil
-				}
-				firstErr = fmt.Errorf("connect invite peer: %w", err)
-			}
+			continue
 		}
+		info, err := peer.AddrInfoFromP2pAddr(ma)
+		if err != nil {
+			firstErr = fmt.Errorf("invite peer info from addr: %w", err)
+			continue
+		}
+		if expectedPeerID != "" && info.ID.String() != expectedPeerID {
+			firstErr = fmt.Errorf("invite peer hint mismatch")
+			continue
+		}
+		connectCtx, cancel := context.WithTimeout(ctx, transportConnectTimeout)
+		err = c.host.Connect(connectCtx, *info)
+		cancel()
+		if err == nil {
+			return info.ID, c.peerAddr(info.ID), nil
+		}
+		firstErr = fmt.Errorf("connect invite peer: %w", err)
 	}
 
 	for {
@@ -353,10 +337,32 @@ func (c *inviteClientTransport) resolvePeer(ctx context.Context, peerAddrHint, e
 	}
 }
 
+func splitPeerAddrHints(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == ',' || r == ';'
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		out = append(out, field)
+	}
+	return compactNonEmptyStrings(out)
+}
+
 func (c *inviteClientTransport) roundTrip(ctx context.Context, peerAddrHint, expectedPeerID string, protocolID protocol.ID, req any, resp any) (string, string, error) {
 	peerID, resolvedAddr, err := c.resolvePeer(ctx, peerAddrHint, expectedPeerID)
 	if err != nil {
 		return "", "", err
+	}
+	if protocolAllowsLimitedConnection(protocolID) {
+		ctx = network.WithAllowLimitedConn(ctx, string(protocolID))
 	}
 	stream, err := c.host.NewStream(ctx, peerID, protocolID)
 	if err != nil {

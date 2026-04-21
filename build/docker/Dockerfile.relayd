@@ -1,0 +1,19 @@
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache git
+
+COPY shared/registryauth ./shared/registryauth
+COPY relayd ./relayd
+
+WORKDIR /app/relayd
+
+RUN go mod download
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/relayd .
+
+FROM gcr.io/distroless/static-debian12
+
+COPY --from=builder /out/relayd /relayd
+
+ENTRYPOINT ["/relayd"]

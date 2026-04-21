@@ -1,6 +1,7 @@
 package desktopcore
 
 import (
+	"ben/registryauth"
 	"context"
 	"path/filepath"
 	"strings"
@@ -23,8 +24,18 @@ func TestInviteIssueListRevokeFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create invite code: %v", err)
 	}
-	if !strings.HasPrefix(code.InviteCode, "ben-invite-v1.") {
+	if !strings.HasPrefix(code.InviteCode, "ben-invite-v2.") {
 		t.Fatalf("invite code = %q", code.InviteCode)
+	}
+	payload, err := decodeInviteCode(code.InviteCode)
+	if err != nil {
+		t.Fatalf("decode invite code: %v", err)
+	}
+	if payload.InviteAuth == nil {
+		t.Fatal("expected invite registry auth")
+	}
+	if err := registryauth.VerifyInviteAttestation(*payload.InviteAuth, time.Now().UTC()); err != nil {
+		t.Fatalf("verify invite registry auth: %v", err)
 	}
 
 	active, err := app.ListIssuedInvites(ctx, issuedInviteStatusActive)

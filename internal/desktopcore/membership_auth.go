@@ -1,11 +1,11 @@
 package desktopcore
 
 import (
+	"ben/registryauth"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -19,23 +19,8 @@ import (
 )
 
 const (
-	admissionAuthoritySignedByAuthority = "authority"
-	defaultMembershipCertTTL            = 30 * 24 * time.Hour
+	defaultMembershipCertTTL = 30 * 24 * time.Hour
 )
-
-type admissionAuthorityEnvelope struct {
-	Version      int64  `json:"version"`
-	PublicKey    string `json:"publicKey"`
-	PrevVersion  int64  `json:"prevVersion"`
-	SignedByKind string `json:"signedByKind"`
-	Sig          []byte `json:"sig,omitempty"`
-	CreatedAt    int64  `json:"createdAt"`
-}
-
-type transportPeerAuth struct {
-	Cert           membershipCertEnvelope       `json:"cert"`
-	AuthorityChain []admissionAuthorityEnvelope `json:"authorityChain,omitempty"`
-}
 
 func generateSigningKeyPair() (string, string, error) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -46,227 +31,31 @@ func generateSigningKeyPair() (string, string, error) {
 }
 
 func decodeEd25519PublicKey(encoded string) ([]byte, error) {
-	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
-	if err != nil {
-		return nil, fmt.Errorf("decode public key: %w", err)
-	}
-	if len(key) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid public key size")
-	}
-	return key, nil
+	return registryauth.DecodeEd25519PublicKey(encoded)
 }
 
 func decodeEd25519PrivateKey(encoded string) ([]byte, error) {
-	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
-	if err != nil {
-		return nil, fmt.Errorf("decode private key: %w", err)
-	}
-	if len(key) != ed25519.PrivateKeySize {
-		return nil, fmt.Errorf("invalid private key size")
-	}
-	return key, nil
+	return registryauth.DecodeEd25519PrivateKey(encoded)
 }
 
 func admissionAuthoritySigningPayload(libraryID string, authority admissionAuthorityEnvelope) ([]byte, error) {
-	body := struct {
-		LibraryID    string `json:"library_id"`
-		Version      int64  `json:"version"`
-		PublicKey    string `json:"public_key"`
-		PrevVersion  int64  `json:"prev_version"`
-		SignedByKind string `json:"signed_by_kind"`
-		CreatedAtNS  int64  `json:"created_at_ns"`
-	}{
-		LibraryID:    strings.TrimSpace(libraryID),
-		Version:      authority.Version,
-		PublicKey:    strings.TrimSpace(authority.PublicKey),
-		PrevVersion:  authority.PrevVersion,
-		SignedByKind: strings.TrimSpace(authority.SignedByKind),
-		CreatedAtNS:  authority.CreatedAt,
-	}
-	out, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshal admission authority payload: %w", err)
-	}
-	return out, nil
+	return registryauth.AdmissionAuthoritySigningPayload(libraryID, authority)
 }
 
 func membershipCertSigningPayload(cert membershipCertEnvelope) ([]byte, error) {
-	body := struct {
-		LibraryID        string `json:"library_id"`
-		DeviceID         string `json:"device_id"`
-		PeerID           string `json:"peer_id"`
-		Role             string `json:"role"`
-		AuthorityVersion int64  `json:"authority_version"`
-		Serial           int64  `json:"serial"`
-		IssuedAt         int64  `json:"issued_at"`
-		ExpiresAt        int64  `json:"expires_at"`
-	}{
-		LibraryID:        strings.TrimSpace(cert.LibraryID),
-		DeviceID:         strings.TrimSpace(cert.DeviceID),
-		PeerID:           strings.TrimSpace(cert.PeerID),
-		Role:             normalizeRole(cert.Role),
-		AuthorityVersion: cert.AuthorityVersion,
-		Serial:           cert.Serial,
-		IssuedAt:         cert.IssuedAt,
-		ExpiresAt:        cert.ExpiresAt,
-	}
-	out, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshal membership certificate payload: %w", err)
-	}
-	return out, nil
+	return registryauth.MembershipCertSigningPayload(cert)
 }
 
 func verifyAdmissionAuthorityChain(libraryID string, chain []admissionAuthorityEnvelope, rootPublicKey string) (admissionAuthorityEnvelope, error) {
-	if len(chain) == 0 {
-		return admissionAuthorityEnvelope{}, fmt.Errorf("admission authority chain is required")
-	}
-	rootPub, err := decodeEd25519PublicKey(rootPublicKey)
-	if err != nil {
-		return admissionAuthorityEnvelope{}, fmt.Errorf("decode root public key: %w", err)
-	}
-	sorted := append([]admissionAuthorityEnvelope(nil), chain...)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Version < sorted[j].Version
-	})
-
-	var previous admissionAuthorityEnvelope
-	for idx, desc := range sorted {
-		if desc.Version != int64(idx+1) {
-			return admissionAuthorityEnvelope{}, fmt.Errorf("admission authority chain is not contiguous")
-		}
-		pub, err := decodeEd25519PublicKey(desc.PublicKey)
-		if err != nil {
-			return admissionAuthorityEnvelope{}, fmt.Errorf("decode admission authority key: %w", err)
-		}
-		payload, err := admissionAuthoritySigningPayload(libraryID, desc)
-		if err != nil {
-			return admissionAuthorityEnvelope{}, err
-		}
-		switch desc.Version {
-		case 1:
-			if desc.PrevVersion != 0 {
-				return admissionAuthorityEnvelope{}, fmt.Errorf("admission authority v1 prev version mismatch")
-			}
-			if strings.TrimSpace(desc.SignedByKind) != admissionAuthoritySignedByRoot {
-				return admissionAuthorityEnvelope{}, fmt.Errorf("admission authority v1 must be root-signed")
-			}
-			if !ed25519.Verify(ed25519.PublicKey(rootPub), payload, desc.Sig) {
-				return admissionAuthorityEnvelope{}, fmt.Errorf("invalid admission authority root signature")
-			}
-		default:
-			if desc.PrevVersion != previous.Version {
-				return admissionAuthorityEnvelope{}, fmt.Errorf("admission authority prev version mismatch")
-			}
-			if strings.TrimSpace(desc.SignedByKind) != admissionAuthoritySignedByAuthority {
-				return admissionAuthorityEnvelope{}, fmt.Errorf("admission authority rotation must be authority-signed")
-			}
-			prevPub, err := decodeEd25519PublicKey(previous.PublicKey)
-			if err != nil {
-				return admissionAuthorityEnvelope{}, fmt.Errorf("decode prior admission authority key: %w", err)
-			}
-			if !ed25519.Verify(ed25519.PublicKey(prevPub), payload, desc.Sig) {
-				return admissionAuthorityEnvelope{}, fmt.Errorf("invalid admission authority rotation signature")
-			}
-		}
-		_ = pub
-		previous = desc
-	}
-	return previous, nil
+	return registryauth.VerifyAdmissionAuthorityChain(libraryID, chain, rootPublicKey)
 }
 
 func verifyMembershipCert(cert membershipCertEnvelope, chain []admissionAuthorityEnvelope, rootPublicKey string, now time.Time, libraryID, deviceID, actualPeerID string) error {
-	if strings.TrimSpace(cert.LibraryID) != strings.TrimSpace(libraryID) {
-		return fmt.Errorf("membership certificate library mismatch")
-	}
-	if strings.TrimSpace(cert.DeviceID) != strings.TrimSpace(deviceID) {
-		return fmt.Errorf("membership certificate device mismatch")
-	}
-	if strings.TrimSpace(cert.PeerID) == "" || strings.TrimSpace(cert.PeerID) != strings.TrimSpace(actualPeerID) {
-		return fmt.Errorf("membership certificate peer mismatch")
-	}
-	if cert.Serial <= 0 {
-		return fmt.Errorf("membership certificate serial is invalid")
-	}
-	if cert.AuthorityVersion <= 0 {
-		return fmt.Errorf("membership certificate authority version is invalid")
-	}
-	if cert.ExpiresAt > 0 && now.UTC().UnixNano() > cert.ExpiresAt {
-		return fmt.Errorf("membership certificate expired")
-	}
-	head, err := verifyAdmissionAuthorityChain(libraryID, chain, rootPublicKey)
-	if err != nil {
-		return err
-	}
-	if head.Version != cert.AuthorityVersion {
-		return fmt.Errorf("membership certificate authority version is stale")
-	}
-	var authority admissionAuthorityEnvelope
-	found := false
-	for _, candidate := range chain {
-		if candidate.Version == cert.AuthorityVersion {
-			authority = candidate
-			found = true
-			break
-		}
-	}
-	if !found {
-		return fmt.Errorf("membership certificate authority not found")
-	}
-	pub, err := decodeEd25519PublicKey(authority.PublicKey)
-	if err != nil {
-		return fmt.Errorf("decode membership authority key: %w", err)
-	}
-	payload, err := membershipCertSigningPayload(cert)
-	if err != nil {
-		return err
-	}
-	if !ed25519.Verify(ed25519.PublicKey(pub), payload, cert.Sig) {
-		return fmt.Errorf("invalid membership certificate signature")
-	}
-	return nil
+	return registryauth.VerifyMembershipCert(cert, chain, rootPublicKey, now, libraryID, deviceID, actualPeerID)
 }
 
 func verifyHistoricalMembershipCert(cert membershipCertEnvelope, chain []admissionAuthorityEnvelope, rootPublicKey string, _ int64, libraryID, deviceID, actualPeerID string) error {
-	if strings.TrimSpace(cert.LibraryID) != strings.TrimSpace(libraryID) {
-		return fmt.Errorf("membership certificate library mismatch")
-	}
-	if strings.TrimSpace(cert.DeviceID) != strings.TrimSpace(deviceID) {
-		return fmt.Errorf("membership certificate device mismatch")
-	}
-	if strings.TrimSpace(cert.PeerID) == "" || strings.TrimSpace(cert.PeerID) != strings.TrimSpace(actualPeerID) {
-		return fmt.Errorf("membership certificate peer mismatch")
-	}
-	if cert.Serial <= 0 || cert.AuthorityVersion <= 0 {
-		return fmt.Errorf("membership certificate is invalid")
-	}
-	if _, err := verifyAdmissionAuthorityChain(libraryID, chain, rootPublicKey); err != nil {
-		return err
-	}
-	var authority admissionAuthorityEnvelope
-	found := false
-	for _, candidate := range chain {
-		if candidate.Version == cert.AuthorityVersion {
-			authority = candidate
-			found = true
-			break
-		}
-	}
-	if !found {
-		return fmt.Errorf("membership certificate authority not found")
-	}
-	pub, err := decodeEd25519PublicKey(authority.PublicKey)
-	if err != nil {
-		return fmt.Errorf("decode membership authority key: %w", err)
-	}
-	payload, err := membershipCertSigningPayload(cert)
-	if err != nil {
-		return err
-	}
-	if !ed25519.Verify(ed25519.PublicKey(pub), payload, cert.Sig) {
-		return fmt.Errorf("invalid membership certificate signature")
-	}
-	return nil
+	return registryauth.VerifyHistoricalMembershipCert(cert, chain, rootPublicKey, 0, libraryID, deviceID, actualPeerID)
 }
 
 func admissionAuthorityEnvelopeFromRow(row AdmissionAuthority) admissionAuthorityEnvelope {

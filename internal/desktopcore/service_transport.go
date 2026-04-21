@@ -1,6 +1,7 @@
 package desktopcore
 
 import (
+	"ben/registryauth"
 	"context"
 	"fmt"
 	"sort"
@@ -21,6 +22,10 @@ type managedSyncTransport interface {
 
 type transportPeerIdentityResolver interface {
 	ResolvePeerByIdentity(ctx context.Context, local apitypes.LocalContext, peerID, deviceID string) (SyncPeer, error)
+}
+
+type transportNetworkStatusReporter interface {
+	appendNetworkStatus(*apitypes.NetworkStatus)
 }
 
 type transportFactory func(context.Context, apitypes.LocalContext) (managedSyncTransport, error)
@@ -205,6 +210,7 @@ func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.Local
 	s.app.runtimeMu.Unlock()
 
 	s.stopRuntime(current)
+	_ = s.announceRuntimePresence(nextRuntime)
 	s.scheduleRuntimeCatchup(nextRuntime, apitypes.NetworkSyncReasonStartup, 0)
 	go s.runBackgroundLoop(nextRuntime)
 	return nil
@@ -241,6 +247,7 @@ func (s *TransportService) runBackgroundLoop(runtime *activeTransportRuntime) {
 			if !s.isActiveRuntime(runtime) || runtime.ctx.Err() != nil {
 				return
 			}
+			_ = s.announceRuntimePresence(runtime)
 			s.scheduleRuntimeCatchup(runtime, apitypes.NetworkSyncReasonTimer, 0)
 		}
 	}
@@ -877,13 +884,20 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 	current := s.activeRuntime()
 
 	out := apitypes.NetworkStatus{
-		LibraryID: strings.TrimSpace(local.LibraryID),
-		DeviceID:  strings.TrimSpace(local.DeviceID),
+		LibraryID:                      strings.TrimSpace(local.LibraryID),
+		DeviceID:                       strings.TrimSpace(local.DeviceID),
+		RegistryURL:                    strings.TrimSpace(s.app.cfg.RegistryURL),
+		RelayBootstrapAddrs:            append([]string(nil), s.app.cfg.RelayBootstrapAddrs...),
+		EnableLANDiscovery:             s.app.cfg.EnableLANDiscovery,
+		RequireDirectForLargeTransfers: s.app.cfg.RequireDirectForLargeTransfers,
 	}
 	if current != nil && current.transport != nil {
 		out.Running = strings.TrimSpace(current.transport.LocalPeerID()) != ""
 		out.PeerID = strings.TrimSpace(current.transport.LocalPeerID())
 		out.ListenAddrs = append([]string(nil), current.transport.ListenAddrs()...)
+		if reporter, ok := current.transport.(transportNetworkStatusReporter); ok {
+			reporter.appendNetworkStatus(&out)
+		}
 	} else {
 		out.PeerID = strings.TrimSpace(local.PeerID)
 	}
@@ -1339,6 +1353,97 @@ func (s *TransportService) transportRunning() bool {
 		return true
 	}
 	return s.app.transportService != nil && s.app.transportService.Running()
+}
+
+func (s *TransportService) announceRuntimePresence(runtime *activeTransportRuntime) error {
+	if s == nil || s.app == nil || runtime == nil || runtime.transport == nil {
+		return nil
+	}
+	locator := s.app.peerLocator(s.app.cfg.RegistryURL)
+	if locator == nil {
+		return nil
+	}
+	local, ok := s.runtimeLocalContext(runtime)
+	if !ok {
+		return nil
+	}
+	peerID := strings.TrimSpace(runtime.transport.LocalPeerID())
+	if peerID == "" {
+		return nil
+	}
+	auth, err := s.app.registryMembershipAuth(runtime.ctx, local.LibraryID, local.DeviceID, peerID)
+	if err != nil {
+		return err
+	}
+	addrs := runtime.transport.ListenAddrs()
+	if err := s.app.saveKnownPeerAddrs(runtime.ctx, local.LibraryID, peerID, addrs); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if err := locator.Announce(runtime.ctx, registryauth.PresenceAnnounceRequest{
+		Record: registryauth.PresenceRecord{
+			LibraryID: local.LibraryID,
+			DeviceID:  local.DeviceID,
+			PeerID:    peerID,
+			Addrs:     addrs,
+			UpdatedAt: now,
+			ExpiresAt: now.Add(90 * time.Second),
+		},
+		RootPublicKey: auth.RootPublicKey,
+		Auth:          auth.Auth,
+	}); err != nil {
+		s.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			Level:          "warn",
+			Kind:           "registry.announce.failed",
+			Message:        "Registry presence announce failed",
+			LibraryID:      local.LibraryID,
+			DeviceID:       local.DeviceID,
+			PeerID:         peerID,
+			ConnectionKind: outConnectionKind(runtime.transport),
+			Error:          err.Error(),
+		})
+		return err
+	}
+	if reporter, ok := runtime.transport.(*libp2pSyncTransport); ok {
+		reporter.setLastRegistryAnnounceAt(now)
+	}
+	s.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:     "info",
+		Kind:      "registry.announce.succeeded",
+		Message:   "Registry presence announce succeeded",
+		LibraryID: local.LibraryID,
+		DeviceID:  local.DeviceID,
+		PeerID:    peerID,
+	})
+	return nil
+}
+
+func outConnectionKind(transport managedSyncTransport) string {
+	reporter, ok := transport.(*libp2pSyncTransport)
+	if !ok || reporter == nil || reporter.host == nil {
+		return ""
+	}
+	directPeers := 0
+	limitedPeers := 0
+	for _, peerID := range reporter.host.Network().Peers() {
+		state := connectionStateForPeer(reporter.host, peerID)
+		switch {
+		case state.Direct:
+			directPeers++
+		case state.OnlyLimitedRelayed:
+			limitedPeers++
+		}
+	}
+	switch {
+	case directPeers > 0 && limitedPeers > 0:
+		return "mixed"
+	case directPeers > 0:
+		return "direct"
+	case limitedPeers > 0:
+		return "relayed"
+	default:
+		return "disconnected"
+	}
 }
 
 func (s *TransportService) updateDevicePeerID(ctx context.Context, libraryID, deviceID, peerID, deviceName string) error {

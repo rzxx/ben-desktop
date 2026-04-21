@@ -397,6 +397,50 @@ func TestMarkDevicePresenceOfflineEmitsAvailabilityInvalidation(t *testing.T) {
 	t.Fatalf("expected offline presence update to emit availability invalidation event, got %+v", events)
 }
 
+func TestDiscoverCatchupPeersResolvesKnownMembersByIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	library, err := app.CreateLibrary(ctx, "discover-catchup-peers")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	remoteDeviceID := seedRemoteLibraryMember(t, app, library.LibraryID, "dev-discover-remote", time.Now().UTC())
+	if err := app.db.WithContext(ctx).
+		Model(&Device{}).
+		Where("device_id = ?", remoteDeviceID).
+		Update("peer_id", "peer-discover-remote").Error; err != nil {
+		t.Fatalf("set remote peer id: %v", err)
+	}
+
+	transport := &testPeerListTransport{
+		peerID: "peer-local",
+		resolvedPeer: &testSignalPeer{
+			peerID: "peer-discover-remote",
+		},
+	}
+	peers, err := app.sync.discoverCatchupPeers(ctx, local, transport)
+	if err != nil {
+		t.Fatalf("discover catch-up peers: %v", err)
+	}
+	if len(peers) != 1 {
+		t.Fatalf("discovered peers = %d, want 1", len(peers))
+	}
+	if got := peers[0].PeerID(); got != "peer-discover-remote" {
+		t.Fatalf("discovered peer id = %q, want peer-discover-remote", got)
+	}
+	if got := transport.ListPeerCalls(); got != 1 {
+		t.Fatalf("list peers calls = %d, want 1", got)
+	}
+}
+
 func TestLibp2pTransportConnectPeerAppliesIncrementalSync(t *testing.T) {
 	ctx := context.Background()
 	owner := openPlaylistTestApp(t)

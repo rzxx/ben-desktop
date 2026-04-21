@@ -30,17 +30,21 @@ type RuntimeConfig struct {
 }
 
 type NetworkConfig struct {
-	Enabled            *bool
-	ListenAddrs        []string
-	KnownPeers         []string
-	AllowedDevices     []string
-	ServiceTag         string
-	DisableRelay       bool
-	AutoApproveInvites bool
-	InviteDefaultRole  string
-	StrictInitialDial  bool
-	SyncInterval       time.Duration
-	MaxOpsPerSync      int
+	Enabled                        *bool
+	ListenAddrs                    []string
+	KnownPeers                     []string
+	RelayBootstrapAddrs            []string
+	RegistryURL                    string
+	EnableLANDiscovery             *bool
+	RequireDirectForLargeTransfers *bool
+	AllowedDevices                 []string
+	ServiceTag                     string
+	DisableRelay                   bool
+	AutoApproveInvites             bool
+	InviteDefaultRole              string
+	StrictInitialDial              bool
+	SyncInterval                   time.Duration
+	MaxOpsPerSync                  int
 }
 
 type ScannerConfig struct {

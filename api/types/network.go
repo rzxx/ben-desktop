@@ -45,26 +45,37 @@ const (
 )
 
 type NetworkStatus struct {
-	Running     bool
-	LibraryID   string
-	DeviceID    string
-	PeerID      string
-	ListenAddrs []string
-	ServiceTag  string
+	Running                        bool
+	LibraryID                      string
+	DeviceID                       string
+	PeerID                         string
+	ListenAddrs                    []string
+	ServiceTag                     string
+	RegistryURL                    string
+	RelayBootstrapAddrs            []string
+	EnableLANDiscovery             bool
+	RequireDirectForLargeTransfers bool
+	RelayReservationActive         bool
+	AdvertisedRelayAddrs           []string
+	LastRegistryAnnounceAt         *time.Time
+	ConnectionKind                 string
+	DirectUpgradeState             string
 	NetworkSyncState
 }
 
 type NetworkDebugTraceEntry struct {
-	TimestampMS int64
-	Level       string
-	Kind        string
-	Message     string
-	LibraryID   string
-	DeviceID    string
-	PeerID      string
-	Address     string
-	Reason      string
-	Error       string
+	TimestampMS        int64
+	Level              string
+	Kind               string
+	Message            string
+	LibraryID          string
+	DeviceID           string
+	PeerID             string
+	Address            string
+	ConnectionKind     string
+	DirectUpgradeState string
+	Reason             string
+	Error              string
 }
 
 type CheckpointDeviceCoverage struct {
