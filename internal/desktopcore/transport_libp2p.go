@@ -164,9 +164,12 @@ func (t *libp2pSyncTransport) ListPeers(ctx context.Context, _ apitypes.LocalCon
 
 	out := make([]SyncPeer, 0, len(peerIDs))
 	for _, peerID := range peerIDs {
-		deviceID, _, err := t.app.memberDeviceIDForPeer(ctx, t.libraryID, peerID.String())
+		deviceID, ok, err := t.app.memberDeviceIDForPeer(ctx, t.libraryID, peerID.String())
 		if err != nil {
 			return nil, err
+		}
+		if !ok {
+			continue
 		}
 		out = append(out, &libp2pSyncPeer{
 			transport: t,
