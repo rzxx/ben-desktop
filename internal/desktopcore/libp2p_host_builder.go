@@ -144,6 +144,76 @@ func (a *App) bootstrapStaticRelayConnections(h host.Host, relays []peer.AddrInf
 	}()
 }
 
+func (a *App) ensureActiveTransportRelayReservation(ctx context.Context, timeout time.Duration) error {
+	if a == nil {
+		return nil
+	}
+	transport, ok := a.activeSyncTransport().(*libp2pSyncTransport)
+	if !ok || transport == nil || transport.host == nil {
+		return nil
+	}
+	if len(advertisedRelayAddrs(transport.host)) > 0 {
+		return nil
+	}
+	relays, err := parseRelayBootstrapAddrInfos(a.relayBootstrapAddrsForHost(nil))
+	if err != nil {
+		return err
+	}
+	if len(relays) == 0 {
+		return nil
+	}
+	if timeout <= 0 {
+		timeout = transportConnectTimeout
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var lastErr error
+	for {
+		if len(advertisedRelayAddrs(transport.host)) > 0 {
+			return nil
+		}
+		for _, info := range relays {
+			if waitCtx.Err() != nil {
+				break
+			}
+			connectTimeout := transportConnectTimeout
+			if deadline, ok := waitCtx.Deadline(); ok {
+				if remaining := time.Until(deadline); remaining > 0 && remaining < connectTimeout {
+					connectTimeout = remaining
+				}
+			}
+			if connectTimeout <= 0 {
+				break
+			}
+			connectCtx, connectCancel := context.WithTimeout(waitCtx, connectTimeout)
+			err := transport.host.Connect(connectCtx, info)
+			connectCancel()
+			if err != nil {
+				lastErr = err
+			}
+			if len(advertisedRelayAddrs(transport.host)) > 0 {
+				return nil
+			}
+		}
+		if waitCtx.Err() != nil {
+			break
+		}
+		select {
+		case <-waitCtx.Done():
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	if len(advertisedRelayAddrs(transport.host)) > 0 {
+		return nil
+	}
+	if lastErr != nil {
+		return fmt.Errorf("ensure active transport relay reservation: %w", lastErr)
+	}
+	return context.DeadlineExceeded
+}
+
 func newRelayResources() relayv2.Resources {
 	resources := relayv2.DefaultResources()
 	resources.ReservationTTL = time.Hour
