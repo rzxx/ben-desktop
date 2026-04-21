@@ -404,6 +404,73 @@ func TestJoinSessionRefreshResumesAfterRestart(t *testing.T) {
 	}
 }
 
+func TestNewJoinAttemptSupersedesOlderApprovedSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := openCacheTestApp(t, 1024)
+	joiner := openCacheTestApp(t, 1024)
+
+	if _, err := owner.CreateLibrary(ctx, "invite-supersede-approved"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	code1, err := owner.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleMember, Uses: 1})
+	if err != nil {
+		t.Fatalf("create first invite code: %v", err)
+	}
+	session1, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{
+		InviteCode: code1.InviteCode,
+		DeviceName: "Superseded Joiner",
+	})
+	if err != nil {
+		t.Fatalf("start first join session: %v", err)
+	}
+	if err := owner.ApproveJoinRequest(ctx, session1.RequestID, roleMember); err != nil {
+		t.Fatalf("approve first join request: %v", err)
+	}
+	waitForJoinSessionStatus(t, ctx, joiner, session1.SessionID, joinSessionStatusApproved)
+
+	code2, err := owner.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleMember, Uses: 1})
+	if err != nil {
+		t.Fatalf("create second invite code: %v", err)
+	}
+	session2, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{
+		InviteCode: code2.InviteCode,
+		DeviceName: "Replacement Joiner",
+	})
+	if err != nil {
+		t.Fatalf("start second join session: %v", err)
+	}
+
+	superseded, err := joiner.GetJoinSession(ctx, session1.SessionID)
+	if err != nil {
+		t.Fatalf("reload superseded join session: %v", err)
+	}
+	if superseded.Status != joinSessionStatusFailed {
+		t.Fatalf("superseded join session status = %q, want %q", superseded.Status, joinSessionStatusFailed)
+	}
+	if !strings.Contains(strings.ToLower(superseded.Message), "superseded") {
+		t.Fatalf("superseded join session message = %q", superseded.Message)
+	}
+	if _, err := joiner.FinalizeJoinSession(ctx, session1.SessionID); err == nil || !strings.Contains(err.Error(), joinSessionStatusFailed) {
+		t.Fatalf("finalize superseded join session err = %v", err)
+	}
+
+	if err := owner.ApproveJoinRequest(ctx, session2.RequestID, roleMember); err != nil {
+		t.Fatalf("approve second join request: %v", err)
+	}
+	waitForJoinSessionStatus(t, ctx, joiner, session2.SessionID, joinSessionStatusApproved)
+
+	result, err := joiner.FinalizeJoinSession(ctx, session2.SessionID)
+	if err != nil {
+		t.Fatalf("finalize second join session: %v", err)
+	}
+	if result.LibraryID == "" || result.RequestID != session2.RequestID {
+		t.Fatalf("unexpected second join result: %+v", result)
+	}
+}
+
 func TestResolveInviteOwnerAddrsIgnoresRelayBootstrapAddrs(t *testing.T) {
 	t.Parallel()
 

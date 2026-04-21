@@ -322,6 +322,9 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 	job.Running(0.5, "persisting join session")
 
 	err = s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
+		if err := supersedeJoinSessionsTx(tx, payload.LibraryID, deviceID, sessionID, "join session superseded by newer join attempt", now); err != nil {
+			return err
+		}
 		if err := saveJoinSessionKeypairTx(tx, sessionID, joinPublicKey, joinPrivateKey, now); err != nil {
 			return err
 		}
@@ -431,6 +434,9 @@ func (s *InviteService) FinalizeJoinSession(ctx context.Context, sessionID strin
 
 	now := time.Now().UTC()
 	err = s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
+		if err := validateJoinSessionMaterialFreshnessTx(tx, session, material); err != nil {
+			return err
+		}
 		if err := restoreJoinSessionMaterialTx(tx, session, material, now); err != nil {
 			return err
 		}
@@ -815,7 +821,7 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 			return err
 		}
 
-		return tx.Model(&JoinSession{}).
+		if err := tx.Model(&JoinSession{}).
 			Where("request_id = ?", req.RequestID).
 			Updates(map[string]any{
 				"status":            joinSessionStatusApproved,
@@ -826,7 +832,13 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 				"owner_peer_id":     ownerPeerID,
 				"owner_fingerprint": fingerprintForDevice(local.DeviceID, ownerPeerID),
 				"updated_at":        now,
-			}).Error
+			}).Error; err != nil {
+			return err
+		}
+		if err := supersedeInviteJoinRequestsTx(tx, req.LibraryID, req.DeviceID, req.RequestID, "join request superseded by newer approval", now); err != nil {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		if job != nil {
@@ -985,6 +997,105 @@ func (s *InviteService) loadJoinSessionByRequestID(ctx context.Context, requestI
 		return JoinSession{}, false, err
 	}
 	return session, true, nil
+}
+
+func supersedeJoinSessionsTx(tx *gorm.DB, libraryID, deviceID, exceptSessionID, reason string, now time.Time) error {
+	libraryID = strings.TrimSpace(libraryID)
+	deviceID = strings.TrimSpace(deviceID)
+	exceptSessionID = strings.TrimSpace(exceptSessionID)
+	reason = strings.TrimSpace(reason)
+	if libraryID == "" || deviceID == "" {
+		return nil
+	}
+	if reason == "" {
+		reason = "join session superseded"
+	}
+
+	var rows []JoinSession
+	if err := tx.Select("session_id").
+		Where("library_id = ? AND device_id = ? AND session_id <> ? AND status IN ?", libraryID, deviceID, exceptSessionID, []string{joinSessionStatusPending, joinSessionStatusApproved}).
+		Find(&rows).Error; err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	sessionIDs := make([]string, 0, len(rows))
+	keys := make([]string, 0, len(rows))
+	for _, row := range rows {
+		id := strings.TrimSpace(row.SessionID)
+		if id == "" {
+			continue
+		}
+		sessionIDs = append(sessionIDs, id)
+		keys = append(keys, joinSessionKeypairLocalSettingKey(id))
+	}
+	if len(sessionIDs) == 0 {
+		return nil
+	}
+	if err := tx.Model(&JoinSession{}).
+		Where("session_id IN ?", sessionIDs).
+		Updates(map[string]any{
+			"status":     joinSessionStatusFailed,
+			"message":    reason,
+			"updated_at": now,
+		}).Error; err != nil {
+		return err
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return tx.Where("key IN ?", keys).Delete(&LocalSetting{}).Error
+}
+
+func supersedeInviteJoinRequestsTx(tx *gorm.DB, libraryID, deviceID, exceptRequestID, reason string, now time.Time) error {
+	libraryID = strings.TrimSpace(libraryID)
+	deviceID = strings.TrimSpace(deviceID)
+	exceptRequestID = strings.TrimSpace(exceptRequestID)
+	reason = strings.TrimSpace(reason)
+	if libraryID == "" || deviceID == "" {
+		return nil
+	}
+	if reason == "" {
+		reason = "join request superseded"
+	}
+	return tx.Model(&InviteJoinRequest{}).
+		Where("library_id = ? AND device_id = ? AND request_id <> ? AND status IN ?", libraryID, deviceID, exceptRequestID, []string{inviteJoinStatusPending, inviteJoinStatusApproved}).
+		Updates(map[string]any{
+			"status":     inviteJoinStatusRejected,
+			"message":    reason,
+			"updated_at": now,
+		}).Error
+}
+
+func validateJoinSessionMaterialFreshnessTx(tx *gorm.DB, session JoinSession, material joinSessionMaterial) error {
+	cert := material.MembershipCert
+	libraryID := strings.TrimSpace(session.LibraryID)
+	deviceID := strings.TrimSpace(session.DeviceID)
+	if libraryID == "" || deviceID == "" || cert.Serial <= 0 {
+		return nil
+	}
+
+	var current MembershipCert
+	err := tx.Where("library_id = ? AND device_id = ?", libraryID, deviceID).Take(&current).Error
+	switch {
+	case err == nil && cert.Serial < current.Serial:
+		return fmt.Errorf("join session membership certificate serial is stale")
+	case err != nil && !errors.Is(err, gorm.ErrRecordNotFound):
+		return err
+	}
+
+	var revoked int64
+	if err := tx.Model(&MembershipCertRevocation{}).
+		Where("library_id = ? AND device_id = ? AND serial = ?", libraryID, deviceID, cert.Serial).
+		Count(&revoked).Error; err != nil {
+		return err
+	}
+	if revoked > 0 {
+		return fmt.Errorf("join session membership certificate is revoked")
+	}
+	return nil
 }
 
 func (s *InviteService) refreshJoinSession(ctx context.Context, session JoinSession) (JoinSession, error) {
