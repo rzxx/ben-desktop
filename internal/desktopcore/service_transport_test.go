@@ -9,6 +9,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"gorm.io/gorm"
 )
@@ -438,6 +439,55 @@ func TestDiscoverCatchupPeersResolvesKnownMembersByIdentity(t *testing.T) {
 	}
 	if got := transport.ListPeerCalls(); got != 1 {
 		t.Fatalf("list peers calls = %d, want 1", got)
+	}
+}
+
+func TestDiscoverCatchupPeersSkipsUnresolvedConnectedLibp2pPeers(t *testing.T) {
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	library, err := app.CreateLibrary(ctx, "discover-catchup-skips-unresolved")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+
+	if err := app.syncActiveRuntimeServices(ctx); err != nil {
+		t.Fatalf("start runtime services: %v", err)
+	}
+	runtime := app.transportService.activeRuntimeForLibrary(library.LibraryID)
+	if runtime == nil || runtime.transport == nil {
+		t.Fatal("expected active transport runtime")
+	}
+	transport, ok := runtime.transport.(*libp2pSyncTransport)
+	if !ok {
+		t.Fatal("expected libp2p transport")
+	}
+
+	foreignHost, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"))
+	if err != nil {
+		t.Fatalf("create foreign host: %v", err)
+	}
+	defer foreignHost.Close()
+
+	connectCtx, cancel := context.WithTimeout(ctx, transportConnectTimeout)
+	defer cancel()
+	if err := transport.host.Connect(connectCtx, peer.AddrInfo{
+		ID:    foreignHost.ID(),
+		Addrs: foreignHost.Addrs(),
+	}); err != nil {
+		t.Fatalf("connect foreign host: %v", err)
+	}
+
+	peers, err := app.sync.discoverCatchupPeers(ctx, local, transport)
+	if err != nil {
+		t.Fatalf("discover catch-up peers: %v", err)
+	}
+	if len(peers) != 0 {
+		t.Fatalf("discovered peers = %+v, want none for unresolved connected peers", peers)
 	}
 }
 
@@ -1660,7 +1710,7 @@ func TestLibp2pPeerConnectedSkipsCatchupForUnresolvedMembership(t *testing.T) {
 		t.Fatal("expected libp2p transport")
 	}
 
-	unknownPeerID, err := peer.Decode("12D3KooWLV6VGiLvwxRCxqx2BfUmCRmyT8LPEBfkuHfh3oAhiLAg")
+	unknownPeerID, err := peer.Decode(mustGenerateTestPeerID(t))
 	if err != nil {
 		t.Fatalf("decode unresolved peer id: %v", err)
 	}

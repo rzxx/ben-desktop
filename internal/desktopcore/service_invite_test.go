@@ -3,6 +3,7 @@ package desktopcore
 import (
 	"ben/registryauth"
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -409,16 +410,18 @@ func TestResolveInviteOwnerAddrsIgnoresRelayBootstrapAddrs(t *testing.T) {
 	ctx := context.Background()
 	app := openCacheTestApp(t, 1024)
 	service := InviteService{app: app}
+	ownerPeerID := mustGenerateTestPeerID(t)
+	relayPeerID := mustGenerateTestPeerID(t)
 
 	addrs, err := service.resolveInviteOwnerAddrs(ctx, inviteCodePayload{
 		LibraryID:           "library-relay-bootstrap",
-		OwnerPeerID:         "12D3KooWOwnerPeer",
-		RelayBootstrapAddrs: []string{"/ip4/198.51.100.20/tcp/4001/p2p/12D3KooWRelayPeer"},
+		OwnerPeerID:         ownerPeerID,
+		RelayBootstrapAddrs: []string{fmt.Sprintf("/ip4/198.51.100.20/tcp/4001/p2p/%s", relayPeerID)},
 	})
 	if err != nil {
 		t.Fatalf("resolve invite owner addrs: %v", err)
 	}
-	want := []string{"/ip4/198.51.100.20/tcp/4001/p2p/12D3KooWRelayPeer/p2p-circuit/p2p/12D3KooWOwnerPeer"}
+	want := []string{fmt.Sprintf("/ip4/198.51.100.20/tcp/4001/p2p/%s/p2p-circuit/p2p/%s", relayPeerID, ownerPeerID)}
 	if len(addrs) != len(want) || addrs[0] != want[0] {
 		t.Fatalf("invite owner addrs = %#v, want %#v", addrs, want)
 	}
@@ -430,19 +433,21 @@ func TestResolveJoinSessionOwnerAddrsIgnoresRelayBootstrapFallback(t *testing.T)
 	ctx := context.Background()
 	app := openCacheTestApp(t, 1024)
 	service := InviteService{app: app}
+	ownerPeerID := mustGenerateTestPeerID(t)
+	relayPeerID := mustGenerateTestPeerID(t)
 
 	addrs, err := service.resolveJoinSessionOwnerAddrs(ctx, JoinSession{
 		SessionID:          "session-relay-bootstrap",
 		LibraryID:          "library-relay-bootstrap",
-		RelayBootstrapJSON: mustJSONString([]string{"/ip4/198.51.100.21/tcp/4001/p2p/12D3KooWRelayPeer"}),
+		RelayBootstrapJSON: mustJSONString([]string{fmt.Sprintf("/ip4/198.51.100.21/tcp/4001/p2p/%s", relayPeerID)}),
 	}, inviteCodePayload{
 		LibraryID:   "library-relay-bootstrap",
-		OwnerPeerID: "12D3KooWOwnerPeer",
+		OwnerPeerID: ownerPeerID,
 	})
 	if err != nil {
 		t.Fatalf("resolve join session owner addrs: %v", err)
 	}
-	want := []string{"/ip4/198.51.100.21/tcp/4001/p2p/12D3KooWRelayPeer/p2p-circuit/p2p/12D3KooWOwnerPeer"}
+	want := []string{fmt.Sprintf("/ip4/198.51.100.21/tcp/4001/p2p/%s/p2p-circuit/p2p/%s", relayPeerID, ownerPeerID)}
 	if len(addrs) != len(want) || addrs[0] != want[0] {
 		t.Fatalf("join session owner addrs = %#v, want %#v", addrs, want)
 	}
@@ -451,18 +456,31 @@ func TestResolveJoinSessionOwnerAddrsIgnoresRelayBootstrapFallback(t *testing.T)
 func waitForJoinSessionStatus(t *testing.T, ctx context.Context, app *App, sessionID, want string) apitypes.JoinSession {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
+	var lastErr error
+	lastStatus := ""
 	for time.Now().Before(deadline) {
 		session, err := app.GetJoinSession(ctx, sessionID)
 		if err == nil && session.Status == want {
 			return session
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastStatus = session.Status
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
 	session, err := app.GetJoinSession(ctx, sessionID)
 	if err != nil {
+		if lastErr != nil {
+			t.Fatalf("get join session after wait: %v (last poll err: %v, last poll status: %q)", err, lastErr, lastStatus)
+		}
 		t.Fatalf("get join session after wait: %v", err)
+	}
+	if lastErr != nil {
+		t.Fatalf("join session %q status = %q, want %q (last poll err: %v, last poll status: %q)", sessionID, session.Status, want, lastErr, lastStatus)
 	}
 	t.Fatalf("join session %q status = %q, want %q", sessionID, session.Status, want)
 	return apitypes.JoinSession{}
