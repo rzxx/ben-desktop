@@ -5403,7 +5403,7 @@ func buildAnchoredSmartShuffleCycle(entries []SessionEntry, anchorIndex int, rng
 		cycle = append(cycle, chosenEntryIndex)
 		remaining = append(remaining[:chosenRemainingIndex], remaining[chosenRemainingIndex+1:]...)
 	}
-	return cycle
+	return optimizeAnchoredSmartShuffleCycle(entries, cycle)
 }
 
 func effectiveShuffleCycle(snapshot SessionSnapshot) []int {
@@ -5458,21 +5458,59 @@ func smartShuffleScore(entries []SessionEntry, cycle []int, candidate int) int {
 	for distance := 1; distance <= 3 && distance <= len(cycle); distance++ {
 		previousItem := entries[cycle[len(cycle)-distance]].Item
 		weight := 4 - distance
-		if candidateItem.RecordingID == previousItem.RecordingID {
-			score -= 1000
-		}
-		if sameLabel(candidateItem.Subtitle, previousItem.Subtitle) {
-			score -= 240 * weight
-		}
-		if candidateItem.AlbumID != "" && candidateItem.AlbumID == previousItem.AlbumID {
-			score -= 160 * weight
-		}
-		if candidateItem.SourceKind == SourceKindAlbum && candidateItem.SourceID != "" && candidateItem.SourceID == previousItem.SourceID {
-			score -= 120 * weight
-		}
+		score += smartShufflePairScore(candidateItem, previousItem, weight)
 	}
 
 	score += len(cycle) * 10
+	return score
+}
+
+func optimizeAnchoredSmartShuffleCycle(entries []SessionEntry, cycle []int) []int {
+	if len(cycle) < 3 {
+		return cycle
+	}
+	best := append([]int(nil), cycle...)
+	bestScore := smartShuffleWrapScore(entries, best)
+	for index := 1; index < len(cycle)-1; index++ {
+		trial := make([]int, 0, len(cycle))
+		trial = append(trial, cycle[:index]...)
+		trial = append(trial, cycle[index+1:]...)
+		trial = append(trial, cycle[index])
+		score := smartShuffleWrapScore(entries, trial)
+		if score > bestScore {
+			best = trial
+			bestScore = score
+		}
+	}
+	return best
+}
+
+func smartShuffleWrapScore(entries []SessionEntry, cycle []int) int {
+	if len(cycle) < 2 {
+		return 0
+	}
+	score := 0
+	for index := 1; index < len(cycle); index++ {
+		score += smartShufflePairScore(entries[cycle[index]].Item, entries[cycle[index-1]].Item, 3)
+	}
+	score += 2 * smartShufflePairScore(entries[cycle[0]].Item, entries[cycle[len(cycle)-1]].Item, 3)
+	return score
+}
+
+func smartShufflePairScore(candidateItem SessionItem, previousItem SessionItem, weight int) int {
+	score := 0
+	if candidateItem.RecordingID == previousItem.RecordingID {
+		score -= 1000
+	}
+	if sameLabel(candidateItem.Subtitle, previousItem.Subtitle) {
+		score -= 240 * weight
+	}
+	if candidateItem.AlbumID != "" && candidateItem.AlbumID == previousItem.AlbumID {
+		score -= 160 * weight
+	}
+	if candidateItem.SourceKind == SourceKindAlbum && candidateItem.SourceID != "" && candidateItem.SourceID == previousItem.SourceID {
+		score -= 120 * weight
+	}
 	return score
 }
 

@@ -5876,6 +5876,56 @@ func TestSmartShuffleSpreadsAdjacentArtists(t *testing.T) {
 	}
 }
 
+func TestSmartShuffleAvoidsWrapBoundaryArtistRepeat(t *testing.T) {
+	t.Parallel()
+
+	session := NewSession(&mockBridge{}, newTestBackend(), &memoryStore{}, "desktop", nil)
+	session.rng = rand.New(rand.NewSource(11))
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	_, err := session.SetContext(PlaybackContextInput{
+		Kind: ContextKindCustom,
+		ID:   "custom",
+		Items: []SessionItem{
+			{RecordingID: "a1", Title: "A1", Subtitle: "Artist A", AlbumID: "album-a"},
+			{RecordingID: "a2", Title: "A2", Subtitle: "Artist A", AlbumID: "album-a"},
+			{RecordingID: "b1", Title: "B1", Subtitle: "Artist B", AlbumID: "album-b"},
+			{RecordingID: "c1", Title: "C1", Subtitle: "Artist C", AlbumID: "album-c"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("set context: %v", err)
+	}
+
+	snapshot, err := session.SetShuffle(true)
+	if err != nil {
+		t.Fatalf("set shuffle: %v", err)
+	}
+	if snapshot.ContextQueue == nil {
+		t.Fatalf("expected context queue")
+	}
+	if len(snapshot.ContextQueue.ShuffleBag) != 4 {
+		t.Fatalf("expected shuffle cycle of 4, got %v", snapshot.ContextQueue.ShuffleBag)
+	}
+	if snapshot.ContextQueue.ShuffleBag[0] != 0 {
+		t.Fatalf("expected shuffle cycle to stay anchored at index 0, got %v", snapshot.ContextQueue.ShuffleBag)
+	}
+
+	cycle := snapshot.ContextQueue.ShuffleBag
+	entries := snapshot.ContextQueue.Entries
+	head := entries[cycle[0]].Item
+	tail := entries[cycle[len(cycle)-1]].Item
+	if head.Subtitle == tail.Subtitle {
+		t.Fatalf("expected smart shuffle to avoid artist repeat across wrap boundary, got %v", cycle)
+	}
+	if head.AlbumID != "" && head.AlbumID == tail.AlbumID {
+		t.Fatalf("expected smart shuffle to avoid album repeat across wrap boundary, got %v", cycle)
+	}
+}
+
 func TestSessionShuffleKeepsQueuedEntriesOutsideShuffleCycle(t *testing.T) {
 	t.Parallel()
 
