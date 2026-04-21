@@ -345,7 +345,7 @@ function PlayerBarProgressStateful({
 }
 
 function PlayerBarVolume() {
-  const volume = usePlaybackStore((state) => state.transport?.volume ?? 80);
+  const volume = usePlaybackStore((state) => state.transport?.volume ?? 100);
   const setVolume = usePlaybackStore((state) => state.setVolume);
   const { displayedVolume, onValueChange, onValueCommitted } = usePlayerVolume({
     setVolume,

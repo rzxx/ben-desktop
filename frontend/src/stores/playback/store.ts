@@ -263,7 +263,7 @@ function createTransportFromEvent(
       event.loadingPreparation == null ? null : event.loadingPreparation,
     repeatMode: event.repeatMode ?? PlaybackModels.RepeatMode.$zero,
     shuffle: event.shuffle ?? false,
-    volume: event.volume ?? 0,
+    volume: event.volume ?? 100,
     status: event.status ?? PlaybackModels.Status.$zero,
     positionMs: event.positionMs ?? 0,
     positionCapturedAtMs: event.positionCapturedAtMs ?? 0,

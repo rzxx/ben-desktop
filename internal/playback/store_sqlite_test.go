@@ -3,6 +3,7 @@ package playback
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -20,12 +21,12 @@ func TestSQLiteStoreRestoresPlayingAsPaused(t *testing.T) {
 	duration := int64(180000)
 	err = store.Save(context.Background(), SessionSnapshot{
 		ContextQueue: &ContextQueue{
-			Kind: ContextKindAlbum,
-			ID:   "album-1",
-			StartIndex: 0,
+			Kind:         ContextKindAlbum,
+			ID:           "album-1",
+			StartIndex:   0,
 			CurrentIndex: 0,
-			ResumeIndex: 0,
-			ShuffleBag: []int{0},
+			ResumeIndex:  0,
+			ShuffleBag:   []int{0},
 			Entries: []SessionEntry{
 				{
 					EntryID:      "ctx-1",
@@ -89,6 +90,9 @@ func TestSQLiteStoreMissingDatabaseLoadsIdle(t *testing.T) {
 	if snapshot.Status != StatusIdle {
 		t.Fatalf("expected idle status, got %q", snapshot.Status)
 	}
+	if snapshot.Volume != DefaultVolume {
+		t.Fatalf("expected default volume %d, got %d", DefaultVolume, snapshot.Volume)
+	}
 	if snapshot.QueueLength != 0 {
 		t.Fatalf("expected empty queue length, got %d", snapshot.QueueLength)
 	}
@@ -127,8 +131,53 @@ VALUES
 	if snapshot.Status != StatusIdle {
 		t.Fatalf("expected idle status after reset, got %q", snapshot.Status)
 	}
+	if snapshot.Volume != DefaultVolume {
+		t.Fatalf("expected default volume %d after reset, got %d", DefaultVolume, snapshot.Volume)
+	}
 	if snapshot.QueueLength != 0 {
 		t.Fatalf("expected empty queue after reset, got %d", snapshot.QueueLength)
 	}
 }
 
+func TestDefaultSessionSnapshotUsesDefaultVolumeWhenPayloadOmitsIt(t *testing.T) {
+	t.Parallel()
+
+	snapshot := defaultSessionSnapshot()
+	if err := json.Unmarshal([]byte(`{"status":"paused","queueLength":0}`), &snapshot); err != nil {
+		t.Fatalf("unmarshal snapshot without volume: %v", err)
+	}
+
+	if snapshot.Volume != DefaultVolume {
+		t.Fatalf("expected default volume %d, got %d", DefaultVolume, snapshot.Volume)
+	}
+	if snapshot.Status != StatusPaused {
+		t.Fatalf("expected paused status, got %q", snapshot.Status)
+	}
+}
+
+func TestSQLiteStoreExplicitMuteVolumeSurvivesLoad(t *testing.T) {
+	t.Parallel()
+
+	storePath := t.TempDir() + "\\playback-state.db"
+	store, err := NewSQLiteStore(storePath)
+	if err != nil {
+		t.Fatalf("new sqlite store: %v", err)
+	}
+	defer store.Close()
+
+	if err := store.Save(context.Background(), SessionSnapshot{
+		Volume:    0,
+		Status:    StatusPaused,
+		UpdatedAt: formatTimestamp(time.Now().UTC()),
+	}); err != nil {
+		t.Fatalf("save muted snapshot: %v", err)
+	}
+
+	snapshot, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load muted snapshot: %v", err)
+	}
+	if snapshot.Volume != 0 {
+		t.Fatalf("expected muted volume to survive load, got %d", snapshot.Volume)
+	}
+}

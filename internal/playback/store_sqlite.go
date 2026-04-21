@@ -61,8 +61,9 @@ func DefaultStorePath(appName string) (string, error) {
 }
 
 func (s *SQLiteStore) Load(ctx context.Context) (SessionSnapshot, error) {
+	defaultSnapshot := normalizeSnapshot(defaultSessionSnapshot())
 	if s == nil || s.db == nil {
-		return normalizeSnapshot(SessionSnapshot{}), nil
+		return defaultSnapshot, nil
 	}
 
 	s.mu.Lock()
@@ -71,20 +72,20 @@ func (s *SQLiteStore) Load(ctx context.Context) (SessionSnapshot, error) {
 	var row sqliteSessionRow
 	err := s.db.WithContext(ctx).First(&row, "id = ?", playbackSessionStateRowID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return normalizeSnapshot(SessionSnapshot{}), nil
+		return defaultSnapshot, nil
 	}
 	if err != nil {
 		return SessionSnapshot{}, err
 	}
 	if row.SchemaVersion != playbackSessionSchemaVersion {
 		_ = s.db.WithContext(ctx).Delete(&sqliteSessionRow{}, "id = ?", playbackSessionStateRowID).Error
-		return normalizeSnapshot(SessionSnapshot{}), nil
+		return defaultSnapshot, nil
 	}
 
-	var snapshot SessionSnapshot
+	snapshot := defaultSessionSnapshot()
 	if strings.TrimSpace(row.SnapshotJSON) != "" {
 		if err := json.Unmarshal([]byte(row.SnapshotJSON), &snapshot); err != nil {
-			return normalizeSnapshot(SessionSnapshot{}), nil
+			return defaultSnapshot, nil
 		}
 	}
 	if snapshot.UpdatedAt == "" {

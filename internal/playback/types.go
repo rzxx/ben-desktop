@@ -58,7 +58,7 @@ const (
 	QueueInsertLast QueueInsertMode = "last"
 )
 
-const DefaultVolume = 80
+const DefaultVolume = 100
 
 var ErrUnsupportedPreloadActivation = errors.New("preloaded activation is unsupported")
 

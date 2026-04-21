@@ -188,19 +188,23 @@ func NewSession(core PlaybackCore, backend Backend, store SessionStore, preferre
 		backend = NewBackend()
 	}
 	return &Session{
-		core:             core,
-		backend:          backend,
-		store:            store,
-		preferredProfile: strings.TrimSpace(preferredProfile),
-		logger:           logger,
-		snapshot: SessionSnapshot{
-			RepeatMode:   RepeatOff,
-			Volume:       DefaultVolume,
-			Status:       StatusIdle,
-			NextEntrySeq: 1,
-		},
+		core:              core,
+		backend:           backend,
+		store:             store,
+		preferredProfile:  strings.TrimSpace(preferredProfile),
+		logger:            logger,
+		snapshot:          defaultSessionSnapshot(),
 		rng:               rand.New(rand.NewSource(time.Now().UTC().UnixNano())),
 		availabilityCache: make(map[string]cachedTargetAvailability),
+	}
+}
+
+func defaultSessionSnapshot() SessionSnapshot {
+	return SessionSnapshot{
+		RepeatMode:   RepeatOff,
+		Volume:       DefaultVolume,
+		Status:       StatusIdle,
+		NextEntrySeq: 1,
 	}
 }
 
