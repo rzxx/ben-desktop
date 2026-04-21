@@ -902,6 +902,7 @@ func (t *libp2pSyncTransport) handlePeerConnected(peerID peer.ID) {
 			LibraryID: t.libraryID,
 			PeerID:    peerID.String(),
 		})
+		return
 	}
 
 	local, err := t.app.EnsureLocalContext(ctx)
