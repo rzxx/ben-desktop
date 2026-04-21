@@ -1376,6 +1376,9 @@ func (s *TransportService) announceRuntimePresence(runtime *activeTransportRunti
 		return err
 	}
 	addrs := runtime.transport.ListenAddrs()
+	if reporter, ok := runtime.transport.(*libp2pSyncTransport); ok {
+		addrs = compactNonEmptyStrings(append(advertisedRelayAddrs(reporter.host), addrs...))
+	}
 	if err := s.app.saveKnownPeerAddrs(runtime.ctx, local.LibraryID, peerID, addrs); err != nil {
 		return err
 	}
