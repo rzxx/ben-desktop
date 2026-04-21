@@ -834,6 +834,12 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 		}
 		return err
 	}
+	if reserveCtx, cancel := context.WithTimeout(context.Background(), defaultInviteDiscoverTimeout); true {
+		defer cancel()
+		if err := s.app.ensureActiveTransportRelayReservation(reserveCtx, defaultInviteDiscoverTimeout); err != nil && s.app.cfg.Logger != nil {
+			s.app.cfg.Logger.Errorf("desktopcore: ensure relay reservation after join approval failed for %s: %v", requestID, err)
+		}
+	}
 	if sessionFound {
 		session, _, err = s.loadJoinSessionByRequestID(ctx, requestID)
 		if err != nil {
