@@ -274,7 +274,7 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 	discoverCtx, cancel := context.WithTimeout(ctx, discoverTimeout)
 	defer cancel()
 
-	client, err := s.app.openInviteClientTransport(serviceTagForLibrary(payload.LibraryID))
+	client, err := s.app.openInviteClientTransport(serviceTagForLibrary(payload.LibraryID), payload.RelayBootstrapAddrs)
 	if err != nil {
 		job.Fail(1, "failed to start invite transport", err)
 		return apitypes.JoinSession{}, err
@@ -1042,7 +1042,10 @@ func (s *InviteService) refreshJoinSessionRemote(ctx context.Context, session Jo
 	if err != nil {
 		return JoinSession{}, false, err
 	}
-	client, err := s.app.openInviteClientTransport(firstNonEmpty(session.ServiceTag, payload.ServiceTag))
+	client, err := s.app.openInviteClientTransport(
+		firstNonEmpty(session.ServiceTag, payload.ServiceTag),
+		compactNonEmptyStrings(append(joinSessionRelayBootstrapAddrs(session), payload.RelayBootstrapAddrs...)),
+	)
 	if err != nil {
 		return JoinSession{}, false, err
 	}
@@ -1232,7 +1235,10 @@ func (s *InviteService) cancelRemoteJoinSession(ctx context.Context, session Joi
 	if err != nil {
 		return err
 	}
-	client, err := s.app.openInviteClientTransport(firstNonEmpty(session.ServiceTag, payload.ServiceTag))
+	client, err := s.app.openInviteClientTransport(
+		firstNonEmpty(session.ServiceTag, payload.ServiceTag),
+		compactNonEmptyStrings(append(joinSessionRelayBootstrapAddrs(session), payload.RelayBootstrapAddrs...)),
+	)
 	if err != nil {
 		return err
 	}
@@ -1664,7 +1670,7 @@ func (a *App) peerLocator(registryURL string) PeerLocator {
 }
 
 func (s *InviteService) resolveInviteOwnerAddrs(ctx context.Context, payload inviteCodePayload) ([]string, error) {
-	addrs := compactNonEmptyStrings(append([]string(nil), payload.RelayBootstrapAddrs...))
+	addrs := []string(nil)
 	ownerPeerID := invitePayloadOwnerPeerID(payload)
 	if locator := s.app.peerLocator(payload.RegistryURL); locator != nil && payload.InviteAuth != nil {
 		record, ok, err := locator.LookupInviteOwner(ctx, registryauth.InviteOwnerLookupRequest{Invite: *payload.InviteAuth})
@@ -1706,9 +1712,6 @@ func (s *InviteService) resolveJoinSessionOwnerAddrs(ctx context.Context, sessio
 		if err == nil {
 			addrs = compactNonEmptyStrings(append(addrs, cached...))
 		}
-	}
-	if len(addrs) == 0 {
-		addrs = compactNonEmptyStrings(joinSessionRelayBootstrapAddrs(session))
 	}
 	return addrs, nil
 }

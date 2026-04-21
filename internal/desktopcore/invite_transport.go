@@ -226,12 +226,15 @@ func deleteJoinSessionKeypair(ctx context.Context, db *gorm.DB, sessionID string
 	return db.WithContext(ctx).Where("key = ?", key).Delete(&LocalSetting{}).Error
 }
 
-func (a *App) openInviteClientTransport(serviceTag string) (*inviteClientTransport, error) {
+func (a *App) openInviteClientTransport(serviceTag string, relayBootstrapAddrs []string) (*inviteClientTransport, error) {
 	serviceTag = strings.TrimSpace(serviceTag)
 	if serviceTag == "" {
 		return nil, fmt.Errorf("invite service tag is required")
 	}
-	hostNode, err := a.newSharedLibp2pHost(libp2pHostBuildOptions{mode: libp2pHostModeClient})
+	hostNode, err := a.newSharedLibp2pHost(libp2pHostBuildOptions{
+		mode:                libp2pHostModeClient,
+		relayBootstrapAddrs: relayBootstrapAddrs,
+	})
 	if err != nil {
 		return nil, err
 	}
