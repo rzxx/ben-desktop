@@ -205,6 +205,92 @@ func TestRemoveLibraryMemberRevokesCertClearsRecoveryAndRotatesAuthority(t *test
 	}
 }
 
+func TestIssueMembershipCertTxDoesNotReuseRevokedSerialAfterDelete(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+	library, err := app.CreateLibrary(ctx, "reissue-after-removal")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	now := time.Now().UTC()
+
+	if err := app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, _, _, err := ensureLibraryJoinMaterialTx(tx, library.LibraryID, now); err != nil {
+			return err
+		}
+		if err := tx.Create(&Device{
+			DeviceID:   "device-member",
+			Name:       "device-member",
+			PeerID:     "peer-member",
+			JoinedAt:   now,
+			LastSeenAt: cloneTimePtr(&now),
+		}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&Membership{
+			LibraryID:        library.LibraryID,
+			DeviceID:         "device-member",
+			Role:             roleMember,
+			CapabilitiesJSON: "{}",
+			JoinedAt:         now,
+		}).Error; err != nil {
+			return err
+		}
+		_, err := issueMembershipCertTx(tx, library.LibraryID, "device-member", "peer-member", roleMember, time.Hour)
+		return err
+	}); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+
+	beforeCert, ok, err := app.loadMembershipCert(ctx, library.LibraryID, "device-member")
+	if err != nil || !ok {
+		t.Fatalf("load before cert: ok=%v err=%v", ok, err)
+	}
+
+	if err := app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return revokeMembershipCertTx(tx, library.LibraryID, "device-member", "membership removed", true)
+	}); err != nil {
+		t.Fatalf("revoke existing cert: %v", err)
+	}
+
+	revoked, err := app.membershipCertRevoked(ctx, library.LibraryID, "device-member", beforeCert.Serial)
+	if err != nil {
+		t.Fatalf("check revoked serial: %v", err)
+	}
+	if !revoked {
+		t.Fatal("expected deleted cert serial to be revoked")
+	}
+
+	var reissued membershipCertEnvelope
+	if err := app.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		reissued, err = issueMembershipCertTx(tx, library.LibraryID, "device-member", "peer-member-rejoined", roleMember, time.Hour)
+		return err
+	}); err != nil {
+		t.Fatalf("reissue member cert: %v", err)
+	}
+
+	if reissued.Serial <= beforeCert.Serial {
+		t.Fatalf("reissued cert serial = %d, want > %d", reissued.Serial, beforeCert.Serial)
+	}
+	if reissued.PeerID != "peer-member-rejoined" {
+		t.Fatalf("reissued cert peer id = %q, want %q", reissued.PeerID, "peer-member-rejoined")
+	}
+	if revoked, err := app.membershipCertRevoked(ctx, library.LibraryID, "device-member", reissued.Serial); err != nil {
+		t.Fatalf("check reissued serial: %v", err)
+	} else if revoked {
+		t.Fatalf("reissued cert serial %d should not be revoked", reissued.Serial)
+	}
+	afterCert, ok, err := app.loadMembershipCert(ctx, library.LibraryID, "device-member")
+	if err != nil || !ok {
+		t.Fatalf("load reissued cert: ok=%v err=%v", ok, err)
+	}
+	if afterCert.Serial != reissued.Serial {
+		t.Fatalf("stored cert serial = %d, want %d", afterCert.Serial, reissued.Serial)
+	}
+}
+
 func TestEnsureLocalTransportMembershipAuthRefreshesNonAdminWithRecovery(t *testing.T) {
 	t.Parallel()
 

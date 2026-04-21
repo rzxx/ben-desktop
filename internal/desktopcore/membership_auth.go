@@ -191,13 +191,13 @@ func issueMembershipCertTx(tx *gorm.DB, libraryID, deviceID, peerID, role string
 	}
 
 	now := time.Now().UTC()
-	serial := int64(1)
+	maxSerial := int64(0)
 	var existing MembershipCert
 	err = tx.Where("library_id = ? AND device_id = ?", libraryID, deviceID).Take(&existing).Error
 	switch {
 	case err == nil:
-		if existing.Serial >= serial {
-			serial = existing.Serial + 1
+		if existing.Serial > maxSerial {
+			maxSerial = existing.Serial
 		}
 		if existing.Serial > 0 && strings.TrimSpace(existing.PeerID) != "" {
 			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&MembershipCertRevocation{
@@ -214,6 +214,19 @@ func issueMembershipCertTx(tx *gorm.DB, libraryID, deviceID, peerID, role string
 	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return membershipCertEnvelope{}, err
 	}
+	var revokedSerial struct {
+		MaxSerial int64
+	}
+	if err := tx.Model(&MembershipCertRevocation{}).
+		Select("COALESCE(MAX(serial), 0) AS max_serial").
+		Where("library_id = ? AND device_id = ?", libraryID, deviceID).
+		Scan(&revokedSerial).Error; err != nil {
+		return membershipCertEnvelope{}, err
+	}
+	if revokedSerial.MaxSerial > maxSerial {
+		maxSerial = revokedSerial.MaxSerial
+	}
+	serial := maxSerial + 1
 
 	cert := membershipCertEnvelope{
 		LibraryID:        libraryID,
