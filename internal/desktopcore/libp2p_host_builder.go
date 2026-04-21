@@ -76,7 +76,11 @@ func (a *App) newSharedLibp2pHost(opts libp2pHostBuildOptions) (host.Host, error
 	}
 
 	if len(staticRelays) > 0 {
-		libp2pOpts = append(libp2pOpts, libp2p.EnableAutoRelayWithStaticRelays(staticRelays))
+		libp2pOpts = append(
+			libp2pOpts,
+			libp2p.EnableAutoRelayWithStaticRelays(staticRelays),
+			libp2p.ForceReachabilityPrivate(),
+		)
 	}
 
 	if opts.mode == libp2pHostModeRelayServer {
@@ -94,6 +98,9 @@ func (a *App) newSharedLibp2pHost(opts libp2pHostBuildOptions) (host.Host, error
 	hostNode, err := libp2p.New(libp2pOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("create libp2p host: %w", err)
+	}
+	if opts.mode == libp2pHostModeClient && len(staticRelays) > 0 {
+		a.bootstrapStaticRelayConnections(hostNode, staticRelays)
 	}
 	return hostNode, nil
 }
@@ -119,6 +126,22 @@ func parseRelayBootstrapAddrInfos(values []string) ([]peer.AddrInfo, error) {
 		out = append(out, *info)
 	}
 	return out, nil
+}
+
+func (a *App) bootstrapStaticRelayConnections(h host.Host, relays []peer.AddrInfo) {
+	if h == nil || len(relays) == 0 {
+		return
+	}
+	go func() {
+		for _, info := range relays {
+			connectCtx, cancel := context.WithTimeout(context.Background(), transportConnectTimeout)
+			err := h.Connect(connectCtx, info)
+			cancel()
+			if err != nil && a != nil && a.cfg.Logger != nil {
+				a.cfg.Logger.Printf("desktopcore: relay bootstrap connect to %s failed: %v", info.ID.String(), err)
+			}
+		}
+	}()
 }
 
 func newRelayResources() relayv2.Resources {
