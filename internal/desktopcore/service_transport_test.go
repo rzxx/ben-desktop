@@ -1634,6 +1634,44 @@ func TestLibp2pPeerConnectedCatchupDoesNotListAllPeers(t *testing.T) {
 	t.Fatalf("timed out waiting for targeted connect catch-up hook; last peer=%q reason=%q", gotPeer, gotReason)
 }
 
+func TestLibp2pPeerConnectedSkipsCatchupForUnresolvedMembership(t *testing.T) {
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	library, err := app.CreateLibrary(ctx, "libp2p-connect-unresolved")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.syncActiveRuntimeServices(ctx); err != nil {
+		t.Fatalf("start runtime services: %v", err)
+	}
+
+	var catchupRuns atomic.Int32
+	app.transportService.catchupPeerRunHook = func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
+		catchupRuns.Add(1)
+	}
+
+	runtime := app.transportService.activeRuntimeForLibrary(library.LibraryID)
+	if runtime == nil || runtime.transport == nil {
+		t.Fatal("expected active transport runtime")
+	}
+	transport, ok := runtime.transport.(*libp2pSyncTransport)
+	if !ok {
+		t.Fatal("expected libp2p transport")
+	}
+
+	unknownPeerID, err := peer.Decode("12D3KooWLV6VGiLvwxRCxqx2BfUmCRmyT8LPEBfkuHfh3oAhiLAg")
+	if err != nil {
+		t.Fatalf("decode unresolved peer id: %v", err)
+	}
+
+	transport.handlePeerConnected(unknownPeerID)
+	time.Sleep(100 * time.Millisecond)
+	if got := catchupRuns.Load(); got != 0 {
+		t.Fatalf("catch-up runs for unresolved peer = %d, want 0", got)
+	}
+}
+
 type fakeManagedTransport struct {
 	libraryID string
 	deviceID  string
