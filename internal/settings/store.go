@@ -18,11 +18,15 @@ type State struct {
 }
 
 type CoreRuntimeSettings struct {
-	DBPath           string `json:"dbPath,omitempty"`
-	BlobRoot         string `json:"blobRoot,omitempty"`
-	IdentityKeyPath  string `json:"identityKeyPath,omitempty"`
-	FFmpegPath       string `json:"ffmpegPath,omitempty"`
-	TranscodeProfile string `json:"transcodeProfile,omitempty"`
+	DBPath                         string   `json:"dbPath,omitempty"`
+	BlobRoot                       string   `json:"blobRoot,omitempty"`
+	IdentityKeyPath                string   `json:"identityKeyPath,omitempty"`
+	FFmpegPath                     string   `json:"ffmpegPath,omitempty"`
+	TranscodeProfile               string   `json:"transcodeProfile,omitempty"`
+	RelayBootstrap                 []string `json:"relayBootstrap,omitempty"`
+	RegistryURL                    string   `json:"registryUrl,omitempty"`
+	EnableLANDiscovery             *bool    `json:"enableLanDiscovery,omitempty"`
+	RequireDirectForLargeTransfers *bool    `json:"requireDirectForLargeTransfers,omitempty"`
 }
 
 type NotificationUISettings struct {
@@ -139,7 +143,32 @@ func normalizeCoreRuntimeSettings(settings CoreRuntimeSettings) CoreRuntimeSetti
 	settings.IdentityKeyPath = strings.TrimSpace(settings.IdentityKeyPath)
 	settings.FFmpegPath = strings.TrimSpace(settings.FFmpegPath)
 	settings.TranscodeProfile = NormalizeTranscodeProfile(settings.TranscodeProfile)
+	settings.RelayBootstrap = normalizeStringList(settings.RelayBootstrap)
+	settings.RegistryURL = strings.TrimSpace(settings.RegistryURL)
 	return settings
+}
+
+func normalizeStringList(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func normalizeNotificationUISettings(settings NotificationUISettings) NotificationUISettings {

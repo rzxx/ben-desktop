@@ -1402,6 +1402,8 @@ export class InviteCodeRequest {
 export class InviteCodeResult {
     "LibraryID": string;
     "ServiceTag": string;
+    "RegistryURL": string;
+    "RelayBootstrapAddrs": string[];
     "InviteCode": string;
     "InviteLink": string;
     "Role": string;
@@ -1415,6 +1417,12 @@ export class InviteCodeResult {
         }
         if (!("ServiceTag" in $$source)) {
             this["ServiceTag"] = "";
+        }
+        if (!("RegistryURL" in $$source)) {
+            this["RegistryURL"] = "";
+        }
+        if (!("RelayBootstrapAddrs" in $$source)) {
+            this["RelayBootstrapAddrs"] = [];
         }
         if (!("InviteCode" in $$source)) {
             this["InviteCode"] = "";
@@ -1439,7 +1447,11 @@ export class InviteCodeResult {
      * Creates a new InviteCodeResult instance from a string or object.
      */
     static createFrom($$source: any = {}): InviteCodeResult {
+        const $$createField3_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("RelayBootstrapAddrs" in $$parsedSource) {
+            $$parsedSource["RelayBootstrapAddrs"] = $$createField3_0($$parsedSource["RelayBootstrapAddrs"]);
+        }
         return new InviteCodeResult($$parsedSource as Partial<InviteCodeResult>);
     }
 }
@@ -1619,6 +1631,9 @@ export class JoinSession {
     "LibraryID": string;
     "Role": string;
     "Pending": boolean;
+    "RegistryURL": string;
+    "RelayBootstrapAddrs": string[];
+    "LastResolvedOwnerAddrs": string[];
     "OwnerDeviceID": string;
     "OwnerRole": string;
     "OwnerPeerID": string;
@@ -1649,6 +1664,15 @@ export class JoinSession {
         if (!("Pending" in $$source)) {
             this["Pending"] = false;
         }
+        if (!("RegistryURL" in $$source)) {
+            this["RegistryURL"] = "";
+        }
+        if (!("RelayBootstrapAddrs" in $$source)) {
+            this["RelayBootstrapAddrs"] = [];
+        }
+        if (!("LastResolvedOwnerAddrs" in $$source)) {
+            this["LastResolvedOwnerAddrs"] = [];
+        }
         if (!("OwnerDeviceID" in $$source)) {
             this["OwnerDeviceID"] = "";
         }
@@ -1675,7 +1699,15 @@ export class JoinSession {
      * Creates a new JoinSession instance from a string or object.
      */
     static createFrom($$source: any = {}): JoinSession {
+        const $$createField8_0 = $$createType10;
+        const $$createField9_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("RelayBootstrapAddrs" in $$parsedSource) {
+            $$parsedSource["RelayBootstrapAddrs"] = $$createField8_0($$parsedSource["RelayBootstrapAddrs"]);
+        }
+        if ("LastResolvedOwnerAddrs" in $$parsedSource) {
+            $$parsedSource["LastResolvedOwnerAddrs"] = $$createField9_0($$parsedSource["LastResolvedOwnerAddrs"]);
+        }
         return new JoinSession($$parsedSource as Partial<JoinSession>);
     }
 }
@@ -2101,6 +2133,8 @@ export class NetworkDebugTraceEntry {
     "DeviceID": string;
     "PeerID": string;
     "Address": string;
+    "ConnectionKind": string;
+    "DirectUpgradeState": string;
     "Reason": string;
     "Error": string;
 
@@ -2130,6 +2164,12 @@ export class NetworkDebugTraceEntry {
         if (!("Address" in $$source)) {
             this["Address"] = "";
         }
+        if (!("ConnectionKind" in $$source)) {
+            this["ConnectionKind"] = "";
+        }
+        if (!("DirectUpgradeState" in $$source)) {
+            this["DirectUpgradeState"] = "";
+        }
         if (!("Reason" in $$source)) {
             this["Reason"] = "";
         }
@@ -2156,6 +2196,15 @@ export class NetworkStatus {
     "PeerID": string;
     "ListenAddrs": string[];
     "ServiceTag": string;
+    "RegistryURL": string;
+    "RelayBootstrapAddrs": string[];
+    "EnableLANDiscovery": boolean;
+    "RequireDirectForLargeTransfers": boolean;
+    "RelayReservationActive": boolean;
+    "AdvertisedRelayAddrs": string[];
+    "LastRegistryAnnounceAt": time$0.Time | null;
+    "ConnectionKind": string;
+    "DirectUpgradeState": string;
     "Mode": NetworkSyncMode;
     "Activity": NetworkSyncActivity;
     "Reason": NetworkSyncReason;
@@ -2185,6 +2234,33 @@ export class NetworkStatus {
         }
         if (!("ServiceTag" in $$source)) {
             this["ServiceTag"] = "";
+        }
+        if (!("RegistryURL" in $$source)) {
+            this["RegistryURL"] = "";
+        }
+        if (!("RelayBootstrapAddrs" in $$source)) {
+            this["RelayBootstrapAddrs"] = [];
+        }
+        if (!("EnableLANDiscovery" in $$source)) {
+            this["EnableLANDiscovery"] = false;
+        }
+        if (!("RequireDirectForLargeTransfers" in $$source)) {
+            this["RequireDirectForLargeTransfers"] = false;
+        }
+        if (!("RelayReservationActive" in $$source)) {
+            this["RelayReservationActive"] = false;
+        }
+        if (!("AdvertisedRelayAddrs" in $$source)) {
+            this["AdvertisedRelayAddrs"] = [];
+        }
+        if (!("LastRegistryAnnounceAt" in $$source)) {
+            this["LastRegistryAnnounceAt"] = null;
+        }
+        if (!("ConnectionKind" in $$source)) {
+            this["ConnectionKind"] = "";
+        }
+        if (!("DirectUpgradeState" in $$source)) {
+            this["DirectUpgradeState"] = "";
         }
         if (!("Mode" in $$source)) {
             this["Mode"] = NetworkSyncMode.$zero;
@@ -2222,9 +2298,17 @@ export class NetworkStatus {
      */
     static createFrom($$source: any = {}): NetworkStatus {
         const $$createField4_0 = $$createType10;
+        const $$createField7_0 = $$createType10;
+        const $$createField11_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("ListenAddrs" in $$parsedSource) {
             $$parsedSource["ListenAddrs"] = $$createField4_0($$parsedSource["ListenAddrs"]);
+        }
+        if ("RelayBootstrapAddrs" in $$parsedSource) {
+            $$parsedSource["RelayBootstrapAddrs"] = $$createField7_0($$parsedSource["RelayBootstrapAddrs"]);
+        }
+        if ("AdvertisedRelayAddrs" in $$parsedSource) {
+            $$parsedSource["AdvertisedRelayAddrs"] = $$createField11_0($$parsedSource["AdvertisedRelayAddrs"]);
         }
         return new NetworkStatus($$parsedSource as Partial<NetworkStatus>);
     }

@@ -1,0 +1,201 @@
+package desktopcore
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
+	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
+)
+
+var errDirectConnectionRequired = errors.New("direct_connection_required")
+
+type libp2pHostMode int
+
+const (
+	libp2pHostModeClient libp2pHostMode = iota
+	libp2pHostModeRelayServer
+)
+
+type libp2pHostBuildOptions struct {
+	mode libp2pHostMode
+}
+
+type peerConnectionState struct {
+	Any                  bool
+	Direct               bool
+	OnlyLimitedRelayed   bool
+	HasLimitedConnection bool
+}
+
+func (s peerConnectionState) Kind() string {
+	switch {
+	case s.Direct && s.HasLimitedConnection:
+		return "mixed"
+	case s.Direct:
+		return "direct"
+	case s.OnlyLimitedRelayed:
+		return "relayed"
+	default:
+		return "disconnected"
+	}
+}
+
+func (a *App) newSharedLibp2pHost(opts libp2pHostBuildOptions) (host.Host, error) {
+	priv, err := loadOrCreateTransportIdentityKey(a.cfg.IdentityKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("load transport identity: %w", err)
+	}
+
+	staticRelays, err := parseRelayBootstrapAddrInfos(a.cfg.RelayBootstrapAddrs)
+	if err != nil {
+		return nil, err
+	}
+
+	libp2pOpts := []libp2p.Option{
+		libp2p.Identity(priv),
+		libp2p.ListenAddrStrings(
+			"/ip4/0.0.0.0/tcp/0",
+			"/ip6/::/tcp/0",
+			"/ip4/0.0.0.0/udp/0/quic-v1",
+			"/ip6/::/udp/0/quic-v1",
+		),
+		libp2p.NATPortMap(),
+		libp2p.EnableNATService(),
+		libp2p.EnableRelay(),
+		libp2p.EnableHolePunching(),
+		libp2p.EnableAutoNATv2(),
+	}
+
+	if len(staticRelays) > 0 {
+		libp2pOpts = append(libp2pOpts, libp2p.EnableAutoRelayWithStaticRelays(staticRelays))
+	}
+
+	if opts.mode == libp2pHostModeRelayServer {
+		rm, err := newRelayResourceManager()
+		if err != nil {
+			return nil, fmt.Errorf("build relay resource manager: %w", err)
+		}
+		libp2pOpts = append(libp2pOpts,
+			libp2p.ResourceManager(rm),
+			libp2p.ForceReachabilityPublic(),
+			libp2p.EnableRelayService(relayv2.WithResources(newRelayResources())),
+		)
+	}
+
+	hostNode, err := libp2p.New(libp2pOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("create libp2p host: %w", err)
+	}
+	return hostNode, nil
+}
+
+func parseRelayBootstrapAddrInfos(values []string) ([]peer.AddrInfo, error) {
+	values = compactNonEmptyStrings(values)
+	if len(values) == 0 {
+		return nil, nil
+	}
+	out := make([]peer.AddrInfo, 0, len(values))
+	for _, value := range values {
+		info, err := peer.AddrInfoFromString(value)
+		if err != nil {
+			return nil, fmt.Errorf("parse relay bootstrap addr %q: %w", value, err)
+		}
+		out = append(out, *info)
+	}
+	return out, nil
+}
+
+func newRelayResources() relayv2.Resources {
+	resources := relayv2.DefaultResources()
+	resources.ReservationTTL = time.Hour
+	resources.MaxReservations = 128
+	resources.MaxCircuits = 8
+	resources.MaxReservationsPerPeer = 1
+	resources.MaxReservationsPerIP = 8
+	resources.MaxReservationsPerASN = 32
+	resources.Limit = &relayv2.RelayLimit{
+		Duration: 90 * time.Second,
+		Data:     256 << 10,
+	}
+	return resources
+}
+
+func newRelayResourceManager() (network.ResourceManager, error) {
+	scaling := rcmgr.DefaultLimits
+	libp2p.SetDefaultServiceLimits(&scaling)
+	limits := scaling.AutoScale()
+	return rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(limits), rcmgr.WithMetricsDisabled())
+}
+
+func connectionStateForPeer(h host.Host, peerID peer.ID) peerConnectionState {
+	if h == nil || peerID == "" {
+		return peerConnectionState{}
+	}
+	state := peerConnectionState{}
+	for _, conn := range h.Network().ConnsToPeer(peerID) {
+		if conn == nil {
+			continue
+		}
+		state.Any = true
+		if conn.Stat().Limited {
+			state.HasLimitedConnection = true
+			continue
+		}
+		state.Direct = true
+	}
+	state.OnlyLimitedRelayed = state.Any && !state.Direct && state.HasLimitedConnection
+	return state
+}
+
+func ensureDirectConnection(ctx context.Context, h host.Host, peerID peer.ID) (peerConnectionState, error) {
+	state := connectionStateForPeer(h, peerID)
+	if state.Direct {
+		return state, nil
+	}
+	if h == nil || peerID == "" {
+		return state, errDirectConnectionRequired
+	}
+	dialCtx := network.WithForceDirectDial(ctx, "direct-required")
+	info := peer.AddrInfo{
+		ID:    peerID,
+		Addrs: h.Peerstore().Addrs(peerID),
+	}
+	if err := h.Connect(dialCtx, info); err != nil {
+		next := connectionStateForPeer(h, peerID)
+		if next.Direct {
+			return next, nil
+		}
+		if next.OnlyLimitedRelayed {
+			return next, fmt.Errorf("%w: %v", errDirectConnectionRequired, err)
+		}
+		return next, err
+	}
+	state = connectionStateForPeer(h, peerID)
+	if state.Direct {
+		return state, nil
+	}
+	return state, errDirectConnectionRequired
+}
+
+func advertisedRelayAddrs(h host.Host) []string {
+	if h == nil {
+		return nil
+	}
+	out := make([]string, 0, len(h.Addrs()))
+	for _, addr := range h.Addrs() {
+		value := addr.String()
+		if !strings.Contains(value, "/p2p-circuit") {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s/p2p/%s", value, h.ID().String()))
+	}
+	return sortedListenAddrs(out)
+}

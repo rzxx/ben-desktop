@@ -14,16 +14,22 @@ import (
 const defaultCacheBytes = int64(10 * 1024 * 1024 * 1024)
 
 type Config struct {
-	DBPath           string
-	BlobRoot         string
-	IdentityKeyPath  string
-	FFmpegPath       string
-	TranscodeProfile string
-	CacheBytes       int64
-	TagReader        TagReader
-	TranscodeBuilder AACTranscodeBuilder
-	ArtworkBuilder   ArtworkBuilder
-	Logger           apitypes.Logger
+	DBPath                            string
+	BlobRoot                          string
+	IdentityKeyPath                   string
+	FFmpegPath                        string
+	TranscodeProfile                  string
+	RelayBootstrapAddrs               []string
+	RegistryURL                       string
+	EnableLANDiscovery                bool
+	RequireDirectForLargeTransfers    bool
+	enableLANDiscoverySet             bool
+	requireDirectForLargeTransfersSet bool
+	CacheBytes                        int64
+	TagReader                         TagReader
+	TranscodeBuilder                  AACTranscodeBuilder
+	ArtworkBuilder                    ArtworkBuilder
+	Logger                            apitypes.Logger
 }
 
 func DefaultDataRoot() (string, error) {
@@ -63,12 +69,26 @@ func OpenFromSettings(ctx context.Context, stored settings.CoreRuntimeSettings) 
 }
 
 func ConfigFromSettings(stored settings.CoreRuntimeSettings) Config {
+	enableLANDiscovery := true
+	if stored.EnableLANDiscovery != nil {
+		enableLANDiscovery = *stored.EnableLANDiscovery
+	}
+	requireDirect := true
+	if stored.RequireDirectForLargeTransfers != nil {
+		requireDirect = *stored.RequireDirectForLargeTransfers
+	}
 	return Config{
-		DBPath:           strings.TrimSpace(stored.DBPath),
-		BlobRoot:         strings.TrimSpace(stored.BlobRoot),
-		IdentityKeyPath:  strings.TrimSpace(stored.IdentityKeyPath),
-		FFmpegPath:       strings.TrimSpace(stored.FFmpegPath),
-		TranscodeProfile: settings.EffectiveTranscodeProfile(stored.TranscodeProfile),
+		DBPath:                            strings.TrimSpace(stored.DBPath),
+		BlobRoot:                          strings.TrimSpace(stored.BlobRoot),
+		IdentityKeyPath:                   strings.TrimSpace(stored.IdentityKeyPath),
+		FFmpegPath:                        strings.TrimSpace(stored.FFmpegPath),
+		TranscodeProfile:                  settings.EffectiveTranscodeProfile(stored.TranscodeProfile),
+		RelayBootstrapAddrs:               append([]string(nil), stored.RelayBootstrap...),
+		RegistryURL:                       strings.TrimSpace(stored.RegistryURL),
+		EnableLANDiscovery:                enableLANDiscovery,
+		RequireDirectForLargeTransfers:    requireDirect,
+		enableLANDiscoverySet:             true,
+		requireDirectForLargeTransfersSet: true,
 	}
 }
 
@@ -82,6 +102,8 @@ func ResolveConfig(cfg Config) (Config, error) {
 	cfg.IdentityKeyPath = strings.TrimSpace(cfg.IdentityKeyPath)
 	cfg.FFmpegPath = strings.TrimSpace(cfg.FFmpegPath)
 	cfg.TranscodeProfile = settings.EffectiveTranscodeProfile(cfg.TranscodeProfile)
+	cfg.RelayBootstrapAddrs = compactNonEmptyStrings(cfg.RelayBootstrapAddrs)
+	cfg.RegistryURL = strings.TrimSpace(cfg.RegistryURL)
 
 	if cfg.DBPath == "" {
 		path, err := DefaultDBPath()
@@ -112,6 +134,12 @@ func ResolveConfig(cfg Config) (Config, error) {
 	}
 	if cfg.CacheBytes <= 0 {
 		cfg.CacheBytes = defaultCacheBytes
+	}
+	if !cfg.enableLANDiscoverySet {
+		cfg.EnableLANDiscovery = true
+	}
+	if !cfg.requireDirectForLargeTransfersSet {
+		cfg.RequireDirectForLargeTransfers = true
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = noopLogger{}

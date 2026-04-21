@@ -43,13 +43,15 @@ type InviteCodeRequest struct {
 }
 
 type InviteCodeResult struct {
-	LibraryID  string
-	ServiceTag string
-	InviteCode string
-	InviteLink string
-	Role       string
-	Uses       int
-	ExpiresAt  time.Time
+	LibraryID           string
+	ServiceTag          string
+	RegistryURL         string
+	RelayBootstrapAddrs []string
+	InviteCode          string
+	InviteLink          string
+	Role                string
+	Uses                int
+	ExpiresAt           time.Time
 }
 
 type JoinFromInviteInput struct {
@@ -60,33 +62,38 @@ type JoinFromInviteInput struct {
 }
 
 type JoinSession struct {
-	SessionID     string
-	RequestID     string
-	Status        string
-	Message       string
-	LibraryID     string
-	Role          string
-	Pending       bool
-	OwnerDeviceID string
-	OwnerRole     string
-	OwnerPeerID   string
-	ExpiresAt     time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	SessionID              string
+	RequestID              string
+	Status                 string
+	Message                string
+	LibraryID              string
+	Role                   string
+	Pending                bool
+	RegistryURL            string
+	RelayBootstrapAddrs    []string
+	LastResolvedOwnerAddrs []string
+	OwnerDeviceID          string
+	OwnerRole              string
+	OwnerPeerID            string
+	ExpiresAt              time.Time
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type JoinLibraryResult struct {
-	Pending           bool
-	RequestID         string
-	LibraryID         string
-	Role              string
-	DeviceID          string
-	LocalPeerID       string
-	DeviceFingerprint string
-	OwnerDeviceID     string
-	OwnerRole         string
-	OwnerPeerID       string
-	OwnerFingerprint  string
+	Pending             bool
+	RequestID           string
+	LibraryID           string
+	Role                string
+	DeviceID            string
+	LocalPeerID         string
+	DeviceFingerprint   string
+	RegistryURL         string
+	RelayBootstrapAddrs []string
+	OwnerDeviceID       string
+	OwnerRole           string
+	OwnerPeerID         string
+	OwnerFingerprint    string
 }
 
 // InviteJoinSurface is the joiner-facing invite handshake API.

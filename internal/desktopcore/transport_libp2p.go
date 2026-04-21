@@ -1,6 +1,7 @@
 package desktopcore
 
 import (
+	"ben/registryauth"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -9,17 +10,16 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	apitypes "ben/desktop/api/types"
-	"github.com/libp2p/go-libp2p"
 	crypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
-	tcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -40,11 +40,14 @@ type transportMDNSService interface {
 }
 
 type libp2pSyncTransport struct {
-	app       *App
-	libraryID string
-	deviceID  string
-	host      host.Host
-	mdns      transportMDNSService
+	app                    *App
+	libraryID              string
+	deviceID               string
+	host                   host.Host
+	mdns                   transportMDNSService
+	statusMu               sync.RWMutex
+	lastRegistryAnnounceAt *time.Time
+	directUpgradeState     string
 }
 
 type libp2pSyncPeer struct {
@@ -68,27 +71,9 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 		return nil, fmt.Errorf("device id is required")
 	}
 
-	priv, err := loadOrCreateTransportIdentityKey(a.cfg.IdentityKeyPath)
+	hostNode, err := a.newSharedLibp2pHost(libp2pHostBuildOptions{mode: libp2pHostModeClient})
 	if err != nil {
-		return nil, fmt.Errorf("load transport identity: %w", err)
-	}
-	hostNode, err := libp2p.New(
-		libp2p.Identity(priv),
-		libp2p.ListenAddrStrings(
-			"/ip4/0.0.0.0/tcp/0",
-			"/ip4/127.0.0.1/tcp/0",
-			"/ip6/::/tcp/0",
-			"/ip6/::1/tcp/0",
-		),
-		libp2p.Transport(tcp.NewTCPTransport),
-		libp2p.NATPortMap(),
-		libp2p.EnableNATService(),
-		libp2p.EnableHolePunching(),
-		libp2p.EnableRelay(),
-		libp2p.EnableRelayService(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create libp2p host: %w", err)
+		return nil, err
 	}
 
 	transport := &libp2pSyncTransport{
@@ -108,16 +93,18 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 	hostNode.SetStreamHandler(desktopInviteJoinCancelProtocolID, transport.handleInviteJoinCancelStream)
 	hostNode.Network().Notify(&desktopNetworkNotifee{transport: transport})
 
-	service := mdns.NewMdnsService(hostNode, serviceTagForLibrary(local.LibraryID), &desktopMDNSNotifee{
-		host:   hostNode,
-		logger: a.cfg.Logger,
-	})
-	if err := service.Start(); err != nil {
-		if a.cfg.Logger != nil {
-			a.cfg.Logger.Errorf("desktopcore: start mdns failed for %s: %v", local.LibraryID, err)
+	if a.cfg.EnableLANDiscovery {
+		service := mdns.NewMdnsService(hostNode, serviceTagForLibrary(local.LibraryID), &desktopMDNSNotifee{
+			host:   hostNode,
+			logger: a.cfg.Logger,
+		})
+		if err := service.Start(); err != nil {
+			if a.cfg.Logger != nil {
+				a.cfg.Logger.Errorf("desktopcore: start mdns failed for %s: %v", local.LibraryID, err)
+			}
+		} else {
+			transport.mdns = service
 		}
-	} else {
-		transport.mdns = service
 	}
 
 	if err := a.touchDevicePeerID(ctx, local.DeviceID, hostNode.ID().String(), local.Device); err != nil {
@@ -240,6 +227,7 @@ func (t *libp2pSyncTransport) ResolvePeer(ctx context.Context, _ apitypes.LocalC
 		PeerID:    info.ID.String(),
 		Address:   peerAddr,
 	})
+	_ = t.app.saveKnownPeerAddrs(ctx, t.libraryID, info.ID.String(), []string{peerAddr})
 
 	deviceID, _, err := t.app.memberDeviceIDForPeer(ctx, t.libraryID, info.ID.String())
 	if err != nil {
@@ -282,6 +270,11 @@ func (t *libp2pSyncTransport) ResolvePeerByIdentity(ctx context.Context, _ apity
 		}
 		if ok {
 			deviceID = resolvedDeviceID
+		}
+	}
+	if t.host.Network().Connectedness(decoded) != network.Connected && t.host.Network().Connectedness(decoded) != network.Limited {
+		if err := t.resolvePeerIdentityAddresses(ctx, decoded, deviceID); err != nil && t.app.cfg.Logger != nil {
+			t.app.cfg.Logger.Errorf("desktopcore: resolve peer identity addresses failed for %s: %v", decoded.String(), err)
 		}
 	}
 	return &libp2pSyncPeer{
@@ -456,6 +449,71 @@ func (p *libp2pSyncPeer) RefreshMembership(ctx context.Context, req MembershipRe
 func (p *libp2pSyncPeer) openStream(ctx context.Context, protocolID protocol.ID) (network.Stream, error) {
 	if p == nil || p.transport == nil || p.transport.host == nil {
 		return nil, fmt.Errorf("peer transport is not available")
+	}
+	if p.transport.app.cfg.RequireDirectForLargeTransfers && protocolRequiresDirectConnection(protocolID) {
+		p.transport.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			Level:              "info",
+			Kind:               "transport.direct_upgrade.started",
+			Message:            "Attempting direct connection upgrade",
+			LibraryID:          p.transport.libraryID,
+			DeviceID:           p.transport.deviceID,
+			PeerID:             p.peerID.String(),
+			Address:            p.Address(),
+			DirectUpgradeState: "dcutr_upgrade_in_progress",
+		})
+		p.transport.setDirectUpgradeState("dcutr_upgrade_in_progress")
+		state, err := ensureDirectConnection(ctx, p.transport.host, p.peerID)
+		p.transport.recordConnectionState(peerConnectionStateDebugEntry{
+			level:   "info",
+			peerID:  p.peerID.String(),
+			address: p.Address(),
+			state:   state,
+		})
+		if err != nil {
+			p.transport.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+				Level:              "warn",
+				Kind:               "transport.direct_upgrade.failed",
+				Message:            "Direct connection required but only relayed connectivity is available",
+				LibraryID:          p.transport.libraryID,
+				DeviceID:           p.transport.deviceID,
+				PeerID:             p.peerID.String(),
+				Address:            p.Address(),
+				ConnectionKind:     state.Kind(),
+				DirectUpgradeState: "direct_upgrade_failed",
+				Error:              err.Error(),
+			})
+			if state.OnlyLimitedRelayed {
+				p.transport.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+					Level:              "warn",
+					Kind:               "transport.relayed_only",
+					Message:            "Peer is reachable only over a limited relayed connection",
+					LibraryID:          p.transport.libraryID,
+					DeviceID:           p.transport.deviceID,
+					PeerID:             p.peerID.String(),
+					Address:            p.Address(),
+					ConnectionKind:     "relayed",
+					DirectUpgradeState: "relayed_connection_only",
+					Error:              errDirectConnectionRequired.Error(),
+				})
+			}
+			p.transport.setDirectUpgradeState("direct_upgrade_failed")
+			return nil, err
+		}
+		p.transport.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			Level:              "info",
+			Kind:               "transport.direct_upgrade.succeeded",
+			Message:            "Direct connection ready",
+			LibraryID:          p.transport.libraryID,
+			DeviceID:           p.transport.deviceID,
+			PeerID:             p.peerID.String(),
+			Address:            p.Address(),
+			ConnectionKind:     state.Kind(),
+			DirectUpgradeState: "direct_upgrade_succeeded",
+		})
+		p.transport.setDirectUpgradeState("direct_upgrade_succeeded")
+	}
+	if protocolAllowsLimitedConnection(protocolID) {
+		ctx = network.WithAllowLimitedConn(ctx, string(protocolID))
 	}
 	stream, err := p.transport.host.NewStream(ctx, p.peerID, protocolID)
 	if err != nil {
@@ -816,16 +874,25 @@ func (t *libp2pSyncTransport) handlePeerConnected(peerID peer.ID) {
 	if deviceID, ok, err := t.app.memberDeviceIDForPeer(ctx, t.libraryID, peerID.String()); err != nil {
 		t.app.logf("desktopcore: resolve connected peer %s failed: %v", peerID.String(), err)
 	} else if ok {
+		state := connectionStateForPeer(t.host, peerID)
 		t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
-			Level:     "info",
-			Kind:      "peer.connected",
-			Message:   "Peer connection established",
-			LibraryID: t.libraryID,
-			DeviceID:  deviceID,
-			PeerID:    peerID.String(),
+			Level:          "info",
+			Kind:           "peer.connected",
+			Message:        "Peer connection established",
+			LibraryID:      t.libraryID,
+			DeviceID:       deviceID,
+			PeerID:         peerID.String(),
+			ConnectionKind: state.Kind(),
 		})
 		if err := t.app.updateDevicePeerID(ctx, t.libraryID, deviceID, peerID.String(), deviceID); err != nil {
 			t.app.logf("desktopcore: touch connected peer %s failed: %v", peerID.String(), err)
+		}
+		if info := t.host.Peerstore().PeerInfo(peerID); len(info.Addrs) > 0 {
+			addrs := make([]string, 0, len(info.Addrs))
+			for _, addr := range info.Addrs {
+				addrs = append(addrs, fmt.Sprintf("%s/p2p/%s", addr.String(), peerID.String()))
+			}
+			_ = t.app.saveKnownPeerAddrs(ctx, t.libraryID, peerID.String(), addrs)
 		}
 	} else {
 		t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
@@ -864,15 +931,174 @@ func (t *libp2pSyncTransport) handlePeerDisconnected(peerID peer.ID) {
 	ctx, cancel := context.WithTimeout(context.Background(), transportConnectTimeout)
 	defer cancel()
 	t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
-		Level:     "warn",
-		Kind:      "peer.disconnected",
-		Message:   "Peer disconnected",
-		LibraryID: t.libraryID,
-		PeerID:    peerID.String(),
+		Level:          "warn",
+		Kind:           "peer.disconnected",
+		Message:        "Peer disconnected",
+		LibraryID:      t.libraryID,
+		PeerID:         peerID.String(),
+		ConnectionKind: "disconnected",
 	})
 
 	if err := t.app.markDevicePresenceOffline(ctx, t.libraryID, peerID.String()); err != nil {
 		t.app.logf("desktopcore: mark disconnected peer offline failed for %s: %v", peerID.String(), err)
+	}
+}
+
+func protocolAllowsLimitedConnection(protocolID protocol.ID) bool {
+	switch protocolID {
+	case desktopSyncProtocolID,
+		desktopLibraryChangedID,
+		desktopMembershipProtocolID,
+		desktopInviteJoinStartProtocolID,
+		desktopInviteJoinStatusProtocolID,
+		desktopInviteJoinCancelProtocolID:
+		return true
+	default:
+		return false
+	}
+}
+
+func protocolRequiresDirectConnection(protocolID protocol.ID) bool {
+	switch protocolID {
+	case desktopCheckpointProtocolID, desktopPlaybackProtocolID, desktopArtworkProtocolID:
+		return true
+	default:
+		return false
+	}
+}
+
+type peerConnectionStateDebugEntry struct {
+	level   string
+	peerID  string
+	address string
+	state   peerConnectionState
+}
+
+func (t *libp2pSyncTransport) recordConnectionState(entry peerConnectionStateDebugEntry) {
+	if t == nil || t.app == nil {
+		return
+	}
+	level := strings.TrimSpace(entry.level)
+	if level == "" {
+		level = "info"
+	}
+	t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		Level:          level,
+		Kind:           "transport.connection.state",
+		Message:        "Connection state updated",
+		LibraryID:      t.libraryID,
+		DeviceID:       t.deviceID,
+		PeerID:         strings.TrimSpace(entry.peerID),
+		Address:        strings.TrimSpace(entry.address),
+		ConnectionKind: entry.state.Kind(),
+	})
+}
+
+func (t *libp2pSyncTransport) resolvePeerIdentityAddresses(ctx context.Context, peerID peer.ID, deviceID string) error {
+	if t == nil || t.host == nil || peerID == "" {
+		return nil
+	}
+	addrs := make([]string, 0, 8)
+	if locator := t.app.peerLocator(t.app.cfg.RegistryURL); locator != nil {
+		auth, authErr := t.app.registryMembershipAuth(ctx, t.libraryID, t.deviceID, t.host.ID().String())
+		record, ok, err := PeerPresenceRecord{}, false, authErr
+		if authErr == nil {
+			record, ok, err = locator.LookupMemberPeer(ctx, registryauth.MemberLookupRequest{
+				LibraryID:     t.libraryID,
+				PeerID:        peerID.String(),
+				RootPublicKey: auth.RootPublicKey,
+				Auth:          auth.Auth,
+			})
+		}
+		if err == nil && ok {
+			addrs = append(addrs, record.Addrs...)
+		} else if err != nil {
+			t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+				Level:     "warn",
+				Kind:      "registry.lookup.failed",
+				Message:   "Registry member lookup failed",
+				LibraryID: t.libraryID,
+				DeviceID:  t.deviceID,
+				PeerID:    peerID.String(),
+				Error:     err.Error(),
+			})
+		}
+	}
+	cached, err := t.app.loadKnownPeerAddrs(ctx, t.libraryID, peerID.String())
+	if err == nil {
+		addrs = append(addrs, cached...)
+	}
+	for _, addr := range compactNonEmptyStrings(addrs) {
+		if _, err := t.ResolvePeer(ctx, apitypes.LocalContext{}, addr); err == nil {
+			return nil
+		}
+	}
+	if deviceID != "" {
+		t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			Level:     "warn",
+			Kind:      "transport.peer.lookup.missed",
+			Message:   "No peer addresses resolved for identity",
+			LibraryID: t.libraryID,
+			DeviceID:  deviceID,
+			PeerID:    peerID.String(),
+		})
+	}
+	return nil
+}
+
+func (t *libp2pSyncTransport) setLastRegistryAnnounceAt(value time.Time) {
+	if t == nil {
+		return
+	}
+	t.statusMu.Lock()
+	defer t.statusMu.Unlock()
+	copyValue := value.UTC()
+	t.lastRegistryAnnounceAt = &copyValue
+}
+
+func (t *libp2pSyncTransport) setDirectUpgradeState(value string) {
+	if t == nil {
+		return
+	}
+	t.statusMu.Lock()
+	defer t.statusMu.Unlock()
+	t.directUpgradeState = strings.TrimSpace(value)
+}
+
+func (t *libp2pSyncTransport) appendNetworkStatus(out *apitypes.NetworkStatus) {
+	if t == nil || out == nil {
+		return
+	}
+	t.statusMu.RLock()
+	lastRegistryAnnounceAt := cloneTimePtr(t.lastRegistryAnnounceAt)
+	directUpgradeState := strings.TrimSpace(t.directUpgradeState)
+	t.statusMu.RUnlock()
+
+	out.RelayReservationActive = len(advertisedRelayAddrs(t.host)) > 0
+	out.AdvertisedRelayAddrs = advertisedRelayAddrs(t.host)
+	out.LastRegistryAnnounceAt = lastRegistryAnnounceAt
+	out.DirectUpgradeState = directUpgradeState
+
+	directPeers := 0
+	limitedPeers := 0
+	for _, peerID := range t.host.Network().Peers() {
+		state := connectionStateForPeer(t.host, peerID)
+		switch {
+		case state.Direct:
+			directPeers++
+		case state.OnlyLimitedRelayed:
+			limitedPeers++
+		}
+	}
+	switch {
+	case directPeers > 0 && limitedPeers > 0:
+		out.ConnectionKind = "mixed"
+	case directPeers > 0:
+		out.ConnectionKind = "direct"
+	case limitedPeers > 0:
+		out.ConnectionKind = "relayed"
+	default:
+		out.ConnectionKind = "disconnected"
 	}
 }
 

@@ -3,6 +3,7 @@ module ben/desktop
 go 1.25.7
 
 require (
+	ben/registryauth v0.0.0
 	github.com/fsnotify/fsnotify v1.8.0
 	github.com/gen2brain/go-mpv v0.2.3
 	github.com/google/uuid v1.6.0
@@ -149,3 +150,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace ben/registryauth => ./shared/registryauth

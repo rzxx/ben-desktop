@@ -1,6 +1,7 @@
 package desktopcore
 
 import (
+	"ben/registryauth"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -49,14 +50,19 @@ type InviteService struct {
 }
 
 type inviteCodePayload struct {
-	TokenID    string `json:"tokenId"`
-	LibraryID  string `json:"libraryId"`
-	ServiceTag string `json:"serviceTag"`
-	PeerID     string `json:"peerId,omitempty"`
-	PeerAddr   string `json:"peerAddr,omitempty"`
-	Role       string `json:"role"`
-	MaxUses    int    `json:"maxUses"`
-	ExpiresAt  int64  `json:"expiresAt"`
+	Version             int                             `json:"version,omitempty"`
+	TokenID             string                          `json:"tokenId"`
+	LibraryID           string                          `json:"libraryId"`
+	ServiceTag          string                          `json:"serviceTag,omitempty"`
+	OwnerPeerID         string                          `json:"ownerPeerId,omitempty"`
+	RegistryURL         string                          `json:"registryUrl,omitempty"`
+	RelayBootstrapAddrs []string                        `json:"relayBootstrapAddrs,omitempty"`
+	InviteAuth          *registryauth.InviteAttestation `json:"inviteAuth,omitempty"`
+	PeerID              string                          `json:"peerId,omitempty"`
+	PeerAddr            string                          `json:"peerAddr,omitempty"`
+	Role                string                          `json:"role"`
+	MaxUses             int                             `json:"maxUses"`
+	ExpiresAt           int64                           `json:"expiresAt"`
 }
 
 type joinSessionMaterial struct {
@@ -66,18 +72,6 @@ type joinSessionMaterial struct {
 	AdmissionAuthority *joinSessionAuthorityMaterial `json:"admissionAuthority,omitempty"`
 	RecoveryToken      string                        `json:"recoveryToken"`
 	MembershipCert     membershipCertEnvelope        `json:"membershipCert"`
-}
-
-type membershipCertEnvelope struct {
-	LibraryID        string `json:"libraryId"`
-	DeviceID         string `json:"deviceId"`
-	PeerID           string `json:"peerId"`
-	Role             string `json:"role"`
-	AuthorityVersion int64  `json:"authorityVersion"`
-	Serial           int64  `json:"serial"`
-	IssuedAt         int64  `json:"issuedAt"`
-	ExpiresAt        int64  `json:"expiresAt"`
-	Sig              []byte `json:"sig"`
 }
 
 func (s *InviteService) CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
@@ -103,19 +97,25 @@ func (s *InviteService) CreateInviteCode(ctx context.Context, req apitypes.Invit
 	expiresAt := now.Add(expires)
 	tokenID := uuid.NewString()
 	serviceTag := serviceTagForLibrary(local.LibraryID)
-	peerID, peerAddr, err := s.activeInviteTransportHints(ctx, local.LibraryID)
+	peerID, _, err := s.activeInviteTransportHints(ctx, local.LibraryID)
+	if err != nil {
+		return apitypes.InviteCodeResult{}, err
+	}
+	inviteAuth, err := s.buildInviteRegistryAuth(ctx, local.LibraryID, tokenID, peerID, expiresAt)
 	if err != nil {
 		return apitypes.InviteCodeResult{}, err
 	}
 	code, err := encodeInviteCode(inviteCodePayload{
-		TokenID:    tokenID,
-		LibraryID:  local.LibraryID,
-		ServiceTag: serviceTag,
-		PeerID:     peerID,
-		PeerAddr:   peerAddr,
-		Role:       role,
-		MaxUses:    uses,
-		ExpiresAt:  expiresAt.Unix(),
+		Version:             2,
+		TokenID:             tokenID,
+		LibraryID:           local.LibraryID,
+		OwnerPeerID:         peerID,
+		RegistryURL:         strings.TrimSpace(s.app.cfg.RegistryURL),
+		RelayBootstrapAddrs: append([]string(nil), s.app.cfg.RelayBootstrapAddrs...),
+		InviteAuth:          &inviteAuth,
+		Role:                role,
+		MaxUses:             uses,
+		ExpiresAt:           expiresAt.Unix(),
 	})
 	if err != nil {
 		return apitypes.InviteCodeResult{}, err
@@ -136,13 +136,15 @@ func (s *InviteService) CreateInviteCode(ctx context.Context, req apitypes.Invit
 	}
 
 	return apitypes.InviteCodeResult{
-		LibraryID:  local.LibraryID,
-		ServiceTag: serviceTag,
-		InviteCode: code,
-		InviteLink: inviteLinkForCode(code),
-		Role:       role,
-		Uses:       uses,
-		ExpiresAt:  expiresAt,
+		LibraryID:           local.LibraryID,
+		ServiceTag:          serviceTag,
+		RegistryURL:         strings.TrimSpace(s.app.cfg.RegistryURL),
+		RelayBootstrapAddrs: append([]string(nil), s.app.cfg.RelayBootstrapAddrs...),
+		InviteCode:          code,
+		InviteLink:          inviteLinkForCode(code),
+		Role:                role,
+		Uses:                uses,
+		ExpiresAt:           expiresAt,
 	}, nil
 }
 
@@ -272,19 +274,25 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 	discoverCtx, cancel := context.WithTimeout(ctx, discoverTimeout)
 	defer cancel()
 
-	client, err := s.app.openInviteClientTransport(payload.ServiceTag)
+	client, err := s.app.openInviteClientTransport(serviceTagForLibrary(payload.LibraryID))
 	if err != nil {
 		job.Fail(1, "failed to start invite transport", err)
 		return apitypes.JoinSession{}, err
 	}
 	defer client.Close()
 
+	resolvedOwnerAddrs, err := s.resolveInviteOwnerAddrs(discoverCtx, payload)
+	if err != nil && s.app.cfg.Logger != nil {
+		s.app.cfg.Logger.Errorf("desktopcore: invite owner lookup failed for %s: %v", payload.TokenID, err)
+	}
+	ownerPeerAddrHint := strings.Join(compactNonEmptyStrings(append(resolvedOwnerAddrs, payload.PeerAddr)), "\n")
+
 	job.Running(0.25, "contacting invite host")
 	var startResp inviteJoinStartResponse
 	resolvedPeerID, resolvedPeerAddr, err := client.roundTrip(
 		discoverCtx,
-		payload.PeerAddr,
-		payload.PeerID,
+		ownerPeerAddrHint,
+		invitePayloadOwnerPeerID(payload),
 		desktopInviteJoinStartProtocolID,
 		inviteJoinStartRequest{
 			InviteCode: strings.TrimSpace(req.InviteCode),
@@ -318,24 +326,27 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 			return err
 		}
 		return tx.Create(&JoinSession{
-			SessionID:          sessionID,
-			InviteCode:         strings.TrimSpace(req.InviteCode),
-			InviteToken:        payload.TokenID,
-			LibraryID:          payload.LibraryID,
-			ServiceTag:         payload.ServiceTag,
-			PeerAddrHint:       firstNonEmpty(strings.TrimSpace(resolvedPeerAddr), strings.TrimSpace(startResp.PeerAddrHint), strings.TrimSpace(payload.PeerAddr)),
-			ExpectedPeerIDHint: firstNonEmpty(strings.TrimSpace(startResp.OwnerPeerID), strings.TrimSpace(resolvedPeerID), strings.TrimSpace(payload.PeerID)),
-			DeviceID:           deviceID,
-			DeviceName:         deviceName,
-			RequestID:          requestID,
-			Status:             firstNonEmpty(normalizeJoinSessionStatus(startResp.Status), joinSessionStatusPending),
-			Message:            firstNonEmpty(strings.TrimSpace(startResp.Message), "join request pending approval"),
-			Role:               firstNonEmpty(strings.TrimSpace(startResp.Role), normalizeRole(payload.Role)),
-			LocalPeerID:        peerID,
-			DeviceFingerprint:  fingerprint,
-			OwnerDeviceID:      strings.TrimSpace(startResp.OwnerDeviceID),
-			OwnerRole:          strings.TrimSpace(startResp.OwnerRole),
-			OwnerPeerID:        strings.TrimSpace(startResp.OwnerPeerID),
+			SessionID:                  sessionID,
+			InviteCode:                 strings.TrimSpace(req.InviteCode),
+			InviteToken:                payload.TokenID,
+			LibraryID:                  payload.LibraryID,
+			ServiceTag:                 serviceTagForLibrary(payload.LibraryID),
+			RegistryURL:                firstNonEmpty(strings.TrimSpace(payload.RegistryURL), strings.TrimSpace(s.app.cfg.RegistryURL)),
+			RelayBootstrapJSON:         mustJSONString(compactNonEmptyStrings(payload.RelayBootstrapAddrs)),
+			PeerAddrHint:               firstNonEmpty(strings.TrimSpace(resolvedPeerAddr), strings.TrimSpace(startResp.PeerAddrHint), firstPeerAddr(resolvedOwnerAddrs), strings.TrimSpace(payload.PeerAddr)),
+			ExpectedPeerIDHint:         firstNonEmpty(strings.TrimSpace(startResp.OwnerPeerID), strings.TrimSpace(resolvedPeerID), invitePayloadOwnerPeerID(payload)),
+			LastResolvedOwnerAddrsJSON: mustJSONString(compactNonEmptyStrings(append(resolvedOwnerAddrs, resolvedPeerAddr))),
+			DeviceID:                   deviceID,
+			DeviceName:                 deviceName,
+			RequestID:                  requestID,
+			Status:                     firstNonEmpty(normalizeJoinSessionStatus(startResp.Status), joinSessionStatusPending),
+			Message:                    firstNonEmpty(strings.TrimSpace(startResp.Message), "join request pending approval"),
+			Role:                       firstNonEmpty(strings.TrimSpace(startResp.Role), normalizeRole(payload.Role)),
+			LocalPeerID:                peerID,
+			DeviceFingerprint:          fingerprint,
+			OwnerDeviceID:              strings.TrimSpace(startResp.OwnerDeviceID),
+			OwnerRole:                  strings.TrimSpace(startResp.OwnerRole),
+			OwnerPeerID:                strings.TrimSpace(startResp.OwnerPeerID),
 			OwnerFingerprint: firstNonEmpty("", func() string {
 				if strings.TrimSpace(startResp.OwnerDeviceID) == "" || strings.TrimSpace(startResp.OwnerPeerID) == "" {
 					return ""
@@ -355,6 +366,9 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 	if err != nil {
 		job.Fail(1, "failed to create join session", err)
 		return apitypes.JoinSession{}, err
+	}
+	if firstPeerID := firstNonEmpty(strings.TrimSpace(startResp.OwnerPeerID), strings.TrimSpace(resolvedPeerID), invitePayloadOwnerPeerID(payload)); firstPeerID != "" {
+		_ = s.app.saveKnownPeerAddrs(ctx, payload.LibraryID, firstPeerID, compactNonEmptyStrings(append(resolvedOwnerAddrs, resolvedPeerAddr, startResp.PeerAddrHint)))
 	}
 	return s.GetJoinSession(ctx, sessionID)
 }
@@ -1019,6 +1033,7 @@ func (s *InviteService) activeInviteTransportHints(ctx context.Context, libraryI
 		return "", "", fmt.Errorf("invite transport peer id is unavailable")
 	}
 	listenAddrs := runtime.transport.ListenAddrs()
+	_ = s.app.saveKnownPeerAddrs(ctx, libraryID, peerID, listenAddrs)
 	return peerID, preferredInvitePeerAddr(listenAddrs), nil
 }
 
@@ -1036,11 +1051,16 @@ func (s *InviteService) refreshJoinSessionRemote(ctx context.Context, session Jo
 	refreshCtx, cancel := context.WithTimeout(ctx, defaultInviteDiscoverTimeout)
 	defer cancel()
 
+	ownerAddrs, lookupErr := s.resolveJoinSessionOwnerAddrs(refreshCtx, session, payload)
+	if lookupErr != nil && s.app.cfg.Logger != nil {
+		s.app.cfg.Logger.Errorf("desktopcore: join session owner lookup failed for %s: %v", session.SessionID, lookupErr)
+	}
+
 	var resp inviteJoinStatusResponse
 	resolvedPeerID, resolvedPeerAddr, err := client.roundTrip(
 		refreshCtx,
-		firstNonEmpty(session.PeerAddrHint, payload.PeerAddr),
-		firstNonEmpty(session.ExpectedPeerIDHint, session.OwnerPeerID, payload.PeerID),
+		strings.Join(ownerAddrs, "\n"),
+		firstNonEmpty(session.ExpectedPeerIDHint, session.OwnerPeerID, invitePayloadOwnerPeerID(payload)),
 		desktopInviteJoinStatusProtocolID,
 		inviteJoinStatusRequest{
 			LibraryID: session.LibraryID,
@@ -1090,9 +1110,10 @@ func (s *InviteService) applyRemoteJoinSessionStatus(ctx context.Context, sessio
 			}
 			return session.OwnerFingerprint
 		}(),
-		"peer_addr_hint":        firstNonEmpty(strings.TrimSpace(resolvedPeerAddr), session.PeerAddrHint),
-		"expected_peer_id_hint": firstNonEmpty(strings.TrimSpace(resp.OwnerPeerID), strings.TrimSpace(resolvedPeerID), session.ExpectedPeerIDHint),
-		"updated_at":            updatedAt,
+		"peer_addr_hint":                 firstNonEmpty(strings.TrimSpace(resolvedPeerAddr), session.PeerAddrHint),
+		"expected_peer_id_hint":          firstNonEmpty(strings.TrimSpace(resp.OwnerPeerID), strings.TrimSpace(resolvedPeerID), session.ExpectedPeerIDHint),
+		"last_resolved_owner_addrs_json": mustJSONString(compactNonEmptyStrings(append(joinSessionOwnerAddrs(session), resolvedPeerAddr))),
+		"updated_at":                     updatedAt,
 	}
 	if resp.ExpiresAt > 0 {
 		updates["expires_at"] = time.Unix(resp.ExpiresAt, 0).UTC()
@@ -1127,6 +1148,9 @@ func (s *InviteService) applyRemoteJoinSessionStatus(ctx context.Context, sessio
 		Where("session_id = ?", session.SessionID).
 		Updates(updates).Error; err != nil {
 		return JoinSession{}, err
+	}
+	if peerID := firstNonEmpty(strings.TrimSpace(resp.OwnerPeerID), strings.TrimSpace(resolvedPeerID), session.OwnerPeerID); peerID != "" {
+		_ = s.app.saveKnownPeerAddrs(ctx, session.LibraryID, peerID, compactNonEmptyStrings(append(joinSessionOwnerAddrs(session), resolvedPeerAddr)))
 	}
 	return s.loadJoinSession(ctx, session.SessionID)
 }
@@ -1217,11 +1241,16 @@ func (s *InviteService) cancelRemoteJoinSession(ctx context.Context, session Joi
 	cancelCtx, cancel := context.WithTimeout(ctx, defaultInviteDiscoverTimeout)
 	defer cancel()
 
+	ownerAddrs, lookupErr := s.resolveJoinSessionOwnerAddrs(cancelCtx, session, payload)
+	if lookupErr != nil && s.app.cfg.Logger != nil {
+		s.app.cfg.Logger.Errorf("desktopcore: cancel join session owner lookup failed for %s: %v", session.SessionID, lookupErr)
+	}
+
 	var resp inviteJoinCancelResponse
 	_, _, err = client.roundTrip(
 		cancelCtx,
-		firstNonEmpty(session.PeerAddrHint, payload.PeerAddr),
-		firstNonEmpty(session.ExpectedPeerIDHint, session.OwnerPeerID, payload.PeerID),
+		strings.Join(ownerAddrs, "\n"),
+		firstNonEmpty(session.ExpectedPeerIDHint, session.OwnerPeerID, invitePayloadOwnerPeerID(payload)),
 		desktopInviteJoinCancelProtocolID,
 		inviteJoinCancelRequest{
 			LibraryID: session.LibraryID,
@@ -1253,7 +1282,7 @@ func (s *InviteService) handleInviteJoinStart(ctx context.Context, libraryID, lo
 	if strings.TrimSpace(payload.LibraryID) != strings.TrimSpace(libraryID) {
 		return inviteJoinStartResponse{}, fmt.Errorf("invite library mismatch")
 	}
-	if strings.TrimSpace(payload.PeerID) != "" && strings.TrimSpace(payload.PeerID) != strings.TrimSpace(localPeerID) {
+	if ownerPeerID := invitePayloadOwnerPeerID(payload); ownerPeerID != "" && ownerPeerID != strings.TrimSpace(localPeerID) {
 		return inviteJoinStartResponse{}, fmt.Errorf("invite owner peer mismatch")
 	}
 	req.DeviceID = strings.TrimSpace(req.DeviceID)
@@ -1561,6 +1590,129 @@ func isTerminalJoinSessionStatus(status string) bool {
 	}
 }
 
+func invitePayloadOwnerPeerID(payload inviteCodePayload) string {
+	return firstNonEmpty(strings.TrimSpace(payload.OwnerPeerID), strings.TrimSpace(payload.PeerID))
+}
+
+func (s *InviteService) buildInviteRegistryAuth(ctx context.Context, libraryID, tokenID, ownerPeerID string, expiresAt time.Time) (registryauth.InviteAttestation, error) {
+	var signed registryauth.InviteAttestation
+	err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
+		library, _, _, err := ensureLibraryJoinMaterialTx(tx, libraryID, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		signed, err = registryauth.SignInviteAttestation(registryauth.InviteAttestation{
+			LibraryID:     strings.TrimSpace(libraryID),
+			TokenID:       strings.TrimSpace(tokenID),
+			OwnerPeerID:   strings.TrimSpace(ownerPeerID),
+			RootPublicKey: strings.TrimSpace(library.RootPublicKey),
+			ExpiresAt:     expiresAt.UTC().Unix(),
+		}, strings.TrimSpace(library.RootPrivateKey))
+		return err
+	})
+	if err != nil {
+		return registryauth.InviteAttestation{}, fmt.Errorf("sign invite registry attestation: %w", err)
+	}
+	return signed, nil
+}
+
+func mustJSONString(items []string) string {
+	items = compactNonEmptyStrings(items)
+	if len(items) == 0 {
+		return ""
+	}
+	body, err := json.Marshal(items)
+	if err != nil {
+		return ""
+	}
+	return string(body)
+}
+
+func decodeJSONStringList(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	var items []string
+	if err := json.Unmarshal([]byte(value), &items); err != nil {
+		return nil
+	}
+	return compactNonEmptyStrings(items)
+}
+
+func firstPeerAddr(addrs []string) string {
+	addrs = compactNonEmptyStrings(addrs)
+	if len(addrs) == 0 {
+		return ""
+	}
+	return addrs[0]
+}
+
+func joinSessionRelayBootstrapAddrs(session JoinSession) []string {
+	return decodeJSONStringList(session.RelayBootstrapJSON)
+}
+
+func joinSessionOwnerAddrs(session JoinSession) []string {
+	return compactNonEmptyStrings(append(
+		decodeJSONStringList(session.LastResolvedOwnerAddrsJSON),
+		strings.TrimSpace(session.PeerAddrHint),
+	))
+}
+
+func (a *App) peerLocator(registryURL string) PeerLocator {
+	return newPeerLocator(firstNonEmpty(strings.TrimSpace(registryURL), strings.TrimSpace(a.cfg.RegistryURL)))
+}
+
+func (s *InviteService) resolveInviteOwnerAddrs(ctx context.Context, payload inviteCodePayload) ([]string, error) {
+	addrs := compactNonEmptyStrings(append([]string(nil), payload.RelayBootstrapAddrs...))
+	ownerPeerID := invitePayloadOwnerPeerID(payload)
+	if locator := s.app.peerLocator(payload.RegistryURL); locator != nil && payload.InviteAuth != nil {
+		record, ok, err := locator.LookupInviteOwner(ctx, registryauth.InviteOwnerLookupRequest{Invite: *payload.InviteAuth})
+		if err == nil && ok {
+			addrs = compactNonEmptyStrings(append(record.Addrs, addrs...))
+		} else if err != nil {
+			return compactNonEmptyStrings(append(addrs, payload.PeerAddr)), err
+		}
+	}
+	if ownerPeerID != "" {
+		cached, err := s.app.loadKnownPeerAddrs(ctx, payload.LibraryID, ownerPeerID)
+		if err == nil {
+			addrs = compactNonEmptyStrings(append(addrs, cached...))
+		}
+	}
+	if strings.TrimSpace(payload.PeerAddr) != "" {
+		addrs = compactNonEmptyStrings(append(addrs, payload.PeerAddr))
+	}
+	return addrs, nil
+}
+
+func (s *InviteService) resolveJoinSessionOwnerAddrs(ctx context.Context, session JoinSession, payload inviteCodePayload) ([]string, error) {
+	addrs := compactNonEmptyStrings(append(
+		joinSessionOwnerAddrs(session),
+		payload.PeerAddr,
+	))
+	ownerPeerID := firstNonEmpty(session.OwnerPeerID, session.ExpectedPeerIDHint, invitePayloadOwnerPeerID(payload))
+	registryURL := firstNonEmpty(session.RegistryURL, payload.RegistryURL)
+	if locator := s.app.peerLocator(registryURL); locator != nil && payload.InviteAuth != nil {
+		record, ok, err := locator.LookupInviteOwner(ctx, registryauth.InviteOwnerLookupRequest{Invite: *payload.InviteAuth})
+		if err == nil && ok {
+			addrs = compactNonEmptyStrings(append(record.Addrs, addrs...))
+		} else if err != nil {
+			return addrs, err
+		}
+	}
+	if ownerPeerID != "" {
+		cached, err := s.app.loadKnownPeerAddrs(ctx, session.LibraryID, ownerPeerID)
+		if err == nil {
+			addrs = compactNonEmptyStrings(append(addrs, cached...))
+		}
+	}
+	if len(addrs) == 0 {
+		addrs = compactNonEmptyStrings(joinSessionRelayBootstrapAddrs(session))
+	}
+	return addrs, nil
+}
+
 func preferredInvitePeerAddr(listenAddrs []string) string {
 	best := ""
 	bestScore := -1
@@ -1652,35 +1804,40 @@ func toInviteJoinRequestRecord(row InviteJoinRequest) apitypes.InviteJoinRequest
 func toJoinSessionRecord(row JoinSession) apitypes.JoinSession {
 	status := strings.TrimSpace(row.Status)
 	return apitypes.JoinSession{
-		SessionID:     strings.TrimSpace(row.SessionID),
-		RequestID:     strings.TrimSpace(row.RequestID),
-		Status:        status,
-		Message:       strings.TrimSpace(row.Message),
-		LibraryID:     strings.TrimSpace(row.LibraryID),
-		Role:          strings.TrimSpace(row.Role),
-		Pending:       status == joinSessionStatusPending,
-		OwnerDeviceID: strings.TrimSpace(row.OwnerDeviceID),
-		OwnerRole:     strings.TrimSpace(row.OwnerRole),
-		OwnerPeerID:   strings.TrimSpace(row.OwnerPeerID),
-		ExpiresAt:     row.ExpiresAt,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
+		SessionID:              strings.TrimSpace(row.SessionID),
+		RequestID:              strings.TrimSpace(row.RequestID),
+		Status:                 status,
+		Message:                strings.TrimSpace(row.Message),
+		LibraryID:              strings.TrimSpace(row.LibraryID),
+		Role:                   strings.TrimSpace(row.Role),
+		Pending:                status == joinSessionStatusPending,
+		RegistryURL:            strings.TrimSpace(row.RegistryURL),
+		RelayBootstrapAddrs:    decodeJSONStringList(row.RelayBootstrapJSON),
+		LastResolvedOwnerAddrs: decodeJSONStringList(row.LastResolvedOwnerAddrsJSON),
+		OwnerDeviceID:          strings.TrimSpace(row.OwnerDeviceID),
+		OwnerRole:              strings.TrimSpace(row.OwnerRole),
+		OwnerPeerID:            strings.TrimSpace(row.OwnerPeerID),
+		ExpiresAt:              row.ExpiresAt,
+		CreatedAt:              row.CreatedAt,
+		UpdatedAt:              row.UpdatedAt,
 	}
 }
 
 func joinLibraryResultFromSession(row JoinSession) apitypes.JoinLibraryResult {
 	return apitypes.JoinLibraryResult{
-		Pending:           strings.TrimSpace(row.Status) == joinSessionStatusPending,
-		RequestID:         strings.TrimSpace(row.RequestID),
-		LibraryID:         strings.TrimSpace(row.LibraryID),
-		Role:              strings.TrimSpace(row.Role),
-		DeviceID:          strings.TrimSpace(row.DeviceID),
-		LocalPeerID:       strings.TrimSpace(row.LocalPeerID),
-		DeviceFingerprint: strings.TrimSpace(row.DeviceFingerprint),
-		OwnerDeviceID:     strings.TrimSpace(row.OwnerDeviceID),
-		OwnerRole:         strings.TrimSpace(row.OwnerRole),
-		OwnerPeerID:       strings.TrimSpace(row.OwnerPeerID),
-		OwnerFingerprint:  strings.TrimSpace(row.OwnerFingerprint),
+		Pending:             strings.TrimSpace(row.Status) == joinSessionStatusPending,
+		RequestID:           strings.TrimSpace(row.RequestID),
+		LibraryID:           strings.TrimSpace(row.LibraryID),
+		Role:                strings.TrimSpace(row.Role),
+		DeviceID:            strings.TrimSpace(row.DeviceID),
+		LocalPeerID:         strings.TrimSpace(row.LocalPeerID),
+		DeviceFingerprint:   strings.TrimSpace(row.DeviceFingerprint),
+		RegistryURL:         strings.TrimSpace(row.RegistryURL),
+		RelayBootstrapAddrs: decodeJSONStringList(row.RelayBootstrapJSON),
+		OwnerDeviceID:       strings.TrimSpace(row.OwnerDeviceID),
+		OwnerRole:           strings.TrimSpace(row.OwnerRole),
+		OwnerPeerID:         strings.TrimSpace(row.OwnerPeerID),
+		OwnerFingerprint:    strings.TrimSpace(row.OwnerFingerprint),
 	}
 }
 
@@ -1778,7 +1935,11 @@ func encodeInviteCode(payload inviteCodePayload) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("encode invite code: %w", err)
 	}
-	return "ben-invite-v1." + base64.RawURLEncoding.EncodeToString(body), nil
+	version := 1
+	if payload.Version >= 2 {
+		version = 2
+	}
+	return fmt.Sprintf("ben-invite-v%d.%s", version, base64.RawURLEncoding.EncodeToString(body)), nil
 }
 
 func decodeInviteCode(code string) (inviteCodePayload, error) {
@@ -1787,7 +1948,16 @@ func decodeInviteCode(code string) (inviteCodePayload, error) {
 		return inviteCodePayload{}, fmt.Errorf("invite code is required")
 	}
 	parts := strings.SplitN(code, ".", 2)
-	if len(parts) != 2 || parts[0] != "ben-invite-v1" {
+	if len(parts) != 2 {
+		return inviteCodePayload{}, fmt.Errorf("invalid invite code")
+	}
+	version := 0
+	switch strings.TrimSpace(parts[0]) {
+	case "ben-invite-v1":
+		version = 1
+	case "ben-invite-v2":
+		version = 2
+	default:
 		return inviteCodePayload{}, fmt.Errorf("invalid invite code")
 	}
 	body, err := base64.RawURLEncoding.DecodeString(parts[1])
@@ -1800,6 +1970,22 @@ func decodeInviteCode(code string) (inviteCodePayload, error) {
 	}
 	if strings.TrimSpace(payload.TokenID) == "" || strings.TrimSpace(payload.LibraryID) == "" {
 		return inviteCodePayload{}, fmt.Errorf("invalid invite code")
+	}
+	payload.Version = version
+	payload.RegistryURL = strings.TrimSpace(payload.RegistryURL)
+	payload.RelayBootstrapAddrs = compactNonEmptyStrings(payload.RelayBootstrapAddrs)
+	if payload.Version == 1 {
+		payload.OwnerPeerID = firstNonEmpty(strings.TrimSpace(payload.OwnerPeerID), strings.TrimSpace(payload.PeerID))
+	}
+	if payload.InviteAuth != nil {
+		if err := registryauth.VerifyInviteAttestation(*payload.InviteAuth, time.Now().UTC()); err != nil {
+			return inviteCodePayload{}, fmt.Errorf("invalid invite registry auth: %w", err)
+		}
+		if strings.TrimSpace(payload.InviteAuth.LibraryID) != strings.TrimSpace(payload.LibraryID) ||
+			strings.TrimSpace(payload.InviteAuth.TokenID) != strings.TrimSpace(payload.TokenID) ||
+			strings.TrimSpace(payload.InviteAuth.OwnerPeerID) != invitePayloadOwnerPeerID(payload) {
+			return inviteCodePayload{}, fmt.Errorf("invalid invite registry auth")
+		}
 	}
 	return payload, nil
 }

@@ -3,6 +3,7 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -19,7 +20,7 @@ func TestStoreLoadMissingFileReturnsZeroState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load settings: %v", err)
 	}
-	if state != (State{}) {
+	if !reflect.DeepEqual(state, State{}) {
 		t.Fatalf("expected zero state, got %#v", state)
 	}
 }
@@ -77,7 +78,7 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 			Mode: "system",
 		},
 	}
-	if state != want {
+	if !reflect.DeepEqual(state, want) {
 		t.Fatalf("expected %#v, got %#v", want, state)
 	}
 

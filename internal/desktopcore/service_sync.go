@@ -249,7 +249,7 @@ func (a *SyncService) catchupAllPeers(ctx context.Context, local apitypes.LocalC
 		return fmt.Errorf("peer transport is not configured")
 	}
 
-	peers, err := transport.ListPeers(ctx, local)
+	peers, err := a.discoverCatchupPeers(ctx, local, transport)
 	if err != nil {
 		return err
 	}
@@ -311,6 +311,104 @@ func (a *SyncService) catchupAllPeers(ctx context.Context, local apitypes.LocalC
 		return fmt.Errorf("%d peer sync attempts failed: %w", failures, firstErr)
 	}
 	return nil
+}
+
+func (a *SyncService) discoverCatchupPeers(ctx context.Context, local apitypes.LocalContext, transport SyncTransport) ([]SyncPeer, error) {
+	if transport == nil {
+		return nil, fmt.Errorf("peer transport is not configured")
+	}
+	connectedPeers, err := transport.ListPeers(ctx, local)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SyncPeer, 0, len(connectedPeers))
+	seen := make(map[string]struct{}, len(connectedPeers))
+	appendPeer := func(candidate SyncPeer) {
+		if candidate == nil {
+			return
+		}
+		key := strings.TrimSpace(candidate.PeerID())
+		if key == "" {
+			key = strings.TrimSpace(candidate.DeviceID())
+		}
+		if key == "" {
+			key = strings.TrimSpace(candidate.Address())
+		}
+		if key == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, candidate)
+	}
+	for _, candidate := range connectedPeers {
+		appendPeer(candidate)
+	}
+
+	resolver, ok := transport.(transportPeerIdentityResolver)
+	if !ok {
+		return out, nil
+	}
+	hints, err := a.listMemberPeerHints(ctx, local.LibraryID, local.DeviceID)
+	if err != nil {
+		return out, err
+	}
+	for _, hint := range hints {
+		if hint.peerID == "" && hint.deviceID == "" {
+			continue
+		}
+		if _, exists := seen[firstNonEmpty(hint.peerID, hint.deviceID)]; exists {
+			continue
+		}
+		peer, err := resolver.ResolvePeerByIdentity(ctx, local, hint.peerID, hint.deviceID)
+		if err != nil {
+			a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+				Level:     "warn",
+				Kind:      "peer.discovery.lookup_failed",
+				Message:   "Peer identity lookup failed",
+				LibraryID: local.LibraryID,
+				DeviceID:  local.DeviceID,
+				PeerID:    hint.peerID,
+				Error:     err.Error(),
+			})
+			continue
+		}
+		appendPeer(peer)
+	}
+	return out, nil
+}
+
+type memberPeerHint struct {
+	deviceID string
+	peerID   string
+}
+
+func (a *SyncService) listMemberPeerHints(ctx context.Context, libraryID, localDeviceID string) ([]memberPeerHint, error) {
+	type row struct {
+		DeviceID string
+		PeerID   string
+	}
+	var rows []row
+	err := a.storage.WithContext(ctx).
+		Table("memberships AS m").
+		Select("m.device_id AS device_id, COALESCE(d.peer_id, '') AS peer_id").
+		Joins("LEFT JOIN devices d ON d.device_id = m.device_id").
+		Where("m.library_id = ? AND m.device_id <> ?", strings.TrimSpace(libraryID), strings.TrimSpace(localDeviceID)).
+		Order("m.device_id ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]memberPeerHint, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, memberPeerHint{
+			deviceID: strings.TrimSpace(row.DeviceID),
+			peerID:   strings.TrimSpace(row.PeerID),
+		})
+	}
+	return out, nil
 }
 
 func syncPeerJobMessage(index, total int, peer SyncPeer) string {
