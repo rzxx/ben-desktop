@@ -418,8 +418,9 @@ func TestResolveInviteOwnerAddrsIgnoresRelayBootstrapAddrs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve invite owner addrs: %v", err)
 	}
-	if len(addrs) != 0 {
-		t.Fatalf("invite owner addrs = %#v, want no owner hints", addrs)
+	want := []string{"/ip4/198.51.100.20/tcp/4001/p2p/12D3KooWRelayPeer/p2p-circuit/p2p/12D3KooWOwnerPeer"}
+	if len(addrs) != len(want) || addrs[0] != want[0] {
+		t.Fatalf("invite owner addrs = %#v, want %#v", addrs, want)
 	}
 }
 
@@ -441,8 +442,9 @@ func TestResolveJoinSessionOwnerAddrsIgnoresRelayBootstrapFallback(t *testing.T)
 	if err != nil {
 		t.Fatalf("resolve join session owner addrs: %v", err)
 	}
-	if len(addrs) != 0 {
-		t.Fatalf("join session owner addrs = %#v, want no owner hints", addrs)
+	want := []string{"/ip4/198.51.100.21/tcp/4001/p2p/12D3KooWRelayPeer/p2p-circuit/p2p/12D3KooWOwnerPeer"}
+	if len(addrs) != len(want) || addrs[0] != want[0] {
+		t.Fatalf("join session owner addrs = %#v, want %#v", addrs, want)
 	}
 }
 

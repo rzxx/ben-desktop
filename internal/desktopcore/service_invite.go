@@ -1665,13 +1665,33 @@ func joinSessionOwnerAddrs(session JoinSession) []string {
 	))
 }
 
+func relayOwnerAddrHints(relayBootstrapAddrs []string, ownerPeerID string) []string {
+	ownerPeerID = strings.TrimSpace(ownerPeerID)
+	if ownerPeerID == "" {
+		return nil
+	}
+	out := make([]string, 0, len(relayBootstrapAddrs))
+	for _, addr := range compactNonEmptyStrings(relayBootstrapAddrs) {
+		addr = strings.TrimRight(strings.TrimSpace(addr), "/")
+		if addr == "" {
+			continue
+		}
+		if strings.Contains(addr, "/p2p-circuit") {
+			out = append(out, addr+"/p2p/"+ownerPeerID)
+			continue
+		}
+		out = append(out, addr+"/p2p-circuit/p2p/"+ownerPeerID)
+	}
+	return compactNonEmptyStrings(out)
+}
+
 func (a *App) peerLocator(registryURL string) PeerLocator {
 	return newPeerLocator(firstNonEmpty(strings.TrimSpace(registryURL), strings.TrimSpace(a.cfg.RegistryURL)))
 }
 
 func (s *InviteService) resolveInviteOwnerAddrs(ctx context.Context, payload inviteCodePayload) ([]string, error) {
-	addrs := []string(nil)
 	ownerPeerID := invitePayloadOwnerPeerID(payload)
+	addrs := relayOwnerAddrHints(payload.RelayBootstrapAddrs, ownerPeerID)
 	if locator := s.app.peerLocator(payload.RegistryURL); locator != nil && payload.InviteAuth != nil {
 		record, ok, err := locator.LookupInviteOwner(ctx, registryauth.InviteOwnerLookupRequest{Invite: *payload.InviteAuth})
 		if err == nil && ok {
@@ -1693,11 +1713,12 @@ func (s *InviteService) resolveInviteOwnerAddrs(ctx context.Context, payload inv
 }
 
 func (s *InviteService) resolveJoinSessionOwnerAddrs(ctx context.Context, session JoinSession, payload inviteCodePayload) ([]string, error) {
-	addrs := compactNonEmptyStrings(append(
-		joinSessionOwnerAddrs(session),
-		payload.PeerAddr,
-	))
 	ownerPeerID := firstNonEmpty(session.OwnerPeerID, session.ExpectedPeerIDHint, invitePayloadOwnerPeerID(payload))
+	addrs := append(
+		relayOwnerAddrHints(compactNonEmptyStrings(append(joinSessionRelayBootstrapAddrs(session), payload.RelayBootstrapAddrs...)), ownerPeerID),
+		joinSessionOwnerAddrs(session)...,
+	)
+	addrs = compactNonEmptyStrings(append(addrs, payload.PeerAddr))
 	registryURL := firstNonEmpty(session.RegistryURL, payload.RegistryURL)
 	if locator := s.app.peerLocator(registryURL); locator != nil && payload.InviteAuth != nil {
 		record, ok, err := locator.LookupInviteOwner(ctx, registryauth.InviteOwnerLookupRequest{Invite: *payload.InviteAuth})
