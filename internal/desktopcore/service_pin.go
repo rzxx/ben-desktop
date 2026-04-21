@@ -269,8 +269,10 @@ func (s *PinService) unpinRecording(ctx context.Context, local apitypes.LocalCon
 }
 
 func (s *PinService) unpinAlbum(ctx context.Context, local apitypes.LocalContext, albumID string) error {
-	if resolvedAlbumID, ok, resolveErr := s.app.catalog.explicitAlbumVariantID(ctx, local.LibraryID, local.DeviceID, albumID); resolveErr == nil && ok && strings.TrimSpace(resolvedAlbumID) != "" {
-		albumID = resolvedAlbumID
+	if albumScopes, err := s.app.playback.resolveAlbumScopes(ctx, local, []string{albumID}); err == nil {
+		if resolvedAlbumID := strings.TrimSpace(albumScopes[albumID].ResolvedAlbumID); resolvedAlbumID != "" {
+			albumID = resolvedAlbumID
+		}
 	}
 	if err := s.deletePinRoot(ctx, local, "album", albumID); err != nil {
 		return err
@@ -1272,10 +1274,11 @@ func (c *pinCoverageCache) albumMemberIDs(ctx context.Context, albumID string) (
 	if cached, ok := c.albumMembers[albumID]; ok {
 		return cached, nil
 	}
-	recordingIDs, err := c.service.app.playback.recordingIDsForAlbum(ctx, c.local.LibraryID, c.local.DeviceID, albumID)
+	albumScopes, err := c.service.app.playback.resolveAlbumScopes(ctx, c.local, []string{albumID})
 	if err != nil {
 		return nil, err
 	}
+	recordingIDs := albumScopes[albumID].playbackRecordingIDs()
 	recordingIDs = compactNonEmptyStrings(recordingIDs)
 	c.albumMembers[albumID] = recordingIDs
 	return recordingIDs, nil
@@ -1464,10 +1467,11 @@ func (s *PinService) resolveMembers(ctx context.Context, local apitypes.LocalCon
 			ResolutionPolicy:   policy,
 		}}, nil
 	case "album":
-		recordingIDs, err := s.app.playback.recordingIDsForAlbum(ctx, local.LibraryID, local.DeviceID, scopeID)
+		albumScopes, err := s.app.playback.resolveAlbumScopes(ctx, local, []string{scopeID})
 		if err != nil {
 			return nil, err
 		}
+		recordingIDs := albumScopes[scopeID].pinRecordingIDs()
 		out := make([]resolvedPinMember, 0, len(recordingIDs))
 		seen := make(map[string]struct{}, len(recordingIDs))
 		for _, recordingID := range compactNonEmptyStrings(recordingIDs) {
