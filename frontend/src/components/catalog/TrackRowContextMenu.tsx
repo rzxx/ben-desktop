@@ -123,7 +123,7 @@ export function TrackRowContextMenu({
 
     try {
       const page = await listPlaylistsPage(0, 1000);
-      setPlaylists(page.Items.filter((playlist) => playlist.Kind !== "liked"));
+      setPlaylists(page.Items.filter((playlist) => !playlist.IsReserved));
       loadedPlaylistsRef.current = true;
     } catch (error) {
       setMenuError(toErrorMessage(error));
@@ -216,12 +216,7 @@ export function TrackRowContextMenu({
         targetId: pinTargetId,
       });
     }
-  }, [
-    currentPinActionState.job,
-    pinDirect,
-    pinSubjectKind,
-    pinTargetId,
-  ]);
+  }, [currentPinActionState.job, pinDirect, pinSubjectKind, pinTargetId]);
 
   return (
     <>

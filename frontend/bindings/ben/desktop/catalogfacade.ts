@@ -104,27 +104,33 @@ export function ListLikedRecordings(req: apitypes$0.LikedRecordingListRequest): 
     });
 }
 
+export function ListOfflineRecordings(req: apitypes$0.OfflineRecordingListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.OfflineRecordingItem>> {
+    return $Call.ByID(1846559462, req).then(($result: any) => {
+        return $$createType16($result);
+    });
+}
+
 export function ListPlaylistTracks(req: apitypes$0.PlaylistTrackListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.PlaylistTrackItem>> {
     return $Call.ByID(2707610533, req).then(($result: any) => {
-        return $$createType16($result);
+        return $$createType18($result);
     });
 }
 
 export function ListPlaylists(req: apitypes$0.PlaylistListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.PlaylistListItem>> {
     return $Call.ByID(1310037898, req).then(($result: any) => {
-        return $$createType17($result);
+        return $$createType19($result);
     });
 }
 
 export function ListRecordingVariants(req: apitypes$0.RecordingVariantListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.RecordingVariantItem>> {
     return $Call.ByID(3908440204, req).then(($result: any) => {
-        return $$createType19($result);
+        return $$createType21($result);
     });
 }
 
 export function ListRecordings(req: apitypes$0.RecordingListRequest): $CancellablePromise<apitypes$0.Page<apitypes$0.RecordingListItem>> {
     return $Call.ByID(4010206991, req).then(($result: any) => {
-        return $$createType20($result);
+        return $$createType22($result);
     });
 }
 
@@ -182,9 +188,11 @@ const $$createType11 = apitypes$0.Page.createFrom($$createType2);
 const $$createType12 = apitypes$0.Page.createFrom($$createType3);
 const $$createType13 = apitypes$0.LikedRecordingItem.createFrom;
 const $$createType14 = apitypes$0.Page.createFrom($$createType13);
-const $$createType15 = apitypes$0.PlaylistTrackItem.createFrom;
+const $$createType15 = apitypes$0.OfflineRecordingItem.createFrom;
 const $$createType16 = apitypes$0.Page.createFrom($$createType15);
-const $$createType17 = apitypes$0.Page.createFrom($$createType5);
-const $$createType18 = apitypes$0.RecordingVariantItem.createFrom;
-const $$createType19 = apitypes$0.Page.createFrom($$createType18);
-const $$createType20 = apitypes$0.Page.createFrom($$createType6);
+const $$createType17 = apitypes$0.PlaylistTrackItem.createFrom;
+const $$createType18 = apitypes$0.Page.createFrom($$createType17);
+const $$createType19 = apitypes$0.Page.createFrom($$createType5);
+const $$createType20 = apitypes$0.RecordingVariantItem.createFrom;
+const $$createType21 = apitypes$0.Page.createFrom($$createType20);
+const $$createType22 = apitypes$0.Page.createFrom($$createType6);

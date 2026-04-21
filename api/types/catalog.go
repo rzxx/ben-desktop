@@ -217,6 +217,21 @@ type LikedRecordingItem struct {
 	AddedAt            time.Time
 }
 
+type OfflineRecordingListRequest struct{ PageRequest }
+type OfflineRecordingCursorRequest struct{ CursorPageRequest }
+
+type OfflineRecordingItem struct {
+	LibraryRecordingID string
+	RecordingID        string
+	AlbumID            string
+	Title              string
+	DurationMS         int64
+	Artists            []string
+	OfflineSince       time.Time
+	HasLocalSource     bool
+	HasLocalCached     bool
+}
+
 type CatalogChangeKind string
 
 const (
@@ -236,6 +251,7 @@ const (
 	CatalogChangeEntityPlaylists      CatalogChangeEntity = "playlists"
 	CatalogChangeEntityPlaylistTracks CatalogChangeEntity = "playlist_tracks"
 	CatalogChangeEntityLiked          CatalogChangeEntity = "liked"
+	CatalogChangeEntityOffline        CatalogChangeEntity = "offline"
 )
 
 type CatalogChangeEvent struct {
@@ -272,5 +288,7 @@ type CatalogSurface interface {
 	ListPlaylistTracksCursor(ctx context.Context, req PlaylistTrackCursorRequest) (CursorPage[PlaylistTrackItem], error)
 	ListLikedRecordings(ctx context.Context, req LikedRecordingListRequest) (Page[LikedRecordingItem], error)
 	ListLikedRecordingsCursor(ctx context.Context, req LikedRecordingCursorRequest) (CursorPage[LikedRecordingItem], error)
+	ListOfflineRecordings(ctx context.Context, req OfflineRecordingListRequest) (Page[OfflineRecordingItem], error)
+	ListOfflineRecordingsCursor(ctx context.Context, req OfflineRecordingCursorRequest) (CursorPage[OfflineRecordingItem], error)
 	SubscribeCatalogChanges(listener func(CatalogChangeEvent)) func()
 }

@@ -6,6 +6,7 @@ import type {
   AlbumVariantItem,
   ArtistListItem,
   LikedRecordingItem,
+  OfflineRecordingItem,
   PageInfo,
   PlaylistListItem,
   PlaylistTrackItem,
@@ -65,11 +66,13 @@ export type CatalogValueQueryItem =
   | AlbumListItem
   | AlbumTrackItem
   | LikedRecordingItem
+  | OfflineRecordingItem
   | PlaylistTrackItem
   | RecordingListItem;
 
 export type CatalogTrackLookupItem =
   | LikedRecordingItem
+  | OfflineRecordingItem
   | PlaylistTrackItem
   | RecordingListItem;
 

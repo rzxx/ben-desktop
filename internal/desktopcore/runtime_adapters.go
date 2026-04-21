@@ -229,6 +229,14 @@ func (r *catalogRuntimeAdapter) ListLikedRecordingsCursor(ctx context.Context, r
 	return r.catalog.ListLikedRecordingsCursor(ctx, req)
 }
 
+func (r *catalogRuntimeAdapter) ListOfflineRecordings(ctx context.Context, req apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error) {
+	return r.catalog.ListOfflineRecordings(ctx, req)
+}
+
+func (r *catalogRuntimeAdapter) ListOfflineRecordingsCursor(ctx context.Context, req apitypes.OfflineRecordingCursorRequest) (apitypes.CursorPage[apitypes.OfflineRecordingItem], error) {
+	return r.catalog.ListOfflineRecordingsCursor(ctx, req)
+}
+
 func (r *catalogRuntimeAdapter) CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error) {
 	return r.playlist.CreatePlaylist(ctx, name, kind)
 }

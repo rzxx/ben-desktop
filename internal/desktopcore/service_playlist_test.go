@@ -39,14 +39,17 @@ func TestPlaylistMutationsRejectMissingRecordingTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list playlists: %v", err)
 	}
-	if len(playlists.Items) != 2 {
-		t.Fatalf("playlist count = %d, want 2", len(playlists.Items))
+	if len(playlists.Items) != 3 {
+		t.Fatalf("playlist count = %d, want 3", len(playlists.Items))
 	}
 	if playlists.Items[0].Kind != apitypes.PlaylistKindLiked {
 		t.Fatalf("first playlist kind = %q, want liked", playlists.Items[0].Kind)
 	}
-	if playlists.Items[1].ItemCount != 0 {
-		t.Fatalf("queue item count = %d, want 0", playlists.Items[1].ItemCount)
+	if playlists.Items[1].Kind != apitypes.PlaylistKindOffline {
+		t.Fatalf("second playlist kind = %q, want offline", playlists.Items[1].Kind)
+	}
+	if playlists.Items[2].ItemCount != 0 {
+		t.Fatalf("queue item count = %d, want 0", playlists.Items[2].ItemCount)
 	}
 
 	liked, err := app.ListLikedRecordings(ctx, apitypes.LikedRecordingListRequest{})
@@ -102,6 +105,57 @@ func TestUnlikeRecordingNoOpKeepsReservedLikedPlaylist(t *testing.T) {
 	if likedPlaylists != 1 {
 		t.Fatalf("liked playlist count = %d, want 1", likedPlaylists)
 	}
+}
+
+func TestListPlaylistsIncludesOfflineReservedPlaylistWithMembers(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+	if _, err := app.CreateLibrary(ctx, "playlist-offline"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("require active context: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-time.Minute).Round(time.Second)
+	if err := app.db.Create(&OfflineMember{
+		LibraryID:          local.LibraryID,
+		DeviceID:           local.DeviceID,
+		LibraryRecordingID: "rec-offline",
+		HasLocalSource:     true,
+		HasLocalCached:     false,
+		OfflineSince:       now,
+		UpdatedAt:          now,
+	}).Error; err != nil {
+		t.Fatalf("seed offline member: %v", err)
+	}
+	app.offline.clearDirty(local.LibraryID, local.DeviceID)
+
+	playlists, err := app.ListPlaylists(ctx, apitypes.PlaylistListRequest{})
+	if err != nil {
+		t.Fatalf("list playlists: %v", err)
+	}
+
+	offlineID := offlinePlaylistIDForDevice(local.LibraryID, local.DeviceID)
+	for _, playlist := range playlists.Items {
+		if playlist.PlaylistID != offlineID {
+			continue
+		}
+		if playlist.Kind != apitypes.PlaylistKindOffline {
+			t.Fatalf("offline playlist kind = %q, want %q", playlist.Kind, apitypes.PlaylistKindOffline)
+		}
+		if playlist.ItemCount != 1 {
+			t.Fatalf("offline item count = %d, want 1", playlist.ItemCount)
+		}
+		if playlist.UpdatedAt.IsZero() {
+			t.Fatalf("offline updated_at should be populated")
+		}
+		return
+	}
+	t.Fatalf("offline playlist %q not found in %+v", offlineID, playlists.Items)
 }
 
 func TestDeletePlaylistRejectsMissingAndLikedPlaylists(t *testing.T) {

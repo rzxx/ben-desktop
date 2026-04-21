@@ -49,7 +49,7 @@ export function TracksPage() {
         new Types.PinSubjectRef({
           ID: track.LibraryRecordingID || track.RecordingID,
           Kind: Types.PinSubjectKind.PinSubjectRecordingCluster,
-      }),
+        }),
     ),
   );
   const totalTrackCount = query.pageInfo?.Total ?? query.items.length;
@@ -60,9 +60,7 @@ export function TracksPage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <SectionHeading
-        meta={
-          <MetricPill label={formatCount(totalTrackCount, "track")} />
-        }
+        meta={<MetricPill label={formatCount(totalTrackCount, "track")} />}
         actions={
           <>
             <Button

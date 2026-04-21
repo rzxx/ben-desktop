@@ -71,6 +71,24 @@ func (l *CatalogLoader) BuildLikedTrackSource(recordingID string) PlaybackSource
 	return req
 }
 
+func (l *CatalogLoader) BuildOfflineSource() PlaybackSourceRequest {
+	return PlaybackSourceRequest{
+		Descriptor: PlaybackSourceDescriptor{
+			Kind:         ContextKindOffline,
+			ID:           "offline",
+			Title:        "Offline",
+			RebasePolicy: ContextRebaseLive,
+			Live:         true,
+		},
+	}
+}
+
+func (l *CatalogLoader) BuildOfflineTrackSource(recordingID string) PlaybackSourceRequest {
+	req := l.BuildOfflineSource()
+	req.Anchor = PlaybackSourceAnchor{RecordingID: strings.TrimSpace(recordingID)}
+	return req
+}
+
 func (l *CatalogLoader) BuildTracksSource() PlaybackSourceRequest {
 	return PlaybackSourceRequest{
 		Descriptor: PlaybackSourceDescriptor{
@@ -142,6 +160,12 @@ func (l *CatalogLoader) EnumerateSource(ctx context.Context, req PlaybackSourceR
 		candidates = items
 	case ContextKindLiked:
 		items, err := l.enumerateLikedSource(ctx)
+		if err != nil {
+			return PlaybackSourceRequest{}, nil, 0, err
+		}
+		candidates = items
+	case ContextKindOffline:
+		items, err := l.enumerateOfflineSource(ctx)
 		if err != nil {
 			return PlaybackSourceRequest{}, nil, 0, err
 		}
@@ -272,6 +296,40 @@ func (l *CatalogLoader) enumerateLikedSource(ctx context.Context) ([]PlaybackSou
 		}
 		out = append(out, PlaybackSourceCandidate{
 			Key:  "liked:" + key,
+			Item: item,
+		})
+	}
+	return out, nil
+}
+
+func (l *CatalogLoader) enumerateOfflineSource(ctx context.Context) ([]PlaybackSourceCandidate, error) {
+	var offline []apitypes.OfflineRecordingItem
+	cursor := ""
+	for {
+		page, err := l.core.ListOfflineRecordingsCursor(ctx, apitypes.OfflineRecordingCursorRequest{
+			CursorPageRequest: apitypes.CursorPageRequest{
+				Limit:  playbackSourcePageLimit,
+				Cursor: cursor,
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		offline = append(offline, page.Items...)
+		if !page.Page.HasMore {
+			break
+		}
+		cursor = page.Page.NextCursor
+	}
+	items := ItemsFromOfflineRecordings(offline)
+	out := make([]PlaybackSourceCandidate, 0, len(items))
+	for index, item := range items {
+		key := firstNonEmpty(item.LibraryRecordingID, item.RecordingID, item.VariantRecordingID)
+		if key == "" {
+			key = fmt.Sprintf("%06d", index)
+		}
+		out = append(out, PlaybackSourceCandidate{
+			Key:  "offline:" + key,
 			Item: item,
 		})
 	}

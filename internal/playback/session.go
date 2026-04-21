@@ -686,6 +686,8 @@ func (s *Session) catalogChangeRelevantLocked(event apitypes.CatalogChangeEvent)
 		return event.Entity == apitypes.CatalogChangeEntityPlaylistTracks && strings.TrimSpace(event.EntityID) == strings.TrimSpace(queue.Source.ID)
 	case ContextKindLiked:
 		return event.Entity == apitypes.CatalogChangeEntityLiked
+	case ContextKindOffline:
+		return event.Entity == apitypes.CatalogChangeEntityOffline
 	default:
 		return false
 	}

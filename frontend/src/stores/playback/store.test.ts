@@ -8,6 +8,8 @@ const playbackApi = vi.hoisted(() => ({
   playAlbumTrack: vi.fn(),
   playLiked: vi.fn(),
   playLikedTrack: vi.fn(),
+  playOffline: vi.fn(),
+  playOfflineTrack: vi.fn(),
   playPlaylist: vi.fn(),
   playPlaylistTrack: vi.fn(),
   playRecording: vi.fn(),
@@ -16,6 +18,7 @@ const playbackApi = vi.hoisted(() => ({
   previousTrack: vi.fn(),
   queueAlbum: vi.fn(),
   queueLikedTrack: vi.fn(),
+  queueOfflineTrack: vi.fn(),
   queuePlaylist: vi.fn(),
   queuePlaylistTrack: vi.fn(),
   queueRecording: vi.fn(),
@@ -63,6 +66,8 @@ vi.mock("@/lib/api/playback", () => ({
   playAlbumTrack: playbackApi.playAlbumTrack,
   playLiked: playbackApi.playLiked,
   playLikedTrack: playbackApi.playLikedTrack,
+  playOffline: playbackApi.playOffline,
+  playOfflineTrack: playbackApi.playOfflineTrack,
   playPlaylist: playbackApi.playPlaylist,
   playPlaylistTrack: playbackApi.playPlaylistTrack,
   playRecording: playbackApi.playRecording,
@@ -71,6 +76,7 @@ vi.mock("@/lib/api/playback", () => ({
   previousTrack: playbackApi.previousTrack,
   queueAlbum: playbackApi.queueAlbum,
   queueLikedTrack: playbackApi.queueLikedTrack,
+  queueOfflineTrack: playbackApi.queueOfflineTrack,
   queuePlaylist: playbackApi.queuePlaylist,
   queuePlaylistTrack: playbackApi.queuePlaylistTrack,
   queueRecording: playbackApi.queueRecording,
@@ -249,6 +255,8 @@ beforeEach(() => {
   playbackApi.playAlbumTrack.mockResolvedValue(undefined);
   playbackApi.playLiked.mockResolvedValue(undefined);
   playbackApi.playLikedTrack.mockResolvedValue(undefined);
+  playbackApi.playOffline.mockResolvedValue(undefined);
+  playbackApi.playOfflineTrack.mockResolvedValue(undefined);
   playbackApi.playPlaylist.mockResolvedValue(undefined);
   playbackApi.playPlaylistTrack.mockResolvedValue(undefined);
   playbackApi.playRecording.mockResolvedValue(undefined);
@@ -257,6 +265,7 @@ beforeEach(() => {
   playbackApi.previousTrack.mockResolvedValue(undefined);
   playbackApi.queueAlbum.mockResolvedValue(undefined);
   playbackApi.queueLikedTrack.mockResolvedValue(undefined);
+  playbackApi.queueOfflineTrack.mockResolvedValue(undefined);
   playbackApi.queuePlaylist.mockResolvedValue(undefined);
   playbackApi.queuePlaylistTrack.mockResolvedValue(undefined);
   playbackApi.queueRecording.mockResolvedValue(undefined);
@@ -546,5 +555,17 @@ describe("playback store authoritative slices", () => {
     expect(state.transport?.currentEntry?.entryId).toBe("ctx-fresh");
     expect(state.transport?.positionCapturedAtMs).toBe(99_000);
     expect(state.error).toBe("");
+  });
+
+  test("offline playback actions forward to the offline api methods", async () => {
+    usePlaybackStore.setState({ started: true, generation: 1 });
+
+    await usePlaybackStore.getState().playOffline();
+    await usePlaybackStore.getState().playOfflineTrack("cluster-1");
+    await usePlaybackStore.getState().queueOfflineTrack("cluster-2");
+
+    expect(playbackApi.playOffline).toHaveBeenCalledTimes(1);
+    expect(playbackApi.playOfflineTrack).toHaveBeenCalledWith("cluster-1");
+    expect(playbackApi.queueOfflineTrack).toHaveBeenCalledWith("cluster-2");
   });
 });

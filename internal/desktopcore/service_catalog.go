@@ -85,6 +85,13 @@ type likedRecordingSeedRow struct {
 	AddedAt            time.Time
 }
 
+type offlineRecordingSeedRow struct {
+	LibraryRecordingID string
+	OfflineSince       time.Time
+	HasLocalSource     bool
+	HasLocalCached     bool
+}
+
 type chosenRecordingVariant struct {
 	ClusterID    string
 	Chosen       recordingVariantRow
@@ -594,6 +601,11 @@ func (s *CatalogService) ListPlaylists(ctx context.Context, req apitypes.Playlis
 	if err != nil {
 		return apitypes.Page[apitypes.PlaylistListItem]{}, err
 	}
+	if s.app.offline != nil {
+		if err := s.app.offline.ensureFresh(ctx, local); err != nil {
+			return apitypes.Page[apitypes.PlaylistListItem]{}, err
+		}
+	}
 	type row struct {
 		PlaylistID     string
 		Name           string
@@ -621,13 +633,12 @@ LEFT JOIN playlist_items pi ON pi.library_id = p.library_id AND pi.playlist_id =
 LEFT JOIN artwork_variants aw ON aw.library_id = p.library_id AND aw.scope_type = 'playlist' AND aw.scope_id = p.playlist_id
 LEFT JOIN pin_roots op ON op.library_id = p.library_id AND op.device_id = ? AND op.scope = 'playlist' AND op.scope_id = p.playlist_id AND (op.profile = ? OR op.profile = ?)
 WHERE p.library_id = ? AND p.deleted_at IS NULL
-GROUP BY p.playlist_id, p.name, p.kind, p.created_by, p.updated_at
-ORDER BY CASE WHEN p.kind = ? THEN 0 ELSE 1 END ASC, LOWER(p.name) ASC, p.playlist_id ASC`
+GROUP BY p.playlist_id, p.name, p.kind, p.created_by, p.updated_at`
 	var rows []row
-	if err := s.app.storage.ReadWithContext(ctx).Raw(query, local.DeviceID, profile, aliasProfile, local.LibraryID, playlistKindLiked).Scan(&rows).Error; err != nil {
+	if err := s.app.storage.ReadWithContext(ctx).Raw(query, local.DeviceID, profile, aliasProfile, local.LibraryID).Scan(&rows).Error; err != nil {
 		return apitypes.Page[apitypes.PlaylistListItem]{}, err
 	}
-	out := make([]apitypes.PlaylistListItem, 0, len(rows))
+	out := make([]apitypes.PlaylistListItem, 0, len(rows)+1)
 	for _, row := range rows {
 		thumb, _, thumbErr := s.loadPlaylistArtworkRef(ctx, local.LibraryID, row.PlaylistID)
 		if thumbErr != nil {
@@ -637,7 +648,7 @@ ORDER BY CASE WHEN p.kind = ? THEN 0 ELSE 1 END ASC, LOWER(p.name) ASC, p.playli
 			PlaylistID:     row.PlaylistID,
 			Name:           row.Name,
 			Kind:           apitypes.PlaylistKind(row.Kind),
-			IsReserved:     strings.EqualFold(strings.TrimSpace(row.Kind), playlistKindLiked),
+			IsReserved:     isReservedPlaylistKind(row.Kind),
 			ScopePinned:    row.ScopePinned > 0,
 			Thumb:          thumb,
 			HasCustomCover: row.HasCustomCover > 0,
@@ -646,6 +657,28 @@ ORDER BY CASE WHEN p.kind = ? THEN 0 ELSE 1 END ASC, LOWER(p.name) ASC, p.playli
 			ItemCount:      row.ItemCount,
 		})
 	}
+	if s.app.offline != nil {
+		offline, err := s.app.offline.summaryForLocal(ctx, local)
+		if err != nil {
+			return apitypes.Page[apitypes.PlaylistListItem]{}, err
+		}
+		out = append(out, offline)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		left := out[i]
+		right := out[j]
+		leftRank := playlistListSortRank(left.Kind)
+		rightRank := playlistListSortRank(right.Kind)
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		leftName := strings.ToLower(strings.TrimSpace(left.Name))
+		rightName := strings.ToLower(strings.TrimSpace(right.Name))
+		if leftName != rightName {
+			return leftName < rightName
+		}
+		return strings.TrimSpace(left.PlaylistID) < strings.TrimSpace(right.PlaylistID)
+	})
 	return paginateItems(out, req.PageRequest), nil
 }
 
@@ -733,6 +766,46 @@ func (s *CatalogService) ListLikedRecordingsCursor(ctx context.Context, req apit
 		return apitypes.CursorPage[apitypes.LikedRecordingItem]{}, err
 	}
 	return apitypes.CursorPage[apitypes.LikedRecordingItem]{
+		Items: items,
+		Page: apitypes.CursorPageInfo{
+			Limit:      pageInfo.Limit,
+			Returned:   len(items),
+			HasMore:    pageInfo.HasMore,
+			NextCursor: pageInfo.NextCursor,
+		},
+	}, nil
+}
+
+func (s *CatalogService) ListOfflineRecordings(ctx context.Context, req apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.Page[apitypes.OfflineRecordingItem]{}, err
+	}
+	seeds, pageInfo, err := s.app.offline.listSeedsPage(ctx, local, req.PageRequest)
+	if err != nil {
+		return apitypes.Page[apitypes.OfflineRecordingItem]{}, err
+	}
+	items, err := s.buildOfflineRecordingItems(ctx, local.LibraryID, local.DeviceID, seeds)
+	if err != nil {
+		return apitypes.Page[apitypes.OfflineRecordingItem]{}, err
+	}
+	return apitypes.Page[apitypes.OfflineRecordingItem]{Items: items, Page: pageInfo}, nil
+}
+
+func (s *CatalogService) ListOfflineRecordingsCursor(ctx context.Context, req apitypes.OfflineRecordingCursorRequest) (apitypes.CursorPage[apitypes.OfflineRecordingItem], error) {
+	local, err := s.app.requireActiveContext(ctx)
+	if err != nil {
+		return apitypes.CursorPage[apitypes.OfflineRecordingItem]{}, err
+	}
+	seeds, pageInfo, err := s.app.offline.listSeedsCursor(ctx, local, req.CursorPageRequest)
+	if err != nil {
+		return apitypes.CursorPage[apitypes.OfflineRecordingItem]{}, err
+	}
+	items, err := s.buildOfflineRecordingItems(ctx, local.LibraryID, local.DeviceID, seeds)
+	if err != nil {
+		return apitypes.CursorPage[apitypes.OfflineRecordingItem]{}, err
+	}
+	return apitypes.CursorPage[apitypes.OfflineRecordingItem]{
 		Items: items,
 		Page: apitypes.CursorPageInfo{
 			Limit:      pageInfo.Limit,
@@ -1183,6 +1256,58 @@ func (s *CatalogService) buildLikedRecordingItems(
 		})
 	}
 	return out, nil
+}
+
+func (s *CatalogService) buildOfflineRecordingItems(
+	ctx context.Context,
+	libraryID string,
+	deviceID string,
+	seeds []offlineMemberSeedRow,
+) ([]apitypes.OfflineRecordingItem, error) {
+	clusterIDs := make([]string, 0, len(seeds))
+	for _, seed := range seeds {
+		clusterID := strings.TrimSpace(seed.LibraryRecordingID)
+		if clusterID == "" {
+			continue
+		}
+		clusterIDs = append(clusterIDs, clusterID)
+	}
+	chosenByCluster, err := s.choosePreferredRecordingVariantsForClusters(ctx, libraryID, deviceID, clusterIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]apitypes.OfflineRecordingItem, 0, len(seeds))
+	for _, seed := range seeds {
+		clusterID := strings.TrimSpace(seed.LibraryRecordingID)
+		chosen, ok := chosenByCluster[clusterID]
+		if !ok {
+			continue
+		}
+		out = append(out, apitypes.OfflineRecordingItem{
+			LibraryRecordingID: clusterID,
+			RecordingID:        strings.TrimSpace(chosen.Chosen.TrackVariantID),
+			AlbumID:            strings.TrimSpace(chosen.Chosen.AlbumVariantID),
+			Title:              chosen.Chosen.Title,
+			DurationMS:         chosen.Chosen.DurationMS,
+			Artists:            append([]string(nil), chosen.Chosen.Artists...),
+			OfflineSince:       seed.OfflineSince,
+			HasLocalSource:     seed.HasLocalSource,
+			HasLocalCached:     seed.HasLocalCached,
+		})
+	}
+	return out, nil
+}
+
+func playlistListSortRank(kind apitypes.PlaylistKind) int {
+	switch strings.ToLower(strings.TrimSpace(string(kind))) {
+	case playlistKindLiked:
+		return 0
+	case playlistKindOffline:
+		return 1
+	default:
+		return 2
+	}
 }
 
 func (s *CatalogService) choosePreferredRecordingVariantsForClusters(

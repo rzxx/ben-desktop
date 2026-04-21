@@ -91,6 +91,12 @@ function handleBaseInvalidation(
     case "liked":
       store.invalidateValueQuery("liked", { dropAfterOffset: 0 });
       break;
+    case "offline":
+      store.invalidateValueQuery("offline", { dropAfterOffset: 0 });
+      if (hasLoadedValueQuery("offline")) {
+        void catalogLoaderClient.refetchOffline();
+      }
+      break;
     default:
       if (event.QueryKey.startsWith("albumTracks:")) {
         store.invalidateValueQuery(event.QueryKey, { dropAfterOffset: 0 });

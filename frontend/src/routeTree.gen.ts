@@ -18,6 +18,7 @@ import { Route as CacheRouteRouteImport } from './routes/cache/route'
 import { Route as ArtistsRouteRouteImport } from './routes/artists/route'
 import { Route as AlbumsRouteRouteImport } from './routes/albums/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PlaylistsOfflineRouteRouteImport } from './routes/playlists_/offline/route'
 import { Route as PlaylistsLikedRouteRouteImport } from './routes/playlists_/liked/route'
 import { Route as PlaylistsPlaylistIdRouteRouteImport } from './routes/playlists_/$playlistId/route'
 import { Route as ArtistsArtistIdRouteRouteImport } from './routes/artists_/$artistId/route'
@@ -68,6 +69,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlaylistsOfflineRouteRoute = PlaylistsOfflineRouteRouteImport.update({
+  id: '/playlists_/offline',
+  path: '/playlists/offline',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PlaylistsLikedRouteRoute = PlaylistsLikedRouteRouteImport.update({
   id: '/playlists_/liked',
   path: '/playlists/liked',
@@ -104,6 +110,7 @@ export interface FileRoutesByFullPath {
   '/artists/$artistId': typeof ArtistsArtistIdRouteRoute
   '/playlists/$playlistId': typeof PlaylistsPlaylistIdRouteRoute
   '/playlists/liked': typeof PlaylistsLikedRouteRoute
+  '/playlists/offline': typeof PlaylistsOfflineRouteRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -119,6 +126,7 @@ export interface FileRoutesByTo {
   '/artists/$artistId': typeof ArtistsArtistIdRouteRoute
   '/playlists/$playlistId': typeof PlaylistsPlaylistIdRouteRoute
   '/playlists/liked': typeof PlaylistsLikedRouteRoute
+  '/playlists/offline': typeof PlaylistsOfflineRouteRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -135,6 +143,7 @@ export interface FileRoutesById {
   '/artists_/$artistId': typeof ArtistsArtistIdRouteRoute
   '/playlists_/$playlistId': typeof PlaylistsPlaylistIdRouteRoute
   '/playlists_/liked': typeof PlaylistsLikedRouteRoute
+  '/playlists_/offline': typeof PlaylistsOfflineRouteRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | '/artists/$artistId'
     | '/playlists/$playlistId'
     | '/playlists/liked'
+    | '/playlists/offline'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -167,6 +177,7 @@ export interface FileRouteTypes {
     | '/artists/$artistId'
     | '/playlists/$playlistId'
     | '/playlists/liked'
+    | '/playlists/offline'
   id:
     | '__root__'
     | '/'
@@ -182,6 +193,7 @@ export interface FileRouteTypes {
     | '/artists_/$artistId'
     | '/playlists_/$playlistId'
     | '/playlists_/liked'
+    | '/playlists_/offline'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -198,6 +210,7 @@ export interface RootRouteChildren {
   ArtistsArtistIdRouteRoute: typeof ArtistsArtistIdRouteRoute
   PlaylistsPlaylistIdRouteRoute: typeof PlaylistsPlaylistIdRouteRoute
   PlaylistsLikedRouteRoute: typeof PlaylistsLikedRouteRoute
+  PlaylistsOfflineRouteRoute: typeof PlaylistsOfflineRouteRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -265,6 +278,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/playlists_/offline': {
+      id: '/playlists_/offline'
+      path: '/playlists/offline'
+      fullPath: '/playlists/offline'
+      preLoaderRoute: typeof PlaylistsOfflineRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/playlists_/liked': {
       id: '/playlists_/liked'
       path: '/playlists/liked'
@@ -310,6 +330,7 @@ const rootRouteChildren: RootRouteChildren = {
   ArtistsArtistIdRouteRoute: ArtistsArtistIdRouteRoute,
   PlaylistsPlaylistIdRouteRoute: PlaylistsPlaylistIdRouteRoute,
   PlaylistsLikedRouteRoute: PlaylistsLikedRouteRoute,
+  PlaylistsOfflineRouteRoute: PlaylistsOfflineRouteRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

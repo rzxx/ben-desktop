@@ -34,21 +34,23 @@ func (s *memoryStore) Clear(context.Context) error {
 }
 
 type mockBridge struct {
-	results                   map[string]apitypes.PlaybackResolveResult
-	availability              map[string]apitypes.RecordingPlaybackAvailability
-	preparations              map[string][]apitypes.PlaybackPreparationStatus
-	recordings                []apitypes.RecordingListItem
-	recording                 map[string]apitypes.RecordingListItem
-	albums                    map[string]apitypes.AlbumListItem
-	playlists                 map[string]apitypes.PlaylistListItem
-	albumTracks               map[string][]apitypes.AlbumTrackItem
-	playlistTracks            map[string][]apitypes.PlaylistTrackItem
-	likedRecordings           []apitypes.LikedRecordingItem
-	prepareCalls              map[string]int
-	getPreparationCalls       map[string]int
-	recordingsCursorHook      func(context.Context, apitypes.RecordingCursorRequest) error
-	playlistTracksCursorHook  func(context.Context, apitypes.PlaylistTrackCursorRequest) error
-	likedRecordingsCursorHook func(context.Context, apitypes.LikedRecordingCursorRequest) error
+	results                     map[string]apitypes.PlaybackResolveResult
+	availability                map[string]apitypes.RecordingPlaybackAvailability
+	preparations                map[string][]apitypes.PlaybackPreparationStatus
+	recordings                  []apitypes.RecordingListItem
+	recording                   map[string]apitypes.RecordingListItem
+	albums                      map[string]apitypes.AlbumListItem
+	playlists                   map[string]apitypes.PlaylistListItem
+	albumTracks                 map[string][]apitypes.AlbumTrackItem
+	playlistTracks              map[string][]apitypes.PlaylistTrackItem
+	likedRecordings             []apitypes.LikedRecordingItem
+	offlineRecordings           []apitypes.OfflineRecordingItem
+	prepareCalls                map[string]int
+	getPreparationCalls         map[string]int
+	recordingsCursorHook        func(context.Context, apitypes.RecordingCursorRequest) error
+	playlistTracksCursorHook    func(context.Context, apitypes.PlaylistTrackCursorRequest) error
+	likedRecordingsCursorHook   func(context.Context, apitypes.LikedRecordingCursorRequest) error
+	offlineRecordingsCursorHook func(context.Context, apitypes.OfflineRecordingCursorRequest) error
 }
 
 func (b *mockBridge) Close() error { return nil }
@@ -115,6 +117,19 @@ func (b *mockBridge) ListLikedRecordingsCursor(ctx context.Context, req apitypes
 		}
 	}
 	return paginateCursorTestItems(b.likedRecordings, req.CursorPageRequest), nil
+}
+
+func (b *mockBridge) ListOfflineRecordings(_ context.Context, req apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error) {
+	return paginateTestItems(b.offlineRecordings, req.PageRequest), nil
+}
+
+func (b *mockBridge) ListOfflineRecordingsCursor(ctx context.Context, req apitypes.OfflineRecordingCursorRequest) (apitypes.CursorPage[apitypes.OfflineRecordingItem], error) {
+	if b.offlineRecordingsCursorHook != nil {
+		if err := b.offlineRecordingsCursorHook(ctx, req); err != nil {
+			return apitypes.CursorPage[apitypes.OfflineRecordingItem]{}, err
+		}
+	}
+	return paginateCursorTestItems(b.offlineRecordings, req.CursorPageRequest), nil
 }
 
 func (b *mockBridge) SubscribeCatalogChanges(func(apitypes.CatalogChangeEvent)) func() {
@@ -6129,6 +6144,87 @@ func TestCatalogLoaderResolveSourceItemReturnsSelectedLikedTrack(t *testing.T) {
 	}
 	if item.SourceKind != SourceKindLiked || item.RecordingID != "cluster-2" {
 		t.Fatalf("unexpected liked item: %+v", item)
+	}
+	if item.Target.ResolutionPolicy != PlaybackTargetResolutionPreferred {
+		t.Fatalf("resolution policy = %q, want %q", item.Target.ResolutionPolicy, PlaybackTargetResolutionPreferred)
+	}
+}
+
+func TestCatalogLoaderMaterializeSourceStartsOfflineAtSelectedTrack(t *testing.T) {
+	t.Parallel()
+
+	loader := NewCatalogLoader(&mockBridge{
+		offlineRecordings: []apitypes.OfflineRecordingItem{
+			{LibraryRecordingID: "cluster-1", RecordingID: "variant-1", Title: "One", Artists: []string{"Artist"}, DurationMS: 1000, HasLocalSource: true},
+			{LibraryRecordingID: "cluster-2", RecordingID: "variant-2", Title: "Two", Artists: []string{"Artist"}, DurationMS: 1000, HasLocalCached: true},
+		},
+	})
+
+	contextInput, err := loader.MaterializeSource(context.Background(), loader.BuildOfflineTrackSource("cluster-2"))
+	if err != nil {
+		t.Fatalf("load offline track context: %v", err)
+	}
+	if contextInput.Kind != ContextKindOffline || contextInput.ID != "offline" {
+		t.Fatalf("unexpected context: %+v", contextInput)
+	}
+	if contextInput.StartIndex != 1 {
+		t.Fatalf("start index = %d, want 1", contextInput.StartIndex)
+	}
+	if len(contextInput.Items) != 2 || contextInput.Items[1].RecordingID != "cluster-2" {
+		t.Fatalf("unexpected items: %+v", contextInput.Items)
+	}
+	if contextInput.Title != "Offline" {
+		t.Fatalf("title = %q, want Offline", contextInput.Title)
+	}
+}
+
+func TestItemsFromOfflineRecordingsUsePreferredResolutionTarget(t *testing.T) {
+	t.Parallel()
+
+	items := ItemsFromOfflineRecordings([]apitypes.OfflineRecordingItem{
+		{
+			LibraryRecordingID: "cluster-1",
+			RecordingID:        "variant-2",
+			Title:              "Track",
+			DurationMS:         1000,
+			Artists:            []string{"Artist"},
+			HasLocalSource:     true,
+		},
+	})
+
+	if len(items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(items))
+	}
+	if items[0].RecordingID != "cluster-1" {
+		t.Fatalf("recording id = %q, want cluster-1", items[0].RecordingID)
+	}
+	if items[0].Target.ExactVariantRecordingID != "variant-2" {
+		t.Fatalf("exact variant id = %q, want variant-2", items[0].Target.ExactVariantRecordingID)
+	}
+	if items[0].ResolutionMode != ResolutionModeLibrary {
+		t.Fatalf("resolution mode = %q, want %q", items[0].ResolutionMode, ResolutionModeLibrary)
+	}
+	if items[0].Target.ResolutionPolicy != PlaybackTargetResolutionPreferred {
+		t.Fatalf("resolution policy = %q, want %q", items[0].Target.ResolutionPolicy, PlaybackTargetResolutionPreferred)
+	}
+}
+
+func TestCatalogLoaderResolveSourceItemReturnsSelectedOfflineTrack(t *testing.T) {
+	t.Parallel()
+
+	loader := NewCatalogLoader(&mockBridge{
+		offlineRecordings: []apitypes.OfflineRecordingItem{
+			{LibraryRecordingID: "cluster-1", RecordingID: "variant-1", Title: "One", Artists: []string{"Artist"}, DurationMS: 1000, HasLocalSource: true},
+			{LibraryRecordingID: "cluster-2", RecordingID: "variant-2", Title: "Two", Artists: []string{"Artist"}, DurationMS: 1000, HasLocalCached: true},
+		},
+	})
+
+	item, err := loader.ResolveSourceItem(context.Background(), loader.BuildOfflineTrackSource("cluster-2"))
+	if err != nil {
+		t.Fatalf("load offline item: %v", err)
+	}
+	if item.SourceKind != SourceKindOffline || item.RecordingID != "cluster-2" {
+		t.Fatalf("unexpected offline item: %+v", item)
 	}
 	if item.Target.ResolutionPolicy != PlaybackTargetResolutionPreferred {
 		t.Fatalf("resolution policy = %q, want %q", item.Target.ResolutionPolicy, PlaybackTargetResolutionPreferred)

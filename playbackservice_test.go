@@ -64,6 +64,7 @@ type passthroughRuntimeStub struct {
 	getPlaylistSummaryFn        func(context.Context, string) (apitypes.PlaylistListItem, error)
 	listPlaylistTracksFn        func(context.Context, apitypes.PlaylistTrackListRequest) (apitypes.Page[apitypes.PlaylistTrackItem], error)
 	listLikedRecordingsFn       func(context.Context, apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error)
+	listOfflineRecordingsFn     func(context.Context, apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error)
 	createPlaylistFn            func(context.Context, string, string) (apitypes.PlaylistRecord, error)
 	renamePlaylistFn            func(context.Context, string, string) (apitypes.PlaylistRecord, error)
 	deletePlaylistFn            func(context.Context, string) error
@@ -356,6 +357,27 @@ func (b *passthroughBridgeStub) ListLikedRecordingsCursor(ctx context.Context, r
 		return apitypes.CursorPage[apitypes.LikedRecordingItem]{}, err
 	}
 	return apitypes.CursorPage[apitypes.LikedRecordingItem]{
+		Items: page.Items,
+		Page: apitypes.CursorPageInfo{
+			Limit:    req.Limit,
+			Returned: len(page.Items),
+			HasMore:  page.Page.HasMore,
+		},
+	}, nil
+}
+
+func (b *passthroughBridgeStub) ListOfflineRecordings(ctx context.Context, req apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error) {
+	return b.listOfflineRecordingsFn(ctx, req)
+}
+
+func (b *passthroughBridgeStub) ListOfflineRecordingsCursor(ctx context.Context, req apitypes.OfflineRecordingCursorRequest) (apitypes.CursorPage[apitypes.OfflineRecordingItem], error) {
+	page, err := b.listOfflineRecordingsFn(ctx, apitypes.OfflineRecordingListRequest{
+		PageRequest: apitypes.PageRequest{Limit: req.Limit},
+	})
+	if err != nil {
+		return apitypes.CursorPage[apitypes.OfflineRecordingItem]{}, err
+	}
+	return apitypes.CursorPage[apitypes.OfflineRecordingItem]{
 		Items: page.Items,
 		Page: apitypes.CursorPageInfo{
 			Limit:    req.Limit,

@@ -388,7 +388,9 @@ export function AlbumDetailPage() {
             {pinFeedback ? (
               <p className="text-theme-500 text-xs">{pinFeedback}</p>
             ) : null}
-            {!pinFeedback && !scopedPinUiState.error && pinStateLabel(albumPinState) ? (
+            {!pinFeedback &&
+            !scopedPinUiState.error &&
+            pinStateLabel(albumPinState) ? (
               <p className="text-theme-500 text-xs">
                 {pinStateLabel(albumPinState)}
               </p>

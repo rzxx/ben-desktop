@@ -18,6 +18,7 @@ export enum ContextKind {
     ContextKindAlbum = "album",
     ContextKindPlaylist = "playlist",
     ContextKindLiked = "liked",
+    ContextKindOffline = "offline",
     ContextKindTracks = "tracks",
     ContextKindRecording = "recording",
     ContextKindCustom = "custom",

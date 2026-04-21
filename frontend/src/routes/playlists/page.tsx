@@ -17,6 +17,22 @@ import { formatCount } from "@/lib/format";
 import { getIdQuery, useCatalogStore } from "@/stores/catalog/store";
 import { selectEntityQuery } from "@/stores/catalog/query-state";
 
+function playlistPinSubject(playlist: PlaylistListItem) {
+  if (playlist.Kind === "liked") {
+    return new Types.PinSubjectRef({
+      ID: playlist.PlaylistID,
+      Kind: Types.PinSubjectKind.PinSubjectLikedPlaylist,
+    });
+  }
+  if (playlist.IsReserved) {
+    return null;
+  }
+  return new Types.PinSubjectRef({
+    ID: playlist.PlaylistID,
+    Kind: Types.PinSubjectKind.PinSubjectPlaylist,
+  });
+}
+
 export function PlaylistsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const query = useStoreInfiniteQuery<PlaylistListItem>(
@@ -39,16 +55,9 @@ export function PlaylistsPage() {
     },
   );
   const playlistPinStates = usePinStates(
-    query.items.map(
-      (playlist) =>
-        new Types.PinSubjectRef({
-          ID: playlist.PlaylistID,
-          Kind:
-            playlist.Kind === "liked"
-              ? Types.PinSubjectKind.PinSubjectLikedPlaylist
-              : Types.PinSubjectKind.PinSubjectPlaylist,
-        }),
-    ),
+    query.items
+      .map((playlist) => playlistPinSubject(playlist))
+      .filter((subject): subject is Types.PinSubjectRef => subject !== null),
   );
 
   return (
@@ -91,17 +100,13 @@ export function PlaylistsPage() {
           }}
           renderRow={(playlist) => (
             <PlaylistRow
-              pinState={
-                playlistPinStates[
-                  pinSubjectKey({
-                    ID: playlist.PlaylistID,
-                    Kind:
-                      playlist.Kind === "liked"
-                        ? Types.PinSubjectKind.PinSubjectLikedPlaylist
-                        : Types.PinSubjectKind.PinSubjectPlaylist,
-                  })
-                ] ?? null
-              }
+              pinState={(() => {
+                const subject = playlistPinSubject(playlist);
+                if (!subject) {
+                  return null;
+                }
+                return playlistPinStates[pinSubjectKey(subject)] ?? null;
+              })()}
               playlist={playlist}
             />
           )}

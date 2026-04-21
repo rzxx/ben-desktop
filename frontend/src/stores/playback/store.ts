@@ -10,6 +10,8 @@ import {
   playAlbumTrack,
   playLiked,
   playLikedTrack,
+  playOffline,
+  playOfflineTrack,
   playPlaylist,
   playPlaylistTrack,
   playRecording,
@@ -18,6 +20,7 @@ import {
   previousTrack,
   queueAlbum,
   queueLikedTrack,
+  queueOfflineTrack,
   queuePlaylist,
   queuePlaylistTrack,
   queueRecording,
@@ -114,7 +117,10 @@ type PlaybackStore = {
   queueRecording: (recordingId: string) => Promise<void>;
   playLiked: () => Promise<void>;
   playLikedTrack: (recordingId: string) => Promise<void>;
+  playOffline: () => Promise<void>;
+  playOfflineTrack: (recordingId: string) => Promise<void>;
   queueLikedTrack: (recordingId: string) => Promise<void>;
+  queueOfflineTrack: (recordingId: string) => Promise<void>;
   playTracks: () => Promise<void>;
   shuffleTracks: () => Promise<void>;
   playTracksFrom: (recordingId: string) => Promise<void>;
@@ -773,10 +779,40 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       (error) => set({ error }),
     );
   },
+  playOffline: async () => {
+    const generation = get().generation;
+    await runPlaybackAction(
+      playOffline,
+      () => get().started && get().generation === generation,
+      () => get().transportStateSequence,
+      get().bootstrapFromSnapshot,
+      (error) => set({ error }),
+    );
+  },
+  playOfflineTrack: async (recordingId) => {
+    const generation = get().generation;
+    await runPlaybackAction(
+      () => playOfflineTrack(recordingId),
+      () => get().started && get().generation === generation,
+      () => get().transportStateSequence,
+      get().bootstrapFromSnapshot,
+      (error) => set({ error }),
+    );
+  },
   queueLikedTrack: async (recordingId) => {
     const generation = get().generation;
     await runPlaybackAction(
       () => queueLikedTrack(recordingId),
+      () => get().started && get().generation === generation,
+      () => get().transportStateSequence,
+      get().bootstrapFromSnapshot,
+      (error) => set({ error }),
+    );
+  },
+  queueOfflineTrack: async (recordingId) => {
+    const generation = get().generation;
+    await runPlaybackAction(
+      () => queueOfflineTrack(recordingId),
       () => get().started && get().generation === generation,
       () => get().transportStateSequence,
       get().bootstrapFromSnapshot,

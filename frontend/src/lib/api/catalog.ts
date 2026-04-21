@@ -116,6 +116,15 @@ export function listLikedRecordingsPage(offset = 0, limit = TRACK_PAGE_SIZE) {
   );
 }
 
+export function listOfflineRecordingsPage(offset = 0, limit = TRACK_PAGE_SIZE) {
+  return CatalogFacade.ListOfflineRecordings(
+    new Types.OfflineRecordingListRequest({
+      Limit: limit,
+      Offset: offset,
+    }),
+  );
+}
+
 export function createPlaylist(name: string, kind = "normal") {
   return CatalogFacade.CreatePlaylist(name, kind);
 }

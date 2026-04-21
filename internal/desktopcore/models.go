@@ -76,6 +76,18 @@ type ScanMaintenanceState struct {
 
 func (ScanMaintenanceState) TableName() string { return "scan_maintenance_states" }
 
+type OfflineMember struct {
+	LibraryID          string    `gorm:"primaryKey;size:64"`
+	DeviceID           string    `gorm:"primaryKey;size:64"`
+	LibraryRecordingID string    `gorm:"primaryKey;size:64;column:library_recording_id"`
+	HasLocalSource     bool      `gorm:"not null;default:false"`
+	HasLocalCached     bool      `gorm:"not null;default:false"`
+	OfflineSince       time.Time `gorm:"not null;index"`
+	UpdatedAt          time.Time `gorm:"not null;index"`
+}
+
+func (OfflineMember) TableName() string { return "offline_members" }
+
 type PinRoot struct {
 	LibraryID        string     `gorm:"primaryKey;size:64"`
 	DeviceID         string     `gorm:"primaryKey;size:64"`

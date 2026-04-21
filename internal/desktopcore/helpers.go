@@ -21,6 +21,7 @@ const (
 	dbBaselineEpoch             = "2026_04_rebaseline_1"
 	playlistKindNormal          = "normal"
 	playlistKindLiked           = "liked"
+	playlistKindOffline         = "offline"
 	roleOwner                   = "owner"
 	roleAdmin                   = "admin"
 	roleMember                  = "member"
@@ -233,4 +234,18 @@ func fileURIFromPath(path string) (string, error) {
 func likedPlaylistIDForLibrary(libraryID string) string {
 	sum := sha256.Sum256([]byte("liked:" + strings.TrimSpace(libraryID)))
 	return "liked-" + hex.EncodeToString(sum[:8])
+}
+
+func offlinePlaylistIDForDevice(libraryID, deviceID string) string {
+	sum := sha256.Sum256([]byte("offline:" + strings.TrimSpace(libraryID) + ":" + strings.TrimSpace(deviceID)))
+	return "offline-" + hex.EncodeToString(sum[:8])
+}
+
+func isReservedPlaylistKind(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case playlistKindLiked, playlistKindOffline:
+		return true
+	default:
+		return false
+	}
 }

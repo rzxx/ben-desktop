@@ -148,6 +148,14 @@ func (c *UnavailableCore) ListLikedRecordingsCursor(context.Context, apitypes.Li
 	return apitypes.CursorPage[apitypes.LikedRecordingItem]{}, c.err
 }
 
+func (c *UnavailableCore) ListOfflineRecordings(context.Context, apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error) {
+	return apitypes.Page[apitypes.OfflineRecordingItem]{}, c.err
+}
+
+func (c *UnavailableCore) ListOfflineRecordingsCursor(context.Context, apitypes.OfflineRecordingCursorRequest) (apitypes.CursorPage[apitypes.OfflineRecordingItem], error) {
+	return apitypes.CursorPage[apitypes.OfflineRecordingItem]{}, c.err
+}
+
 func (c *UnavailableCore) SubscribeCatalogChanges(func(apitypes.CatalogChangeEvent)) func() {
 	return func() {}
 }

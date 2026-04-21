@@ -2639,6 +2639,30 @@ ORDER BY at.album_variant_id ASC, at.disc_no ASC, at.track_no ASC, at.track_vari
 }
 
 func (s *PlaybackService) libraryRecordingIDsForPlaylist(ctx context.Context, libraryID, playlistID string) ([]string, error) {
+	if local, err := s.app.EnsureLocalContext(ctx); err == nil &&
+		strings.TrimSpace(local.LibraryID) == strings.TrimSpace(libraryID) &&
+		s.app.offline != nil &&
+		s.app.offline.matchesPlaylistID(local, playlistID) {
+		out := make([]string, 0)
+		cursor := ""
+		for {
+			seeds, pageInfo, err := s.app.offline.listSeedsCursor(ctx, local, apitypes.CursorPageRequest{
+				Limit:  maxPageLimit,
+				Cursor: cursor,
+			})
+			if err != nil {
+				return nil, err
+			}
+			for _, seed := range seeds {
+				out = append(out, strings.TrimSpace(seed.LibraryRecordingID))
+			}
+			if !pageInfo.HasMore {
+				break
+			}
+			cursor = pageInfo.NextCursor
+		}
+		return compactNonEmptyStrings(out), nil
+	}
 	type row struct{ RecordingID string }
 	var rows []row
 	query := `

@@ -63,6 +63,8 @@ type CatalogRuntime interface {
 	ListPlaylistTracksCursor(ctx context.Context, req apitypes.PlaylistTrackCursorRequest) (apitypes.CursorPage[apitypes.PlaylistTrackItem], error)
 	ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error)
 	ListLikedRecordingsCursor(ctx context.Context, req apitypes.LikedRecordingCursorRequest) (apitypes.CursorPage[apitypes.LikedRecordingItem], error)
+	ListOfflineRecordings(ctx context.Context, req apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error)
+	ListOfflineRecordingsCursor(ctx context.Context, req apitypes.OfflineRecordingCursorRequest) (apitypes.CursorPage[apitypes.OfflineRecordingItem], error)
 	CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error)
 	RenamePlaylist(ctx context.Context, playlistID, name string) (apitypes.PlaylistRecord, error)
 	DeletePlaylist(ctx context.Context, playlistID string) error

@@ -1,6 +1,10 @@
 import { Download, LoaderCircle, Play } from "lucide-react";
 import { useState } from "react";
-import type { JobSnapshot, LikedRecordingItem, PinSubjectRef } from "@/lib/api/models";
+import type {
+  JobSnapshot,
+  LikedRecordingItem,
+  PinSubjectRef,
+} from "@/lib/api/models";
 import { Button } from "@/components/ui/Button";
 import { ArtworkTile } from "@/components/ui/ArtworkTile";
 import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";

@@ -24,11 +24,13 @@ import {
   ensureArtistAlbumsPage,
   ensureIdQueryPage,
   ensureLikedPage,
+  ensureOfflinePage,
   ensurePlaylistTracksPage,
   ensureTracksPage,
 } from "@/lib/catalog/loader-paged";
 import { ensureAlbumAvailability } from "@/lib/catalog/loader-availability";
 import type { EnsureOptions } from "@/lib/catalog/loader-shared";
+import { playlistEntityKey } from "@/lib/catalog/reserved-playlists";
 
 export const catalogLoaderClient = {
   ensureAlbumsPage(offset = 0, options: EnsureOptions = {}) {
@@ -99,8 +101,7 @@ export const catalogLoaderClient = {
       offset,
       options,
       listPlaylistsPage,
-      (playlist: PlaylistListItem) =>
-        playlist.Kind === "liked" ? "liked" : playlist.PlaylistID,
+      (playlist: PlaylistListItem) => playlistEntityKey(playlist),
       (playlists: PlaylistListItem[]) =>
         useCatalogStore.getState().upsertPlaylists(playlists),
     );
@@ -126,6 +127,22 @@ export const catalogLoaderClient = {
       return Promise.resolve();
     }
     return this.ensureLikedPage(0);
+  },
+
+  ensureOfflinePage(offset = 0, options: EnsureOptions = {}) {
+    return ensureOfflinePage(offset, options);
+  },
+
+  ensureOfflineRoute() {
+    const record = getValueQuery(
+      useCatalogStore.getState(),
+      QUERY_KEYS.offline,
+    );
+    if (record.items.length > 0) {
+      void this.ensureOfflinePage(0, { force: true });
+      return Promise.resolve();
+    }
+    return this.ensureOfflinePage(0);
   },
 
   ensureAlbumTracksPage(
@@ -182,6 +199,10 @@ export const catalogLoaderClient = {
 
   refetchLiked() {
     return this.ensureLikedPage(0, { force: true });
+  },
+
+  refetchOffline() {
+    return this.ensureOfflinePage(0, { force: true });
   },
 
   refetchAlbum(albumId: string) {

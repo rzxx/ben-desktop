@@ -93,6 +93,7 @@ func autoMigrate(db *gorm.DB) error {
 		&LocalSourcePath{},
 		&LocalArtworkSourceRef{},
 		&ScanMaintenanceState{},
+		&OfflineMember{},
 		&PinRoot{},
 		&PinMember{},
 		&PinBlobRef{},
@@ -136,6 +137,8 @@ func ensureReadOptimizedIndexes(db *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_device_asset_caches_playback ON device_asset_caches(library_id, device_id, optimized_asset_id, is_cached)`,
 		`CREATE INDEX IF NOT EXISTS idx_playlist_items_position ON playlist_items(library_id, playlist_id, deleted_at, position_key, item_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_playlist_items_added_at ON playlist_items(library_id, playlist_id, deleted_at, added_at DESC, item_id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_offline_members_paging ON offline_members(library_id, device_id, offline_since DESC, library_recording_id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_offline_members_updated ON offline_members(library_id, device_id, updated_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_track_variants_browse_title ON track_variants(library_id, LOWER(title), track_cluster_id, track_variant_id)`,
 	}
 	for _, query := range indexes {

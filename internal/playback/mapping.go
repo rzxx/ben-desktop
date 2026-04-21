@@ -10,6 +10,7 @@ const (
 	SourceKindAlbum     = "album"
 	SourceKindPlaylist  = "playlist"
 	SourceKindLiked     = "liked"
+	SourceKindOffline   = "offline"
 	SourceKindTracks    = "tracks"
 	SourceKindRecording = "recording"
 )
@@ -135,6 +136,37 @@ func ItemsFromLikedRecordings(recordings []apitypes.LikedRecordingItem) []Sessio
 			DurationMS:         recording.DurationMS,
 			ArtworkRef:         firstNonEmpty(variantRecordingID, recordingID),
 			SourceKind:         SourceKindLiked,
+			ResolutionMode:     ResolutionModeLibrary,
+			Target: PlaybackTargetRef{
+				LogicalRecordingID:      recordingID,
+				ExactVariantRecordingID: variantRecordingID,
+				ResolutionPolicy:        PlaybackTargetResolutionPreferred,
+			},
+		})
+	}
+	return items
+}
+
+func ItemsFromOfflineRecordings(recordings []apitypes.OfflineRecordingItem) []SessionItem {
+	items := make([]SessionItem, 0, len(recordings))
+	for _, recording := range recordings {
+		libraryRecordingID := firstNonEmpty(recording.LibraryRecordingID, recording.RecordingID)
+		variantRecordingID := firstNonEmpty(recording.RecordingID, recording.LibraryRecordingID)
+		recordingID := libraryRecordingID
+		if recordingID == "" {
+			recordingID = variantRecordingID
+		}
+		items = append(items, SessionItem{
+			LibraryRecordingID: libraryRecordingID,
+			VariantRecordingID: variantRecordingID,
+			RecordingID:        recordingID,
+			AlbumID:            strings.TrimSpace(recording.AlbumID),
+			VariantAlbumID:     strings.TrimSpace(recording.AlbumID),
+			Title:              recording.Title,
+			Subtitle:           joinArtists(recording.Artists),
+			DurationMS:         recording.DurationMS,
+			ArtworkRef:         firstNonEmpty(variantRecordingID, recordingID),
+			SourceKind:         SourceKindOffline,
 			ResolutionMode:     ResolutionModeLibrary,
 			Target: PlaybackTargetRef{
 				LogicalRecordingID:      recordingID,

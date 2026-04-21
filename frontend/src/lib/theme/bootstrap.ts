@@ -22,7 +22,10 @@ function normalizeResolvedTheme(value: unknown): ResolvedTheme {
 }
 
 export function getSystemTheme(): ResolvedTheme {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+  if (
+    typeof window === "undefined" ||
+    typeof window.matchMedia !== "function"
+  ) {
     return "light";
   }
   return window.matchMedia(SYSTEM_THEME_QUERY).matches ? "dark" : "light";
@@ -33,7 +36,9 @@ export function getStoredThemeMode(): ThemeMode {
     return "system";
   }
   try {
-    return normalizeThemeMode(window.localStorage.getItem(THEME_MODE_STORAGE_KEY));
+    return normalizeThemeMode(
+      window.localStorage.getItem(THEME_MODE_STORAGE_KEY),
+    );
   } catch {
     return "system";
   }

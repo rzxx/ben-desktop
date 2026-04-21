@@ -2,7 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "@/app/styles/index.css";
-import { applyThemeToDocument, getInitialThemeState } from "@/lib/theme/bootstrap";
+import {
+  applyThemeToDocument,
+  getInitialThemeState,
+} from "@/lib/theme/bootstrap";
 
 const rootElement = document.getElementById("root");
 

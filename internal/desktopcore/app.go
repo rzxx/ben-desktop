@@ -41,6 +41,7 @@ type App struct {
 	library           *LibraryService
 	ingest            *IngestService
 	catalog           *CatalogService
+	offline           *OfflineService
 	cache             *CacheService
 	pin               *PinService
 	transcode         *TranscodeService
@@ -98,6 +99,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	app.library = &LibraryService{app: app}
 	app.ingest = &IngestService{app: app}
 	app.catalog = &CatalogService{app: app}
+	app.offline = newOfflineService(app)
 	app.cache = &CacheService{app: app}
 	app.pin = newPinService(app)
 	app.transcode = newTranscodeService(app)
@@ -437,6 +439,9 @@ func (a *App) syncActiveRuntimeServices(ctx context.Context) error {
 			return err
 		}
 	}
+	if a.offline != nil {
+		a.offline.markDirty(local.LibraryID, local.DeviceID)
+	}
 	if a.pin != nil {
 		a.pin.scheduleAllPinScopeRefresh(ctx, local, pinnedScopeDebounceWait)
 	}
@@ -630,6 +635,14 @@ func (a *App) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordi
 
 func (a *App) ListLikedRecordingsCursor(ctx context.Context, req apitypes.LikedRecordingCursorRequest) (apitypes.CursorPage[apitypes.LikedRecordingItem], error) {
 	return a.catalog.ListLikedRecordingsCursor(ctx, req)
+}
+
+func (a *App) ListOfflineRecordings(ctx context.Context, req apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error) {
+	return a.catalog.ListOfflineRecordings(ctx, req)
+}
+
+func (a *App) ListOfflineRecordingsCursor(ctx context.Context, req apitypes.OfflineRecordingCursorRequest) (apitypes.CursorPage[apitypes.OfflineRecordingItem], error) {
+	return a.catalog.ListOfflineRecordingsCursor(ctx, req)
 }
 
 func (a *App) CreatePlaylist(ctx context.Context, name, kind string) (apitypes.PlaylistRecord, error) {

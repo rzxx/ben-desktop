@@ -81,6 +81,18 @@ export function PlayLikedTrack(recordingID: string): $CancellablePromise<playbac
     });
 }
 
+export function PlayOffline(): $CancellablePromise<playback$0.SessionSnapshot> {
+    return $Call.ByID(569321673).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+export function PlayOfflineTrack(recordingID: string): $CancellablePromise<playback$0.SessionSnapshot> {
+    return $Call.ByID(2485154368, recordingID).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
 export function PlayPlaylist(playlistID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(4154106592, playlistID).then(($result: any) => {
         return $$createType0($result);
@@ -131,6 +143,12 @@ export function QueueItems(items: playback$0.SessionItem[], mode: string): $Canc
 
 export function QueueLikedTrack(recordingID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(1386361251, recordingID).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+export function QueueOfflineTrack(recordingID: string): $CancellablePromise<playback$0.SessionSnapshot> {
+    return $Call.ByID(747776729, recordingID).then(($result: any) => {
         return $$createType0($result);
     });
 }

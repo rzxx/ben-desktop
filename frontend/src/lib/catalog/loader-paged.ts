@@ -2,6 +2,7 @@ import type {
   AlbumListItem,
   AlbumTrackItem,
   LikedRecordingItem,
+  OfflineRecordingItem,
   PageInfo,
   PlaylistTrackItem,
   RecordingListItem,
@@ -10,6 +11,7 @@ import {
   listAlbumTracksPage,
   listArtistAlbumsPage,
   listLikedRecordingsPage,
+  listOfflineRecordingsPage,
   listPlaylistTracksPage,
   listTracksPage,
 } from "@/lib/api/catalog";
@@ -163,6 +165,23 @@ export function ensureLikedPage(offset = 0, options: EnsureOptions = {}) {
     options,
     listLikedRecordingsPage,
     (track: LikedRecordingItem) => track.RecordingID,
+  ).then((page) => {
+    if (page) {
+      void ensureTrackAvailability(
+        page.Items.map((track) => track.RecordingID),
+        options,
+      );
+    }
+  });
+}
+
+export function ensureOfflinePage(offset = 0, options: EnsureOptions = {}) {
+  return ensureValueQueryPage(
+    QUERY_KEYS.offline,
+    offset,
+    options,
+    listOfflineRecordingsPage,
+    (track: OfflineRecordingItem) => track.RecordingID,
   ).then((page) => {
     if (page) {
       void ensureTrackAvailability(

@@ -1,5 +1,5 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Download,
   ImageUp,
@@ -62,6 +62,7 @@ import {
 } from "@/stores/catalog/store";
 import { usePlaybackStore } from "@/stores/playback/store";
 import { selectDetail, selectValueQuery } from "@/stores/catalog/query-state";
+import { reservedPlaylistRoute } from "@/lib/catalog/reserved-playlists";
 
 const playlistDetailRouteApi = getRouteApi("/playlists_/$playlistId");
 
@@ -180,6 +181,18 @@ export function PlaylistDetailPage() {
         trackedPinJob?.message?.trim() ||
         "Playlist pin failed."
       : "";
+
+  useEffect(() => {
+    const route = reservedPlaylistRoute(detail.data?.Kind ?? "");
+    if (!route) {
+      return;
+    }
+    void navigate({ replace: true, to: route });
+  }, [detail.data?.Kind, navigate]);
+
+  if (detail.data?.IsReserved) {
+    return null;
+  }
 
   async function handlePlaylistPinToggle() {
     setPinUiState({

@@ -36,6 +36,7 @@ export type NotificationPreferences = Types.NotificationPreferences;
 export type NotificationSnapshot = Types.NotificationSnapshot;
 export type NotificationSubject = Types.NotificationSubject;
 export type NotificationVerbosity = Types.NotificationVerbosity;
+export type OfflineRecordingItem = Types.OfflineRecordingItem;
 export type PinChangeEvent = Types.PinChangeEvent;
 export type PinIntentRequest = Types.PinIntentRequest;
 export type PinSourceRef = Types.PinSourceRef;

@@ -85,6 +85,9 @@ func (s *PlaylistService) RenamePlaylist(ctx context.Context, playlistID, name s
 	if playlistID == "" {
 		return apitypes.PlaylistRecord{}, fmt.Errorf("playlist id is required")
 	}
+	if s.app.offline != nil && s.app.offline.matchesPlaylistID(local, playlistID) {
+		return apitypes.PlaylistRecord{}, fmt.Errorf("reserved playlists are not renameable")
+	}
 	if name == "" {
 		return apitypes.PlaylistRecord{}, fmt.Errorf("playlist name is required")
 	}
@@ -136,6 +139,9 @@ func (s *PlaylistService) DeletePlaylist(ctx context.Context, playlistID string)
 	playlistID = strings.TrimSpace(playlistID)
 	if playlistID == "" {
 		return fmt.Errorf("playlist id is required")
+	}
+	if s.app.offline != nil && s.app.offline.matchesPlaylistID(local, playlistID) {
+		return fmt.Errorf("reserved playlists are not deletable")
 	}
 	row, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
 	if err != nil {
@@ -190,6 +196,9 @@ func (s *PlaylistService) AddPlaylistItem(ctx context.Context, req apitypes.Play
 	recordingID := firstNonEmpty(strings.TrimSpace(req.LibraryRecordingID), strings.TrimSpace(req.RecordingID))
 	if playlistID == "" {
 		return apitypes.PlaylistItemRecord{}, fmt.Errorf("playlist id is required")
+	}
+	if s.app.offline != nil && s.app.offline.matchesPlaylistID(local, playlistID) {
+		return apitypes.PlaylistItemRecord{}, fmt.Errorf("reserved playlists are not editable")
 	}
 	if recordingID == "" {
 		return apitypes.PlaylistItemRecord{}, fmt.Errorf("recording id is required")
@@ -274,6 +283,9 @@ func (s *PlaylistService) MovePlaylistItem(ctx context.Context, req apitypes.Pla
 	if playlistID == "" || itemID == "" {
 		return apitypes.PlaylistItemRecord{}, fmt.Errorf("playlist id and item id are required")
 	}
+	if s.app.offline != nil && s.app.offline.matchesPlaylistID(local, playlistID) {
+		return apitypes.PlaylistItemRecord{}, fmt.Errorf("reserved playlists are not reorderable")
+	}
 	playlist, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
 	if err != nil {
 		return apitypes.PlaylistItemRecord{}, err
@@ -333,6 +345,9 @@ func (s *PlaylistService) RemovePlaylistItem(ctx context.Context, playlistID, it
 	if playlistID == "" {
 		return fmt.Errorf("playlist id is required")
 	}
+	if s.app.offline != nil && s.app.offline.matchesPlaylistID(local, playlistID) {
+		return fmt.Errorf("reserved playlists are not editable")
+	}
 	if itemID == "" {
 		return fmt.Errorf("item id is required")
 	}
@@ -383,6 +398,11 @@ func (s *PlaylistService) GetPlaylistCover(ctx context.Context, playlistID strin
 	if playlistID == "" {
 		return apitypes.PlaylistCoverRecord{}, false, fmt.Errorf("playlist id is required")
 	}
+	if s.app.offline != nil && s.app.offline.matchesPlaylistID(local, playlistID) {
+		return apitypes.PlaylistCoverRecord{
+			PlaylistID: strings.TrimSpace(playlistID),
+		}, false, nil
+	}
 	playlist, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
 	if err != nil {
 		return apitypes.PlaylistCoverRecord{}, false, err
@@ -415,6 +435,9 @@ func (s *PlaylistService) SetPlaylistCover(ctx context.Context, req apitypes.Pla
 	playlistID := strings.TrimSpace(req.PlaylistID)
 	if playlistID == "" {
 		return apitypes.PlaylistCoverRecord{}, fmt.Errorf("playlist id is required")
+	}
+	if s.app.offline != nil && s.app.offline.matchesPlaylistID(local, playlistID) {
+		return apitypes.PlaylistCoverRecord{}, fmt.Errorf("reserved playlists do not support custom covers")
 	}
 	sourcePath := filepath.Clean(strings.TrimSpace(req.SourcePath))
 	if sourcePath == "" {
@@ -498,6 +521,9 @@ func (s *PlaylistService) ClearPlaylistCover(ctx context.Context, playlistID str
 	playlistID = strings.TrimSpace(playlistID)
 	if playlistID == "" {
 		return fmt.Errorf("playlist id is required")
+	}
+	if s.app.offline != nil && s.app.offline.matchesPlaylistID(local, playlistID) {
+		return fmt.Errorf("reserved playlists do not support custom covers")
 	}
 	playlist, ok, err := s.playlistByID(ctx, local.LibraryID, playlistID)
 	if err != nil {
@@ -910,7 +936,7 @@ func ensureLikedPlaylistTx(tx *gorm.DB, libraryID, deviceID string, now time.Tim
 }
 
 func isReservedPlaylist(row Playlist) bool {
-	return strings.EqualFold(strings.TrimSpace(row.Kind), playlistKindLiked)
+	return isReservedPlaylistKind(row.Kind)
 }
 
 func likedItemID(playlistID, libraryRecordingID string) string {

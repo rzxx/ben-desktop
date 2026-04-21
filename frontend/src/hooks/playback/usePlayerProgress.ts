@@ -68,14 +68,12 @@ function hasAuthoritativeDivergedFromPendingSeek(
   }
   if (pendingSeek.positionMs > pendingSeek.baselinePositionMs) {
     return (
-      positionMs <=
-      pendingSeek.baselinePositionMs - pendingSeekMatchToleranceMs
+      positionMs <= pendingSeek.baselinePositionMs - pendingSeekMatchToleranceMs
     );
   }
   if (pendingSeek.positionMs < pendingSeek.baselinePositionMs) {
     return (
-      positionMs >=
-      pendingSeek.baselinePositionMs + pendingSeekMatchToleranceMs
+      positionMs >= pendingSeek.baselinePositionMs + pendingSeekMatchToleranceMs
     );
   }
   return true;
@@ -148,7 +146,11 @@ export function usePlayerProgress({
     );
 
   useEffect(() => {
-    if (!hasMatchingDragState || pendingSeek == null || !shouldDiscardPendingSeek) {
+    if (
+      !hasMatchingDragState ||
+      pendingSeek == null ||
+      !shouldDiscardPendingSeek
+    ) {
       return;
     }
     if (clearedPendingSeekRequestIdRef.current === pendingSeek.requestId) {
@@ -369,7 +371,8 @@ export function usePlayerProgress({
           return;
         }
 
-        const resolvedEntryId = snapshot.currentEntry?.entryId ?? currentEntryId;
+        const resolvedEntryId =
+          snapshot.currentEntry?.entryId ?? currentEntryId;
         const resolvedPositionMs = snapshot.positionMs ?? 0;
         const resolvedMatchesRequestedSeek =
           resolvedEntryId === currentEntryId &&

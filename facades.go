@@ -385,6 +385,10 @@ func (s *CatalogFacade) ListLikedRecordings(ctx context.Context, req apitypes.Li
 	return s.catalog().ListLikedRecordings(ctx, req)
 }
 
+func (s *CatalogFacade) ListOfflineRecordings(ctx context.Context, req apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error) {
+	return s.catalog().ListOfflineRecordings(ctx, req)
+}
+
 func (s *CatalogFacade) SubscribeCatalogEvents() string {
 	return desktopcore.EventCatalogChanged
 }

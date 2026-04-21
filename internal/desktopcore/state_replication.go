@@ -89,7 +89,19 @@ func (a *App) upsertDeviceAssetCacheTx(tx *gorm.DB, local apitypes.LocalContext,
 		payload.LastVerifiedAtNS = row.LastVerifiedAt.UTC().UnixNano()
 	}
 	_, err := a.appendLocalOplogTx(tx, local, entityTypeDeviceAssetCache, deviceAssetCacheEntityID(row.DeviceID, row.OptimizedAssetID), "upsert", payload)
-	return err
+	if err != nil {
+		return err
+	}
+	if a.offline != nil && strings.TrimSpace(row.DeviceID) == strings.TrimSpace(local.DeviceID) {
+		clusterIDs, err := a.offline.resolveLibraryRecordingIDsForEncodingIDsTx(tx, local.LibraryID, local.DeviceID, []string{row.OptimizedAssetID})
+		if err != nil {
+			return err
+		}
+		if _, err := a.offline.reconcileLibraryRecordingsTx(tx, local, clusterIDs); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *App) upsertArtworkVariantTx(tx *gorm.DB, local apitypes.LocalContext, row ArtworkVariant) error {

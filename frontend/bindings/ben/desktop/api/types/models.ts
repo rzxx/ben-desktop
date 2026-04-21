@@ -1182,6 +1182,7 @@ export enum CatalogChangeEntity {
     CatalogChangeEntityPlaylists = "playlists",
     CatalogChangeEntityPlaylistTracks = "playlist_tracks",
     CatalogChangeEntityLiked = "liked",
+    CatalogChangeEntityOffline = "offline",
 };
 
 export class CatalogChangeEvent {
@@ -2407,6 +2408,88 @@ export enum NotificationVerbosity {
     NotificationVerbosityEverything = "everything",
 };
 
+export class OfflineRecordingItem {
+    "LibraryRecordingID": string;
+    "RecordingID": string;
+    "AlbumID": string;
+    "Title": string;
+    "DurationMS": number;
+    "Artists": string[];
+    "OfflineSince": time$0.Time;
+    "HasLocalSource": boolean;
+    "HasLocalCached": boolean;
+
+    /** Creates a new OfflineRecordingItem instance. */
+    constructor($$source: Partial<OfflineRecordingItem> = {}) {
+        if (!("LibraryRecordingID" in $$source)) {
+            this["LibraryRecordingID"] = "";
+        }
+        if (!("RecordingID" in $$source)) {
+            this["RecordingID"] = "";
+        }
+        if (!("AlbumID" in $$source)) {
+            this["AlbumID"] = "";
+        }
+        if (!("Title" in $$source)) {
+            this["Title"] = "";
+        }
+        if (!("DurationMS" in $$source)) {
+            this["DurationMS"] = 0;
+        }
+        if (!("Artists" in $$source)) {
+            this["Artists"] = [];
+        }
+        if (!("OfflineSince" in $$source)) {
+            this["OfflineSince"] = null;
+        }
+        if (!("HasLocalSource" in $$source)) {
+            this["HasLocalSource"] = false;
+        }
+        if (!("HasLocalCached" in $$source)) {
+            this["HasLocalCached"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new OfflineRecordingItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): OfflineRecordingItem {
+        const $$createField5_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Artists" in $$parsedSource) {
+            $$parsedSource["Artists"] = $$createField5_0($$parsedSource["Artists"]);
+        }
+        return new OfflineRecordingItem($$parsedSource as Partial<OfflineRecordingItem>);
+    }
+}
+
+export class OfflineRecordingListRequest {
+    "Limit": number;
+    "Offset": number;
+
+    /** Creates a new OfflineRecordingListRequest instance. */
+    constructor($$source: Partial<OfflineRecordingListRequest> = {}) {
+        if (!("Limit" in $$source)) {
+            this["Limit"] = 0;
+        }
+        if (!("Offset" in $$source)) {
+            this["Offset"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new OfflineRecordingListRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): OfflineRecordingListRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new OfflineRecordingListRequest($$parsedSource as Partial<OfflineRecordingListRequest>);
+    }
+}
+
 export class OplogDiagnosticsGroup {
     "Key": string;
     "Count": number;
@@ -3213,6 +3296,7 @@ export enum PlaylistKind {
 
     PlaylistKindNormal = "normal",
     PlaylistKindLiked = "liked",
+    PlaylistKindOffline = "offline",
 };
 
 export class PlaylistListItem {

@@ -68,6 +68,9 @@ func (a *inspectorCatalogAdapter) GetPlaylistSummary(ctx context.Context, playli
 	if playlistID == "" {
 		return apitypes.PlaylistListItem{}, fmt.Errorf("playlist id is required")
 	}
+	if a.inspector.app.offline != nil && a.inspector.app.offline.matchesPlaylistID(a.local, playlistID) {
+		return a.inspector.app.offline.summaryForLocal(ctx, a.local)
+	}
 
 	var playlist Playlist
 	if err := a.inspector.app.storage.WithContext(ctx).
@@ -99,6 +102,44 @@ func (a *inspectorCatalogAdapter) ListLikedRecordings(ctx context.Context, req a
 
 func (a *inspectorCatalogAdapter) ListLikedRecordingsCursor(ctx context.Context, req apitypes.LikedRecordingCursorRequest) (apitypes.CursorPage[apitypes.LikedRecordingItem], error) {
 	return a.inspector.listLikedRecordingsCursorForLocal(ctx, a.local, req)
+}
+
+func (a *inspectorCatalogAdapter) ListOfflineRecordings(ctx context.Context, req apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error) {
+	if a.inspector.app.offline == nil {
+		return apitypes.Page[apitypes.OfflineRecordingItem]{}, fmt.Errorf("offline service is unavailable")
+	}
+	seeds, pageInfo, err := a.inspector.app.offline.listSeedsPage(ctx, a.local, req.PageRequest)
+	if err != nil {
+		return apitypes.Page[apitypes.OfflineRecordingItem]{}, err
+	}
+	items, err := a.inspector.app.catalog.buildOfflineRecordingItems(ctx, a.local.LibraryID, a.local.DeviceID, seeds)
+	if err != nil {
+		return apitypes.Page[apitypes.OfflineRecordingItem]{}, err
+	}
+	return apitypes.Page[apitypes.OfflineRecordingItem]{Items: items, Page: pageInfo}, nil
+}
+
+func (a *inspectorCatalogAdapter) ListOfflineRecordingsCursor(ctx context.Context, req apitypes.OfflineRecordingCursorRequest) (apitypes.CursorPage[apitypes.OfflineRecordingItem], error) {
+	if a.inspector.app.offline == nil {
+		return apitypes.CursorPage[apitypes.OfflineRecordingItem]{}, fmt.Errorf("offline service is unavailable")
+	}
+	seeds, pageInfo, err := a.inspector.app.offline.listSeedsCursor(ctx, a.local, req.CursorPageRequest)
+	if err != nil {
+		return apitypes.CursorPage[apitypes.OfflineRecordingItem]{}, err
+	}
+	items, err := a.inspector.app.catalog.buildOfflineRecordingItems(ctx, a.local.LibraryID, a.local.DeviceID, seeds)
+	if err != nil {
+		return apitypes.CursorPage[apitypes.OfflineRecordingItem]{}, err
+	}
+	return apitypes.CursorPage[apitypes.OfflineRecordingItem]{
+		Items: items,
+		Page: apitypes.CursorPageInfo{
+			Limit:      pageInfo.Limit,
+			Returned:   len(items),
+			HasMore:    pageInfo.HasMore,
+			NextCursor: pageInfo.NextCursor,
+		},
+	}, nil
 }
 
 func (a *inspectorCatalogAdapter) SubscribeCatalogChanges(func(apitypes.CatalogChangeEvent)) func() {

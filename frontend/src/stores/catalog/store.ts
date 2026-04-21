@@ -25,6 +25,7 @@ import type {
   CatalogValueQueryItem,
   QueryPageRecord,
 } from "./types";
+import { playlistEntityKey } from "@/lib/catalog/reserved-playlists";
 
 function createCatalogState(): CatalogStoreState {
   return {
@@ -76,8 +77,7 @@ function rebuildCatalogTrackIndexes(draft: Draft<CatalogStore>) {
       {} as CatalogStoreState["playlistTrackItemsByItemId"],
     trackItemsByLibraryRecordingId:
       {} as CatalogStoreState["trackItemsByLibraryRecordingId"],
-    trackItemsByRecordingId:
-      {} as CatalogStoreState["trackItemsByRecordingId"],
+    trackItemsByRecordingId: {} as CatalogStoreState["trackItemsByRecordingId"],
   };
 
   for (const record of Object.values(draft.valueQueries)) {
@@ -96,8 +96,7 @@ function rebuildCatalogTrackIndexes(draft: Draft<CatalogStore>) {
   }
 
   draft.playlistTrackItemsByItemId = indexes.playlistTrackItemsByItemId;
-  draft.trackItemsByLibraryRecordingId =
-    indexes.trackItemsByLibraryRecordingId;
+  draft.trackItemsByLibraryRecordingId = indexes.trackItemsByLibraryRecordingId;
   draft.trackItemsByRecordingId = indexes.trackItemsByRecordingId;
 }
 
@@ -153,7 +152,7 @@ export const useCatalogStore = create<CatalogStore>((set) => {
     upsertPlaylists: (playlists) => {
       setDraft((draft) => {
         for (const playlist of playlists) {
-          const key = playlist.Kind === "liked" ? "liked" : playlist.PlaylistID;
+          const key = playlistEntityKey(playlist);
           draft.playlistsById[key] = playlist;
         }
       });
@@ -447,7 +446,7 @@ export const useCatalogStore = create<CatalogStore>((set) => {
 
     setPlaylistSummary: (playlistId, playlist, fetchedAt) => {
       setDraft((draft) => {
-        const key = playlist.Kind === "liked" ? "liked" : playlist.PlaylistID;
+        const key = playlistEntityKey(playlist);
         draft.playlistsById[key] = playlist;
         draft.playlistSummaries[playlistId] = {
           data: playlist,

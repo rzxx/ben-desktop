@@ -182,8 +182,20 @@ export function playLikedTrack(recordingId: string) {
   return PlaybackService.PlayLikedTrack(recordingId);
 }
 
+export function playOffline() {
+  return PlaybackService.PlayOffline();
+}
+
+export function playOfflineTrack(recordingId: string) {
+  return PlaybackService.PlayOfflineTrack(recordingId);
+}
+
 export function queueLikedTrack(recordingId: string) {
   return PlaybackService.QueueLikedTrack(recordingId);
+}
+
+export function queueOfflineTrack(recordingId: string) {
+  return PlaybackService.QueueOfflineTrack(recordingId);
 }
 
 export function playTracks() {

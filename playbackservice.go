@@ -493,6 +493,30 @@ func (s *PlaybackService) PlayLikedTrack(ctx context.Context, recordingID string
 	return session.ReplaceSourceAndPlay(ctx, loader.BuildLikedTrackSource(recordingID), false)
 }
 
+func (s *PlaybackService) PlayOffline(ctx context.Context) (playback.SessionSnapshot, error) {
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	session, err := s.requireSession()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildOfflineSource(), false)
+}
+
+func (s *PlaybackService) PlayOfflineTrack(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	session, err := s.requireSession()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return session.ReplaceSourceAndPlay(ctx, loader.BuildOfflineTrackSource(recordingID), false)
+}
+
 func (s *PlaybackService) PlayTracks(ctx context.Context) (playback.SessionSnapshot, error) {
 	loader, err := s.requireLoader()
 	if err != nil {
@@ -535,6 +559,18 @@ func (s *PlaybackService) QueueLikedTrack(ctx context.Context, recordingID strin
 		return playback.SessionSnapshot{}, err
 	}
 	item, err := loader.ResolveSourceItem(ctx, loader.BuildLikedTrackSource(recordingID))
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return s.QueueItems([]playback.SessionItem{item}, string(playback.QueueInsertLast))
+}
+
+func (s *PlaybackService) QueueOfflineTrack(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
+	loader, err := s.requireLoader()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	item, err := loader.ResolveSourceItem(ctx, loader.BuildOfflineTrackSource(recordingID))
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}

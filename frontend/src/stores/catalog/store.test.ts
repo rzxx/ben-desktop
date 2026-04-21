@@ -65,20 +65,24 @@ beforeEach(() => {
 
 describe("catalog track lookup indexes", () => {
   test("rebuilds indexes from loaded non-stale pages and prunes invalidated queries", () => {
-    useCatalogStore.getState().setValueQueryPage(
-      "tracks",
-      [makeRecording()],
-      makePageInfo(),
-      0,
-      (item) => item.RecordingID,
-    );
-    useCatalogStore.getState().setValueQueryPage(
-      "playlistTracks:playlist-1",
-      [makePlaylistTrack()],
-      makePageInfo(),
-      0,
-      (item) => item.ItemID,
-    );
+    useCatalogStore
+      .getState()
+      .setValueQueryPage(
+        "tracks",
+        [makeRecording()],
+        makePageInfo(),
+        0,
+        (item) => item.RecordingID,
+      );
+    useCatalogStore
+      .getState()
+      .setValueQueryPage(
+        "playlistTracks:playlist-1",
+        [makePlaylistTrack()],
+        makePageInfo(),
+        0,
+        (item) => item.ItemID,
+      );
 
     let state = useCatalogStore.getState();
     expect(state.trackItemsByRecordingId["rec-1"]?.Title).toBe("Track 1");
@@ -91,7 +95,9 @@ describe("catalog track lookup indexes", () => {
 
     useCatalogStore
       .getState()
-      .invalidateValueQuery("playlistTracks:playlist-1", { dropAfterOffset: 0 });
+      .invalidateValueQuery("playlistTracks:playlist-1", {
+        dropAfterOffset: 0,
+      });
 
     state = useCatalogStore.getState();
     expect(state.trackItemsByRecordingId["rec-1"]?.Title).toBe("Track 1");

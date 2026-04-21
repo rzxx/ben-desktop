@@ -63,6 +63,8 @@ export {
     NotificationSnapshot,
     NotificationSubject,
     NotificationVerbosity,
+    OfflineRecordingItem,
+    OfflineRecordingListRequest,
     OplogDiagnosticsGroup,
     OplogRecencyBucket,
     Page,

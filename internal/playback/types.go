@@ -31,6 +31,7 @@ const (
 	ContextKindAlbum     ContextKind = "album"
 	ContextKindPlaylist  ContextKind = "playlist"
 	ContextKindLiked     ContextKind = "liked"
+	ContextKindOffline   ContextKind = "offline"
 	ContextKindTracks    ContextKind = "tracks"
 	ContextKindRecording ContextKind = "recording"
 	ContextKindCustom    ContextKind = "custom"
@@ -235,6 +236,8 @@ type PlaybackCore interface {
 	ListPlaylistTracksCursor(ctx context.Context, req apitypes.PlaylistTrackCursorRequest) (apitypes.CursorPage[apitypes.PlaylistTrackItem], error)
 	ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error)
 	ListLikedRecordingsCursor(ctx context.Context, req apitypes.LikedRecordingCursorRequest) (apitypes.CursorPage[apitypes.LikedRecordingItem], error)
+	ListOfflineRecordings(ctx context.Context, req apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error)
+	ListOfflineRecordingsCursor(ctx context.Context, req apitypes.OfflineRecordingCursorRequest) (apitypes.CursorPage[apitypes.OfflineRecordingItem], error)
 	SubscribeCatalogChanges(listener func(apitypes.CatalogChangeEvent)) func()
 	InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error)
 	PreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error)

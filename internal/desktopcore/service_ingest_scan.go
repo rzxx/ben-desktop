@@ -900,6 +900,7 @@ type ingestRecord struct {
 func (s *IngestService) upsertIngest(ctx context.Context, in ingestRecord) error {
 	now := time.Now().UTC()
 	local := apitypes.LocalContext{LibraryID: in.LibraryID, DeviceID: in.DeviceID}
+	affectedClusterIDs := make([]string, 0, 4)
 	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		pathKey := localPathKey(in.Path)
 		sourceFingerprint := in.HashAlgo + ":" + in.HashHex
@@ -908,6 +909,13 @@ func (s *IngestService) upsertIngest(ctx context.Context, in ingestRecord) error
 			return err
 		}
 		for _, conflict := range conflicts {
+			if s.app.offline != nil {
+				if clusterID, ok, err := s.app.offline.resolveLibraryRecordingIDForVariantTx(tx, in.LibraryID, conflict.TrackVariantID); err != nil {
+					return err
+				} else if ok {
+					affectedClusterIDs = append(affectedClusterIDs, clusterID)
+				}
+			}
 			if _, err := s.app.appendLocalOplogTx(tx, local, entityTypeSourceFile, sourceFileEntityID(conflict.DeviceID, conflict.SourceFileID), "delete", map[string]any{
 				"deviceId":     conflict.DeviceID,
 				"sourceFileId": conflict.SourceFileID,
@@ -933,6 +941,16 @@ func (s *IngestService) upsertIngest(ctx context.Context, in ingestRecord) error
 		})
 		if err != nil {
 			return err
+		}
+		if s.app.offline != nil {
+			if clusterID, ok, err := s.app.offline.resolveLibraryRecordingIDForSourceFileTx(tx, in.LibraryID, in.DeviceID, in.SourceFileID); err != nil {
+				return err
+			} else if ok {
+				affectedClusterIDs = append(affectedClusterIDs, clusterID)
+			}
+			if _, err := s.app.offline.reconcileLibraryRecordingsTx(tx, local, affectedClusterIDs); err != nil {
+				return err
+			}
 		}
 		return nil
 	}); err != nil {
@@ -1092,6 +1110,19 @@ func (s *IngestService) markSourceFilesMissing(ctx context.Context, libraryID, d
 			}
 			payload.IsPresent = false
 			if _, err := s.app.appendLocalOplogTx(tx, local, entityTypeSourceFile, sourceFileEntityID(row.DeviceID, row.SourceFileID), "upsert", payload); err != nil {
+				return err
+			}
+		}
+		if s.app.offline != nil {
+			clusterIDs := make([]string, 0, len(rows))
+			for _, row := range rows {
+				if clusterID, ok, err := s.app.offline.resolveLibraryRecordingIDForVariantTx(tx, libraryID, row.TrackVariantID); err != nil {
+					return err
+				} else if ok {
+					clusterIDs = append(clusterIDs, clusterID)
+				}
+			}
+			if _, err := s.app.offline.reconcileLibraryRecordingsTx(tx, local, clusterIDs); err != nil {
 				return err
 			}
 		}

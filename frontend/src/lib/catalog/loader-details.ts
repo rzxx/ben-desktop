@@ -17,6 +17,7 @@ import {
 import {
   ensureAlbumTracksPage,
   ensureArtistAlbumsPage,
+  ensureOfflinePage,
   ensurePlaylistTracksPage,
 } from "@/lib/catalog/loader-paged";
 import {
@@ -28,6 +29,7 @@ import {
   ensureAlbumAvailability,
   ensureTrackAvailability,
 } from "@/lib/catalog/loader-availability";
+import { isReservedPlaylistId } from "@/lib/catalog/reserved-playlists";
 
 async function ensureAlbumDetail(albumId: string, options: EnsureOptions = {}) {
   const { force = false } = options;
@@ -225,6 +227,10 @@ export function ensureArtistRoute(artistId: string) {
 }
 
 export function ensurePlaylistRoute(playlistId: string) {
+  if (isReservedPlaylistId(playlistId)) {
+    return ensurePlaylistSummary(playlistId);
+  }
+
   const detail = getDetailRecord(
     useCatalogStore.getState().playlistSummaries,
     playlistId,
@@ -246,4 +252,8 @@ export function ensurePlaylistRoute(playlistId: string) {
     ensurePlaylistSummary(playlistId),
     ensurePlaylistTracksPage(playlistId, 0),
   ]).then(() => undefined);
+}
+
+export function ensureOfflineRoute() {
+  return ensureOfflinePage(0).then(() => undefined);
 }
