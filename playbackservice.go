@@ -111,6 +111,12 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 	s.store = store
 	s.mu.Unlock()
 
+	if app.Window != nil {
+		app.Window.OnCreate(func(_ application.Window) {
+			applyPlaybackWindowTitle(app, session.Snapshot())
+		})
+	}
+
 	s.handlePlaybackSnapshot(session.Snapshot())
 	return nil
 }
@@ -593,6 +599,7 @@ func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapsh
 	if controller != nil {
 		controller.HandlePlaybackSnapshot(snapshot)
 	}
+	applyPlaybackWindowTitle(app, snapshot)
 	for _, subscriber := range subscribers {
 		subscriber(snapshot)
 	}

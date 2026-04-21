@@ -64,7 +64,7 @@ func main() {
 	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:     "ben",
+		Title:     appWindowBaseTitle,
 		Frameless: true,
 		MinWidth:  1280,
 		MinHeight: 720,

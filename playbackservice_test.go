@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -1077,4 +1078,64 @@ func TestPlaybackServiceHandlePlaybackSnapshotEmitsQueueOnlyOnQueueVersionChange
 	if thirdQueue.QueueVersion != 5 {
 		t.Fatalf("queue version = %d, want 5", thirdQueue.QueueVersion)
 	}
+}
+
+func TestPlaybackWindowTitleUsesActiveOrLoadingTrackTitle(t *testing.T) {
+	t.Parallel()
+
+	current := playbackWindowTitle(playback.SessionSnapshot{
+		CurrentEntry: &playback.SessionEntry{
+			Item: playback.SessionItem{Title: "Track One"},
+		},
+		LoadingEntry: &playback.SessionEntry{
+			Item: playback.SessionItem{Title: "Track Two"},
+		},
+	})
+	if current != "ben • Track One" {
+		t.Fatalf("current title = %q, want %q", current, "ben • Track One")
+	}
+
+	loading := playbackWindowTitle(playback.SessionSnapshot{
+		LoadingEntry: &playback.SessionEntry{
+			Item: playback.SessionItem{Title: "Track Two"},
+		},
+	})
+	if loading != "ben • Track Two" {
+		t.Fatalf("loading title = %q, want %q", loading, "ben • Track Two")
+	}
+
+	idle := playbackWindowTitle(playback.SessionSnapshot{})
+	if idle != "ben" {
+		t.Fatalf("idle title = %q, want %q", idle, "ben")
+	}
+}
+
+func TestPlaybackServiceHandlePlaybackSnapshotUpdatesWindowTitle(t *testing.T) {
+	app := testApplication()
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{Title: appWindowBaseTitle})
+	defer app.Window.Remove(window.ID())
+
+	service := &PlaybackService{
+		app:         app,
+		subscribers: make(map[uint64]func(playback.SessionSnapshot)),
+	}
+
+	service.handlePlaybackSnapshot(playback.SessionSnapshot{
+		CurrentEntry: &playback.SessionEntry{
+			Item: playback.SessionItem{Title: "Track Title"},
+		},
+	})
+	if got := testWindowTitle(window); got != "ben • Track Title" {
+		t.Fatalf("window title = %q, want %q", got, "ben • Track Title")
+	}
+
+	service.handlePlaybackSnapshot(playback.SessionSnapshot{})
+	if got := testWindowTitle(window); got != "ben" {
+		t.Fatalf("window title after reset = %q, want %q", got, "ben")
+	}
+}
+
+func testWindowTitle(window *application.WebviewWindow) string {
+	value := reflect.ValueOf(window).Elem().FieldByName("options").FieldByName("Title")
+	return value.String()
 }
