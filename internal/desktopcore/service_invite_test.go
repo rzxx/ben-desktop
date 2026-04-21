@@ -403,6 +403,49 @@ func TestJoinSessionRefreshResumesAfterRestart(t *testing.T) {
 	}
 }
 
+func TestResolveInviteOwnerAddrsIgnoresRelayBootstrapAddrs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	service := InviteService{app: app}
+
+	addrs, err := service.resolveInviteOwnerAddrs(ctx, inviteCodePayload{
+		LibraryID:           "library-relay-bootstrap",
+		OwnerPeerID:         "12D3KooWOwnerPeer",
+		RelayBootstrapAddrs: []string{"/ip4/198.51.100.20/tcp/4001/p2p/12D3KooWRelayPeer"},
+	})
+	if err != nil {
+		t.Fatalf("resolve invite owner addrs: %v", err)
+	}
+	if len(addrs) != 0 {
+		t.Fatalf("invite owner addrs = %#v, want no owner hints", addrs)
+	}
+}
+
+func TestResolveJoinSessionOwnerAddrsIgnoresRelayBootstrapFallback(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+	service := InviteService{app: app}
+
+	addrs, err := service.resolveJoinSessionOwnerAddrs(ctx, JoinSession{
+		SessionID:          "session-relay-bootstrap",
+		LibraryID:          "library-relay-bootstrap",
+		RelayBootstrapJSON: mustJSONString([]string{"/ip4/198.51.100.21/tcp/4001/p2p/12D3KooWRelayPeer"}),
+	}, inviteCodePayload{
+		LibraryID:   "library-relay-bootstrap",
+		OwnerPeerID: "12D3KooWOwnerPeer",
+	})
+	if err != nil {
+		t.Fatalf("resolve join session owner addrs: %v", err)
+	}
+	if len(addrs) != 0 {
+		t.Fatalf("join session owner addrs = %#v, want no owner hints", addrs)
+	}
+}
+
 func waitForJoinSessionStatus(t *testing.T, ctx context.Context, app *App, sessionID, want string) apitypes.JoinSession {
 	t.Helper()
 

@@ -25,7 +25,8 @@ const (
 )
 
 type libp2pHostBuildOptions struct {
-	mode libp2pHostMode
+	mode                libp2pHostMode
+	relayBootstrapAddrs []string
 }
 
 type peerConnectionState struct {
@@ -54,7 +55,7 @@ func (a *App) newSharedLibp2pHost(opts libp2pHostBuildOptions) (host.Host, error
 		return nil, fmt.Errorf("load transport identity: %w", err)
 	}
 
-	staticRelays, err := parseRelayBootstrapAddrInfos(a.cfg.RelayBootstrapAddrs)
+	staticRelays, err := parseRelayBootstrapAddrInfos(a.relayBootstrapAddrsForHost(opts.relayBootstrapAddrs))
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +96,13 @@ func (a *App) newSharedLibp2pHost(opts libp2pHostBuildOptions) (host.Host, error
 		return nil, fmt.Errorf("create libp2p host: %w", err)
 	}
 	return hostNode, nil
+}
+
+func (a *App) relayBootstrapAddrsForHost(extra []string) []string {
+	if a == nil {
+		return compactNonEmptyStrings(extra)
+	}
+	return compactNonEmptyStrings(append(append([]string(nil), extra...), a.cfg.RelayBootstrapAddrs...))
 }
 
 func parseRelayBootstrapAddrInfos(values []string) ([]peer.AddrInfo, error) {
