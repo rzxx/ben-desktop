@@ -18,10 +18,65 @@ const (
 	defaultSyncBatchSize          = 500
 	incrementalSyncBacklogCutover = 5000
 	maxSyncCatchupRounds          = 64
+	syncCatchupProtocolRetryDelay = 3 * time.Second
+	syncCatchupStreamRetryDelay   = 2 * time.Second
 
 	jobKindSyncNow     = "sync-now"
 	jobKindConnectPeer = "connect-peer"
 )
+
+type transientCatchupError struct {
+	err        error
+	retryAfter time.Duration
+	kind       string
+	message    string
+}
+
+func (e *transientCatchupError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *transientCatchupError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func classifyTransientCatchupError(syncErr error) *transientCatchupError {
+	if syncErr == nil {
+		return nil
+	}
+	message := strings.ToLower(strings.TrimSpace(syncErr.Error()))
+	switch {
+	case strings.Contains(message, "peer does not advertise sync protocol"):
+		return &transientCatchupError{
+			err:        syncErr,
+			retryAfter: syncCatchupProtocolRetryDelay,
+			kind:       "sync.catchup.protocol_unavailable",
+			message:    "Peer connected before advertising the sync protocol; catch-up will retry after backoff",
+		}
+	case strings.Contains(message, "failed to negotiate protocol") && strings.Contains(message, "protocols not supported"):
+		return &transientCatchupError{
+			err:        syncErr,
+			retryAfter: syncCatchupProtocolRetryDelay,
+			kind:       "sync.catchup.protocol_unavailable",
+			message:    "Peer rejected the sync protocol during negotiation; catch-up will retry after backoff",
+		}
+	case strings.Contains(message, "stream reset") && strings.Contains(message, "remote"):
+		return &transientCatchupError{
+			err:        syncErr,
+			retryAfter: syncCatchupStreamRetryDelay,
+			kind:       "sync.catchup.transport_reset",
+			message:    "Peer closed the sync stream during negotiation; catch-up will retry after backoff",
+		}
+	default:
+		return nil
+	}
+}
 
 type SyncTransport interface {
 	ListPeers(ctx context.Context, local apitypes.LocalContext) ([]SyncPeer, error)
@@ -606,6 +661,20 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 		resp, err := peer.Sync(ctx, req)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
+				if transient := classifyTransientCatchupError(err); transient != nil {
+					a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+						Level:     "warn",
+						Kind:      transient.kind,
+						Message:   transient.message,
+						LibraryID: local.LibraryID,
+						DeviceID:  local.DeviceID,
+						PeerID:    remotePeerID,
+						Address:   peer.Address(),
+						Reason:    string(reason),
+						Error:     transient.Error(),
+					})
+					err = transient
+				}
 				a.recordPeerSyncFailure(ctx, local.LibraryID, remoteDeviceID, remotePeerID, err)
 			}
 			return totalApplied, err

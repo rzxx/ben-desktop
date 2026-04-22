@@ -647,6 +647,61 @@ func TestStartSyncNowCancelsWhenActiveLibraryChanges(t *testing.T) {
 	}
 }
 
+func TestClassifyTransientCatchupError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		err       error
+		wantKind  string
+		wantDelay time.Duration
+	}{
+		{
+			name:      "protocol unavailable from peerstore readiness gate",
+			err:       fmt.Errorf("open stream: peer does not advertise sync protocol /ben/desktop/sync/2.0.0 yet"),
+			wantKind:  "sync.catchup.protocol_unavailable",
+			wantDelay: syncCatchupProtocolRetryDelay,
+		},
+		{
+			name:      "protocol negotiation failed remotely",
+			err:       fmt.Errorf("open stream: failed to negotiate protocol: protocols not supported: [/ben/desktop/sync/2.0.0]"),
+			wantKind:  "sync.catchup.protocol_unavailable",
+			wantDelay: syncCatchupProtocolRetryDelay,
+		},
+		{
+			name:      "remote stream reset",
+			err:       fmt.Errorf("open stream: failed to negotiate protocol: stream reset (remote): code: 0x0"),
+			wantKind:  "sync.catchup.transport_reset",
+			wantDelay: syncCatchupStreamRetryDelay,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := classifyTransientCatchupError(tc.err)
+			if got == nil {
+				t.Fatal("expected transient catch-up classification")
+			}
+			if got.kind != tc.wantKind {
+				t.Fatalf("kind = %q, want %q", got.kind, tc.wantKind)
+			}
+			if got.retryAfter != tc.wantDelay {
+				t.Fatalf("retryAfter = %v, want %v", got.retryAfter, tc.wantDelay)
+			}
+			if got.Error() != tc.err.Error() {
+				t.Fatalf("error string = %q, want %q", got.Error(), tc.err.Error())
+			}
+		})
+	}
+
+	if got := classifyTransientCatchupError(fmt.Errorf("permanent failure")); got != nil {
+		t.Fatalf("unexpected transient classification for permanent failure: %+v", got)
+	}
+}
+
 func TestConnectPeerAppliesIncrementalLibraryAndCatalogSync(t *testing.T) {
 	t.Parallel()
 

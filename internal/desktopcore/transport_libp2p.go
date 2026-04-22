@@ -34,6 +34,11 @@ const (
 	transportConnectTimeout     = 10 * time.Second
 )
 
+var (
+	transportConnectedPeerCatchupDelay     = 750 * time.Millisecond
+	transportProtocolUnavailableRetryDelay = 3 * time.Second
+)
+
 type transportMDNSService interface {
 	Start() error
 	Close() error
@@ -517,6 +522,11 @@ func (p *libp2pSyncPeer) openStream(ctx context.Context, protocolID protocol.ID)
 		})
 		p.transport.setDirectUpgradeState("direct_upgrade_succeeded")
 	}
+	if protocolID == desktopSyncProtocolID {
+		if ready, supported := p.transport.peerProtocolSupportState(p.peerID, protocolID); ready && !supported {
+			return nil, fmt.Errorf("open stream: peer does not advertise sync protocol %s yet", protocolID)
+		}
+	}
 	if protocolAllowsLimitedConnection(protocolID) {
 		ctx = network.WithAllowLimitedConn(ctx, string(protocolID))
 	}
@@ -926,7 +936,25 @@ func (t *libp2pSyncTransport) handlePeerConnected(peerID peer.ID) {
 		t.app.logf("desktopcore: prepare connected peer catch-up for %s failed: %v", peerID.String(), err)
 		return
 	}
-	t.app.transportService.scheduleRuntimeCatchupPeer(runtime, apitypes.NetworkSyncReasonConnect, syncPeer, 0)
+	delay := transportConnectedPeerCatchupDelay
+	if ready, supported := t.peerProtocolSupportState(peerID, desktopSyncProtocolID); ready {
+		if supported {
+			delay = 0
+		} else {
+			delay = transportProtocolUnavailableRetryDelay
+			t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+				Level:     "warn",
+				Kind:      "peer.sync_protocol.unavailable",
+				Message:   "Connected peer has not advertised the sync protocol yet",
+				LibraryID: t.libraryID,
+				DeviceID:  t.deviceID,
+				PeerID:    peerID.String(),
+				Address:   syncPeer.Address(),
+				Error:     string(desktopSyncProtocolID),
+			})
+		}
+	}
+	t.app.transportService.scheduleRuntimeCatchupPeer(runtime, apitypes.NetworkSyncReasonConnect, syncPeer, delay)
 }
 
 func (t *libp2pSyncTransport) handlePeerDisconnected(peerID peer.ID) {
@@ -971,6 +999,22 @@ func protocolRequiresDirectConnection(protocolID protocol.ID) bool {
 	default:
 		return false
 	}
+}
+
+func (t *libp2pSyncTransport) peerProtocolSupportState(peerID peer.ID, protocolID protocol.ID) (ready bool, supported bool) {
+	if t == nil || t.host == nil || peerID == "" || protocolID == "" {
+		return false, false
+	}
+	protocols, err := t.host.Peerstore().GetProtocols(peerID)
+	if err != nil || len(protocols) == 0 {
+		return false, false
+	}
+	for _, candidate := range protocols {
+		if candidate == protocolID {
+			return true, true
+		}
+	}
+	return true, false
 }
 
 type peerConnectionStateDebugEntry struct {
