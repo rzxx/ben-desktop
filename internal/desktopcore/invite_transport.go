@@ -97,6 +97,7 @@ type inviteClientTransport struct {
 	host       host.Host
 	mdns       transportMDNSService
 	serviceTag string
+	sharedHost bool
 }
 
 func generateInviteJoinKeypair() (*[32]byte, *[32]byte, error) {
@@ -231,18 +232,27 @@ func (a *App) openInviteClientTransport(serviceTag string, relayBootstrapAddrs [
 	if serviceTag == "" {
 		return nil, fmt.Errorf("invite service tag is required")
 	}
-	hostNode, err := a.newSharedLibp2pHost(libp2pHostBuildOptions{
-		mode:                libp2pHostModeClient,
-		relayBootstrapAddrs: relayBootstrapAddrs,
-	})
-	if err != nil {
-		return nil, err
+	hostNode := host.Host(nil)
+	sharedHost := false
+	if active, ok := a.activeSyncTransport().(*libp2pSyncTransport); ok && active != nil && active.host != nil {
+		hostNode = active.host
+		sharedHost = true
+	} else {
+		var err error
+		hostNode, err = a.newSharedLibp2pHost(libp2pHostBuildOptions{
+			mode:                libp2pHostModeClient,
+			relayBootstrapAddrs: relayBootstrapAddrs,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	client := &inviteClientTransport{
 		app:        a,
 		host:       hostNode,
 		serviceTag: serviceTag,
+		sharedHost: sharedHost,
 	}
 	if a.cfg.EnableLANDiscovery {
 		service := mdns.NewMdnsService(hostNode, serviceTag, &desktopMDNSNotifee{
@@ -267,7 +277,7 @@ func (c *inviteClientTransport) Close() error {
 	if c.mdns != nil {
 		_ = c.mdns.Close()
 	}
-	if c.host != nil {
+	if c.host != nil && !c.sharedHost {
 		return c.host.Close()
 	}
 	return nil

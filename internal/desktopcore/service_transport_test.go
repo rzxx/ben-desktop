@@ -280,6 +280,57 @@ func TestNetworkStatusReflectsRuntimeSyncState(t *testing.T) {
 	}
 }
 
+func TestDiscoverCatchupPeersSkipsStaleMemberHintsDuringAutomaticCatchup(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	library, err := app.CreateLibrary(ctx, "discover-catchup-stale-hints")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	remoteDeviceID := seedRemoteLibraryMember(
+		t,
+		app,
+		library.LibraryID,
+		"dev-discover-stale",
+		time.Now().UTC().Add(-3*availabilityOnlineWindow),
+	)
+	if err := app.db.WithContext(ctx).
+		Model(&Device{}).
+		Where("device_id = ?", remoteDeviceID).
+		Update("peer_id", "peer-discover-stale").Error; err != nil {
+		t.Fatalf("set stale remote peer id: %v", err)
+	}
+
+	transport := &testPeerListTransport{
+		peerID: "peer-local",
+		resolvedPeer: &testSignalPeer{
+			peerID: "peer-discover-stale",
+		},
+	}
+	automaticPeers, err := app.sync.discoverCatchupPeers(ctx, local, transport, apitypes.NetworkSyncReasonTimer)
+	if err != nil {
+		t.Fatalf("discover automatic catch-up peers: %v", err)
+	}
+	if len(automaticPeers) != 0 {
+		t.Fatalf("automatic catch-up peers = %+v, want none for stale member hints", automaticPeers)
+	}
+
+	manualPeers, err := app.sync.discoverCatchupPeers(ctx, local, transport, apitypes.NetworkSyncReasonManual)
+	if err != nil {
+		t.Fatalf("discover manual catch-up peers: %v", err)
+	}
+	if len(manualPeers) != 1 || manualPeers[0].PeerID() != "peer-discover-stale" {
+		t.Fatalf("manual catch-up peers = %+v, want stale peer to remain manually discoverable", manualPeers)
+	}
+}
+
 func TestUpsertDevicePresenceEmitsAvailabilityInvalidationWhenPeerComesOnline(t *testing.T) {
 	t.Parallel()
 
@@ -427,7 +478,7 @@ func TestDiscoverCatchupPeersResolvesKnownMembersByIdentity(t *testing.T) {
 			peerID: "peer-discover-remote",
 		},
 	}
-	peers, err := app.sync.discoverCatchupPeers(ctx, local, transport)
+	peers, err := app.sync.discoverCatchupPeers(ctx, local, transport, apitypes.NetworkSyncReasonManual)
 	if err != nil {
 		t.Fatalf("discover catch-up peers: %v", err)
 	}
@@ -482,7 +533,7 @@ func TestDiscoverCatchupPeersSkipsUnresolvedConnectedLibp2pPeers(t *testing.T) {
 		t.Fatalf("connect foreign host: %v", err)
 	}
 
-	peers, err := app.sync.discoverCatchupPeers(ctx, local, transport)
+	peers, err := app.sync.discoverCatchupPeers(ctx, local, transport, apitypes.NetworkSyncReasonTimer)
 	if err != nil {
 		t.Fatalf("discover catch-up peers: %v", err)
 	}
