@@ -451,16 +451,16 @@ func NewInviteFacade(host *coreHost) *InviteFacade {
 
 func (s *InviteFacade) ServiceName() string { return "InviteFacade" }
 
-func (s *InviteFacade) CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
-	return s.invite().CreateInviteCode(ctx, req)
+func (s *InviteFacade) CreateInvite(ctx context.Context, req apitypes.InviteCreateRequest) (apitypes.InviteRecord, error) {
+	return s.invite().CreateInvite(ctx, req)
 }
 
-func (s *InviteFacade) ListIssuedInvites(ctx context.Context, status string) ([]apitypes.IssuedInviteRecord, error) {
-	return s.invite().ListIssuedInvites(ctx, status)
+func (s *InviteFacade) ListActiveInvites(ctx context.Context) ([]apitypes.InviteRecord, error) {
+	return s.invite().ListActiveInvites(ctx)
 }
 
-func (s *InviteFacade) RevokeIssuedInvite(ctx context.Context, inviteID, reason string) error {
-	return s.invite().RevokeIssuedInvite(ctx, inviteID, reason)
+func (s *InviteFacade) DeleteInvite(ctx context.Context, inviteID string) error {
+	return s.invite().DeleteInvite(ctx, inviteID)
 }
 
 func (s *InviteFacade) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {

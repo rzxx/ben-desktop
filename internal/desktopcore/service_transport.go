@@ -96,6 +96,11 @@ type activeTransportRuntime struct {
 	cancel    context.CancelFunc
 	state     apitypes.NetworkSyncState
 
+	activeInviteCount          int
+	inviteReachabilityRequired bool
+	inviteReachable            bool
+	inviteReachabilityError    string
+
 	catchupLane    transportCatchupLaneState
 	peerUpdateLane transportTaskLaneState
 	checkpointLane transportTaskLaneState
@@ -211,6 +216,7 @@ func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.Local
 
 	s.stopRuntime(current)
 	_ = s.announceRuntimePresence(nextRuntime)
+	s.refreshInviteReachabilityState(nextRuntime.libraryID)
 	s.scheduleRuntimeCatchup(nextRuntime, apitypes.NetworkSyncReasonStartup, 0)
 	go s.runBackgroundLoop(nextRuntime)
 	return nil
@@ -248,6 +254,7 @@ func (s *TransportService) runBackgroundLoop(runtime *activeTransportRuntime) {
 				return
 			}
 			_ = s.announceRuntimePresence(runtime)
+			s.maintainRuntimeInviteReachability(runtime)
 			s.scheduleRuntimeCatchup(runtime, apitypes.NetworkSyncReasonTimer, 0)
 		}
 	}
@@ -910,6 +917,10 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 	if current != nil {
 		s.mu.RLock()
 		state := current.state
+		out.ActiveInviteCount = current.activeInviteCount
+		out.InviteReachabilityRequired = current.inviteReachabilityRequired
+		out.InviteReachable = current.inviteReachable
+		out.InviteReachabilityError = strings.TrimSpace(current.inviteReachabilityError)
 		s.mu.RUnlock()
 		out.NetworkSyncState = cloneNetworkSyncState(state)
 		if out.Mode == "" {
@@ -957,6 +968,74 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 		}
 	}
 	return out
+}
+
+func (s *TransportService) refreshInviteReachabilityState(libraryID string) {
+	if s == nil || strings.TrimSpace(libraryID) == "" {
+		return
+	}
+	runtime := s.activeRuntimeForLibrary(libraryID)
+	if runtime == nil {
+		return
+	}
+	go s.maintainRuntimeInviteReachability(runtime)
+}
+
+func (s *TransportService) maintainRuntimeInviteReachability(runtime *activeTransportRuntime) {
+	if s == nil || s.app == nil || runtime == nil || runtime.transport == nil {
+		return
+	}
+	local, ok := s.runtimeLocalContext(runtime)
+	if !ok || strings.TrimSpace(local.LibraryID) == "" {
+		return
+	}
+	now := time.Now().UTC()
+	count := 0
+	errMsg := ""
+	if s.app.invite != nil {
+		if err := s.app.invite.cleanupInactiveInviteRows(context.Background(), local.LibraryID, now); err != nil {
+			errMsg = err.Error()
+		}
+	}
+	if errMsg == "" {
+		var total int64
+		err := s.app.storage.WithContext(context.Background()).
+			Model(&IssuedInvite{}).
+			Where("library_id = ?", strings.TrimSpace(local.LibraryID)).
+			Count(&total).Error
+		if err != nil {
+			errMsg = err.Error()
+		} else {
+			count = int(total)
+		}
+	}
+	required := count > 0
+	reachable := false
+	if required && errMsg == "" {
+		err := s.app.ensureActiveTransportRelayReservation(context.Background(), defaultInviteDiscoverTimeout)
+		if err != nil {
+			errMsg = err.Error()
+		} else if err := s.announceRuntimePresence(runtime); err != nil {
+			errMsg = err.Error()
+		} else if reporter, ok := runtime.transport.(*libp2pSyncTransport); ok {
+			reachable = len(reporter.relayReservationAddrs()) > 0
+			if !reachable {
+				errMsg = "invite relay reservation is not active"
+			}
+		} else {
+			reachable = true
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.isActiveRuntime(runtime) {
+		return
+	}
+	runtime.activeInviteCount = count
+	runtime.inviteReachabilityRequired = required
+	runtime.inviteReachable = reachable
+	runtime.inviteReachabilityError = strings.TrimSpace(errMsg)
 }
 
 func (s *TransportService) beginRuntimeSync(runtime *activeTransportRuntime, reason apitypes.NetworkSyncReason) {
@@ -1377,7 +1456,7 @@ func (s *TransportService) announceRuntimePresence(runtime *activeTransportRunti
 	}
 	addrs := runtime.transport.ListenAddrs()
 	if reporter, ok := runtime.transport.(*libp2pSyncTransport); ok {
-		addrs = compactNonEmptyStrings(append(advertisedRelayAddrs(reporter.host), addrs...))
+		addrs = compactNonEmptyStrings(append(reporter.relayReservationAddrs(), addrs...))
 	}
 	if err := s.app.saveKnownPeerAddrs(runtime.ctx, local.LibraryID, peerID, addrs); err != nil {
 		return err

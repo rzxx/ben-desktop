@@ -240,15 +240,15 @@ func (c *UnavailableCore) IsRecordingLiked(context.Context, string) (bool, error
 	return false, c.err
 }
 
-func (c *UnavailableCore) CreateInviteCode(context.Context, apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
-	return apitypes.InviteCodeResult{}, c.err
+func (c *UnavailableCore) CreateInvite(context.Context, apitypes.InviteCreateRequest) (apitypes.InviteRecord, error) {
+	return apitypes.InviteRecord{}, c.err
 }
 
-func (c *UnavailableCore) ListIssuedInvites(context.Context, string) ([]apitypes.IssuedInviteRecord, error) {
+func (c *UnavailableCore) ListActiveInvites(context.Context) ([]apitypes.InviteRecord, error) {
 	return nil, c.err
 }
 
-func (c *UnavailableCore) RevokeIssuedInvite(context.Context, string, string) error {
+func (c *UnavailableCore) DeleteInvite(context.Context, string) error {
 	return c.err
 }
 

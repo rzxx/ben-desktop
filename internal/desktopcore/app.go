@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
+	"time"
 
 	apitypes "ben/desktop/api/types"
 	playbackcore "ben/desktop/internal/playback"
@@ -111,6 +113,9 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 
 	if err := app.ensureDatabaseBaseline(ctx); err != nil {
 		return nil, fmt.Errorf("ensure database baseline: %w", err)
+	}
+	if err := app.ensureInviteFlowEpoch(ctx); err != nil {
+		return nil, fmt.Errorf("ensure invite flow epoch: %w", err)
 	}
 	if _, err := app.ensureCurrentDevice(ctx); err != nil {
 		return nil, fmt.Errorf("ensure current device: %w", err)
@@ -829,16 +834,50 @@ func (a *App) GetAlbumAvailabilityOverview(ctx context.Context, albumID, preferr
 	return a.playback.GetAlbumAvailabilityOverview(ctx, albumID, preferredProfile)
 }
 
-func (a *App) CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
-	return a.invite.CreateInviteCode(ctx, req)
+func (a *App) CreateInvite(ctx context.Context, req apitypes.InviteCreateRequest) (apitypes.InviteRecord, error) {
+	return a.invite.CreateInvite(ctx, req)
 }
 
-func (a *App) ListIssuedInvites(ctx context.Context, status string) ([]apitypes.IssuedInviteRecord, error) {
-	return a.invite.ListIssuedInvites(ctx, status)
+func (a *App) ensureInviteFlowEpoch(ctx context.Context) error {
+	if a == nil || a.storage == nil {
+		return nil
+	}
+	var setting LocalSetting
+	err := a.storage.WithContext(ctx).Where("key = ?", localSettingInviteFlowEpoch).Take(&setting).Error
+	switch {
+	case err == nil && strings.TrimSpace(setting.Value) == inviteFlowEpoch:
+		return nil
+	case err != nil && err != gorm.ErrRecordNotFound:
+		return err
+	}
+
+	now := time.Now().UTC()
+	return a.storage.Transaction(ctx, func(tx *gorm.DB) error {
+		if err := tx.Where("library_id <> ''").Delete(&InviteJoinRequest{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id <> ''").Delete(&InviteTokenRedemption{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id <> ''").Delete(&IssuedInvite{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id <> ''").Delete(&JoinSession{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("key LIKE ?", "join_session_keypair:%").Delete(&LocalSetting{}).Error; err != nil {
+			return err
+		}
+		return upsertLocalSettingTx(tx, localSettingInviteFlowEpoch, inviteFlowEpoch, now)
+	})
 }
 
-func (a *App) RevokeIssuedInvite(ctx context.Context, inviteID, reason string) error {
-	return a.invite.RevokeIssuedInvite(ctx, inviteID, reason)
+func (a *App) ListActiveInvites(ctx context.Context) ([]apitypes.InviteRecord, error) {
+	return a.invite.ListActiveInvites(ctx)
+}
+
+func (a *App) DeleteInvite(ctx context.Context, inviteID string) error {
+	return a.invite.DeleteInvite(ctx, inviteID)
 }
 
 func (a *App) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {

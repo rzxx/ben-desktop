@@ -3,29 +3,202 @@ package desktopcore
 import (
 	"ben/registryauth"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	apitypes "ben/desktop/api/types"
+	"github.com/libp2p/go-libp2p"
+	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 )
+
+type inviteTestInfra struct {
+	registryURL         string
+	relayBootstrapAddrs []string
+}
+
+type inviteTestRegistry struct {
+	mu      sync.Mutex
+	records map[string]registryauth.PresenceRecord
+}
+
+func openInviteTestInfra(t *testing.T) *inviteTestInfra {
+	t.Helper()
+
+	relayHost, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"),
+		libp2p.ForceReachabilityPublic(),
+		libp2p.EnableRelayService(relayv2.WithResources(newRelayResources())),
+	)
+	if err != nil {
+		t.Fatalf("open relay host: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = relayHost.Close()
+	})
+
+	registry := &inviteTestRegistry{
+		records: make(map[string]registryauth.PresenceRecord),
+	}
+	server := httptest.NewServer(http.HandlerFunc(registry.serveHTTP))
+	t.Cleanup(server.Close)
+
+	addrs := make([]string, 0, len(relayHost.Addrs()))
+	for _, addr := range relayHost.Addrs() {
+		addrs = append(addrs, fmt.Sprintf("%s/p2p/%s", addr.String(), relayHost.ID().String()))
+	}
+	return &inviteTestInfra{
+		registryURL:         server.URL,
+		relayBootstrapAddrs: compactNonEmptyStrings(addrs),
+	}
+}
+
+func configureInviteTestApp(app *App, infra *inviteTestInfra) {
+	if app == nil || infra == nil {
+		return
+	}
+	app.cfg.RegistryURL = strings.TrimSpace(infra.registryURL)
+	app.cfg.RelayBootstrapAddrs = append([]string(nil), infra.relayBootstrapAddrs...)
+	app.cfg.EnableLANDiscovery = false
+	app.cfg.enableLANDiscoverySet = true
+}
+
+func (r *inviteTestRegistry) serveHTTP(w http.ResponseWriter, req *http.Request) {
+	switch req.URL.Path {
+	case "/v1/presence/announce":
+		r.handlePresenceAnnounce(w, req)
+	case "/v1/presence/member":
+		r.handlePresenceMember(w, req)
+	case "/v1/invites/owner":
+		r.handleInviteOwner(w, req)
+	default:
+		http.NotFound(w, req)
+	}
+}
+
+func (r *inviteTestRegistry) handlePresenceAnnounce(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body registryauth.PresenceAnnounceRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, fmt.Sprintf("decode announce request: %v", err), http.StatusBadRequest)
+		return
+	}
+	record := body.Record
+	record.LibraryID = strings.TrimSpace(record.LibraryID)
+	record.DeviceID = strings.TrimSpace(record.DeviceID)
+	record.PeerID = strings.TrimSpace(record.PeerID)
+	record.Addrs = compactNonEmptyStrings(record.Addrs)
+	if record.LibraryID == "" || record.PeerID == "" {
+		http.Error(w, "library id and peer id are required", http.StatusBadRequest)
+		return
+	}
+	if record.UpdatedAt.IsZero() {
+		record.UpdatedAt = time.Now().UTC()
+	}
+	if record.ExpiresAt.IsZero() {
+		record.ExpiresAt = record.UpdatedAt.Add(90 * time.Second)
+	}
+	r.mu.Lock()
+	r.records[inviteRegistryKey(record.LibraryID, record.PeerID)] = record
+	r.mu.Unlock()
+	w.WriteHeader(http.StatusOK)
+}
+
+func (r *inviteTestRegistry) handlePresenceMember(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body registryauth.MemberLookupRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, fmt.Sprintf("decode member lookup request: %v", err), http.StatusBadRequest)
+		return
+	}
+	record, ok := r.lookup(body.LibraryID, body.PeerID)
+	if !ok {
+		http.NotFound(w, req)
+		return
+	}
+	writeInviteRegistryJSON(w, record)
+}
+
+func (r *inviteTestRegistry) handleInviteOwner(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body registryauth.InviteOwnerLookupRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, fmt.Sprintf("decode invite lookup request: %v", err), http.StatusBadRequest)
+		return
+	}
+	if err := registryauth.VerifyInviteAttestation(body.Invite, time.Now().UTC()); err != nil {
+		http.Error(w, fmt.Sprintf("verify invite lookup request: %v", err), http.StatusUnauthorized)
+		return
+	}
+	record, ok := r.lookup(body.Invite.LibraryID, body.Invite.OwnerPeerID)
+	if !ok {
+		http.NotFound(w, req)
+		return
+	}
+	record.Addrs = filterRelayInviteAddrs(record.Addrs)
+	if len(record.Addrs) == 0 {
+		http.NotFound(w, req)
+		return
+	}
+	writeInviteRegistryJSON(w, record)
+}
+
+func (r *inviteTestRegistry) lookup(libraryID, peerID string) (registryauth.PresenceRecord, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	record, ok := r.records[inviteRegistryKey(libraryID, peerID)]
+	if !ok {
+		return registryauth.PresenceRecord{}, false
+	}
+	if !record.ExpiresAt.IsZero() && record.ExpiresAt.Before(time.Now().UTC()) {
+		delete(r.records, inviteRegistryKey(libraryID, peerID))
+		return registryauth.PresenceRecord{}, false
+	}
+	return record, true
+}
+
+func inviteRegistryKey(libraryID, peerID string) string {
+	return strings.TrimSpace(libraryID) + ":" + strings.TrimSpace(peerID)
+}
+
+func writeInviteRegistryJSON(w http.ResponseWriter, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(value)
+}
 
 func TestInviteIssueListRevokeFlow(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	infra := openInviteTestInfra(t)
 	app := openCacheTestApp(t, 1024)
+	configureInviteTestApp(app, infra)
 	if _, err := app.CreateLibrary(ctx, "invite-issue"); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 
-	code, err := app.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleGuest, Uses: 2})
+	code, err := app.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleGuest, Uses: 2})
 	if err != nil {
 		t.Fatalf("create invite code: %v", err)
 	}
-	if !strings.HasPrefix(code.InviteCode, "ben-invite-v2.") {
+	if !strings.HasPrefix(code.InviteCode, "ben-invite-v3.") {
 		t.Fatalf("invite code = %q", code.InviteCode)
 	}
 	payload, err := decodeInviteCode(code.InviteCode)
@@ -39,7 +212,7 @@ func TestInviteIssueListRevokeFlow(t *testing.T) {
 		t.Fatalf("verify invite registry auth: %v", err)
 	}
 
-	active, err := app.ListIssuedInvites(ctx, issuedInviteStatusActive)
+	active, err := app.ListActiveInvites(ctx)
 	if err != nil {
 		t.Fatalf("list active invites: %v", err)
 	}
@@ -47,15 +220,15 @@ func TestInviteIssueListRevokeFlow(t *testing.T) {
 		t.Fatalf("active invites = %+v", active)
 	}
 
-	if err := app.RevokeIssuedInvite(ctx, active[0].InviteID, "manual revoke"); err != nil {
-		t.Fatalf("revoke issued invite: %v", err)
+	if err := app.DeleteInvite(ctx, active[0].InviteID); err != nil {
+		t.Fatalf("delete invite: %v", err)
 	}
 
-	revoked, err := app.ListIssuedInvites(ctx, issuedInviteStatusRevoked)
+	revoked, err := app.ListActiveInvites(ctx)
 	if err != nil {
 		t.Fatalf("list revoked invites: %v", err)
 	}
-	if len(revoked) != 1 || revoked[0].RevokeReason != "manual revoke" {
+	if len(revoked) != 0 {
 		t.Fatalf("revoked invites = %+v", revoked)
 	}
 }
@@ -64,14 +237,17 @@ func TestJoinApprovalFinalizeFlow(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	infra := openInviteTestInfra(t)
 	owner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(owner, infra)
 	joiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(joiner, infra)
 
 	library, err := owner.CreateLibrary(ctx, "invite-join")
 	if err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	code, err := owner.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleMember, Uses: 1})
+	code, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
 	if err != nil {
 		t.Fatalf("create invite code: %v", err)
 	}
@@ -151,14 +327,17 @@ func TestStartFinalizeJoinSessionAsync(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	infra := openInviteTestInfra(t)
 	owner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(owner, infra)
 	joiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(joiner, infra)
 
 	library, err := owner.CreateLibrary(ctx, "invite-join-async")
 	if err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	code, err := owner.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleMember, Uses: 1})
+	code, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
 	if err != nil {
 		t.Fatalf("create invite code: %v", err)
 	}
@@ -198,16 +377,22 @@ func TestJoinRejectCancelAndInviteUseLimit(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	infra := openInviteTestInfra(t)
 	owner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(owner, infra)
 	rejectedJoiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(rejectedJoiner, infra)
 	canceledJoiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(canceledJoiner, infra)
 	approvedJoiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(approvedJoiner, infra)
 	exhaustedJoiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(exhaustedJoiner, infra)
 
 	if _, err := owner.CreateLibrary(ctx, "invite-limits"); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	code, err := owner.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleMember, Uses: 1})
+	code, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
 	if err != nil {
 		t.Fatalf("create invite code: %v", err)
 	}
@@ -261,7 +446,10 @@ func TestJoinRejectCancelAndInviteUseLimit(t *testing.T) {
 	if err := owner.ApproveJoinRequest(ctx, approved.RequestID, roleMember); err != nil {
 		t.Fatalf("approve first limited-use join: %v", err)
 	}
-	if err := owner.ApproveJoinRequest(ctx, exhausted.RequestID, roleMember); err == nil || !strings.Contains(err.Error(), "no remaining uses") {
+	waitForJoinRequestStatus(t, ctx, owner, exhausted.RequestID, inviteJoinStatusRejected)
+	waitForJoinSessionStatus(t, ctx, exhaustedJoiner, exhausted.SessionID, joinSessionStatusRejected)
+	if err := owner.ApproveJoinRequest(ctx, exhausted.RequestID, roleMember); err == nil ||
+		(!strings.Contains(err.Error(), "no remaining uses") && !strings.Contains(err.Error(), "expected pending")) {
 		t.Fatalf("approve exhausted invite err = %v", err)
 	}
 }
@@ -270,8 +458,11 @@ func TestFinalizeJoinSessionRestoresLibraryMaterialAndOwnerContext(t *testing.T)
 	t.Parallel()
 
 	ctx := context.Background()
+	infra := openInviteTestInfra(t)
 	owner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(owner, infra)
 	joiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(joiner, infra)
 
 	library, err := owner.CreateLibrary(ctx, "restore-join-material")
 	if err != nil {
@@ -281,7 +472,7 @@ func TestFinalizeJoinSessionRestoresLibraryMaterialAndOwnerContext(t *testing.T)
 	if err != nil {
 		t.Fatalf("owner active context: %v", err)
 	}
-	code, err := owner.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleAdmin, Uses: 1})
+	code, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleAdmin, Uses: 1})
 	if err != nil {
 		t.Fatalf("create invite code: %v", err)
 	}
@@ -359,20 +550,23 @@ func TestJoinSessionRefreshResumesAfterRestart(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	infra := openInviteTestInfra(t)
 	ownerRoot := filepath.Join(t.TempDir(), "owner")
 	joinerRoot := filepath.Join(t.TempDir(), "joiner")
 
 	owner := openPlaylistTestAppAtPath(t, ownerRoot)
+	configureInviteTestApp(owner, infra)
 	t.Cleanup(func() {
 		_ = owner.Close()
 	})
 	joiner := openPlaylistTestAppAtPath(t, joinerRoot)
+	configureInviteTestApp(joiner, infra)
 
 	library, err := owner.CreateLibrary(ctx, "invite-restart-resume")
 	if err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	code, err := owner.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleMember, Uses: 1})
+	code, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
 	if err != nil {
 		t.Fatalf("create invite code: %v", err)
 	}
@@ -386,6 +580,7 @@ func TestJoinSessionRefreshResumesAfterRestart(t *testing.T) {
 	}
 
 	joiner = openPlaylistTestAppAtPath(t, joinerRoot)
+	configureInviteTestApp(joiner, infra)
 	t.Cleanup(func() {
 		_ = joiner.Close()
 	})
@@ -408,14 +603,17 @@ func TestNewJoinAttemptSupersedesOlderApprovedSession(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	infra := openInviteTestInfra(t)
 	owner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(owner, infra)
 	joiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(joiner, infra)
 
 	if _, err := owner.CreateLibrary(ctx, "invite-supersede-approved"); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 
-	code1, err := owner.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleMember, Uses: 1})
+	code1, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
 	if err != nil {
 		t.Fatalf("create first invite code: %v", err)
 	}
@@ -431,7 +629,7 @@ func TestNewJoinAttemptSupersedesOlderApprovedSession(t *testing.T) {
 	}
 	waitForJoinSessionStatus(t, ctx, joiner, session1.SessionID, joinSessionStatusApproved)
 
-	code2, err := owner.CreateInviteCode(ctx, apitypes.InviteCodeRequest{Role: roleMember, Uses: 1})
+	code2, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
 	if err != nil {
 		t.Fatalf("create second invite code: %v", err)
 	}
@@ -493,7 +691,7 @@ func TestOpenInviteClientTransportReusesActiveSyncHost(t *testing.T) {
 		t.Fatal("expected active libp2p transport host")
 	}
 
-	client, err := app.openInviteClientTransport("service-reuse-host", nil)
+	client, err := app.openInviteClientTransport(nil)
 	if err != nil {
 		t.Fatalf("open invite client transport: %v", err)
 	}
@@ -515,52 +713,18 @@ func TestOpenInviteClientTransportReusesActiveSyncHost(t *testing.T) {
 	}
 }
 
-func TestResolveInviteOwnerAddrsIgnoresRelayBootstrapAddrs(t *testing.T) {
+func TestFilterRelayInviteAddrsSkipsDirectAddrs(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	app := openCacheTestApp(t, 1024)
-	service := InviteService{app: app}
-	ownerPeerID := mustGenerateTestPeerID(t)
 	relayPeerID := mustGenerateTestPeerID(t)
-
-	addrs, err := service.resolveInviteOwnerAddrs(ctx, inviteCodePayload{
-		LibraryID:           "library-relay-bootstrap",
-		OwnerPeerID:         ownerPeerID,
-		RelayBootstrapAddrs: []string{fmt.Sprintf("/ip4/198.51.100.20/tcp/4001/p2p/%s", relayPeerID)},
-	})
-	if err != nil {
-		t.Fatalf("resolve invite owner addrs: %v", err)
-	}
-	want := []string{fmt.Sprintf("/ip4/198.51.100.20/tcp/4001/p2p/%s/p2p-circuit/p2p/%s", relayPeerID, ownerPeerID)}
-	if len(addrs) != len(want) || addrs[0] != want[0] {
-		t.Fatalf("invite owner addrs = %#v, want %#v", addrs, want)
-	}
-}
-
-func TestResolveJoinSessionOwnerAddrsIgnoresRelayBootstrapFallback(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	app := openCacheTestApp(t, 1024)
-	service := InviteService{app: app}
 	ownerPeerID := mustGenerateTestPeerID(t)
-	relayPeerID := mustGenerateTestPeerID(t)
-
-	addrs, err := service.resolveJoinSessionOwnerAddrs(ctx, JoinSession{
-		SessionID:          "session-relay-bootstrap",
-		LibraryID:          "library-relay-bootstrap",
-		RelayBootstrapJSON: mustJSONString([]string{fmt.Sprintf("/ip4/198.51.100.21/tcp/4001/p2p/%s", relayPeerID)}),
-	}, inviteCodePayload{
-		LibraryID:   "library-relay-bootstrap",
-		OwnerPeerID: ownerPeerID,
+	addrs := filterRelayInviteAddrs([]string{
+		fmt.Sprintf("/ip4/198.51.100.20/tcp/4001/p2p/%s", ownerPeerID),
+		fmt.Sprintf("/ip4/198.51.100.21/tcp/4001/p2p/%s/p2p-circuit/p2p/%s", relayPeerID, ownerPeerID),
 	})
-	if err != nil {
-		t.Fatalf("resolve join session owner addrs: %v", err)
-	}
 	want := []string{fmt.Sprintf("/ip4/198.51.100.21/tcp/4001/p2p/%s/p2p-circuit/p2p/%s", relayPeerID, ownerPeerID)}
 	if len(addrs) != len(want) || addrs[0] != want[0] {
-		t.Fatalf("join session owner addrs = %#v, want %#v", addrs, want)
+		t.Fatalf("filter relay invite addrs = %#v, want %#v", addrs, want)
 	}
 }
 

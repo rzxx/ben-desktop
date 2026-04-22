@@ -20,10 +20,14 @@ export function CancelJoinSession(sessionID: string): $CancellablePromise<void> 
     return $Call.ByID(567196285, sessionID);
 }
 
-export function CreateInviteCode(req: apitypes$0.InviteCodeRequest): $CancellablePromise<apitypes$0.InviteCodeResult> {
-    return $Call.ByID(954474485, req).then(($result: any) => {
+export function CreateInvite(req: apitypes$0.InviteCreateRequest): $CancellablePromise<apitypes$0.InviteRecord> {
+    return $Call.ByID(89410432, req).then(($result: any) => {
         return $$createType0($result);
     });
+}
+
+export function DeleteInvite(inviteID: string): $CancellablePromise<void> {
+    return $Call.ByID(1402632995, inviteID);
 }
 
 export function GetJoinSession(sessionID: string): $CancellablePromise<apitypes$0.JoinSession> {
@@ -32,15 +36,15 @@ export function GetJoinSession(sessionID: string): $CancellablePromise<apitypes$
     });
 }
 
-export function ListIssuedInvites(status: string): $CancellablePromise<apitypes$0.IssuedInviteRecord[]> {
-    return $Call.ByID(2625364054, status).then(($result: any) => {
-        return $$createType3($result);
+export function ListActiveInvites(): $CancellablePromise<apitypes$0.InviteRecord[]> {
+    return $Call.ByID(2559279215).then(($result: any) => {
+        return $$createType2($result);
     });
 }
 
 export function ListJoinRequests(status: string): $CancellablePromise<apitypes$0.InviteJoinRequestRecord[]> {
     return $Call.ByID(2833420939, status).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType4($result);
     });
 }
 
@@ -48,13 +52,9 @@ export function RejectJoinRequest(requestID: string, reason: string): $Cancellab
     return $Call.ByID(1240171767, requestID, reason);
 }
 
-export function RevokeIssuedInvite(inviteID: string, reason: string): $CancellablePromise<void> {
-    return $Call.ByID(413876291, inviteID, reason);
-}
-
 export function StartFinalizeJoinSession(sessionID: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(2247074811, sessionID).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType5($result);
     });
 }
 
@@ -65,10 +65,9 @@ export function StartJoinFromInvite(req: apitypes$0.JoinFromInviteInput): $Cance
 }
 
 // Private type creation functions
-const $$createType0 = apitypes$0.InviteCodeResult.createFrom;
+const $$createType0 = apitypes$0.InviteRecord.createFrom;
 const $$createType1 = apitypes$0.JoinSession.createFrom;
-const $$createType2 = apitypes$0.IssuedInviteRecord.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = apitypes$0.InviteJoinRequestRecord.createFrom;
-const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = desktopcore$0.JobSnapshot.createFrom;
+const $$createType2 = $Create.Array($$createType0);
+const $$createType3 = apitypes$0.InviteJoinRequestRecord.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = desktopcore$0.JobSnapshot.createFrom;

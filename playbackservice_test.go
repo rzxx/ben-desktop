@@ -78,9 +78,9 @@ type passthroughRuntimeStub struct {
 	likeRecordingFn             func(context.Context, string) error
 	unlikeRecordingFn           func(context.Context, string) error
 	isRecordingLikedFn          func(context.Context, string) (bool, error)
-	createInviteCodeFn          func(context.Context, apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error)
-	listIssuedInvitesFn         func(context.Context, string) ([]apitypes.IssuedInviteRecord, error)
-	revokeIssuedInviteFn        func(context.Context, string, string) error
+	createInviteFn              func(context.Context, apitypes.InviteCreateRequest) (apitypes.InviteRecord, error)
+	listActiveInvitesFn         func(context.Context) ([]apitypes.InviteRecord, error)
+	deleteInviteFn              func(context.Context, string) error
 	startJoinFromInviteFn       func(context.Context, apitypes.JoinFromInviteInput) (apitypes.JoinSession, error)
 	getJoinSessionFn            func(context.Context, string) (apitypes.JoinSession, error)
 	finalizeJoinSessionFn       func(context.Context, string) (apitypes.JoinLibraryResult, error)
@@ -436,16 +436,25 @@ func (b *passthroughBridgeStub) IsRecordingLiked(ctx context.Context, recordingI
 	return b.isRecordingLikedFn(ctx, recordingID)
 }
 
-func (b *passthroughBridgeStub) CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
-	return b.createInviteCodeFn(ctx, req)
+func (b *passthroughBridgeStub) CreateInvite(ctx context.Context, req apitypes.InviteCreateRequest) (apitypes.InviteRecord, error) {
+	if b.createInviteFn != nil {
+		return b.createInviteFn(ctx, req)
+	}
+	return apitypes.InviteRecord{}, nil
 }
 
-func (b *passthroughBridgeStub) ListIssuedInvites(ctx context.Context, status string) ([]apitypes.IssuedInviteRecord, error) {
-	return b.listIssuedInvitesFn(ctx, status)
+func (b *passthroughBridgeStub) ListActiveInvites(ctx context.Context) ([]apitypes.InviteRecord, error) {
+	if b.listActiveInvitesFn != nil {
+		return b.listActiveInvitesFn(ctx)
+	}
+	return nil, nil
 }
 
-func (b *passthroughBridgeStub) RevokeIssuedInvite(ctx context.Context, inviteID, reason string) error {
-	return b.revokeIssuedInviteFn(ctx, inviteID, reason)
+func (b *passthroughBridgeStub) DeleteInvite(ctx context.Context, inviteID string) error {
+	if b.deleteInviteFn != nil {
+		return b.deleteInviteFn(ctx, inviteID)
+	}
+	return nil
 }
 
 func (b *passthroughBridgeStub) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {

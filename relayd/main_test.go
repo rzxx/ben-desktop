@@ -41,7 +41,10 @@ func TestRegistryAuthEnforcement(t *testing.T) {
 			LibraryID: member.libraryID,
 			DeviceID:  member.deviceID,
 			PeerID:    member.peerID,
-			Addrs:     []string{"/ip4/203.0.113.10/tcp/4101/p2p/" + member.peerID},
+			Addrs: []string{
+				"/ip4/203.0.113.10/tcp/4101/p2p/" + member.peerID,
+				"/ip4/203.0.113.11/tcp/4101/p2p/relay-1/p2p-circuit/p2p/" + member.peerID,
+			},
 		},
 		RootPublicKey: member.rootPub,
 		Auth:          member.auth,
@@ -97,8 +100,18 @@ func TestRegistryAuthEnforcement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sign invite attestation: %v", err)
 	}
-	if status := serveJSON(t, server.handleInviteOwner, registryauth.InviteOwnerLookupRequest{Invite: attestation}); status != http.StatusOK {
-		t.Fatalf("signed invite lookup status = %d", status)
+	recorder = httptest.NewRecorder()
+	request = jsonRequest(t, http.MethodPost, "/v1/invites/owner", registryauth.InviteOwnerLookupRequest{Invite: attestation})
+	server.handleInviteOwner(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("signed invite lookup status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	record = presenceRecord{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &record); err != nil {
+		t.Fatalf("decode invite owner lookup record: %v", err)
+	}
+	if len(record.Addrs) != 1 || !strings.Contains(record.Addrs[0], "/p2p-circuit") {
+		t.Fatalf("invite owner lookup addrs = %#v", record.Addrs)
 	}
 }
 
@@ -135,6 +148,42 @@ func TestInviteOwnerRejectsExpiredAttestation(t *testing.T) {
 
 	if status := serveJSON(t, server.handleInviteOwner, registryauth.InviteOwnerLookupRequest{Invite: expiredInvite}); status != http.StatusUnauthorized {
 		t.Fatalf("expired invite lookup status = %d", status)
+	}
+}
+
+func TestInviteOwnerRejectsDirectOnlyPresence(t *testing.T) {
+	t.Parallel()
+
+	server := openTestRelaydServer(t)
+	member := newMembershipFixture(t, "lib-1", "device-1", "peer-1")
+
+	announce := registryauth.PresenceAnnounceRequest{
+		Record: registryauth.PresenceRecord{
+			LibraryID: member.libraryID,
+			DeviceID:  member.deviceID,
+			PeerID:    member.peerID,
+			Addrs:     []string{"/ip4/203.0.113.10/tcp/4101/p2p/" + member.peerID},
+		},
+		RootPublicKey: member.rootPub,
+		Auth:          member.auth,
+	}
+	if status := serveJSON(t, server.handlePresenceAnnounce, announce); status != http.StatusOK {
+		t.Fatalf("presence announce status = %d", status)
+	}
+
+	attestation, err := registryauth.SignInviteAttestation(registryauth.InviteAttestation{
+		LibraryID:     member.libraryID,
+		TokenID:       "token-direct-only",
+		OwnerPeerID:   member.peerID,
+		RootPublicKey: member.rootPub,
+		ExpiresAt:     time.Now().Add(time.Hour).Unix(),
+	}, member.rootPriv)
+	if err != nil {
+		t.Fatalf("sign invite attestation: %v", err)
+	}
+
+	if status := serveJSON(t, server.handleInviteOwner, registryauth.InviteOwnerLookupRequest{Invite: attestation}); status != http.StatusNotFound {
+		t.Fatalf("direct-only invite lookup status = %d", status)
 	}
 }
 

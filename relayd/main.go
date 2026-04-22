@@ -740,7 +740,23 @@ func (s *relaydServer) handleInviteOwner(w http.ResponseWriter, r *http.Request)
 		http.NotFound(w, r)
 		return
 	}
+	record.Addrs = inviteLookupRelayAddrs(record.Addrs)
+	if len(record.Addrs) == 0 {
+		http.NotFound(w, r)
+		return
+	}
 	writeJSON(w, http.StatusOK, record)
+}
+
+func inviteLookupRelayAddrs(addrs []string) []string {
+	out := make([]string, 0, len(addrs))
+	for _, addr := range compactNonEmptyStrings(addrs) {
+		if !strings.Contains(addr, "/p2p-circuit") {
+			continue
+		}
+		out = append(out, addr)
+	}
+	return compactNonEmptyStrings(out)
 }
 
 func (s *relaydServer) lookupPresence(libraryID, peerID string) (presenceRecord, bool, error) {

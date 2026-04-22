@@ -981,13 +981,13 @@ type stubNotificationInviteRuntime struct {
 	called           chan struct{}
 }
 
-func (s *stubNotificationInviteRuntime) CreateInviteCode(context.Context, apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error) {
-	return apitypes.InviteCodeResult{}, nil
+func (s *stubNotificationInviteRuntime) CreateInvite(context.Context, apitypes.InviteCreateRequest) (apitypes.InviteRecord, error) {
+	return apitypes.InviteRecord{}, nil
 }
-func (s *stubNotificationInviteRuntime) ListIssuedInvites(context.Context, string) ([]apitypes.IssuedInviteRecord, error) {
+func (s *stubNotificationInviteRuntime) ListActiveInvites(context.Context) ([]apitypes.InviteRecord, error) {
 	return nil, nil
 }
-func (s *stubNotificationInviteRuntime) RevokeIssuedInvite(context.Context, string, string) error {
+func (s *stubNotificationInviteRuntime) DeleteInvite(context.Context, string) error {
 	return nil
 }
 func (s *stubNotificationInviteRuntime) StartJoinFromInvite(context.Context, apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {

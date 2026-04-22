@@ -13,9 +13,9 @@ import {
 import {
   approveJoinRequest,
   cancelJoinSession,
-  createInviteCode,
+  createInvite,
+  deleteInvite,
   rejectJoinRequest,
-  revokeIssuedInvite,
   startFinalizeJoinSession,
   startJoinFromInvite,
 } from "@/lib/api/invite";
@@ -59,6 +59,60 @@ function requestTone(status: string) {
     default:
       return "border-amber-400/18 bg-amber-400/10 text-amber-700 dark:text-amber-100";
   }
+}
+
+function inviteReachabilityTone(
+  activeInviteCount: number,
+  inviteReachabilityRequired: boolean,
+  inviteReachable: boolean,
+  inviteReachabilityError: string,
+) {
+  if (!inviteReachabilityRequired || activeInviteCount <= 0) {
+    return "border-theme-300/75 bg-white/82 text-theme-700 dark:border-white/10 dark:bg-black/15 dark:text-white/72";
+  }
+  if (inviteReachabilityError) {
+    return "border-rose-400/18 bg-rose-400/10 text-rose-700 dark:text-rose-100";
+  }
+  if (inviteReachable) {
+    return "border-emerald-400/18 bg-emerald-400/10 text-emerald-700 dark:text-emerald-100";
+  }
+  return "border-amber-400/18 bg-amber-400/10 text-amber-700 dark:text-amber-100";
+}
+
+function inviteReachabilityLabel(
+  activeInviteCount: number,
+  inviteReachabilityRequired: boolean,
+  inviteReachable: boolean,
+  inviteReachabilityError: string,
+) {
+  if (!inviteReachabilityRequired || activeInviteCount <= 0) {
+    return "No active invites";
+  }
+  if (inviteReachabilityError) {
+    return "Invite reachability failed";
+  }
+  if (inviteReachable) {
+    return "Reachable for invites";
+  }
+  return "Preparing relay reachability";
+}
+
+function inviteReachabilityMessage(
+  activeInviteCount: number,
+  inviteReachabilityRequired: boolean,
+  inviteReachable: boolean,
+  inviteReachabilityError: string,
+) {
+  if (!inviteReachabilityRequired || activeInviteCount <= 0) {
+    return "Create an invite to reserve relay reachability and publish invite contact addresses.";
+  }
+  if (inviteReachabilityError) {
+    return inviteReachabilityError;
+  }
+  if (inviteReachable) {
+    return `${activeInviteCount} active invite${activeInviteCount === 1 ? "" : "s"} keeping invite contact alive in the background.`;
+  }
+  return "Waiting for relay reservation and a fresh registry announce before invite contact is ready.";
 }
 
 async function copyText(value: string) {
@@ -105,6 +159,13 @@ export function SharingSurface() {
     state,
     trackedSessionId,
   } = useSharingPage();
+  const activeInviteCount = state.network?.ActiveInviteCount ?? state.invites.length;
+  const inviteReachabilityRequired = Boolean(
+    state.network?.InviteReachabilityRequired,
+  );
+  const inviteReachable = Boolean(state.network?.InviteReachable);
+  const inviteReachabilityError =
+    state.network?.InviteReachabilityError?.trim() ?? "";
 
   if (state.loading) {
     return (
@@ -125,13 +186,12 @@ export function SharingSurface() {
               Sharing
             </p>
             <h1 className="text-theme-900 mt-3 text-3xl font-semibold dark:text-white">
-              Invite, join, and peer controls
+              Relay-first invites, joins, and peer controls
             </h1>
             <p className="text-theme-600 mt-3 max-w-3xl text-sm leading-6 dark:text-white/55">
-              The desktop host already exposes invite, approval, join-session,
-              and peer-connect facades. This page wires those flows into the
-              Wails UI so library sharing no longer stops at backend-only
-              contracts.
+              Active invites now keep relay-backed share reachability alive in
+              the background. Join flow resolves the owner through registry
+              lookup and relay-capable addresses instead of LAN-first discovery.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
@@ -145,6 +205,9 @@ export function SharingSurface() {
               <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
                 {pendingRequests.length} pending request
                 {pendingRequests.length === 1 ? "" : "s"}
+              </span>
+              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
+                {activeInviteCount} active invite{activeInviteCount === 1 ? "" : "s"}
               </span>
             </div>
           </div>
@@ -285,7 +348,7 @@ export function SharingSurface() {
                 onChange={(event) => {
                   setInviteCode(event.target.value);
                 }}
-                placeholder="ben-invite-v1..."
+                placeholder="ben-invite-v3..."
                 value={inviteCode}
               />
             </label>
@@ -468,12 +531,46 @@ export function SharingSurface() {
                 </div>
                 <div>
                   <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
-                    Issue invite
+                    Create invite
                   </h2>
                   <p className="text-theme-600 text-sm dark:text-white/48">
-                    Create share codes for the active library. Invite management
-                    requires owner or admin role.
+                    Create registry-backed invite codes for the active library.
+                    Reachability is prepared before issuance and stays alive
+                    while active invites remain.
                   </p>
+                </div>
+              </div>
+
+              <div
+                className={`mt-5 rounded-[1.2rem] border p-4 ${inviteReachabilityTone(
+                  activeInviteCount,
+                  inviteReachabilityRequired,
+                  inviteReachable,
+                  inviteReachabilityError,
+                )}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {inviteReachabilityLabel(
+                        activeInviteCount,
+                        inviteReachabilityRequired,
+                        inviteReachable,
+                        inviteReachabilityError,
+                      )}
+                    </p>
+                    <p className="mt-2 text-sm opacity-85">
+                      {inviteReachabilityMessage(
+                        activeInviteCount,
+                        inviteReachabilityRequired,
+                        inviteReachable,
+                        inviteReachabilityError,
+                      )}
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-current/15 px-3 py-1 text-[0.68rem] tracking-[0.24em] uppercase">
+                    {activeInviteCount} active
+                  </span>
                 </div>
               </div>
 
@@ -550,8 +647,8 @@ export function SharingSurface() {
                   disabled={!manageLibrary || pendingAction === "create-invite"}
                   onClick={() => {
                     void runAction("create-invite", async () => {
-                      const result = await createInviteCode(
-                        new Types.InviteCodeRequest({
+                      const result = await createInvite(
+                        new Types.InviteCreateRequest({
                           Role: inviteRole,
                           Uses: Math.max(
                             1,
@@ -571,7 +668,11 @@ export function SharingSurface() {
                   type="button"
                 >
                   <KeyRound className="h-4 w-4" />
-                  <span>Create invite</span>
+                  <span>
+                    {pendingAction === "create-invite"
+                      ? "Preparing reachability..."
+                      : "Create invite"}
+                  </span>
                 </button>
                 {!manageLibrary && (
                   <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-2 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/42">
@@ -611,6 +712,24 @@ export function SharingSurface() {
                   <p className="border-theme-300/75 text-theme-800 mt-3 rounded-[1rem] border bg-white/82 p-3 font-mono text-xs break-all dark:border-white/10 dark:bg-black/15 dark:text-white/82">
                     {latestInvite.InviteCode}
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                      onClick={() => {
+                        void copyText(latestInvite.InviteLink)
+                          .then(() => {
+                            setFeedback("Copied invite link");
+                          })
+                          .catch((error) => {
+                            setActionError(describeError(error));
+                          });
+                      }}
+                      type="button"
+                    >
+                      <Link2 className="h-4 w-4" />
+                      <span>Copy link</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -758,20 +877,22 @@ export function SharingSurface() {
               <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                 <KeyRound className="h-5 w-5" />
               </div>
-              <div>
-                <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
-                  Issued invites
-                </h2>
-                <p className="text-theme-600 text-sm dark:text-white/48">
-                  Active and historical invite tokens for this library.
-                </p>
+                <div>
+                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
+                    Active invites
+                  </h2>
+                  <p className="text-theme-600 text-sm dark:text-white/48">
+                    Only currently usable invite tokens remain here. Expired,
+                    exhausted, and deleted invites are removed instead of kept
+                    as history.
+                  </p>
+                </div>
               </div>
-            </div>
 
             <div className="mt-5 space-y-3">
               {state.invites.length === 0 ? (
                 <div className="border-theme-300/75 text-theme-600 rounded-[1.2rem] border border-dashed bg-white/78 px-4 py-5 text-sm dark:border-white/10 dark:bg-black/10 dark:text-white/48">
-                  No invites have been issued for this library yet.
+                  No active invites for this library right now.
                 </div>
               ) : (
                 state.invites.map((invite) => (
@@ -781,18 +902,9 @@ export function SharingSurface() {
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-theme-900 text-sm font-semibold capitalize dark:text-white">
-                            {invite.Role} invite
-                          </p>
-                          <span
-                            className={`rounded-full border px-2 py-1 text-[0.68rem] tracking-[0.22em] uppercase ${requestTone(
-                              invite.Status,
-                            )}`}
-                          >
-                            {invite.Status}
-                          </span>
-                        </div>
+                        <p className="text-theme-900 text-sm font-semibold capitalize dark:text-white">
+                          {invite.Role} invite
+                        </p>
                         <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
                           {invite.RedemptionCount}/{invite.MaxUses} redemption
                           {invite.MaxUses === 1 ? "" : "s"} used
@@ -816,31 +928,43 @@ export function SharingSurface() {
                           type="button"
                         >
                           <Copy className="h-4 w-4" />
-                          <span>Copy</span>
+                          <span>Copy code</span>
+                        </button>
+                        <button
+                          className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                          onClick={() => {
+                            void copyText(invite.InviteLink)
+                              .then(() => {
+                                setFeedback("Copied invite link");
+                              })
+                              .catch((error) => {
+                                setActionError(describeError(error));
+                              });
+                          }}
+                          type="button"
+                        >
+                          <Link2 className="h-4 w-4" />
+                          <span>Copy link</span>
                         </button>
                         <button
                           className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                           disabled={
                             !manageLibrary ||
-                            normalizeRole(invite.Status) !== "active" ||
-                            pendingAction === `revoke:${invite.InviteID}`
+                            pendingAction === `delete:${invite.InviteID}`
                           }
                           onClick={() => {
                             void runAction(
-                              `revoke:${invite.InviteID}`,
+                              `delete:${invite.InviteID}`,
                               async () => {
-                                await revokeIssuedInvite(
-                                  invite.InviteID,
-                                  "revoked from desktop sharing page",
-                                );
-                                setFeedback("Revoked invite");
+                                await deleteInvite(invite.InviteID);
+                                setFeedback("Deleted invite");
                               },
                             );
                           }}
                           type="button"
                         >
                           <XCircle className="h-4 w-4" />
-                          <span>Revoke</span>
+                          <span>Delete</span>
                         </button>
                       </div>
                     </div>

@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
+	relayclient "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 )
 
@@ -151,7 +152,7 @@ func (a *App) ensureActiveTransportRelayReservation(ctx context.Context, timeout
 	if !ok || transport == nil || transport.host == nil {
 		return nil
 	}
-	if len(advertisedRelayAddrs(transport.host)) > 0 {
+	if len(transport.relayReservationAddrs()) > 0 {
 		return nil
 	}
 	relays, err := parseRelayBootstrapAddrInfos(a.relayBootstrapAddrsForHost(nil))
@@ -170,7 +171,7 @@ func (a *App) ensureActiveTransportRelayReservation(ctx context.Context, timeout
 
 	var lastErr error
 	for {
-		if len(advertisedRelayAddrs(transport.host)) > 0 {
+		if len(transport.relayReservationAddrs()) > 0 {
 			return nil
 		}
 		for _, info := range relays {
@@ -192,9 +193,36 @@ func (a *App) ensureActiveTransportRelayReservation(ctx context.Context, timeout
 			if err != nil {
 				lastErr = err
 			}
-			if len(advertisedRelayAddrs(transport.host)) > 0 {
+			if addrs := transport.relayReservationAddrs(); len(addrs) > 0 {
 				return nil
 			}
+			reserveTimeout := transportConnectTimeout
+			if deadline, ok := waitCtx.Deadline(); ok {
+				if remaining := time.Until(deadline); remaining > 0 && remaining < reserveTimeout {
+					reserveTimeout = remaining
+				}
+			}
+			if reserveTimeout <= 0 {
+				break
+			}
+			reserveCtx, reserveCancel := context.WithTimeout(waitCtx, reserveTimeout)
+			reservation, reserveErr := relayclient.Reserve(reserveCtx, transport.host, info)
+			reserveCancel()
+			if reserveErr != nil {
+				lastErr = reserveErr
+				continue
+			}
+			relayAddrs := relayReservationBootstrapAddrs(info, transport.host.ID())
+			if len(relayAddrs) == 0 {
+				lastErr = fmt.Errorf("relay reservation returned no usable addresses")
+				continue
+			}
+			expiresAt := time.Time{}
+			if reservation != nil {
+				expiresAt = reservation.Expiration
+			}
+			transport.setExplicitRelayReservation(relayAddrs, expiresAt)
+			return nil
 		}
 		if waitCtx.Err() != nil {
 			break
@@ -204,13 +232,27 @@ func (a *App) ensureActiveTransportRelayReservation(ctx context.Context, timeout
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	if len(advertisedRelayAddrs(transport.host)) > 0 {
+	if len(transport.relayReservationAddrs()) > 0 {
 		return nil
 	}
 	if lastErr != nil {
 		return fmt.Errorf("ensure active transport relay reservation: %w", lastErr)
 	}
 	return context.DeadlineExceeded
+}
+
+func relayReservationBootstrapAddrs(info peer.AddrInfo, localPeerID peer.ID) []string {
+	if info.ID == "" || localPeerID == "" {
+		return nil
+	}
+	out := make([]string, 0, len(info.Addrs))
+	for _, addr := range info.Addrs {
+		if addr == nil {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s/p2p/%s/p2p-circuit/p2p/%s", addr.String(), info.ID.String(), localPeerID.String()))
+	}
+	return compactNonEmptyStrings(out)
 }
 
 func newRelayResources() relayv2.Resources {

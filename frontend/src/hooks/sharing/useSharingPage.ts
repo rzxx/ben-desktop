@@ -1,20 +1,24 @@
 import { Events } from "@wailsio/runtime";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  InviteCodeResult,
   InviteJoinRequestRecord,
-  IssuedInviteRecord,
+  InviteRecord,
   JoinSession,
   JobSnapshot,
   LibrarySummary,
   LocalContext,
+  NetworkStatus,
 } from "@/lib/api/models";
 import { DesktopCoreModels } from "@/lib/api/models";
-import { getLocalContext, startConnectPeer } from "@/lib/api/network";
+import {
+  getLocalContext,
+  getNetworkStatus,
+  startConnectPeer,
+} from "@/lib/api/network";
 import { getActiveLibrary } from "@/lib/api/library";
 import {
   getJoinSession,
-  listIssuedInvites,
+  listActiveInvites,
   listJoinRequests,
 } from "@/lib/api/invite";
 import { subscribeJobEvents } from "@/lib/api/jobs";
@@ -23,7 +27,8 @@ type SharingState = {
   loading: boolean;
   library: LibrarySummary | null;
   local: LocalContext | null;
-  invites: IssuedInviteRecord[];
+  network: NetworkStatus | null;
+  invites: InviteRecord[];
   requests: InviteJoinRequestRecord[];
   trackedSession: JoinSession | null;
   error: string;
@@ -36,6 +41,7 @@ const initialState: SharingState = {
   loading: true,
   library: null,
   local: null,
+  network: null,
   invites: [],
   requests: [],
   trackedSession: null,
@@ -68,7 +74,7 @@ export function useSharingPage() {
   );
   const [inviteUses, setInviteUses] = useState("1");
   const [inviteExpiryHours, setInviteExpiryHours] = useState("24");
-  const [latestInvite, setLatestInvite] = useState<InviteCodeResult | null>(
+  const [latestInvite, setLatestInvite] = useState<InviteRecord | null>(
     null,
   );
   const [inviteCode, setInviteCode] = useState("");
@@ -98,17 +104,16 @@ export function useSharingPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [{ library, found }, local] = await Promise.all([
+      const [{ library, found }, local, network] = await Promise.all([
         getActiveLibrary(),
         getLocalContext(),
+        getNetworkStatus().catch(() => null),
       ]);
 
       const requests =
         found && library.LibraryID ? listJoinRequests("") : Promise.resolve([]);
       const invites =
-        found && library.LibraryID
-          ? listIssuedInvites("")
-          : Promise.resolve([]);
+        found && library.LibraryID ? listActiveInvites() : Promise.resolve([]);
       const session = trackedSessionId.trim()
         ? getJoinSession(trackedSessionId.trim()).catch(() => null)
         : Promise.resolve(null);
@@ -123,6 +128,7 @@ export function useSharingPage() {
         loading: false,
         library: found ? library : null,
         local,
+        network,
         invites: inviteRows,
         requests: requestRows,
         trackedSession,
