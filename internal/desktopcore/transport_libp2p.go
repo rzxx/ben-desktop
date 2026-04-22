@@ -48,6 +48,8 @@ type libp2pSyncTransport struct {
 	statusMu               sync.RWMutex
 	lastRegistryAnnounceAt *time.Time
 	directUpgradeState     string
+	explicitRelayAddrs     []string
+	explicitRelayExpiry    *time.Time
 }
 
 type libp2pSyncPeer struct {
@@ -1069,6 +1071,38 @@ func (t *libp2pSyncTransport) setDirectUpgradeState(value string) {
 	t.directUpgradeState = strings.TrimSpace(value)
 }
 
+func (t *libp2pSyncTransport) setExplicitRelayReservation(addrs []string, expiresAt time.Time) {
+	if t == nil {
+		return
+	}
+	addrs = compactNonEmptyStrings(addrs)
+	t.statusMu.Lock()
+	defer t.statusMu.Unlock()
+	t.explicitRelayAddrs = append([]string(nil), addrs...)
+	if expiresAt.IsZero() {
+		t.explicitRelayExpiry = nil
+		return
+	}
+	copyValue := expiresAt.UTC()
+	t.explicitRelayExpiry = &copyValue
+}
+
+func (t *libp2pSyncTransport) relayReservationAddrs() []string {
+	if t == nil {
+		return nil
+	}
+	if addrs := advertisedRelayAddrs(t.host); len(addrs) > 0 {
+		return addrs
+	}
+	now := time.Now().UTC()
+	t.statusMu.RLock()
+	defer t.statusMu.RUnlock()
+	if t.explicitRelayExpiry != nil && !t.explicitRelayExpiry.After(now) {
+		return nil
+	}
+	return append([]string(nil), t.explicitRelayAddrs...)
+}
+
 func (t *libp2pSyncTransport) appendNetworkStatus(out *apitypes.NetworkStatus) {
 	if t == nil || out == nil {
 		return
@@ -1078,8 +1112,9 @@ func (t *libp2pSyncTransport) appendNetworkStatus(out *apitypes.NetworkStatus) {
 	directUpgradeState := strings.TrimSpace(t.directUpgradeState)
 	t.statusMu.RUnlock()
 
-	out.RelayReservationActive = len(advertisedRelayAddrs(t.host)) > 0
-	out.AdvertisedRelayAddrs = advertisedRelayAddrs(t.host)
+	relayAddrs := t.relayReservationAddrs()
+	out.RelayReservationActive = len(relayAddrs) > 0
+	out.AdvertisedRelayAddrs = relayAddrs
 	out.LastRegistryAnnounceAt = lastRegistryAnnounceAt
 	out.DirectUpgradeState = directUpgradeState
 

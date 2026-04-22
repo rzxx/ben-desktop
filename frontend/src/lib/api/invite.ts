@@ -1,18 +1,18 @@
 import * as InviteFacade from "../../../bindings/ben/desktop/invitefacade";
 import { Types } from "./models";
 
-export function createInviteCode(
-  req: InstanceType<typeof Types.InviteCodeRequest>,
+export function createInvite(
+  req: InstanceType<typeof Types.InviteCreateRequest>,
 ) {
-  return InviteFacade.CreateInviteCode(req);
+  return InviteFacade.CreateInvite(req);
 }
 
-export function listIssuedInvites(status = "") {
-  return InviteFacade.ListIssuedInvites(status);
+export function listActiveInvites() {
+  return InviteFacade.ListActiveInvites();
 }
 
-export function revokeIssuedInvite(inviteId: string, reason: string) {
-  return InviteFacade.RevokeIssuedInvite(inviteId, reason);
+export function deleteInvite(inviteId: string) {
+  return InviteFacade.DeleteInvite(inviteId);
 }
 
 export function startJoinFromInvite(

@@ -13,7 +13,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/crypto/nacl/box"
 	"gorm.io/gorm"
@@ -44,7 +43,7 @@ type inviteJoinStartResponse struct {
 	OwnerDeviceID string `json:"ownerDeviceId"`
 	OwnerRole     string `json:"ownerRole"`
 	OwnerPeerID   string `json:"ownerPeerId"`
-	PeerAddrHint  string `json:"peerAddrHint"`
+	OwnerAddrs    string `json:"ownerAddrs"`
 	ExpiresAt     int64  `json:"expiresAt"`
 	Error         string `json:"error,omitempty"`
 }
@@ -95,8 +94,6 @@ type inviteJoinKeypair struct {
 type inviteClientTransport struct {
 	app        *App
 	host       host.Host
-	mdns       transportMDNSService
-	serviceTag string
 	sharedHost bool
 }
 
@@ -227,11 +224,7 @@ func deleteJoinSessionKeypair(ctx context.Context, db *gorm.DB, sessionID string
 	return db.WithContext(ctx).Where("key = ?", key).Delete(&LocalSetting{}).Error
 }
 
-func (a *App) openInviteClientTransport(serviceTag string, relayBootstrapAddrs []string) (*inviteClientTransport, error) {
-	serviceTag = strings.TrimSpace(serviceTag)
-	if serviceTag == "" {
-		return nil, fmt.Errorf("invite service tag is required")
-	}
+func (a *App) openInviteClientTransport(relayBootstrapAddrs []string) (*inviteClientTransport, error) {
 	hostNode := host.Host(nil)
 	sharedHost := false
 	if active, ok := a.activeSyncTransport().(*libp2pSyncTransport); ok && active != nil && active.host != nil {
@@ -251,21 +244,7 @@ func (a *App) openInviteClientTransport(serviceTag string, relayBootstrapAddrs [
 	client := &inviteClientTransport{
 		app:        a,
 		host:       hostNode,
-		serviceTag: serviceTag,
 		sharedHost: sharedHost,
-	}
-	if a.cfg.EnableLANDiscovery {
-		service := mdns.NewMdnsService(hostNode, serviceTag, &desktopMDNSNotifee{
-			host:   hostNode,
-			logger: a.cfg.Logger,
-		})
-		if err := service.Start(); err != nil {
-			if a.cfg.Logger != nil {
-				a.cfg.Logger.Errorf("desktopcore: start invite mdns failed for %s: %v", serviceTag, err)
-			}
-		} else {
-			client.mdns = service
-		}
 	}
 	return client, nil
 }
@@ -273,9 +252,6 @@ func (a *App) openInviteClientTransport(serviceTag string, relayBootstrapAddrs [
 func (c *inviteClientTransport) Close() error {
 	if c == nil {
 		return nil
-	}
-	if c.mdns != nil {
-		_ = c.mdns.Close()
 	}
 	if c.host != nil && !c.sharedHost {
 		return c.host.Close()
@@ -294,15 +270,15 @@ func (c *inviteClientTransport) peerAddr(peerID peer.ID) string {
 	return ""
 }
 
-func (c *inviteClientTransport) resolvePeer(ctx context.Context, peerAddrHint, expectedPeerID string) (peer.ID, string, error) {
+func (c *inviteClientTransport) resolvePeer(ctx context.Context, ownerAddrs, expectedPeerID string) (peer.ID, string, error) {
 	if c == nil || c.host == nil {
 		return "", "", fmt.Errorf("invite client transport is not running")
 	}
 	expectedPeerID = strings.TrimSpace(expectedPeerID)
 
 	var firstErr error
-	for _, peerAddrHint := range splitPeerAddrHints(peerAddrHint) {
-		ma, err := multiaddr.NewMultiaddr(peerAddrHint)
+	for _, ownerAddr := range splitPeerAddrs(ownerAddrs) {
+		ma, err := multiaddr.NewMultiaddr(ownerAddr)
 		if err != nil {
 			firstErr = fmt.Errorf("parse invite peer address: %w", err)
 			continue
@@ -350,7 +326,7 @@ func (c *inviteClientTransport) resolvePeer(ctx context.Context, peerAddrHint, e
 	}
 }
 
-func splitPeerAddrHints(value string) []string {
+func splitPeerAddrs(value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil
@@ -369,8 +345,8 @@ func splitPeerAddrHints(value string) []string {
 	return compactNonEmptyStrings(out)
 }
 
-func (c *inviteClientTransport) roundTrip(ctx context.Context, peerAddrHint, expectedPeerID string, protocolID protocol.ID, req any, resp any) (string, string, error) {
-	peerID, resolvedAddr, err := c.resolvePeer(ctx, peerAddrHint, expectedPeerID)
+func (c *inviteClientTransport) roundTrip(ctx context.Context, ownerAddrs, expectedPeerID string, protocolID protocol.ID, req any, resp any) (string, string, error) {
+	peerID, resolvedAddr, err := c.resolvePeer(ctx, ownerAddrs, expectedPeerID)
 	if err != nil {
 		return "", "", err
 	}

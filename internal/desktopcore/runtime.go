@@ -89,9 +89,9 @@ type PinRuntime interface {
 }
 
 type InviteRuntime interface {
-	CreateInviteCode(ctx context.Context, req apitypes.InviteCodeRequest) (apitypes.InviteCodeResult, error)
-	ListIssuedInvites(ctx context.Context, status string) ([]apitypes.IssuedInviteRecord, error)
-	RevokeIssuedInvite(ctx context.Context, inviteID, reason string) error
+	CreateInvite(ctx context.Context, req apitypes.InviteCreateRequest) (apitypes.InviteRecord, error)
+	ListActiveInvites(ctx context.Context) ([]apitypes.InviteRecord, error)
+	DeleteInvite(ctx context.Context, inviteID string) error
 	StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error)
 	GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error)
 	StartFinalizeJoinSession(ctx context.Context, sessionID string) (JobSnapshot, error)
