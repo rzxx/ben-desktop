@@ -36,6 +36,7 @@ const (
 	defaultDBPath          = "ben-relayd.db"
 	defaultIdentityKeyPath = "ben-relayd.identity.key"
 	defaultMaxBodyBytes    = int64(1 << 20)
+	sqliteBusyTimeout      = 5 * time.Second
 )
 
 const (
@@ -123,6 +124,7 @@ func main() {
 		log.Fatalf("open registry db: %v", err)
 	}
 	defer db.Close()
+	configureSQLite(db)
 	if err := initSchema(db); err != nil {
 		log.Fatalf("init registry db: %v", err)
 	}
@@ -571,9 +573,18 @@ func minDuration(left, right time.Duration) time.Duration {
 	return left
 }
 
+func configureSQLite(db *sql.DB) {
+	if db == nil {
+		return
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+}
+
 func initSchema(db *sql.DB) error {
 	queries := []string{
 		`PRAGMA journal_mode=WAL;`,
+		fmt.Sprintf(`PRAGMA busy_timeout=%d;`, sqliteBusyTimeout/time.Millisecond),
 		`CREATE TABLE IF NOT EXISTS presence_records (
 			library_id TEXT NOT NULL,
 			device_id TEXT NOT NULL,
@@ -640,7 +651,7 @@ func (s *relaydServer) handlePresenceAnnounce(w http.ResponseWriter, r *http.Req
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	member, err := s.authenticateMembership(req.Record.LibraryID, req.RootPublicKey, req.Auth)
+	member, err := s.authenticateMembership(r.Context(), req.Record.LibraryID, req.RootPublicKey, req.Auth)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("authenticate presence announce: %v", err), http.StatusUnauthorized)
 		return
@@ -693,7 +704,7 @@ func (s *relaydServer) handlePresenceMember(w http.ResponseWriter, r *http.Reque
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	member, err := s.authenticateMembership(req.LibraryID, req.RootPublicKey, req.Auth)
+	member, err := s.authenticateMembership(r.Context(), req.LibraryID, req.RootPublicKey, req.Auth)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("authenticate member lookup: %v", err), http.StatusUnauthorized)
 		return
@@ -798,7 +809,12 @@ func (s *relaydServer) lookupPresence(libraryID, peerID string) (presenceRecord,
 	return record, true, nil
 }
 
-func (s *relaydServer) authenticateMembership(libraryID, claimedRootPublicKey string, auth registryauth.TransportPeerAuth) (verifiedMembership, error) {
+type sqlQueryExecutor interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func (s *relaydServer) authenticateMembership(ctx context.Context, libraryID, claimedRootPublicKey string, auth registryauth.TransportPeerAuth) (verifiedMembership, error) {
 	libraryID = strings.TrimSpace(libraryID)
 	claimedRootPublicKey = strings.TrimSpace(claimedRootPublicKey)
 	cert := auth.Cert
@@ -811,7 +827,29 @@ func (s *relaydServer) authenticateMembership(libraryID, claimedRootPublicKey st
 	if cert.LibraryID != libraryID {
 		return verifiedMembership{}, fmt.Errorf("membership certificate library mismatch")
 	}
-	pinnedRootPublicKey, ok, err := s.libraryRootPublicKey(libraryID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return verifiedMembership{}, err
+	}
+	defer tx.Rollback()
+	member, err := authenticateMembershipTx(tx, libraryID, claimedRootPublicKey, auth)
+	if err != nil {
+		return verifiedMembership{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return verifiedMembership{}, err
+	}
+	return member, nil
+}
+
+func authenticateMembershipTx(db sqlQueryExecutor, libraryID, claimedRootPublicKey string, auth registryauth.TransportPeerAuth) (verifiedMembership, error) {
+	libraryID = strings.TrimSpace(libraryID)
+	claimedRootPublicKey = strings.TrimSpace(claimedRootPublicKey)
+	cert := auth.Cert
+	cert.LibraryID = strings.TrimSpace(cert.LibraryID)
+	cert.DeviceID = strings.TrimSpace(cert.DeviceID)
+	cert.PeerID = strings.TrimSpace(cert.PeerID)
+	pinnedRootPublicKey, ok, err := libraryRootPublicKeyQuery(db, libraryID)
 	if err != nil {
 		return verifiedMembership{}, err
 	}
@@ -829,36 +867,34 @@ func (s *relaydServer) authenticateMembership(libraryID, claimedRootPublicKey st
 	if err := registryauth.VerifyMembershipCert(cert, auth.AuthorityChain, rootPublicKey, time.Now().UTC(), libraryID, cert.DeviceID, cert.PeerID); err != nil {
 		return verifiedMembership{}, err
 	}
-	if err := s.pinLibraryRoot(libraryID, rootPublicKey); err != nil {
-		return verifiedMembership{}, err
-	}
-	if err := s.persistMemberAuthState(verifiedMembership{
+	member := verifiedMembership{
 		LibraryID:     libraryID,
 		DeviceID:      cert.DeviceID,
 		PeerID:        cert.PeerID,
 		RootPublicKey: rootPublicKey,
 		CertSerial:    cert.Serial,
 		CertExpiresAt: cert.ExpiresAt,
-	}); err != nil {
+	}
+	if err := pinLibraryRootQuery(db, libraryID, rootPublicKey); err != nil {
 		return verifiedMembership{}, err
 	}
-	return verifiedMembership{
-		LibraryID:     libraryID,
-		DeviceID:      cert.DeviceID,
-		PeerID:        cert.PeerID,
-		RootPublicKey: rootPublicKey,
-		CertSerial:    cert.Serial,
-		CertExpiresAt: cert.ExpiresAt,
-	}, nil
+	if err := persistMemberAuthStateQuery(db, member); err != nil {
+		return verifiedMembership{}, err
+	}
+	return member, nil
 }
 
 func (s *relaydServer) libraryRootPublicKey(libraryID string) (string, bool, error) {
+	return libraryRootPublicKeyQuery(s.db, libraryID)
+}
+
+func libraryRootPublicKeyQuery(db sqlQueryExecutor, libraryID string) (string, bool, error) {
 	libraryID = strings.TrimSpace(libraryID)
 	if libraryID == "" {
 		return "", false, nil
 	}
 	var rootPublicKey string
-	err := s.db.QueryRow(`SELECT root_public_key FROM library_roots WHERE library_id = ?`, libraryID).Scan(&rootPublicKey)
+	err := db.QueryRow(`SELECT root_public_key FROM library_roots WHERE library_id = ?`, libraryID).Scan(&rootPublicKey)
 	if err == sql.ErrNoRows {
 		return "", false, nil
 	}
@@ -869,12 +905,16 @@ func (s *relaydServer) libraryRootPublicKey(libraryID string) (string, bool, err
 }
 
 func (s *relaydServer) pinLibraryRoot(libraryID, rootPublicKey string) error {
+	return pinLibraryRootQuery(s.db, libraryID, rootPublicKey)
+}
+
+func pinLibraryRootQuery(db sqlQueryExecutor, libraryID, rootPublicKey string) error {
 	libraryID = strings.TrimSpace(libraryID)
 	rootPublicKey = strings.TrimSpace(rootPublicKey)
 	if libraryID == "" || rootPublicKey == "" {
 		return fmt.Errorf("library id and root public key are required")
 	}
-	existing, ok, err := s.libraryRootPublicKey(libraryID)
+	existing, ok, err := libraryRootPublicKeyQuery(db, libraryID)
 	if err != nil {
 		return err
 	}
@@ -882,10 +922,10 @@ func (s *relaydServer) pinLibraryRoot(libraryID, rootPublicKey string) error {
 		if existing != rootPublicKey {
 			return fmt.Errorf("library root public key mismatch")
 		}
-		_, err = s.db.Exec(`UPDATE library_roots SET updated_at = ? WHERE library_id = ?`, time.Now().UTC().Unix(), libraryID)
+		_, err = db.Exec(`UPDATE library_roots SET updated_at = ? WHERE library_id = ?`, time.Now().UTC().Unix(), libraryID)
 		return err
 	}
-	_, err = s.db.Exec(`
+	_, err = db.Exec(`
 		INSERT INTO library_roots(library_id, root_public_key, updated_at)
 		VALUES(?, ?, ?)
 	`, libraryID, rootPublicKey, time.Now().UTC().Unix())
@@ -893,9 +933,13 @@ func (s *relaydServer) pinLibraryRoot(libraryID, rootPublicKey string) error {
 }
 
 func (s *relaydServer) persistMemberAuthState(member verifiedMembership) error {
+	return persistMemberAuthStateQuery(s.db, member)
+}
+
+func persistMemberAuthStateQuery(db sqlQueryExecutor, member verifiedMembership) error {
 	var existingSerial int64
 	var existingPeerID string
-	err := s.db.QueryRow(`
+	err := db.QueryRow(`
 		SELECT cert_serial, peer_id
 		FROM member_auth_state
 		WHERE library_id = ? AND device_id = ?
@@ -912,7 +956,7 @@ func (s *relaydServer) persistMemberAuthState(member verifiedMembership) error {
 	default:
 		return err
 	}
-	_, err = s.db.Exec(`
+	_, err = db.Exec(`
 		INSERT INTO member_auth_state(library_id, device_id, peer_id, cert_serial, cert_expires_at, updated_at)
 		VALUES(?, ?, ?, ?, ?, ?)
 		ON CONFLICT(library_id, device_id) DO UPDATE SET

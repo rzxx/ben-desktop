@@ -19,6 +19,11 @@ const (
 	registryRequestTimeout      = 10 * time.Second
 )
 
+var (
+	registryAnnounceRetryCount = 3
+	registryAnnounceRetryDelay = 200 * time.Millisecond
+)
+
 type PeerLocator interface {
 	Announce(ctx context.Context, req registryauth.PresenceAnnounceRequest) error
 	LookupMemberPeer(ctx context.Context, req registryauth.MemberLookupRequest) (PeerPresenceRecord, bool, error)
@@ -70,21 +75,48 @@ func (l *httpPeerLocator) Announce(ctx context.Context, req registryauth.Presenc
 	if err != nil {
 		return fmt.Errorf("marshal registry announce: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, l.baseURL+"/v1/presence/announce", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build registry announce request: %w", err)
+	attempts := registryAnnounceRetryCount
+	if attempts <= 0 {
+		attempts = 1
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := l.client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("announce presence: %w", err)
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, l.baseURL+"/v1/presence/announce", bytes.NewReader(body))
+		if err != nil {
+			return fmt.Errorf("build registry announce request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		resp, err := l.client.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("announce presence: %w", err)
+		} else {
+			func() {
+				defer resp.Body.Close()
+				if resp.StatusCode/100 == 2 {
+					lastErr = nil
+					return
+				}
+				msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+				lastErr = fmt.Errorf("announce presence: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+			}()
+		}
+		if lastErr == nil {
+			return nil
+		}
+		if attempt == attempts || !shouldRetryRegistryAnnounce(lastErr) {
+			return lastErr
+		}
+		timer := time.NewTimer(registryAnnounceRetryDelay * time.Duration(attempt))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("announce presence: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
-	return nil
+	return lastErr
 }
 
 func (l *httpPeerLocator) LookupMemberPeer(ctx context.Context, req registryauth.MemberLookupRequest) (PeerPresenceRecord, bool, error) {
@@ -138,6 +170,30 @@ func (l *httpPeerLocator) lookup(ctx context.Context, path string, payload any) 
 		return PeerPresenceRecord{}, false, nil
 	}
 	return record, true, nil
+}
+
+func shouldRetryRegistryAnnounce(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	switch {
+	case strings.Contains(message, "database is locked"),
+		strings.Contains(message, "sqlite_busy"),
+		strings.Contains(message, "timeout"),
+		strings.Contains(message, "connection reset"),
+		strings.Contains(message, "connection refused"),
+		strings.Contains(message, "unexpected status 408"),
+		strings.Contains(message, "unexpected status 425"),
+		strings.Contains(message, "unexpected status 429"),
+		strings.Contains(message, "unexpected status 500"),
+		strings.Contains(message, "unexpected status 502"),
+		strings.Contains(message, "unexpected status 503"),
+		strings.Contains(message, "unexpected status 504"):
+		return true
+	default:
+		return false
+	}
 }
 
 func peerAddrsLocalSettingKey(libraryID, peerID string) string {

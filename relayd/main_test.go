@@ -362,6 +362,29 @@ func TestParseOptionsRejectsInvalidAdvertiseAddr(t *testing.T) {
 	}
 }
 
+func TestInitSchemaConfiguresSQLiteBusyTimeout(t *testing.T) {
+	t.Parallel()
+
+	db, err := sql.Open("sqlite", "file:"+t.Name()+"?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	configureSQLite(db)
+	defer db.Close()
+
+	if err := initSchema(db); err != nil {
+		t.Fatalf("init schema: %v", err)
+	}
+
+	var busyTimeoutMS int
+	if err := db.QueryRow(`PRAGMA busy_timeout;`).Scan(&busyTimeoutMS); err != nil {
+		t.Fatalf("query busy_timeout: %v", err)
+	}
+	if busyTimeoutMS != int(sqliteBusyTimeout/time.Millisecond) {
+		t.Fatalf("busy_timeout = %dms, want %dms", busyTimeoutMS, int(sqliteBusyTimeout/time.Millisecond))
+	}
+}
+
 func TestNewRelayHostUsesExplicitAdvertiseAddrs(t *testing.T) {
 	t.Parallel()
 
@@ -522,7 +545,7 @@ func openTestRelaydServer(t *testing.T) *relaydServer {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	db.SetMaxOpenConns(1)
+	configureSQLite(db)
 	t.Cleanup(func() {
 		_ = db.Close()
 	})

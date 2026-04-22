@@ -3,6 +3,7 @@ package desktopcore
 import (
 	"ben/registryauth"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -646,13 +647,25 @@ func (s *TransportService) runRuntimeCatchup(runtime *activeTransportRuntime, re
 	} else {
 		err = s.app.catchupAllPeers(runtime.ctx, local, reason, nil, false)
 	}
-	if err != nil && s.app.cfg.Logger != nil && runtime.ctx.Err() == nil {
+	if err != nil && runtime.ctx.Err() == nil {
 		s.finishRuntimeSync(runtime, err)
 		target := syncPeerLabel(peer)
-		if target == "" {
-			s.app.cfg.Logger.Errorf("desktopcore: background catch-up failed for %s: %v", local.LibraryID, err)
-		} else {
-			s.app.cfg.Logger.Errorf("desktopcore: background catch-up failed for %s via %s: %v", local.LibraryID, target, err)
+		var transient *transientCatchupError
+		if peer != nil && errors.As(err, &transient) {
+			s.scheduleRuntimeCatchupPeer(runtime, reason, peer, transient.retryAfter)
+			if s.app.cfg.Logger != nil {
+				if target == "" {
+					s.app.cfg.Logger.Printf("desktopcore: background catch-up deferred for %s; retrying in %s: %v", local.LibraryID, transient.retryAfter, err)
+				} else {
+					s.app.cfg.Logger.Printf("desktopcore: background catch-up deferred for %s via %s; retrying in %s: %v", local.LibraryID, target, transient.retryAfter, err)
+				}
+			}
+		} else if s.app.cfg.Logger != nil {
+			if target == "" {
+				s.app.cfg.Logger.Errorf("desktopcore: background catch-up failed for %s: %v", local.LibraryID, err)
+			} else {
+				s.app.cfg.Logger.Errorf("desktopcore: background catch-up failed for %s via %s: %v", local.LibraryID, target, err)
+			}
 		}
 	} else {
 		s.finishRuntimeSync(runtime, nil)
