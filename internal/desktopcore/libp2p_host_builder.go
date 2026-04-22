@@ -79,7 +79,6 @@ func (a *App) newSharedLibp2pHost(opts libp2pHostBuildOptions) (host.Host, error
 		libp2pOpts = append(
 			libp2pOpts,
 			libp2p.EnableAutoRelayWithStaticRelays(staticRelays),
-			libp2p.ForceReachabilityPrivate(),
 		)
 	}
 
