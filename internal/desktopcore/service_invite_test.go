@@ -471,6 +471,50 @@ func TestNewJoinAttemptSupersedesOlderApprovedSession(t *testing.T) {
 	}
 }
 
+func TestOpenInviteClientTransportReusesActiveSyncHost(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	library, err := app.CreateLibrary(ctx, "invite-reuse-host")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := app.syncActiveRuntimeServices(ctx); err != nil {
+		t.Fatalf("start runtime services: %v", err)
+	}
+	runtime := app.transportService.activeRuntimeForLibrary(library.LibraryID)
+	if runtime == nil || runtime.transport == nil {
+		t.Fatal("expected active transport runtime")
+	}
+	transport, ok := runtime.transport.(*libp2pSyncTransport)
+	if !ok || transport.host == nil {
+		t.Fatal("expected active libp2p transport host")
+	}
+
+	client, err := app.openInviteClientTransport("service-reuse-host", nil)
+	if err != nil {
+		t.Fatalf("open invite client transport: %v", err)
+	}
+	if !client.sharedHost {
+		t.Fatal("expected invite client transport to reuse the active sync host")
+	}
+	if client.host != transport.host {
+		t.Fatal("expected invite client transport to reuse the active sync host instance")
+	}
+
+	if err := client.Close(); err != nil {
+		t.Fatalf("close invite client transport: %v", err)
+	}
+	if runtime.ctx.Err() != nil {
+		t.Fatalf("expected active transport runtime to remain active, err=%v", runtime.ctx.Err())
+	}
+	if transport.host == nil || transport.host.ID() == "" {
+		t.Fatal("expected active sync host to remain open after invite client close")
+	}
+}
+
 func TestResolveInviteOwnerAddrsIgnoresRelayBootstrapAddrs(t *testing.T) {
 	t.Parallel()
 

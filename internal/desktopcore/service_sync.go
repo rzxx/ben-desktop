@@ -249,7 +249,7 @@ func (a *SyncService) catchupAllPeers(ctx context.Context, local apitypes.LocalC
 		return fmt.Errorf("peer transport is not configured")
 	}
 
-	peers, err := a.discoverCatchupPeers(ctx, local, transport)
+	peers, err := a.discoverCatchupPeers(ctx, local, transport, reason)
 	if err != nil {
 		return err
 	}
@@ -313,7 +313,7 @@ func (a *SyncService) catchupAllPeers(ctx context.Context, local apitypes.LocalC
 	return nil
 }
 
-func (a *SyncService) discoverCatchupPeers(ctx context.Context, local apitypes.LocalContext, transport SyncTransport) ([]SyncPeer, error) {
+func (a *SyncService) discoverCatchupPeers(ctx context.Context, local apitypes.LocalContext, transport SyncTransport, reason apitypes.NetworkSyncReason) ([]SyncPeer, error) {
 	if transport == nil {
 		return nil, fmt.Errorf("peer transport is not configured")
 	}
@@ -359,6 +359,9 @@ func (a *SyncService) discoverCatchupPeers(ctx context.Context, local apitypes.L
 		if hint.peerID == "" && hint.deviceID == "" {
 			continue
 		}
+		if !shouldAttemptCatchupHint(reason, hint.lastSeenAt) {
+			continue
+		}
 		if _, exists := seen[firstNonEmpty(hint.peerID, hint.deviceID)]; exists {
 			continue
 		}
@@ -381,19 +384,21 @@ func (a *SyncService) discoverCatchupPeers(ctx context.Context, local apitypes.L
 }
 
 type memberPeerHint struct {
-	deviceID string
-	peerID   string
+	deviceID   string
+	peerID     string
+	lastSeenAt *time.Time
 }
 
 func (a *SyncService) listMemberPeerHints(ctx context.Context, libraryID, localDeviceID string) ([]memberPeerHint, error) {
 	type row struct {
-		DeviceID string
-		PeerID   string
+		DeviceID   string
+		PeerID     string
+		LastSeenAt *time.Time
 	}
 	var rows []row
 	err := a.storage.WithContext(ctx).
 		Table("memberships AS m").
-		Select("m.device_id AS device_id, COALESCE(d.peer_id, '') AS peer_id").
+		Select("m.device_id AS device_id, COALESCE(d.peer_id, '') AS peer_id, d.last_seen_at AS last_seen_at").
 		Joins("LEFT JOIN devices d ON d.device_id = m.device_id").
 		Where("m.library_id = ? AND m.device_id <> ?", strings.TrimSpace(libraryID), strings.TrimSpace(localDeviceID)).
 		Order("m.device_id ASC").
@@ -404,11 +409,21 @@ func (a *SyncService) listMemberPeerHints(ctx context.Context, libraryID, localD
 	out := make([]memberPeerHint, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, memberPeerHint{
-			deviceID: strings.TrimSpace(row.DeviceID),
-			peerID:   strings.TrimSpace(row.PeerID),
+			deviceID:   strings.TrimSpace(row.DeviceID),
+			peerID:     strings.TrimSpace(row.PeerID),
+			lastSeenAt: cloneTimePtr(row.LastSeenAt),
 		})
 	}
 	return out, nil
+}
+
+func shouldAttemptCatchupHint(reason apitypes.NetworkSyncReason, lastSeenAt *time.Time) bool {
+	switch reason {
+	case apitypes.NetworkSyncReasonManual, apitypes.NetworkSyncReasonJoin:
+		return true
+	default:
+		return lastSeenAt != nil && lastSeenAt.UTC().After(time.Now().UTC().Add(-availabilityOnlineWindow))
+	}
 }
 
 func syncPeerJobMessage(index, total int, peer SyncPeer) string {
