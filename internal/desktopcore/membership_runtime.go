@@ -13,6 +13,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"golang.org/x/crypto/nacl/box"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"

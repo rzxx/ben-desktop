@@ -14,6 +14,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	crypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -339,7 +340,7 @@ func (p *libp2pSyncPeer) Sync(ctx context.Context, req SyncRequest) (SyncRespons
 	if err != nil {
 		return SyncResponse{}, err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if err := json.NewEncoder(stream).Encode(req); err != nil {
 		return SyncResponse{}, fmt.Errorf("write sync request: %w", err)
@@ -359,7 +360,7 @@ func (p *libp2pSyncPeer) NotifyLibraryChanged(ctx context.Context, req LibraryCh
 	if err != nil {
 		return LibraryChangedResponse{}, err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if err := json.NewEncoder(stream).Encode(req); err != nil {
 		return LibraryChangedResponse{}, fmt.Errorf("write library changed request: %w", err)
@@ -379,7 +380,7 @@ func (p *libp2pSyncPeer) FetchCheckpoint(ctx context.Context, req CheckpointFetc
 	if err != nil {
 		return CheckpointFetchResponse{}, err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	req.LibraryID = strings.TrimSpace(req.LibraryID)
 	req.CheckpointID = strings.TrimSpace(req.CheckpointID)
@@ -401,7 +402,7 @@ func (p *libp2pSyncPeer) FetchPlaybackAsset(ctx context.Context, req PlaybackAss
 	if err != nil {
 		return PlaybackAssetResponse{}, err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if err := json.NewEncoder(stream).Encode(req); err != nil {
 		return PlaybackAssetResponse{}, fmt.Errorf("write playback request: %w", err)
@@ -421,7 +422,7 @@ func (p *libp2pSyncPeer) FetchArtworkBlob(ctx context.Context, req ArtworkBlobRe
 	if err != nil {
 		return ArtworkBlobResponse{}, err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if err := json.NewEncoder(stream).Encode(req); err != nil {
 		return ArtworkBlobResponse{}, fmt.Errorf("write artwork request: %w", err)
@@ -441,7 +442,7 @@ func (p *libp2pSyncPeer) RefreshMembership(ctx context.Context, req MembershipRe
 	if err != nil {
 		return MembershipRefreshResponse{}, err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if err := json.NewEncoder(stream).Encode(req); err != nil {
 		return MembershipRefreshResponse{}, fmt.Errorf("write membership refresh request: %w", err)
@@ -539,7 +540,7 @@ func (p *libp2pSyncPeer) openStream(ctx context.Context, protocolID protocol.ID)
 }
 
 func (t *libp2pSyncTransport) handleSyncStream(stream network.Stream) {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
@@ -570,7 +571,7 @@ func (t *libp2pSyncTransport) handleSyncStream(stream network.Stream) {
 }
 
 func (t *libp2pSyncTransport) handleLibraryChangedStream(stream network.Stream) {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
@@ -597,7 +598,7 @@ func (t *libp2pSyncTransport) handleLibraryChangedStream(stream network.Stream) 
 }
 
 func (t *libp2pSyncTransport) handleCheckpointStream(stream network.Stream) {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
@@ -628,7 +629,7 @@ func (t *libp2pSyncTransport) handleCheckpointStream(stream network.Stream) {
 }
 
 func (t *libp2pSyncTransport) handlePlaybackStream(stream network.Stream) {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
@@ -659,7 +660,7 @@ func (t *libp2pSyncTransport) handlePlaybackStream(stream network.Stream) {
 }
 
 func (t *libp2pSyncTransport) handleArtworkStream(stream network.Stream) {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
@@ -690,7 +691,7 @@ func (t *libp2pSyncTransport) handleArtworkStream(stream network.Stream) {
 }
 
 func (t *libp2pSyncTransport) handleMembershipRefreshStream(stream network.Stream) {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
@@ -720,7 +721,7 @@ func (t *libp2pSyncTransport) handleMembershipRefreshStream(stream network.Strea
 }
 
 func (t *libp2pSyncTransport) handleInviteJoinStartStream(stream network.Stream) {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
@@ -743,7 +744,7 @@ func (t *libp2pSyncTransport) handleInviteJoinStartStream(stream network.Stream)
 }
 
 func (t *libp2pSyncTransport) handleInviteJoinStatusStream(stream network.Stream) {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
@@ -766,7 +767,7 @@ func (t *libp2pSyncTransport) handleInviteJoinStatusStream(stream network.Stream
 }
 
 func (t *libp2pSyncTransport) handleInviteJoinCancelStream(stream network.Stream) {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)

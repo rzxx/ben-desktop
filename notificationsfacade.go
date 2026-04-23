@@ -11,6 +11,7 @@ import (
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/playback"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -96,8 +97,8 @@ func (s *NotificationsFacade) ServiceStartup(ctx context.Context, _ application.
 	s.mu.Unlock()
 
 	stops := []func(){
-		s.host.App.SubscribeJobSnapshots(s.handleJobSnapshot),
-		s.host.App.SubscribeActivitySnapshots(s.handleActivitySnapshot),
+		s.host.SubscribeJobSnapshots(s.handleJobSnapshot),
+		s.host.SubscribeActivitySnapshots(s.handleActivitySnapshot),
 	}
 	if s.playback != nil {
 		stops = append(stops, s.playback.subscribeSnapshots(s.handlePlaybackSnapshot))
@@ -112,13 +113,13 @@ func (s *NotificationsFacade) ServiceStartup(ctx context.Context, _ application.
 	s.mu.Unlock()
 
 	if s.host.App != nil {
-		jobs, err := s.host.App.ListJobs(ctx, "")
+		jobs, err := s.host.ListJobs(ctx, "")
 		if err == nil {
 			for _, job := range jobs {
 				s.handleJobSnapshot(job)
 			}
 		}
-		s.handleActivitySnapshot(s.host.App.ActivityStatusSnapshot())
+		s.handleActivitySnapshot(s.host.ActivityStatusSnapshot())
 	}
 	if s.playback != nil {
 		if snapshot, err := s.playback.GetPlaybackSnapshot(); err == nil {

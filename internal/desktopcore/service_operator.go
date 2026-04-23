@@ -139,7 +139,6 @@ func (a *OperatorService) InspectLibraryOplog(ctx context.Context, libraryID str
 	if err == nil {
 		report.Maintenance, _ = a.loadScanMaintenanceStatus(ctx, libraryID, local.DeviceID)
 	}
-	err = nil
 
 	if report.OplogByEntityType, err = a.inspectOplogGroups(ctx, libraryID, "entity_type"); err != nil {
 		return apitypes.LibraryOplogDiagnostics{}, fmt.Errorf("group oplog by entity type: %w", err)
@@ -414,4 +413,3 @@ func groupCount(groups []apitypes.OplogDiagnosticsGroup, key string) int64 {
 	}
 	return 0
 }
-

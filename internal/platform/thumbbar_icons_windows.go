@@ -112,19 +112,19 @@ func destroyThumbbarIconSet(icons *thumbbarIconSet) {
 	}
 
 	if icons.previous != 0 {
-		win32.DestroyIcon(icons.previous)
+		_, _ = win32.DestroyIcon(icons.previous)
 		icons.previous = 0
 	}
 	if icons.play != 0 {
-		win32.DestroyIcon(icons.play)
+		_, _ = win32.DestroyIcon(icons.play)
 		icons.play = 0
 	}
 	if icons.pause != 0 {
-		win32.DestroyIcon(icons.pause)
+		_, _ = win32.DestroyIcon(icons.pause)
 		icons.pause = 0
 	}
 	if icons.next != 0 {
-		win32.DestroyIcon(icons.next)
+		_, _ = win32.DestroyIcon(icons.next)
 		icons.next = 0
 	}
 }

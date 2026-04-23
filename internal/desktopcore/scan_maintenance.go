@@ -6,6 +6,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -26,15 +27,15 @@ func (a *App) loadScanMaintenanceStatus(ctx context.Context, libraryID, deviceID
 	err := a.storage.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", libraryID, deviceID).
 		Take(&state).Error
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		return apitypes.ScanMaintenanceStatus{
 			RepairRequired: state.RepairRequired,
 			Reason:         strings.TrimSpace(state.Reason),
 			Detail:         strings.TrimSpace(state.Detail),
 			UpdatedAt:      state.UpdatedAt,
 		}, nil
-	case err == gorm.ErrRecordNotFound:
+	case gorm.ErrRecordNotFound:
 		return apitypes.ScanMaintenanceStatus{}, nil
 	default:
 		return apitypes.ScanMaintenanceStatus{}, err

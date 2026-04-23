@@ -16,21 +16,34 @@ import (
 )
 
 type memoryStore struct {
+	mu       sync.Mutex
 	snapshot SessionSnapshot
 }
 
 func (s *memoryStore) Load(context.Context) (SessionSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.snapshot, nil
 }
 
 func (s *memoryStore) Save(_ context.Context, snapshot SessionSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.snapshot = snapshot
 	return nil
 }
 
 func (s *memoryStore) Clear(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.snapshot = SessionSnapshot{}
 	return nil
+}
+
+func (s *memoryStore) Snapshot() SessionSnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.snapshot
 }
 
 type mockBridge struct {
@@ -276,6 +289,7 @@ func (b *mockBridge) nextPreparationStatus(recordingID string, advance bool) (ap
 }
 
 type testBackend struct {
+	mu              sync.Mutex
 	loadedURI       string
 	loadCalls       int
 	loadErr         error
@@ -428,6 +442,8 @@ func (b *blockingLoadBackend) Load(ctx context.Context, uri string) error {
 }
 
 func (b *testBackend) Load(_ context.Context, uri string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.loadedURI = uri
 	b.loadCalls++
 	b.position = 0
@@ -435,6 +451,8 @@ func (b *testBackend) Load(_ context.Context, uri string) error {
 }
 
 func (b *testBackend) ActivatePreloaded(_ context.Context, uri string) (BackendActivationRef, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.activateCalls++
 	if b.activateErr != nil {
 		return BackendActivationRef{}, b.activateErr
@@ -457,22 +475,30 @@ func (b *testBackend) ActivatePreloaded(_ context.Context, uri string) (BackendA
 func (b *testBackend) Play(context.Context) error  { return b.playErr }
 func (b *testBackend) Pause(context.Context) error { return nil }
 func (b *testBackend) Stop(context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.stopCalls++
 	b.position = 0
 	return nil
 }
 
 func (b *testBackend) SeekTo(_ context.Context, positionMS int64) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.position = positionMS
 	return nil
 }
 
 func (b *testBackend) SetVolume(_ context.Context, volume int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.volume = volume
 	return nil
 }
 
 func (b *testBackend) PositionMS() (int64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if len(b.positionReads) > 0 {
 		b.position = b.positionReads[0]
 		b.positionReads = b.positionReads[1:]
@@ -480,10 +506,23 @@ func (b *testBackend) PositionMS() (int64, error) {
 	return b.position, nil
 }
 
-func (b *testBackend) DurationMS() (*int64, error) { return cloneInt64Ptr(b.duration), nil }
+func (b *testBackend) DurationMS() (*int64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return cloneInt64Ptr(b.duration), nil
+}
+
 func (b *testBackend) Events() <-chan BackendEvent { return b.events }
-func (b *testBackend) SupportsPreload() bool       { return b.supportsPreload }
+
+func (b *testBackend) SupportsPreload() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.supportsPreload
+}
+
 func (b *testBackend) PreloadNext(_ context.Context, uri string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.preloadErr != nil {
 		b.preloadCalls++
 		return b.preloadErr
@@ -494,6 +533,8 @@ func (b *testBackend) PreloadNext(_ context.Context, uri string) error {
 }
 
 func (b *testBackend) ClearPreloaded(context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.preloadedURI = ""
 	return nil
 }
@@ -501,6 +542,79 @@ func (b *testBackend) ClearPreloaded(context.Context) error {
 func (b *testBackend) Close() error {
 	close(b.events)
 	return nil
+}
+
+func closeTestSession(t *testing.T, session *Session) {
+	t.Helper()
+	if err := session.Close(); err != nil {
+		t.Errorf("close session: %v", err)
+	}
+}
+
+func (b *testBackend) setDuration(duration *int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.duration = cloneInt64Ptr(duration)
+}
+
+func (b *testBackend) setPosition(position int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.position = position
+}
+
+func (b *testBackend) setPositionReads(reads []int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.positionReads = append([]int64(nil), reads...)
+}
+
+func (b *testBackend) setPreloadedURI(uri string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.preloadedURI = uri
+}
+
+func (b *testBackend) loaded() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.loadedURI
+}
+
+func (b *testBackend) preloaded() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.preloadedURI
+}
+
+func (b *testBackend) currentPosition() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.position
+}
+
+func (b *testBackend) loadCallCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.loadCalls
+}
+
+func (b *testBackend) activateCallCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.activateCalls
+}
+
+func (b *testBackend) preloadCallCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.preloadCalls
+}
+
+func (b *testBackend) stopCallCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.stopCalls
 }
 
 func paginateTestItems[T any](items []T, req apitypes.PageRequest) apitypes.Page[T] {
@@ -603,7 +717,7 @@ func TestSessionStartRestoresPausedState(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	snapshot := session.Snapshot()
 	if snapshot.Status != StatusPaused {
@@ -633,7 +747,7 @@ func TestSessionPlayLoadsResolvedURI(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -647,8 +761,8 @@ func TestSessionPlayLoadsResolvedURI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	if backend.loadedURI != "file:///tmp/test.mp3" {
-		t.Fatalf("expected loaded URI file:///tmp/test.mp3, got %q", backend.loadedURI)
+	if backend.loaded() != "file:///tmp/test.mp3" {
+		t.Fatalf("expected loaded URI file:///tmp/test.mp3, got %q", backend.loaded())
 	}
 	if snapshot.Status != StatusPlaying {
 		t.Fatalf("expected playing status, got %q", snapshot.Status)
@@ -660,7 +774,7 @@ func TestSessionPauseReturnsAndPublishesFinalAuthoritativePosition(t *testing.T)
 
 	duration := int64(120000)
 	backend := newTestBackend()
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {
@@ -677,7 +791,7 @@ func TestSessionPauseReturnsAndPublishesFinalAuthoritativePosition(t *testing.T)
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -690,7 +804,7 @@ func TestSessionPauseReturnsAndPublishesFinalAuthoritativePosition(t *testing.T)
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.position = 4321
+	backend.setPosition(4321)
 	snapshot, err := session.Pause(context.Background())
 	if err != nil {
 		t.Fatalf("pause: %v", err)
@@ -715,7 +829,7 @@ func TestSessionTogglePlaybackPausePublishesFinalAuthoritativePosition(t *testin
 
 	duration := int64(120000)
 	backend := newTestBackend()
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {
@@ -732,7 +846,7 @@ func TestSessionTogglePlaybackPausePublishesFinalAuthoritativePosition(t *testin
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -745,7 +859,7 @@ func TestSessionTogglePlaybackPausePublishesFinalAuthoritativePosition(t *testin
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.position = 2468
+	backend.setPosition(2468)
 	snapshot, err := session.TogglePlayback(context.Background())
 	if err != nil {
 		t.Fatalf("toggle playback: %v", err)
@@ -764,7 +878,7 @@ func TestSessionSeekToLoadedEntryPublishesFinalAuthoritativePosition(t *testing.
 
 	duration := int64(120000)
 	backend := newTestBackend()
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {
@@ -781,7 +895,7 @@ func TestSessionSeekToLoadedEntryPublishesFinalAuthoritativePosition(t *testing.
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -798,8 +912,8 @@ func TestSessionSeekToLoadedEntryPublishesFinalAuthoritativePosition(t *testing.
 	if err != nil {
 		t.Fatalf("seek: %v", err)
 	}
-	if backend.position != 5000 {
-		t.Fatalf("backend position = %d, want 5000", backend.position)
+	if backend.currentPosition() != 5000 {
+		t.Fatalf("backend position = %d, want 5000", backend.currentPosition())
 	}
 	if snapshot.PositionMS != 5000 {
 		t.Fatalf("snapshot position = %d, want 5000", snapshot.PositionMS)
@@ -818,8 +932,8 @@ func TestSessionSeekToLoadedEntryWaitsForAuthoritativeSeekReadback(t *testing.T)
 
 	duration := int64(120000)
 	backend := newTestBackend()
-	backend.duration = &duration
-	backend.position = 98000
+	backend.setDuration(&duration)
+	backend.setPosition(98000)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {
@@ -836,7 +950,7 @@ func TestSessionSeekToLoadedEntryWaitsForAuthoritativeSeekReadback(t *testing.T)
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -848,7 +962,7 @@ func TestSessionSeekToLoadedEntryWaitsForAuthoritativeSeekReadback(t *testing.T)
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	backend.positionReads = []int64{98000, 98000, 5000}
+	backend.setPositionReads([]int64{98000, 98000, 5000})
 
 	snapshot, err := session.SeekTo(context.Background(), 5000)
 	if err != nil {
@@ -868,8 +982,8 @@ func TestSessionSeekToLoadedEntryDoesNotInventAuthoritativeTargetOnTimeout(t *te
 
 	duration := int64(120000)
 	backend := newTestBackend()
-	backend.duration = &duration
-	backend.position = 98000
+	backend.setDuration(&duration)
+	backend.setPosition(98000)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {
@@ -882,7 +996,7 @@ func TestSessionSeekToLoadedEntryDoesNotInventAuthoritativeTargetOnTimeout(t *te
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -895,7 +1009,7 @@ func TestSessionSeekToLoadedEntryDoesNotInventAuthoritativeTargetOnTimeout(t *te
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.position = 98000
+	backend.setPosition(98000)
 	session.refreshPosition("test")
 	before := session.Snapshot()
 	if before.PositionMS != 98000 {
@@ -905,10 +1019,11 @@ func TestSessionSeekToLoadedEntryDoesNotInventAuthoritativeTargetOnTimeout(t *te
 		t.Fatalf("expected pre-seek capture timestamp, got %d", before.PositionCapturedAtMS)
 	}
 
-	backend.positionReads = make([]int64, 64)
-	for index := range backend.positionReads {
-		backend.positionReads[index] = 98000
+	positionReads := make([]int64, 64)
+	for index := range positionReads {
+		positionReads[index] = 98000
 	}
+	backend.setPositionReads(positionReads)
 
 	snapshot, err := session.SeekTo(context.Background(), 5000)
 	if err != nil {
@@ -965,7 +1080,7 @@ func TestSessionSeekToUnloadedEntryPreservesRequestedPositionOnFirstPlay(t *test
 		},
 	}
 	backend := newTestBackend()
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {
@@ -978,7 +1093,7 @@ func TestSessionSeekToUnloadedEntryPreservesRequestedPositionOnFirstPlay(t *test
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	seeked, err := session.SeekTo(context.Background(), 5000)
 	if err != nil {
@@ -995,8 +1110,8 @@ func TestSessionSeekToUnloadedEntryPreservesRequestedPositionOnFirstPlay(t *test
 	if err != nil {
 		t.Fatalf("play after seek: %v", err)
 	}
-	if backend.position != 5000 {
-		t.Fatalf("backend position = %d, want 5000", backend.position)
+	if backend.currentPosition() != 5000 {
+		t.Fatalf("backend position = %d, want 5000", backend.currentPosition())
 	}
 	if played.PositionMS != 5000 {
 		t.Fatalf("played position = %d, want 5000", played.PositionMS)
@@ -1045,7 +1160,7 @@ func TestSessionPlayRefreshesCaptureTimestampWhenKeepingZeroPosition(t *testing.
 		},
 	}
 	backend := newTestBackend()
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {
@@ -1058,7 +1173,7 @@ func TestSessionPlayRefreshesCaptureTimestampWhenKeepingZeroPosition(t *testing.
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	played, err := session.Play(context.Background())
 	if err != nil {
@@ -1081,7 +1196,7 @@ func TestSessionQueueOnlyChangesDoNotRewritePositionCaptureTimestamp(t *testing.
 
 	duration := int64(120000)
 	backend := newTestBackend()
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {
@@ -1094,7 +1209,7 @@ func TestSessionQueueOnlyChangesDoNotRewritePositionCaptureTimestamp(t *testing.
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -1107,7 +1222,7 @@ func TestSessionQueueOnlyChangesDoNotRewritePositionCaptureTimestamp(t *testing.
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.position = 3200
+	backend.setPosition(3200)
 	session.refreshPosition("test")
 	before := session.Snapshot().PositionCapturedAtMS
 	time.Sleep(2 * time.Millisecond)
@@ -1127,7 +1242,7 @@ func TestSessionRefreshPositionUpdatesAuthoritativeCaptureTimestamp(t *testing.T
 
 	duration := int64(120000)
 	backend := newTestBackend()
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {
@@ -1140,7 +1255,7 @@ func TestSessionRefreshPositionUpdatesAuthoritativeCaptureTimestamp(t *testing.T
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -1155,7 +1270,7 @@ func TestSessionRefreshPositionUpdatesAuthoritativeCaptureTimestamp(t *testing.T
 
 	before := session.Snapshot().PositionCapturedAtMS
 	time.Sleep(2 * time.Millisecond)
-	backend.position = 6400
+	backend.setPosition(6400)
 	session.refreshPosition("test")
 
 	snapshot := session.Snapshot()
@@ -1188,7 +1303,7 @@ func TestSessionSelectEntryIgnoresCurrentEntryWithoutResettingPosition(t *testin
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	snapshot, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -1209,13 +1324,13 @@ func TestSessionSelectEntryIgnoresCurrentEntryWithoutResettingPosition(t *testin
 		t.Fatalf("seek: %v", err)
 	}
 
-	loadCallsBefore := backend.loadCalls
+	loadCallsBefore := backend.loadCallCount()
 	selected, err := session.SelectEntry(context.Background(), snapshot.CurrentEntry.EntryID)
 	if err != nil {
 		t.Fatalf("select current entry: %v", err)
 	}
-	if backend.loadCalls != loadCallsBefore {
-		t.Fatalf("expected current entry selection not to reload backend, load calls = %d want %d", backend.loadCalls, loadCallsBefore)
+	if backend.loadCallCount() != loadCallsBefore {
+		t.Fatalf("expected current entry selection not to reload backend, load calls = %d want %d", backend.loadCallCount(), loadCallsBefore)
 	}
 	if selected.PositionMS != 12000 {
 		t.Fatalf("expected current entry selection to preserve position, got %d", selected.PositionMS)
@@ -1251,7 +1366,7 @@ func TestSessionConcurrentSelectEntryAppliesLatestSelection(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	snapshot, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -1301,8 +1416,8 @@ func TestSessionConcurrentSelectEntryAppliesLatestSelection(t *testing.T) {
 	if final.CurrentEntry == nil || final.CurrentEntry.Item.RecordingID != "rec-3" {
 		t.Fatalf("expected latest selected entry rec-3 to win, got %+v", final.CurrentEntry)
 	}
-	if backend.loadedURI != "file:///tmp/test-3.mp3" {
-		t.Fatalf("expected backend to finish on rec-3 URI, got %q", backend.loadedURI)
+	if backend.loaded() != "file:///tmp/test-3.mp3" {
+		t.Fatalf("expected backend to finish on rec-3 URI, got %q", backend.loaded())
 	}
 }
 
@@ -1311,7 +1426,7 @@ func TestSessionClosePersistsFinalPosition(t *testing.T) {
 
 	duration := int64(120000)
 	backend := newTestBackend()
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	store := &memoryStore{}
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
@@ -1337,17 +1452,17 @@ func TestSessionClosePersistsFinalPosition(t *testing.T) {
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.position = 4321
+	backend.setPosition(4321)
 
 	if err := session.Close(); err != nil {
 		t.Fatalf("close session: %v", err)
 	}
 
-	if store.snapshot.PositionMS != 4321 {
-		t.Fatalf("expected persisted position 4321, got %d", store.snapshot.PositionMS)
+	if store.Snapshot().PositionMS != 4321 {
+		t.Fatalf("expected persisted position 4321, got %d", store.Snapshot().PositionMS)
 	}
-	if store.snapshot.Status != StatusPaused {
-		t.Fatalf("expected persisted status paused, got %q", store.snapshot.Status)
+	if store.Snapshot().Status != StatusPaused {
+		t.Fatalf("expected persisted status paused, got %q", store.Snapshot().Status)
 	}
 }
 
@@ -1382,21 +1497,21 @@ func TestSessionClosePersistsSourceBackedQueueWithoutWindowAndRestoresAbsoluteIn
 		t.Fatalf("close session: %v", err)
 	}
 
-	if store.snapshot.ContextQueue == nil {
+	if store.Snapshot().ContextQueue == nil {
 		t.Fatalf("expected persisted source-backed context queue")
 	}
-	if len(store.snapshot.ContextQueue.Entries) != 0 {
-		t.Fatalf("expected persisted source-backed window to be stripped, got %d entries", len(store.snapshot.ContextQueue.Entries))
+	if len(store.Snapshot().ContextQueue.Entries) != 0 {
+		t.Fatalf("expected persisted source-backed window to be stripped, got %d entries", len(store.Snapshot().ContextQueue.Entries))
 	}
-	if store.snapshot.ContextQueue.CurrentIndex != 150 || store.snapshot.ContextQueue.ResumeIndex != 150 {
-		t.Fatalf("expected persisted absolute indexes to survive, got current=%d resume=%d", store.snapshot.ContextQueue.CurrentIndex, store.snapshot.ContextQueue.ResumeIndex)
+	if store.Snapshot().ContextQueue.CurrentIndex != 150 || store.Snapshot().ContextQueue.ResumeIndex != 150 {
+		t.Fatalf("expected persisted absolute indexes to survive, got current=%d resume=%d", store.Snapshot().ContextQueue.CurrentIndex, store.Snapshot().ContextQueue.ResumeIndex)
 	}
 
 	restored := NewSession(bridge, newTestBackend(), store, "desktop", nil)
 	if err := restored.Start(context.Background()); err != nil {
 		t.Fatalf("start restored session: %v", err)
 	}
-	defer restored.Close()
+	defer func() { _ = restored.Close() }()
 
 	snapshot := restored.Snapshot()
 	if snapshot.ContextQueue == nil {
@@ -1430,7 +1545,7 @@ func TestSessionSetSourceEnumeratesPagedLikedSource(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	snapshot, err := session.SetSource(context.Background(), NewCatalogLoader(bridge).BuildLikedTrackSource("cluster-1103"), false)
 	if err != nil {
@@ -1484,7 +1599,7 @@ func TestSessionNextScansPastSparseUnavailableSourceBackedTracksOutsideWindow(t 
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	initial, err := session.ReplaceSourceAndPlay(context.Background(), NewCatalogLoader(bridge).BuildTracksTrackSource(currentID), false)
 	if err != nil {
@@ -1542,7 +1657,7 @@ func TestSessionNextScansPastSparseUnavailableShuffledTracks(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.ReplaceSourceAndPlay(context.Background(), NewCatalogLoader(bridge).BuildTracksTrackSource(currentID), false); err != nil {
 		t.Fatalf("replace source and play: %v", err)
@@ -1614,19 +1729,19 @@ func TestSessionPreloadScansPastSparseUnavailableSourceBackedTracks(t *testing.T
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.ReplaceSourceAndPlay(context.Background(), NewCatalogLoader(bridge).BuildTracksTrackSource(currentID), false); err != nil {
 		t.Fatalf("replace source and play: %v", err)
 	}
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 
-	if backend.preloadedURI != bridge.results[targetID].PlayableURI {
-		t.Fatalf("expected preload target %q, got %q", bridge.results[targetID].PlayableURI, backend.preloadedURI)
+	if backend.preloaded() != bridge.results[targetID].PlayableURI {
+		t.Fatalf("expected preload target %q, got %q", bridge.results[targetID].PlayableURI, backend.preloaded())
 	}
 	if bridge.prepareCalls[targetID] != 1 {
 		t.Fatalf("expected target %s to be prepared once, got %d", targetID, bridge.prepareCalls[targetID])
@@ -1666,7 +1781,7 @@ func TestSessionNextStopsAfterAllRemainingSparseTracksAreUnavailable(t *testing.
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.ReplaceSourceAndPlay(context.Background(), NewCatalogLoader(bridge).BuildTracksTrackSource(currentID), false); err != nil {
 		t.Fatalf("replace source and play: %v", err)
@@ -1702,7 +1817,7 @@ func TestQueueEntriesPlayBeforeRemainingContext(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindAlbum,
@@ -1749,7 +1864,7 @@ func TestSessionQueuedPlaybackResumesRemainingContext(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindAlbum,
@@ -1823,7 +1938,7 @@ func TestSessionPreviousFromUserQueueReturnsToContextAndKeepsRemovedUserTrackGon
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindAlbum,
@@ -1890,7 +2005,7 @@ func TestSessionSelectingQueuedEntryKeepsContextResume(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindAlbum,
@@ -1958,7 +2073,7 @@ func TestSessionShuffleWhileQueuedResumesUsingNewShuffleOrder(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindAlbum,
@@ -2018,7 +2133,7 @@ func TestSessionSetContextPreservesStartIndexBeforeFirstPlay(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:       ContextKindCustom,
@@ -2058,7 +2173,7 @@ func TestSessionReplaceContextAndPlayResetsPreviousToNewContext(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:       ContextKindAlbum,
@@ -2123,7 +2238,7 @@ func TestSessionPendingContextReplacementDoesNotLeakOldContextIntoHistory(t *tes
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:       ContextKindAlbum,
@@ -2197,7 +2312,7 @@ func TestSessionPreviousFallsBackToPreviousShuffledContextEntry(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -2254,7 +2369,7 @@ func TestSessionPreviousDoesNotStepBeforeShuffleAnchor(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:       ContextKindCustom,
@@ -2327,7 +2442,7 @@ func TestSessionPreviousScansPastSparseUnavailableWrappedSourceBackedTracks(t *t
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	initial, err := session.ReplaceSourceAndPlay(context.Background(), NewCatalogLoader(bridge).BuildTracksTrackSource(currentID), false)
 	if err != nil {
@@ -2380,7 +2495,7 @@ func TestSessionSetShuffleClearsAndRebuildsPreloadWithoutChangingCurrent(t *test
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -2398,12 +2513,12 @@ func TestSessionSetShuffleClearsAndRebuildsPreloadWithoutChangingCurrent(t *test
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected linear preload for rec-2, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected linear preload for rec-2, got %q", backend.preloaded())
 	}
 
 	currentRecording := session.Snapshot().CurrentEntry.Item.RecordingID
@@ -2414,8 +2529,8 @@ func TestSessionSetShuffleClearsAndRebuildsPreloadWithoutChangingCurrent(t *test
 	if shuffled.CurrentEntry == nil || shuffled.CurrentEntry.Item.RecordingID != currentRecording {
 		t.Fatalf("expected current track to stay fixed on shuffle toggle, got %+v", shuffled.CurrentEntry)
 	}
-	if backend.preloadedURI != "" {
-		t.Fatalf("expected stale preload cleared on shuffle toggle, got %q", backend.preloadedURI)
+	if backend.preloaded() != "" {
+		t.Fatalf("expected stale preload cleared on shuffle toggle, got %q", backend.preloaded())
 	}
 
 	shuffledUpcoming := buildUpcomingEntries(shuffled)
@@ -2424,8 +2539,8 @@ func TestSessionSetShuffleClearsAndRebuildsPreloadWithoutChangingCurrent(t *test
 	}
 	session.preloadNext(context.Background())
 	expectedShuffled := bridge.results[shuffledUpcoming[0].Item.RecordingID].PlayableURI
-	if backend.preloadedURI != expectedShuffled {
-		t.Fatalf("expected shuffled preload %q, got %q", expectedShuffled, backend.preloadedURI)
+	if backend.preloaded() != expectedShuffled {
+		t.Fatalf("expected shuffled preload %q, got %q", expectedShuffled, backend.preloaded())
 	}
 
 	unshuffled, err := session.SetShuffle(false)
@@ -2435,13 +2550,13 @@ func TestSessionSetShuffleClearsAndRebuildsPreloadWithoutChangingCurrent(t *test
 	if unshuffled.CurrentEntry == nil || unshuffled.CurrentEntry.Item.RecordingID != currentRecording {
 		t.Fatalf("expected current track to stay fixed after disabling shuffle, got %+v", unshuffled.CurrentEntry)
 	}
-	if backend.preloadedURI != "" {
-		t.Fatalf("expected shuffle-off to clear stale preload, got %q", backend.preloadedURI)
+	if backend.preloaded() != "" {
+		t.Fatalf("expected shuffle-off to clear stale preload, got %q", backend.preloaded())
 	}
 
 	session.preloadNext(context.Background())
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected linear preload after disabling shuffle, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected linear preload after disabling shuffle, got %q", backend.preloaded())
 	}
 }
 
@@ -2468,7 +2583,7 @@ func TestSessionSetShuffleReenableGeneratesNewOrder(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:       ContextKindCustom,
@@ -2540,7 +2655,7 @@ func TestSessionSetContextRebuildsShuffleBagWhenShuffleEnabled(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -2581,11 +2696,11 @@ func TestSessionSetContextRebuildsShuffleBagWhenShuffleEnabled(t *testing.T) {
 	if snapshot.ContextQueue.ShuffleBag[0] != 1 {
 		t.Fatalf("expected rebuilt shuffle bag anchored at start index 1, got %v", snapshot.ContextQueue.ShuffleBag)
 	}
-	if store.snapshot.ContextQueue == nil {
+	if store.Snapshot().ContextQueue == nil {
 		t.Fatalf("expected persisted context queue")
 	}
-	if len(store.snapshot.ContextQueue.ShuffleBag) != len(snapshot.ContextQueue.Entries) {
-		t.Fatalf("expected persisted shuffle bag %v, got %v", snapshot.ContextQueue.ShuffleBag, store.snapshot.ContextQueue.ShuffleBag)
+	if len(store.Snapshot().ContextQueue.ShuffleBag) != len(snapshot.ContextQueue.Entries) {
+		t.Fatalf("expected persisted shuffle bag %v, got %v", snapshot.ContextQueue.ShuffleBag, store.Snapshot().ContextQueue.ShuffleBag)
 	}
 }
 
@@ -2623,14 +2738,14 @@ func TestSessionDisabledShufflePersistenceClearsOrderAndRegeneratesOnEnable(t *t
 		t.Fatalf("close session: %v", err)
 	}
 
-	if store.snapshot.ContextQueue == nil {
+	if store.Snapshot().ContextQueue == nil {
 		t.Fatalf("expected persisted context queue")
 	}
-	if store.snapshot.ContextQueue.ShuffleSeed != 0 {
-		t.Fatalf("expected persisted disabled shuffle seed cleared, got %d", store.snapshot.ContextQueue.ShuffleSeed)
+	if store.Snapshot().ContextQueue.ShuffleSeed != 0 {
+		t.Fatalf("expected persisted disabled shuffle seed cleared, got %d", store.Snapshot().ContextQueue.ShuffleSeed)
 	}
-	if len(store.snapshot.ContextQueue.ShuffleBag) != 0 {
-		t.Fatalf("expected persisted disabled shuffle bag cleared, got %v", store.snapshot.ContextQueue.ShuffleBag)
+	if len(store.Snapshot().ContextQueue.ShuffleBag) != 0 {
+		t.Fatalf("expected persisted disabled shuffle bag cleared, got %v", store.Snapshot().ContextQueue.ShuffleBag)
 	}
 
 	restored := NewSession(&mockBridge{}, newTestBackend(), store, "desktop", nil)
@@ -2638,7 +2753,7 @@ func TestSessionDisabledShufflePersistenceClearsOrderAndRegeneratesOnEnable(t *t
 	if err := restored.Start(context.Background()); err != nil {
 		t.Fatalf("start restored session: %v", err)
 	}
-	defer restored.Close()
+	defer func() { _ = restored.Close() }()
 
 	reenabled, err := restored.SetShuffle(true)
 	if err != nil {
@@ -2670,7 +2785,7 @@ func TestSessionSetRepeatModeClearsStalePreload(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -2686,12 +2801,12 @@ func TestSessionSetRepeatModeClearsStalePreload(t *testing.T) {
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloaded())
 	}
 
 	snapshot, err := session.SetRepeatMode(string(RepeatOne))
@@ -2701,8 +2816,8 @@ func TestSessionSetRepeatModeClearsStalePreload(t *testing.T) {
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-1" {
 		t.Fatalf("expected current track to remain rec-1, got %+v", snapshot.CurrentEntry)
 	}
-	if backend.preloadedURI != "" {
-		t.Fatalf("expected stale preload cleared on repeat change, got %q", backend.preloadedURI)
+	if backend.preloaded() != "" {
+		t.Fatalf("expected stale preload cleared on repeat change, got %q", backend.preloaded())
 	}
 	if snapshot.NextPreparation != nil {
 		t.Fatalf("expected repeat change to invalidate next preparation, got %+v", snapshot.NextPreparation)
@@ -2715,7 +2830,7 @@ func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
 	backend := newTestBackend()
 	backend.supportsPreload = true
 	duration := int64(120000)
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
@@ -2725,7 +2840,7 @@ func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -2740,16 +2855,16 @@ func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	if backend.preloadedURI != "" {
-		t.Fatalf("expected no preload transport before the gapless window, got %q", backend.preloadedURI)
+	if backend.preloaded() != "" {
+		t.Fatalf("expected no preload transport before the gapless window, got %q", backend.preloaded())
 	}
-	backend.position = 60000
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected preloaded URI file:///tmp/two.mp3, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected preloaded URI file:///tmp/two.mp3, got %q", backend.preloaded())
 	}
-	backend.position = duration - 1000
+	backend.setPosition(duration - 1000)
 	session.refreshPosition("natural_eof")
 
 	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
@@ -2772,7 +2887,7 @@ func TestSessionNextUsesEventDrivenPreloadedActivation(t *testing.T) {
 	backend := newTestBackend()
 	backend.supportsPreload = true
 	duration := int64(120000)
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	bridge := &mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
@@ -2784,7 +2899,7 @@ func TestSessionNextUsesEventDrivenPreloadedActivation(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -2800,31 +2915,31 @@ func TestSessionNextUsesEventDrivenPreloadedActivation(t *testing.T) {
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	if backend.preloadedURI != "" {
-		t.Fatalf("expected no preload transport before the gapless window, got %q", backend.preloadedURI)
+	if backend.preloaded() != "" {
+		t.Fatalf("expected no preload transport before the gapless window, got %q", backend.preloaded())
 	}
 	if bridge.prepareCalls["rec-2"] != 1 {
 		t.Fatalf("expected one prepare call for rec-2 preload, got %d", bridge.prepareCalls["rec-2"])
 	}
-	backend.position = 60000
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected rec-2 preloaded in the gapless window, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected rec-2 preloaded in the gapless window, got %q", backend.preloaded())
 	}
 
-	loadCallsBeforeNext := backend.loadCalls
+	loadCallsBeforeNext := backend.loadCallCount()
 	prepareCallsBeforeNext := bridge.prepareCalls["rec-2"]
 	snapshot, err := session.Next(context.Background())
 	if err != nil {
 		t.Fatalf("next: %v", err)
 	}
 
-	if backend.activateCalls != 1 {
-		t.Fatalf("expected one preloaded activation, got %d", backend.activateCalls)
+	if backend.activateCallCount() != 1 {
+		t.Fatalf("expected one preloaded activation, got %d", backend.activateCallCount())
 	}
-	if backend.loadCalls != loadCallsBeforeNext {
-		t.Fatalf("expected no backend reload on preloaded next, got %d -> %d", loadCallsBeforeNext, backend.loadCalls)
+	if backend.loadCallCount() != loadCallsBeforeNext {
+		t.Fatalf("expected no backend reload on preloaded next, got %d -> %d", loadCallsBeforeNext, backend.loadCallCount())
 	}
 	if bridge.prepareCalls["rec-2"] != prepareCallsBeforeNext {
 		t.Fatalf("expected no extra prepare call for rec-2 activation, got %d -> %d", prepareCallsBeforeNext, bridge.prepareCalls["rec-2"])
@@ -2852,8 +2967,8 @@ func TestSessionNextUsesEventDrivenPreloadedActivation(t *testing.T) {
 		if current.CurrentEntry != nil &&
 			current.CurrentEntry.Item.RecordingID == "rec-2" &&
 			current.LoadingEntry == nil {
-			if backend.preloadedURI != "" {
-				t.Fatalf("expected no immediate preload transport for rec-3 right after activation, got %q", backend.preloadedURI)
+			if backend.preloaded() != "" {
+				t.Fatalf("expected no immediate preload transport for rec-3 right after activation, got %q", backend.preloaded())
 			}
 			return
 		}
@@ -2869,7 +2984,7 @@ func TestSessionNextCompletesPreloadedActivationDespiteFileLoadedWarning(t *test
 	backend := newTestBackend()
 	backend.supportsPreload = true
 	duration := int64(120000)
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
@@ -2879,7 +2994,7 @@ func TestSessionNextCompletesPreloadedActivationDespiteFileLoadedWarning(t *test
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -2894,7 +3009,7 @@ func TestSessionNextCompletesPreloadedActivationDespiteFileLoadedWarning(t *test
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	backend.position = 60000
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 
@@ -2932,7 +3047,7 @@ func TestSessionNextFallsBackToRegularLoadWhenPreloadedActivationFails(t *testin
 	backend.supportsPreload = true
 	backend.activateErr = errors.New("unknown error")
 	duration := int64(120000)
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	bridge := &mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
@@ -2944,7 +3059,7 @@ func TestSessionNextFallsBackToRegularLoadWhenPreloadedActivationFails(t *testin
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -2960,22 +3075,22 @@ func TestSessionNextFallsBackToRegularLoadWhenPreloadedActivationFails(t *testin
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	backend.position = 60000
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 
-	loadCallsBeforeNext := backend.loadCalls
+	loadCallsBeforeNext := backend.loadCallCount()
 	prepareCallsBeforeNext := bridge.prepareCalls["rec-2"]
 	snapshot, err := session.Next(context.Background())
 	if err != nil {
 		t.Fatalf("next should fall back instead of failing: %v", err)
 	}
 
-	if backend.activateCalls != 1 {
-		t.Fatalf("expected one failed activation attempt before fallback, got %d", backend.activateCalls)
+	if backend.activateCallCount() != 1 {
+		t.Fatalf("expected one failed activation attempt before fallback, got %d", backend.activateCallCount())
 	}
-	if backend.loadCalls != loadCallsBeforeNext+1 {
-		t.Fatalf("expected fallback load after activation failure, got %d -> %d", loadCallsBeforeNext, backend.loadCalls)
+	if backend.loadCallCount() != loadCallsBeforeNext+1 {
+		t.Fatalf("expected fallback load after activation failure, got %d -> %d", loadCallsBeforeNext, backend.loadCallCount())
 	}
 	if bridge.prepareCalls["rec-2"] != prepareCallsBeforeNext+1 {
 		t.Fatalf("expected one extra prepare call for fallback load, got %d -> %d", prepareCallsBeforeNext, bridge.prepareCalls["rec-2"])
@@ -2991,7 +3106,7 @@ func TestSessionNextSupersedesPendingActivationFromPendingTarget(t *testing.T) {
 	backend := newTestBackend()
 	backend.supportsPreload = true
 	duration := int64(120000)
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
@@ -3002,7 +3117,7 @@ func TestSessionNextSupersedesPendingActivationFromPendingTarget(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3018,7 +3133,7 @@ func TestSessionNextSupersedesPendingActivationFromPendingTarget(t *testing.T) {
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	backend.position = 60000
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 
@@ -3030,8 +3145,8 @@ func TestSessionNextSupersedesPendingActivationFromPendingTarget(t *testing.T) {
 		t.Fatalf("second next: %v", err)
 	}
 
-	if backend.activateCalls != 1 {
-		t.Fatalf("expected second next to supersede pending target without reactivating the same preload, got %d", backend.activateCalls)
+	if backend.activateCallCount() != 1 {
+		t.Fatalf("expected second next to supersede pending target without reactivating the same preload, got %d", backend.activateCallCount())
 	}
 	if state.CurrentEntry == nil || state.CurrentEntry.Item.RecordingID != "rec-3" {
 		t.Fatalf("expected second next to advance to rec-3, got %+v", state.CurrentEntry)
@@ -3047,7 +3162,7 @@ func TestSessionLateSameURIActivationEventDoesNotCompleteSupersededPendingTransp
 	duration := int64(120000)
 	backend := newTestBackend()
 	backend.supportsPreload = true
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	sharedURI := "file:///tmp/shared.mp3"
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
@@ -3059,7 +3174,7 @@ func TestSessionLateSameURIActivationEventDoesNotCompleteSupersededPendingTransp
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3093,7 +3208,7 @@ func TestSessionLateSameURIActivationEventDoesNotCompleteSupersededPendingTransp
 		Phase:       apitypes.PlaybackPreparationReady,
 	}
 
-	backend.preloadedURI = sharedURI
+	backend.setPreloadedURI(sharedURI)
 	if _, activated, err := session.activatePreloadedEntry(context.Background(), backend, entryA, EntryOriginContext, -1, previous, sharedURI, statusA); err != nil || !activated {
 		t.Fatalf("activate first duplicate: activated=%v err=%v", activated, err)
 	}
@@ -3101,7 +3216,7 @@ func TestSessionLateSameURIActivationEventDoesNotCompleteSupersededPendingTransp
 	firstActivation := session.transportPending.activation
 	session.mu.Unlock()
 
-	backend.preloadedURI = sharedURI
+	backend.setPreloadedURI(sharedURI)
 	if _, activated, err := session.activatePreloadedEntry(context.Background(), backend, entryB, EntryOriginContext, -1, previous, sharedURI, statusB); err != nil || !activated {
 		t.Fatalf("activate second duplicate: activated=%v err=%v", activated, err)
 	}
@@ -3150,7 +3265,7 @@ func TestSessionStaleFileLoadedEventDoesNotApplyAfterFutureOrderInvalidation(t *
 	backend := newTestBackend()
 	backend.supportsPreload = true
 	duration := int64(120000)
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
@@ -3160,7 +3275,7 @@ func TestSessionStaleFileLoadedEventDoesNotApplyAfterFutureOrderInvalidation(t *
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3175,7 +3290,7 @@ func TestSessionStaleFileLoadedEventDoesNotApplyAfterFutureOrderInvalidation(t *
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	backend.position = 60000
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 	if _, err := session.Next(context.Background()); err != nil {
@@ -3204,7 +3319,7 @@ func TestSessionNextRetriesDirectLoadWhenPreloadedActivationDoesNotComplete(t *t
 	backend := newTestBackend()
 	backend.supportsPreload = true
 	duration := int64(120000)
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
@@ -3214,7 +3329,7 @@ func TestSessionNextRetriesDirectLoadWhenPreloadedActivationDoesNotComplete(t *t
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3229,7 +3344,7 @@ func TestSessionNextRetriesDirectLoadWhenPreloadedActivationDoesNotComplete(t *t
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	backend.position = 60000
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 
@@ -3243,13 +3358,13 @@ func TestSessionNextRetriesDirectLoadWhenPreloadedActivationDoesNotComplete(t *t
 		if snapshot.CurrentEntry != nil &&
 			snapshot.CurrentEntry.Item.RecordingID == "rec-2" &&
 			snapshot.LoadingEntry == nil &&
-			backend.loadCalls >= 2 {
+			backend.loadCallCount() >= 2 {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	t.Fatalf("expected transport retry to recover direct load, got snapshot=%+v loadCalls=%d activateCalls=%d", session.Snapshot(), backend.loadCalls, backend.activateCalls)
+	t.Fatalf("expected transport retry to recover direct load, got snapshot=%+v loadCalls=%d activateCalls=%d", session.Snapshot(), backend.loadCallCount(), backend.activateCallCount())
 }
 
 func TestSessionPlaySkipsLeadingUnavailableContextEntries(t *testing.T) {
@@ -3283,7 +3398,7 @@ func TestSessionPlaySkipsLeadingUnavailableContextEntries(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3324,7 +3439,7 @@ func TestSessionQueueMutationClearsStalePreload(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3339,19 +3454,19 @@ func TestSessionQueueMutationClearsStalePreload(t *testing.T) {
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloaded())
 	}
 
 	if _, err := session.QueueItems([]SessionItem{{RecordingID: "rec-3", Title: "Three", DurationMS: duration}}, QueueInsertNext); err != nil {
 		t.Fatalf("queue items: %v", err)
 	}
-	if backend.preloadedURI != "" {
-		t.Fatalf("expected stale preload cleared after queue mutation, got %q", backend.preloadedURI)
+	if backend.preloaded() != "" {
+		t.Fatalf("expected stale preload cleared after queue mutation, got %q", backend.preloaded())
 	}
 }
 
@@ -3370,7 +3485,7 @@ func TestSessionClearQueueClearsStalePreload(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3385,19 +3500,19 @@ func TestSessionClearQueueClearsStalePreload(t *testing.T) {
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloaded())
 	}
 
 	if _, err := session.ClearQueue(); err != nil {
 		t.Fatalf("clear queue: %v", err)
 	}
-	if backend.preloadedURI != "" {
-		t.Fatalf("expected clear queue to remove stale preload, got %q", backend.preloadedURI)
+	if backend.preloaded() != "" {
+		t.Fatalf("expected clear queue to remove stale preload, got %q", backend.preloaded())
 	}
 }
 
@@ -3416,7 +3531,7 @@ func TestSessionClearQueueClearsStalePreloadWhenSessionCacheIsLost(t *testing.T)
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3431,12 +3546,12 @@ func TestSessionClearQueueClearsStalePreloadWhenSessionCacheIsLost(t *testing.T)
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloaded())
 	}
 
 	session.mu.Lock()
@@ -3449,8 +3564,8 @@ func TestSessionClearQueueClearsStalePreloadWhenSessionCacheIsLost(t *testing.T)
 	if _, err := session.ClearQueue(); err != nil {
 		t.Fatalf("clear queue: %v", err)
 	}
-	if backend.preloadedURI != "" {
-		t.Fatalf("expected clear queue to flush backend preload after session cache loss, got %q", backend.preloadedURI)
+	if backend.preloaded() != "" {
+		t.Fatalf("expected clear queue to flush backend preload after session cache loss, got %q", backend.preloaded())
 	}
 }
 
@@ -3480,7 +3595,7 @@ func TestSessionNextSkipsUnavailableQueuedEntriesAndRemovesPlayedSkips(t *testin
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3535,7 +3650,7 @@ func TestSessionNextKeepsUnavailableUserQueueWhenNoQueuedFallbackExists(t *testi
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3585,7 +3700,7 @@ func TestSessionEOFToPendingQueuedEntryClearsCurrentAndStopsBackend(t *testing.T
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -3613,7 +3728,7 @@ func TestSessionEOFToPendingQueuedEntryClearsCurrentAndStopsBackend(t *testing.T
 			if snapshot.CurrentEntry != nil {
 				t.Fatalf("expected eof-to-pending to clear current entry, got %+v", snapshot.CurrentEntry)
 			}
-			if backend.stopCalls == 0 {
+			if backend.stopCallCount() == 0 {
 				t.Fatalf("expected backend stop when eof hits a pending next entry")
 			}
 			return
@@ -3646,7 +3761,7 @@ func TestSessionEOFPendingNextStopsStalePreloadedPlayback(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3661,19 +3776,19 @@ func TestSessionEOFPendingNextStopsStalePreloadedPlayback(t *testing.T) {
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloaded())
 	}
 
 	if _, err := session.QueueItems([]SessionItem{{RecordingID: "rec-3", Title: "Three"}}, QueueInsertNext); err != nil {
 		t.Fatalf("queue items: %v", err)
 	}
-	backend.preloadedURI = "file:///tmp/two.mp3"
-	backend.position = duration - 1000
+	backend.setPreloadedURI("file:///tmp/two.mp3")
+	backend.setPosition(duration - 1000)
 	session.refreshPosition("natural_eof_pending_next")
 
 	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
@@ -3685,7 +3800,7 @@ func TestSessionEOFPendingNextStopsStalePreloadedPlayback(t *testing.T) {
 			if snapshot.LoadingEntry.Item.RecordingID != "rec-3" {
 				t.Fatalf("expected queued pending entry rec-3, got %+v", snapshot.LoadingEntry)
 			}
-			if backend.stopCalls == 0 {
+			if backend.stopCallCount() == 0 {
 				t.Fatalf("expected backend stop to cut off stale preloaded playback")
 			}
 			return
@@ -3727,7 +3842,7 @@ func TestSessionPreloadNextBacksOffUnavailablePreparation(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3743,8 +3858,8 @@ func TestSessionPreloadNextBacksOffUnavailablePreparation(t *testing.T) {
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 
 	session.preloadNext(context.Background())
@@ -3757,8 +3872,8 @@ func TestSessionPreloadNextBacksOffUnavailablePreparation(t *testing.T) {
 	if bridge.prepareCalls["rec-2"] != 1 {
 		t.Fatalf("expected unavailable preload to back off, got %d prepare calls", bridge.prepareCalls["rec-2"])
 	}
-	if backend.preloadedURI != "" {
-		t.Fatalf("expected no preloaded URI while track unavailable, got %q", backend.preloadedURI)
+	if backend.preloaded() != "" {
+		t.Fatalf("expected no preloaded URI while track unavailable, got %q", backend.preloaded())
 	}
 
 	session.mu.Lock()
@@ -3769,8 +3884,8 @@ func TestSessionPreloadNextBacksOffUnavailablePreparation(t *testing.T) {
 	if bridge.prepareCalls["rec-2"] != 2 {
 		t.Fatalf("expected preload retry after backoff, got %d prepare calls", bridge.prepareCalls["rec-2"])
 	}
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected track to preload after retry, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected track to preload after retry, got %q", backend.preloaded())
 	}
 }
 
@@ -3794,7 +3909,7 @@ func TestSessionPreloadNextSkipsUnavailableStructuralNext(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3811,13 +3926,13 @@ func TestSessionPreloadNextSkipsUnavailableStructuralNext(t *testing.T) {
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 
-	if backend.preloadedURI != "file:///tmp/three.mp3" {
-		t.Fatalf("expected rec-3 preloaded, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/three.mp3" {
+		t.Fatalf("expected rec-3 preloaded, got %q", backend.preloaded())
 	}
 }
 
@@ -3841,7 +3956,7 @@ func TestSessionPreloadNextSkipsUnavailableUsingShuffledUpcomingOrder(t *testing
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3880,8 +3995,8 @@ func TestSessionPreloadNextSkipsUnavailableUsingShuffledUpcomingOrder(t *testing
 	}
 	delete(bridge.results, skipped.Item.RecordingID)
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 
@@ -3889,12 +4004,12 @@ func TestSessionPreloadNextSkipsUnavailableUsingShuffledUpcomingOrder(t *testing
 	if !ok {
 		t.Fatalf("missing playable result for expected shuffled preload target %s", expected.Item.RecordingID)
 	}
-	if backend.preloadedURI != expectedResult.PlayableURI {
+	if backend.preloaded() != expectedResult.PlayableURI {
 		t.Fatalf(
 			"expected preload to follow shuffled upcoming order and skip unavailable %s for %s, got %q",
 			skipped.Item.RecordingID,
 			expected.Item.RecordingID,
-			backend.preloadedURI,
+			backend.preloaded(),
 		)
 	}
 	if bridge.prepareCalls[skipped.Item.RecordingID] != 0 {
@@ -3932,7 +4047,7 @@ func TestSessionPendingUnavailableFallsThroughToNextPlayableEntry(t *testing.T) 
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -3991,7 +4106,7 @@ func TestSessionPreloadNextDoesNotRepeatReadyBackendPreload(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -4007,14 +4122,14 @@ func TestSessionPreloadNextDoesNotRepeatReadyBackendPreload(t *testing.T) {
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 
 	session.preloadNext(context.Background())
 	session.preloadNext(context.Background())
-	if backend.preloadCalls != 1 {
-		t.Fatalf("expected ready preload to be sent to backend once, got %d", backend.preloadCalls)
+	if backend.preloadCallCount() != 1 {
+		t.Fatalf("expected ready preload to be sent to backend once, got %d", backend.preloadCallCount())
 	}
 }
 
@@ -4038,7 +4153,7 @@ func TestSessionNextActionPlanStaysCachedAcrossLargeQueueSteadyState(t *testing.
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -4051,8 +4166,8 @@ func TestSessionNextActionPlanStaysCachedAcrossLargeQueueSteadyState(t *testing.
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 
@@ -4067,7 +4182,7 @@ func TestSessionNextActionPlanStaysCachedAcrossLargeQueueSteadyState(t *testing.
 	}
 
 	for tick := 0; tick < 8; tick++ {
-		backend.position = 60000 + int64(tick*250)
+		backend.setPosition(60000 + int64(tick*250))
 		session.refreshPosition("test")
 		session.preloadNext(context.Background())
 	}
@@ -4154,7 +4269,7 @@ func TestSessionNextActionPlanInvalidatesOncePerMutation(t *testing.T) {
 			if err := session.Start(context.Background()); err != nil {
 				t.Fatalf("start session: %v", err)
 			}
-			defer session.Close()
+			defer closeTestSession(t, session)
 
 			if _, err := session.SetContext(PlaybackContextInput{
 				Kind:  ContextKindCustom,
@@ -4214,7 +4329,7 @@ func TestSessionPreloadNextSuppressesRepeatedTransportFailureForSameCandidate(t 
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -4230,16 +4345,16 @@ func TestSessionPreloadNextSuppressesRepeatedTransportFailureForSameCandidate(t 
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 
 	session.preloadNext(context.Background())
 	session.preloadNext(context.Background())
 	session.preloadNext(context.Background())
 
-	if backend.preloadCalls != 1 {
-		t.Fatalf("expected one transport preload attempt for the same failed candidate, got %d", backend.preloadCalls)
+	if backend.preloadCallCount() != 1 {
+		t.Fatalf("expected one transport preload attempt for the same failed candidate, got %d", backend.preloadCallCount())
 	}
 }
 
@@ -4258,7 +4373,7 @@ func TestSessionPreloadNextSkipsCurrentEntryWhenSingleTrackRepeatsAll(t *testing
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -4276,13 +4391,13 @@ func TestSessionPreloadNextSkipsCurrentEntryWhenSingleTrackRepeatsAll(t *testing
 		t.Fatalf("set repeat all: %v", err)
 	}
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 
-	if backend.preloadCalls != 0 {
-		t.Fatalf("expected no backend preload for current-entry repeat-all loop, got %d", backend.preloadCalls)
+	if backend.preloadCallCount() != 0 {
+		t.Fatalf("expected no backend preload for current-entry repeat-all loop, got %d", backend.preloadCallCount())
 	}
 	if bridge.prepareCalls["rec-1"] != 1 {
 		t.Fatalf("expected no extra prepare call for current-entry repeat-all loop, got %d", bridge.prepareCalls["rec-1"])
@@ -4307,7 +4422,7 @@ func TestSessionPreloadNextSkipsCurrentEntryWhenSingleTrackRepeatsOne(t *testing
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -4325,13 +4440,13 @@ func TestSessionPreloadNextSkipsCurrentEntryWhenSingleTrackRepeatsOne(t *testing
 		t.Fatalf("set repeat one: %v", err)
 	}
 
-	backend.duration = &duration
-	backend.position = 60000
+	backend.setDuration(&duration)
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 
-	if backend.preloadCalls != 0 {
-		t.Fatalf("expected no backend preload for current-entry repeat-one loop, got %d", backend.preloadCalls)
+	if backend.preloadCallCount() != 0 {
+		t.Fatalf("expected no backend preload for current-entry repeat-one loop, got %d", backend.preloadCallCount())
 	}
 	if bridge.prepareCalls["rec-1"] != 1 {
 		t.Fatalf("expected no extra prepare call for current-entry repeat-one loop, got %d", bridge.prepareCalls["rec-1"])
@@ -4361,7 +4476,7 @@ func TestSessionLikedLiveRebasePreservesCurrentTrackIndexForPrevious(t *testing.
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetSource(context.Background(), NewCatalogLoader(bridge).BuildLikedSource(), false); err != nil {
 		t.Fatalf("set source: %v", err)
@@ -4417,7 +4532,7 @@ func TestSessionLikedLiveRebaseNextAdvancesPastCurrentTrack(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetSource(context.Background(), NewCatalogLoader(bridge).BuildLikedSource(), false); err != nil {
 		t.Fatalf("set source: %v", err)
@@ -4463,7 +4578,7 @@ func TestSessionLikedLiveRebaseKeepsRemovedCurrentPlayingButDetachesItFromContex
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetSource(context.Background(), NewCatalogLoader(bridge).BuildLikedSource(), false); err != nil {
 		t.Fatalf("set source: %v", err)
@@ -4531,7 +4646,7 @@ func TestSessionPlaylistLiveRebaseDoesNotReattachRemovedDuplicateByRecordingID(t
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	loader := NewCatalogLoader(bridge)
 	if _, err := session.ReplaceSourceAndPlay(context.Background(), loader.BuildPlaylistTrackSource("playlist-1", "item-2"), false); err != nil {
@@ -4574,7 +4689,7 @@ func TestSessionSetContextPrunesStaleEntryAvailability(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	session.mu.Lock()
 	session.snapshot.EntryAvailability = map[string]apitypes.RecordingPlaybackAvailability{
@@ -4674,7 +4789,7 @@ func TestSessionLiveRebaseDropsStaleCommitAfterSelectionChange(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetSource(context.Background(), NewCatalogLoader(bridge).BuildLikedSource(), false); err != nil {
 		t.Fatalf("set source: %v", err)
@@ -4743,7 +4858,7 @@ func TestSessionLiveRebaseDropsStaleCommitAfterShuffleToggle(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetSource(context.Background(), NewCatalogLoader(bridge).BuildLikedSource(), false); err != nil {
 		t.Fatalf("set source: %v", err)
@@ -4812,7 +4927,7 @@ func TestSessionLiveRebaseCommitsAcrossUIOnlyChange(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetSource(context.Background(), NewCatalogLoader(bridge).BuildLikedSource(), false); err != nil {
 		t.Fatalf("set source: %v", err)
@@ -4885,7 +5000,7 @@ func TestSessionLiveRebaseDropsStaleCommitAfterFutureQueueMutation(t *testing.T)
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetSource(context.Background(), NewCatalogLoader(bridge).BuildLikedSource(), false); err != nil {
 		t.Fatalf("set source: %v", err)
@@ -4951,7 +5066,7 @@ func TestSessionSetSourceDropsStaleEnumeratedResultAfterNewerIntent(t *testing.T
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	entered := make(chan struct{})
 	release := make(chan struct{})
@@ -5025,7 +5140,7 @@ func TestSessionSetSourceKeepsRequestedAnchorWhileDetachedCurrentContinues(t *te
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -5084,7 +5199,7 @@ func TestSessionReplaceSourceAndPlayDropsStaleEnumeratedResultAfterNewerIntent(t
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.ReplaceContextAndPlay(context.Background(), PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -5153,7 +5268,7 @@ func TestSessionUnrelatedQueuedEditDoesNotCancelPendingTransport(t *testing.T) {
 	duration := int64(120000)
 	backend := newTestBackend()
 	backend.supportsPreload = true
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": makePlayableResult("rec-1"),
@@ -5164,7 +5279,7 @@ func TestSessionUnrelatedQueuedEditDoesNotCancelPendingTransport(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -5185,7 +5300,7 @@ func TestSessionUnrelatedQueuedEditDoesNotCancelPendingTransport(t *testing.T) {
 		t.Fatalf("queue items: %v", err)
 	}
 	queued := session.Snapshot().UserQueue
-	backend.position = 60000
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 	if _, err := session.Next(context.Background()); err != nil {
@@ -5210,7 +5325,7 @@ func TestSessionRemovingPendingQueuedTargetCancelsTransport(t *testing.T) {
 	duration := int64(120000)
 	backend := newTestBackend()
 	backend.supportsPreload = true
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": makePlayableResult("rec-1"),
@@ -5221,7 +5336,7 @@ func TestSessionRemovingPendingQueuedTargetCancelsTransport(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -5242,7 +5357,7 @@ func TestSessionRemovingPendingQueuedTargetCancelsTransport(t *testing.T) {
 		t.Fatalf("queue items: %v", err)
 	}
 	targetEntryID := session.Snapshot().UserQueue[0].EntryID
-	backend.position = 60000
+	backend.setPosition(60000)
 	session.refreshPosition("test")
 	session.preloadNext(context.Background())
 	if _, err := session.Next(context.Background()); err != nil {
@@ -5285,7 +5400,7 @@ func TestSessionAvailabilityInvalidationClearsAvailabilityWithoutLiveRebase(t *t
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetSource(context.Background(), NewCatalogLoader(bridge).BuildLikedSource(), false); err != nil {
 		t.Fatalf("set source: %v", err)
@@ -5461,7 +5576,7 @@ func TestSessionSetRepeatModeAdvancesQueueVersionWhenResumeIndexChanges(t *testi
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.ReplaceSourceAndPlay(context.Background(), NewCatalogLoader(bridge).BuildLikedTrackSource("cluster-2"), false); err != nil {
 		t.Fatalf("replace source and play: %v", err)
@@ -5587,7 +5702,7 @@ func TestSessionPlayPendingUsesLoadingStateWhenPlayerEmpty(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -5616,7 +5731,7 @@ func TestSessionPlayPendingUsesLoadingStateWhenPlayerEmpty(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if backend.loadedURI == "file:///tmp/ready.mp3" {
+		if backend.loaded() == "file:///tmp/ready.mp3" {
 			resolved := session.Snapshot()
 			if resolved.CurrentEntry == nil || resolved.CurrentEntry.Item.RecordingID != "rec-1" {
 				t.Fatalf("expected current entry rec-1 after load, got %+v", resolved.CurrentEntry)
@@ -5629,7 +5744,7 @@ func TestSessionPlayPendingUsesLoadingStateWhenPlayerEmpty(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	t.Fatalf("expected pending playback to resolve and load track, got %q", backend.loadedURI)
+	t.Fatalf("expected pending playback to resolve and load track, got %q", backend.loaded())
 }
 
 func TestSessionPendingReadyBackendFailureClearsLoadingState(t *testing.T) {
@@ -5648,7 +5763,7 @@ func TestSessionPendingReadyBackendFailureClearsLoadingState(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -5704,7 +5819,7 @@ func TestSessionPendingRequestPreservesCurrentPlayerState(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -5734,8 +5849,8 @@ func TestSessionPendingRequestPreservesCurrentPlayerState(t *testing.T) {
 	if snapshot.LoadingEntry == nil || snapshot.LoadingEntry.Item.RecordingID != "rec-remote" {
 		t.Fatalf("expected loading entry rec-remote, got %+v", snapshot.LoadingEntry)
 	}
-	if backend.loadedURI != "file:///tmp/local.mp3" {
-		t.Fatalf("expected backend to keep local track loaded, got %q", backend.loadedURI)
+	if backend.loaded() != "file:///tmp/local.mp3" {
+		t.Fatalf("expected backend to keep local track loaded, got %q", backend.loaded())
 	}
 }
 
@@ -5756,7 +5871,7 @@ func TestSessionPendingRetryTimeoutClearsLoadingAndPreservesCurrent(t *testing.T
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -5810,7 +5925,7 @@ func TestSessionUnrelatedQueueMutationPreservesPendingLoading(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -5842,7 +5957,7 @@ func TestSmartShuffleSpreadsAdjacentArtists(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	_, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -5884,7 +5999,7 @@ func TestSmartShuffleAvoidsWrapBoundaryArtistRepeat(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	_, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -5944,7 +6059,7 @@ func TestSessionShuffleKeepsQueuedEntriesOutsideShuffleCycle(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindAlbum,
@@ -6357,7 +6472,7 @@ func TestSessionQueuedRecordingContextUsesRequestedVariantTarget(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.QueueItems(contextInput.Items, QueueInsertLast); err != nil {
 		t.Fatalf("queue items: %v", err)
@@ -6390,7 +6505,7 @@ func TestSessionNextAtEndWithRepeatOffIsNoOp(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -6402,7 +6517,7 @@ func TestSessionNextAtEndWithRepeatOffIsNoOp(t *testing.T) {
 	if _, err := session.Play(context.Background()); err != nil {
 		t.Fatalf("play: %v", err)
 	}
-	stopCallsBeforeNext := backend.stopCalls
+	stopCallsBeforeNext := backend.stopCallCount()
 
 	snapshot, err := session.Next(context.Background())
 	if err != nil {
@@ -6414,8 +6529,8 @@ func TestSessionNextAtEndWithRepeatOffIsNoOp(t *testing.T) {
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-1" {
 		t.Fatalf("expected current entry rec-1, got %+v", snapshot.CurrentEntry)
 	}
-	if backend.stopCalls != stopCallsBeforeNext {
-		t.Fatalf("stop calls after next = %d, want %d", backend.stopCalls, stopCallsBeforeNext)
+	if backend.stopCallCount() != stopCallsBeforeNext {
+		t.Fatalf("stop calls after next = %d, want %d", backend.stopCallCount(), stopCallsBeforeNext)
 	}
 }
 
@@ -6436,7 +6551,7 @@ func TestSessionClearQueuePreservesCurrentPlayback(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -6454,7 +6569,7 @@ func TestSessionClearQueuePreservesCurrentPlayback(t *testing.T) {
 	if _, err := session.QueueItems([]SessionItem{{RecordingID: "rec-3", Title: "Three", DurationMS: duration}}, QueueInsertLast); err != nil {
 		t.Fatalf("queue items: %v", err)
 	}
-	stopCallsBeforeClear := backend.stopCalls
+	stopCallsBeforeClear := backend.stopCallCount()
 
 	snapshot, err := session.ClearQueue()
 	if err != nil {
@@ -6482,8 +6597,8 @@ func TestSessionClearQueuePreservesCurrentPlayback(t *testing.T) {
 	if snapshot.CurrentPreparation == nil {
 		t.Fatalf("expected current preparation to be preserved")
 	}
-	if backend.stopCalls != stopCallsBeforeClear {
-		t.Fatalf("stop calls after clear = %d, want %d", backend.stopCalls, stopCallsBeforeClear)
+	if backend.stopCallCount() != stopCallsBeforeClear {
+		t.Fatalf("stop calls after clear = %d, want %d", backend.stopCallCount(), stopCallsBeforeClear)
 	}
 }
 
@@ -6499,7 +6614,7 @@ func TestSessionNextWithRepeatOneRestartsTrack(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -6514,7 +6629,7 @@ func TestSessionNextWithRepeatOneRestartsTrack(t *testing.T) {
 	if _, err := session.SetRepeatMode(string(RepeatOne)); err != nil {
 		t.Fatalf("set repeat mode: %v", err)
 	}
-	backend.position = 5000
+	backend.setPosition(5000)
 
 	snapshot, err := session.Next(context.Background())
 	if err != nil {
@@ -6523,8 +6638,8 @@ func TestSessionNextWithRepeatOneRestartsTrack(t *testing.T) {
 	if snapshot.PositionMS != 0 {
 		t.Fatalf("position = %d, want 0", snapshot.PositionMS)
 	}
-	if backend.position != 0 {
-		t.Fatalf("backend position = %d, want 0", backend.position)
+	if backend.currentPosition() != 0 {
+		t.Fatalf("backend position = %d, want 0", backend.currentPosition())
 	}
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-1" {
 		t.Fatalf("expected current entry rec-1, got %+v", snapshot.CurrentEntry)
@@ -6543,7 +6658,7 @@ func TestSessionNextWithRepeatAllRestartsSingleTrack(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -6558,7 +6673,7 @@ func TestSessionNextWithRepeatAllRestartsSingleTrack(t *testing.T) {
 	if _, err := session.SetRepeatMode(string(RepeatAll)); err != nil {
 		t.Fatalf("set repeat mode: %v", err)
 	}
-	backend.position = 5000
+	backend.setPosition(5000)
 
 	snapshot, err := session.Next(context.Background())
 	if err != nil {
@@ -6567,11 +6682,11 @@ func TestSessionNextWithRepeatAllRestartsSingleTrack(t *testing.T) {
 	if snapshot.PositionMS != 0 {
 		t.Fatalf("position = %d, want 0", snapshot.PositionMS)
 	}
-	if backend.position != 0 {
-		t.Fatalf("backend position = %d, want 0", backend.position)
+	if backend.currentPosition() != 0 {
+		t.Fatalf("backend position = %d, want 0", backend.currentPosition())
 	}
-	if backend.loadCalls != 2 {
-		t.Fatalf("load calls = %d, want 2", backend.loadCalls)
+	if backend.loadCallCount() != 2 {
+		t.Fatalf("load calls = %d, want 2", backend.loadCallCount())
 	}
 	if snapshot.CurrentEntry == nil || snapshot.CurrentEntry.Item.RecordingID != "rec-1" {
 		t.Fatalf("expected current entry rec-1, got %+v", snapshot.CurrentEntry)
@@ -6598,7 +6713,7 @@ func TestHasNextActionMatchesRepeatOneAndQueueState(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -6702,7 +6817,7 @@ func TestSessionEOFWithRepeatOneRestartsCurrentTrack(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -6721,7 +6836,7 @@ func TestSessionEOFWithRepeatOneRestartsCurrentTrack(t *testing.T) {
 		t.Fatalf("set repeat mode: %v", err)
 	}
 
-	loadCallsBeforeEOF := backend.loadCalls
+	loadCallsBeforeEOF := backend.loadCallCount()
 	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -6730,7 +6845,7 @@ func TestSessionEOFWithRepeatOneRestartsCurrentTrack(t *testing.T) {
 		if snapshot.CurrentEntry != nil &&
 			snapshot.CurrentEntry.Item.RecordingID == "rec-1" &&
 			snapshot.Status == StatusPlaying &&
-			backend.loadCalls > loadCallsBeforeEOF {
+			backend.loadCallCount() > loadCallsBeforeEOF {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -6751,7 +6866,7 @@ func TestSessionEOFWithRepeatAllRestartsSingleTrack(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -6767,7 +6882,7 @@ func TestSessionEOFWithRepeatAllRestartsSingleTrack(t *testing.T) {
 		t.Fatalf("set repeat mode: %v", err)
 	}
 
-	loadCallsBeforeEOF := backend.loadCalls
+	loadCallsBeforeEOF := backend.loadCallCount()
 	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -6776,7 +6891,7 @@ func TestSessionEOFWithRepeatAllRestartsSingleTrack(t *testing.T) {
 		if snapshot.CurrentEntry != nil &&
 			snapshot.CurrentEntry.Item.RecordingID == "rec-1" &&
 			snapshot.Status == StatusPlaying &&
-			backend.loadCalls > loadCallsBeforeEOF {
+			backend.loadCallCount() > loadCallsBeforeEOF {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -6791,7 +6906,7 @@ func TestSessionMidTrackEOFDoesNotAdvancePreloadedNext(t *testing.T) {
 	duration := int64(120000)
 	backend := newTestBackend()
 	backend.supportsPreload = true
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
@@ -6801,7 +6916,7 @@ func TestSessionMidTrackEOFDoesNotAdvancePreloadedNext(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind: ContextKindCustom,
@@ -6817,14 +6932,14 @@ func TestSessionMidTrackEOFDoesNotAdvancePreloadedNext(t *testing.T) {
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.position = 60000
+	backend.setPosition(60000)
 	session.refreshPosition("midtrack_eof")
 	session.preloadNext(context.Background())
-	if backend.preloadedURI != "file:///tmp/two.mp3" {
-		t.Fatalf("expected rec-2 preloaded before eof, got %q", backend.preloadedURI)
+	if backend.preloaded() != "file:///tmp/two.mp3" {
+		t.Fatalf("expected rec-2 preloaded before eof, got %q", backend.preloaded())
 	}
 
-	loadCallsBeforeEOF := backend.loadCalls
+	loadCallsBeforeEOF := backend.loadCallCount()
 	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -6837,11 +6952,11 @@ func TestSessionMidTrackEOFDoesNotAdvancePreloadedNext(t *testing.T) {
 			if snapshot.PositionMS != 60000 {
 				t.Fatalf("position = %d, want 60000", snapshot.PositionMS)
 			}
-			if backend.loadCalls != loadCallsBeforeEOF {
-				t.Fatalf("load calls = %d, want %d", backend.loadCalls, loadCallsBeforeEOF)
+			if backend.loadCallCount() != loadCallsBeforeEOF {
+				t.Fatalf("load calls = %d, want %d", backend.loadCallCount(), loadCallsBeforeEOF)
 			}
-			if backend.preloadedURI != "" {
-				t.Fatalf("expected interrupted eof to clear backend preload, got %q", backend.preloadedURI)
+			if backend.preloaded() != "" {
+				t.Fatalf("expected interrupted eof to clear backend preload, got %q", backend.preloaded())
 			}
 			return
 		}
@@ -6863,7 +6978,7 @@ func TestSessionEOFAtEndPreservesContextAndReloadsOnPlay(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -6891,8 +7006,8 @@ func TestSessionEOFAtEndPreservesContextAndReloadsOnPlay(t *testing.T) {
 			if _, err := session.Play(context.Background()); err != nil {
 				t.Fatalf("replay after eof: %v", err)
 			}
-			if backend.loadCalls != 2 {
-				t.Fatalf("load calls = %d, want 2", backend.loadCalls)
+			if backend.loadCallCount() != 2 {
+				t.Fatalf("load calls = %d, want 2", backend.loadCallCount())
 			}
 			return
 		}
@@ -6907,7 +7022,7 @@ func TestSessionTrackEndErrorPreservesPositionAndReloadsOnPlay(t *testing.T) {
 
 	duration := int64(120000)
 	backend := newTestBackend()
-	backend.duration = &duration
+	backend.setDuration(&duration)
 	session := NewSession(&mockBridge{
 		results: map[string]apitypes.PlaybackResolveResult{
 			"rec-1": {State: apitypes.AvailabilityPlayableLocalFile, SourceKind: apitypes.PlaybackSourceLocalFile, PlayableURI: "file:///tmp/one.mp3"},
@@ -6916,7 +7031,7 @@ func TestSessionTrackEndErrorPreservesPositionAndReloadsOnPlay(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer closeTestSession(t, session)
 
 	if _, err := session.SetContext(PlaybackContextInput{
 		Kind:  ContextKindCustom,
@@ -6929,9 +7044,9 @@ func TestSessionTrackEndErrorPreservesPositionAndReloadsOnPlay(t *testing.T) {
 		t.Fatalf("play: %v", err)
 	}
 
-	backend.position = 5000
+	backend.setPosition(5000)
 	session.refreshPosition("track_end_error")
-	loadCallsBeforeError := backend.loadCalls
+	loadCallsBeforeError := backend.loadCallCount()
 	backend.events <- BackendEvent{
 		Type:   BackendEventTrackEnd,
 		Reason: TrackEndReasonError,
@@ -6951,19 +7066,19 @@ func TestSessionTrackEndErrorPreservesPositionAndReloadsOnPlay(t *testing.T) {
 			if snapshot.LastError == "" {
 				t.Fatal("expected track-end error to set last error")
 			}
-			if backend.loadCalls != loadCallsBeforeError {
-				t.Fatalf("load calls after error = %d, want %d", backend.loadCalls, loadCallsBeforeError)
+			if backend.loadCallCount() != loadCallsBeforeError {
+				t.Fatalf("load calls after error = %d, want %d", backend.loadCallCount(), loadCallsBeforeError)
 			}
 
 			replayed, err := session.Play(context.Background())
 			if err != nil {
 				t.Fatalf("replay after track-end error: %v", err)
 			}
-			if backend.loadCalls != loadCallsBeforeError+1 {
-				t.Fatalf("load calls after replay = %d, want %d", backend.loadCalls, loadCallsBeforeError+1)
+			if backend.loadCallCount() != loadCallsBeforeError+1 {
+				t.Fatalf("load calls after replay = %d, want %d", backend.loadCallCount(), loadCallsBeforeError+1)
 			}
-			if backend.position != 5000 {
-				t.Fatalf("backend position after replay = %d, want 5000", backend.position)
+			if backend.currentPosition() != 5000 {
+				t.Fatalf("backend position after replay = %d, want 5000", backend.currentPosition())
 			}
 			if replayed.PositionMS != 5000 {
 				t.Fatalf("replayed position = %d, want 5000", replayed.PositionMS)

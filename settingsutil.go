@@ -11,7 +11,7 @@ func loadSettingsState() (settings.State, error) {
 	if err != nil {
 		return settings.State{}, err
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	return store.Load()
 }
 
@@ -24,6 +24,6 @@ func saveSettingsState(state settings.State) error {
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	return store.Save(state)
 }

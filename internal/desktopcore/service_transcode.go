@@ -12,6 +12,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"gorm.io/gorm"
 )
 
@@ -97,7 +98,7 @@ func (b *ffmpegAACBuilder) BuildAAC(ctx context.Context, sourcePath string, prof
 	if err != nil {
 		return nil, fmt.Errorf("create transcode temp dir: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	out := filepath.Join(tempDir, "out.m4a")
 	args := []string{

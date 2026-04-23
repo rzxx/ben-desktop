@@ -11,6 +11,7 @@ import (
 
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/palette"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

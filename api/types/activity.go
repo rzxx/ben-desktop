@@ -6,11 +6,11 @@ import (
 )
 
 type ActivityStatus struct {
-	Scan       ScanActivityStatus
+	Scan        ScanActivityStatus
 	Maintenance ScanMaintenanceStatus
-	Artwork    ArtworkActivityStatus
-	Transcodes []TranscodeActivityStatus
-	UpdatedAt  time.Time
+	Artwork     ArtworkActivityStatus
+	Transcodes  []TranscodeActivityStatus
+	UpdatedAt   time.Time
 }
 
 type ScanMaintenanceStatus struct {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"github.com/libp2p/go-libp2p/core/peer"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -30,10 +31,6 @@ func generateSigningKeyPair() (string, string, error) {
 	return base64.StdEncoding.EncodeToString(pub), base64.StdEncoding.EncodeToString(priv), nil
 }
 
-func decodeEd25519PublicKey(encoded string) ([]byte, error) {
-	return registryauth.DecodeEd25519PublicKey(encoded)
-}
-
 func decodeEd25519PrivateKey(encoded string) ([]byte, error) {
 	return registryauth.DecodeEd25519PrivateKey(encoded)
 }
@@ -44,10 +41,6 @@ func admissionAuthoritySigningPayload(libraryID string, authority admissionAutho
 
 func membershipCertSigningPayload(cert membershipCertEnvelope) ([]byte, error) {
 	return registryauth.MembershipCertSigningPayload(cert)
-}
-
-func verifyAdmissionAuthorityChain(libraryID string, chain []admissionAuthorityEnvelope, rootPublicKey string) (admissionAuthorityEnvelope, error) {
-	return registryauth.VerifyAdmissionAuthorityChain(libraryID, chain, rootPublicKey)
 }
 
 func verifyMembershipCert(cert membershipCertEnvelope, chain []admissionAuthorityEnvelope, rootPublicKey string, now time.Time, libraryID, deviceID, actualPeerID string) error {

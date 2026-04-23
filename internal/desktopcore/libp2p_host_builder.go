@@ -260,7 +260,6 @@ func newRelayResources() relayv2.Resources {
 	resources.ReservationTTL = time.Hour
 	resources.MaxReservations = 128
 	resources.MaxCircuits = 8
-	resources.MaxReservationsPerPeer = 1
 	resources.MaxReservationsPerIP = 8
 	resources.MaxReservationsPerASN = 32
 	resources.Limit = &relayv2.RelayLimit{

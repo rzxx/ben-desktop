@@ -113,7 +113,7 @@ func (e *Extractor) ExtractFromPath(path string, options ExtractOptions) (ThemeP
 	if err != nil {
 		return ThemePalette{}, fmt.Errorf("open image: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	decoded, err := webp.Decode(file)
 	if err != nil {
@@ -1185,7 +1185,8 @@ func chooseAccentSwatch(primary swatch, candidates []swatch, options ExtractOpti
 		}
 
 		hueContrastScore := clampFloat(hueDelta/95, 0, 1)
-		hueTargetScore := math.Exp(-math.Pow(hueDelta-88, 2) / (2 * 34 * 34))
+		hueOffset := hueDelta - 88
+		hueTargetScore := math.Exp(-(hueOffset * hueOffset) / (2 * 34 * 34))
 		distanceScore := clampFloat(distance/maxFloat(options.MinDelta*1.35, 0.07), 0, 1)
 		chromaScore := 1 - math.Abs(candidate.chroma-targetChroma)/maxFloat(targetChroma, 0.001)
 		chromaScore = clampFloat(chromaScore, 0, 1)

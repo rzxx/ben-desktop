@@ -11,6 +11,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"gorm.io/gorm"
 )
 
@@ -1382,10 +1383,7 @@ func popTransportCatchupRequestSet(set *transportCatchupRequestSet) (transportCa
 	if len(set.peers) == 0 {
 		set.peers = nil
 	}
-	return transportCatchupRequest{
-		reason: next.reason,
-		peer:   next.peer,
-	}, true
+	return transportCatchupRequest(next), true
 }
 
 func clearTransportCatchupRequestSet(set *transportCatchupRequestSet) {
@@ -1580,8 +1578,8 @@ func (s *TransportService) upsertDevicePresence(ctx context.Context, deviceID, p
 
 	var existing Device
 	err := s.app.storage.WithContext(ctx).Where("device_id = ?", deviceID).Take(&existing).Error
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		wasOffline := existing.LastSeenAt == nil || existing.LastSeenAt.UTC().Before(now.Add(-availabilityOnlineWindow))
 		updates := map[string]any{
 			"peer_id":      peerID,
@@ -1600,7 +1598,7 @@ func (s *TransportService) upsertDevicePresence(ctx context.Context, deviceID, p
 			s.app.emitAvailabilityInvalidateAllForActiveMembership(ctx, deviceID)
 		}
 		return nil
-	case err == gorm.ErrRecordNotFound:
+	case gorm.ErrRecordNotFound:
 		if err := s.app.storage.WithContext(ctx).Create(&Device{
 			DeviceID:   deviceID,
 			Name:       deviceName,

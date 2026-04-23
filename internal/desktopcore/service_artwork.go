@@ -15,6 +15,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	_ "golang.org/x/image/webp"
 	"gorm.io/gorm"
 )
@@ -194,7 +195,7 @@ func decodeArtworkConfig(path string) (image.Config, error) {
 	if err != nil {
 		return image.Config{}, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	cfg, _, err := image.DecodeConfig(file)
 	if err != nil {
 		return image.Config{}, err
@@ -234,7 +235,7 @@ func (b *ffmpegArtworkBuilder) renderVariant(ctx context.Context, input string, 
 	if err != nil {
 		return nil, fmt.Errorf("create variant temp dir: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	out := filepath.Join(tempDir, fmt.Sprintf("thumb-%s.%s", spec.Name, spec.Format))
 	filter := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d", spec.Size, spec.Size, spec.Size, spec.Size)

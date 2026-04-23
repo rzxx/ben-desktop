@@ -3,12 +3,12 @@ package desktopcore
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -476,11 +476,4 @@ WHERE sf.library_id = ? AND sf.device_id = ? AND sf.source_file_id = ?`
 
 func (s *OfflineService) matchesPlaylistID(local apitypes.LocalContext, playlistID string) bool {
 	return strings.TrimSpace(playlistID) != "" && strings.TrimSpace(playlistID) == s.playlistIDForLocal(local)
-}
-
-func (s *OfflineService) requireOfflinePlaylistID(local apitypes.LocalContext, playlistID string) error {
-	if !s.matchesPlaylistID(local, playlistID) {
-		return fmt.Errorf("playlist %q not found", strings.TrimSpace(playlistID))
-	}
-	return nil
 }

@@ -711,29 +711,6 @@ func (i *Inspector) albumFamilyForRequest(ctx context.Context, local apitypes.Lo
 	return "", nil
 }
 
-func (i *Inspector) albumClustersForRecordingRequest(ctx context.Context, libraryID, recordingID string) ([]string, error) {
-	type row struct {
-		AlbumClusterID string
-	}
-	var rows []row
-	query := `
-SELECT DISTINCT av.album_cluster_id
-FROM track_variants req
-JOIN track_variants cand ON cand.library_id = req.library_id AND cand.track_cluster_id = req.track_cluster_id
-JOIN album_tracks at ON at.library_id = cand.library_id AND at.track_variant_id = cand.track_variant_id
-JOIN album_variants av ON av.library_id = at.library_id AND av.album_variant_id = at.album_variant_id
-WHERE req.library_id = ? AND req.track_variant_id = ?
-ORDER BY av.album_cluster_id ASC`
-	if err := i.app.storage.WithContext(ctx).Raw(query, libraryID, strings.TrimSpace(recordingID)).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	out := make([]string, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, strings.TrimSpace(row.AlbumClusterID))
-	}
-	return compactNonEmptyStrings(out), nil
-}
-
 func (i *Inspector) albumClustersForExactVariant(ctx context.Context, libraryID, variantID string) ([]string, error) {
 	type row struct {
 		AlbumClusterID string

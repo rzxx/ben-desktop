@@ -74,9 +74,7 @@ export function useSharingPage() {
   );
   const [inviteUses, setInviteUses] = useState("1");
   const [inviteExpiryHours, setInviteExpiryHours] = useState("24");
-  const [latestInvite, setLatestInvite] = useState<InviteRecord | null>(
-    null,
-  );
+  const [latestInvite, setLatestInvite] = useState<InviteRecord | null>(null);
   const [inviteCode, setInviteCode] = useState("");
   const [joinDeviceName, setJoinDeviceName] = useState("");
   const [trackedSessionId, setTrackedSessionId] = useState("");

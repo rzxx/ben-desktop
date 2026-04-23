@@ -16,6 +16,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -26,11 +27,6 @@ const (
 	inviteJoinStatusApproved = "approved"
 	inviteJoinStatusRejected = "rejected"
 	inviteJoinStatusExpired  = "expired"
-
-	issuedInviteStatusActive   = "active"
-	issuedInviteStatusRevoked  = "revoked"
-	issuedInviteStatusExpired  = "expired"
-	issuedInviteStatusConsumed = "consumed"
 
 	joinSessionStatusPending   = "pending"
 	joinSessionStatusApproved  = "approved"
@@ -272,7 +268,7 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 		job.Fail(1, "failed to start invite transport", err)
 		return apitypes.JoinSession{}, err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	resolvedOwnerAddrs, err := s.resolveInviteOwnerAddrs(discoverCtx, payload)
 	if err != nil {
@@ -845,11 +841,10 @@ func (s *InviteService) ApproveJoinRequest(ctx context.Context, requestID, role 
 		}
 		return err
 	}
-	if reserveCtx, cancel := context.WithTimeout(context.Background(), defaultInviteDiscoverTimeout); true {
-		defer cancel()
-		if err := s.app.ensureActiveTransportRelayReservation(reserveCtx, defaultInviteDiscoverTimeout); err != nil && s.app.cfg.Logger != nil {
-			s.app.cfg.Logger.Errorf("desktopcore: ensure relay reservation after join approval failed for %s: %v", requestID, err)
-		}
+	reserveCtx, cancel := context.WithTimeout(context.Background(), defaultInviteDiscoverTimeout)
+	defer cancel()
+	if err := s.app.ensureActiveTransportRelayReservation(reserveCtx, defaultInviteDiscoverTimeout); err != nil && s.app.cfg.Logger != nil {
+		s.app.cfg.Logger.Errorf("desktopcore: ensure relay reservation after join approval failed for %s: %v", requestID, err)
 	}
 	if sessionFound {
 		session, _, err = s.loadJoinSessionByRequestID(ctx, requestID)
@@ -1284,7 +1279,7 @@ func (s *InviteService) refreshJoinSessionRemote(ctx context.Context, session Jo
 	if err != nil {
 		return JoinSession{}, false, err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	refreshCtx, cancel := context.WithTimeout(ctx, defaultInviteDiscoverTimeout)
 	defer cancel()
@@ -1469,7 +1464,7 @@ func (s *InviteService) cancelRemoteJoinSession(ctx context.Context, session Joi
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	cancelCtx, cancel := context.WithTimeout(ctx, defaultInviteDiscoverTimeout)
 	defer cancel()
@@ -1938,8 +1933,8 @@ func (s *InviteService) syncJoinSessionJob(session JoinSession) {
 	if message == "" {
 		message = "join session in progress"
 	}
-	phase := JobPhaseRunning
-	progress := 0.5
+	var phase JobPhase
+	var progress float64
 	switch strings.TrimSpace(session.Status) {
 	case joinSessionStatusPending:
 		phase = JobPhaseRunning

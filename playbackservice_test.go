@@ -11,6 +11,7 @@ import (
 	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/playback"
 	"ben/desktop/internal/settings"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -778,7 +779,7 @@ func TestPlaybackServiceQueuePlaylistTrackUsesPlaylistItemContext(t *testing.T) 
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	service := &PlaybackService{
 		core:    stub,
@@ -820,7 +821,7 @@ func TestPlaybackServiceQueueLikedTrackUsesLikedItemContext(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	service := &PlaybackService{
 		core:    stub,
@@ -894,7 +895,7 @@ func TestPlaybackServicePlayLikedTrackPreservesShuffle(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	service := &PlaybackService{
 		core:    stub,
@@ -1061,7 +1062,7 @@ func TestPlaybackServiceTracksActionsUseTracksSource(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	service := &PlaybackService{
 		core:    stub,

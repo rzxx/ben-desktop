@@ -158,7 +158,7 @@ func (i *Inspector) TraceRecording(ctx context.Context, req TraceRecordingReques
 			"warning",
 			"recording cluster belongs to more than one album cluster",
 			map[string]any{
-				"track_cluster_id": clusterID,
+				"track_cluster_id":  clusterID,
 				"album_cluster_ids": clusterAlbumClusters,
 			},
 		))
@@ -170,7 +170,7 @@ func (i *Inspector) TraceRecording(ctx context.Context, req TraceRecordingReques
 				"warning",
 				"recording variant is linked to multiple album variants",
 				map[string]any{
-					"track_variant_id": variantID,
+					"track_variant_id":  variantID,
 					"album_variant_ids": memberships,
 				},
 			))
@@ -240,8 +240,8 @@ func (i *Inspector) TraceRecording(ctx context.Context, req TraceRecordingReques
 	trace.Decisions = append(trace.Decisions, InspectDecision{
 		Step: "resolve_recording_availability",
 		Inputs: map[string]any{
-			"requested_id":     requestedID,
-			"network_running":  resolution.Selected.NetworkRunning,
+			"requested_id":      requestedID,
+			"network_running":   resolution.Selected.NetworkRunning,
 			"preferred_profile": resolvedProfile,
 		},
 		Result: map[string]any{
@@ -356,7 +356,7 @@ func (i *Inspector) TraceAlbum(ctx context.Context, req TraceAlbumRequest) (Albu
 				"warning",
 				"album track cluster spans multiple album clusters",
 				map[string]any{
-					"track_cluster_id": clusterID,
+					"track_cluster_id":  clusterID,
 					"album_cluster_ids": memberships,
 				},
 			))
@@ -453,21 +453,21 @@ func recordingVariantOutputs(rows []recordingVariantRow, memberships map[string]
 	for _, row := range rows {
 		variantID := strings.TrimSpace(row.TrackVariantID)
 		out = append(out, map[string]any{
-			"track_variant_id":     variantID,
-			"track_cluster_id":     strings.TrimSpace(row.TrackClusterID),
-			"title":                strings.TrimSpace(row.Title),
-			"duration_ms":          row.DurationMS,
-			"artists":              append([]string(nil), row.Artists...),
-			"source_file_id":       strings.TrimSpace(row.SourceFileID),
-			"album_variant_id":     strings.TrimSpace(row.AlbumVariantID),
-			"album_variant_ids":    memberships[variantID],
-			"album_cluster_ids":    albumClusters[variantID],
-			"is_present_local":     row.IsPresentLocal,
-			"is_cached_local":      row.IsCachedLocal,
-			"quality_rank":         row.QualityRank,
-			"bitrate":              row.Bitrate,
-			"container":            strings.TrimSpace(row.Container),
-			"codec":                strings.TrimSpace(row.Codec),
+			"track_variant_id":  variantID,
+			"track_cluster_id":  strings.TrimSpace(row.TrackClusterID),
+			"title":             strings.TrimSpace(row.Title),
+			"duration_ms":       row.DurationMS,
+			"artists":           append([]string(nil), row.Artists...),
+			"source_file_id":    strings.TrimSpace(row.SourceFileID),
+			"album_variant_id":  strings.TrimSpace(row.AlbumVariantID),
+			"album_variant_ids": memberships[variantID],
+			"album_cluster_ids": albumClusters[variantID],
+			"is_present_local":  row.IsPresentLocal,
+			"is_cached_local":   row.IsCachedLocal,
+			"quality_rank":      row.QualityRank,
+			"bitrate":           row.Bitrate,
+			"container":         strings.TrimSpace(row.Container),
+			"codec":             strings.TrimSpace(row.Codec),
 		})
 	}
 	return out
@@ -477,15 +477,15 @@ func albumVariantOutputs(rows []albumVariantRow) []map[string]any {
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, map[string]any{
-			"album_variant_id":   strings.TrimSpace(row.AlbumVariantID),
-			"album_cluster_id":   strings.TrimSpace(row.AlbumClusterID),
-			"title":              strings.TrimSpace(row.Title),
-			"artists":            append([]string(nil), row.Artists...),
-			"year":               row.Year,
-			"edition":            strings.TrimSpace(row.Edition),
-			"track_count":        row.TrackCount,
-			"best_quality_rank":  row.BestQualityRank,
-			"local_track_count":  row.LocalTrackCount,
+			"album_variant_id":  strings.TrimSpace(row.AlbumVariantID),
+			"album_cluster_id":  strings.TrimSpace(row.AlbumClusterID),
+			"title":             strings.TrimSpace(row.Title),
+			"artists":           append([]string(nil), row.Artists...),
+			"year":              row.Year,
+			"edition":           strings.TrimSpace(row.Edition),
+			"track_count":       row.TrackCount,
+			"best_quality_rank": row.BestQualityRank,
+			"local_track_count": row.LocalTrackCount,
 		})
 	}
 	return out
@@ -501,12 +501,12 @@ func albumTrackOutputs(rows []AlbumTrack, trackRows []TrackVariantModel, members
 		variantID := strings.TrimSpace(row.TrackVariantID)
 		track := trackByVariant[variantID]
 		out = append(out, map[string]any{
-			"album_variant_id":       strings.TrimSpace(row.AlbumVariantID),
-			"track_variant_id":       variantID,
-			"track_cluster_id":       strings.TrimSpace(track.TrackClusterID),
-			"disc_no":                row.DiscNo,
-			"track_no":               row.TrackNo,
-			"title":                  strings.TrimSpace(track.Title),
+			"album_variant_id":        strings.TrimSpace(row.AlbumVariantID),
+			"track_variant_id":        variantID,
+			"track_cluster_id":        strings.TrimSpace(track.TrackClusterID),
+			"disc_no":                 row.DiscNo,
+			"track_no":                row.TrackNo,
+			"title":                   strings.TrimSpace(track.Title),
 			"cross_album_memberships": memberships[variantID],
 		})
 	}

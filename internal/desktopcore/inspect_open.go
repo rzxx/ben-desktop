@@ -13,6 +13,7 @@ import (
 
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/settings"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -411,12 +412,6 @@ func inspectorRequest(payload any) any {
 		return payload
 	}
 	return out
-}
-
-func traceShell(payload any) map[string]any {
-	return map[string]any{
-		"request": payload,
-	}
 }
 
 func sortAnomalies(items []InspectAnomaly) []InspectAnomaly {

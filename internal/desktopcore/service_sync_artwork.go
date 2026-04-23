@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	apitypes "ben/desktop/api/types"
+
 	"gorm.io/gorm"
 )
 
@@ -136,11 +137,11 @@ func (a *SyncService) syncMissingArtworkBlobsFromPeer(ctx context.Context, local
 			FileExt:   row.FileExt,
 		})
 		if err != nil {
-			a.App.logf("desktopcore: fetch artwork blob %s %s/%s from %s failed: %v", row.Variant, row.ScopeType, row.ScopeID, firstNonEmpty(peer.Address(), peer.PeerID(), peer.DeviceID()), err)
+			a.logf("desktopcore: fetch artwork blob %s %s/%s from %s failed: %v", row.Variant, row.ScopeType, row.ScopeID, firstNonEmpty(peer.Address(), peer.PeerID(), peer.DeviceID()), err)
 			return fetched, nil
 		}
 		if _, err := a.verifyTransportPeerAuth(ctx, local.LibraryID, resp.DeviceID, resp.PeerID, firstNonEmpty(peer.PeerID(), resp.PeerID), resp.Auth); err != nil {
-			a.App.logf("desktopcore: verify artwork blob auth for %s %s/%s failed: %v", row.Variant, row.ScopeType, row.ScopeID, err)
+			a.logf("desktopcore: verify artwork blob auth for %s %s/%s failed: %v", row.Variant, row.ScopeType, row.ScopeID, err)
 			return fetched, nil
 		}
 		_ = a.updateDevicePeerID(ctx, local.LibraryID, firstNonEmpty(resp.DeviceID, peer.DeviceID()), firstNonEmpty(resp.PeerID, peer.PeerID()), firstNonEmpty(resp.DeviceID, peer.DeviceID()))
@@ -177,7 +178,7 @@ func (a *SyncService) listMissingArtworkVariants(ctx context.Context, libraryID 
 		if _, ok := seen[key]; ok {
 			continue
 		}
-		path, ok, err := a.App.blobs.ArtworkFilePath(row.BlobID, row.FileExt)
+		path, ok, err := a.blobs.ArtworkFilePath(row.BlobID, row.FileExt)
 		if err != nil {
 			return nil, err
 		}
@@ -221,7 +222,7 @@ func (a *SyncService) storeFetchedArtworkBlob(transfer ArtworkBlobTransfer) erro
 	if err := verifyBlobIDBytes(transfer.BlobID, transfer.Data); err != nil {
 		return fmt.Errorf("remote artwork %w", err)
 	}
-	storedBlobID, err := a.App.blobs.StoreArtworkBytes(transfer.Data, transfer.FileExt)
+	storedBlobID, err := a.blobs.StoreArtworkBytes(transfer.Data, transfer.FileExt)
 	if err != nil {
 		return err
 	}

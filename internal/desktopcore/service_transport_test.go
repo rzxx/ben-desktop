@@ -9,6 +9,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"gorm.io/gorm"
@@ -522,7 +523,7 @@ func TestDiscoverCatchupPeersSkipsUnresolvedConnectedLibp2pPeers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create foreign host: %v", err)
 	}
-	defer foreignHost.Close()
+	defer func() { _ = foreignHost.Close() }()
 
 	connectCtx, cancel := context.WithTimeout(ctx, transportConnectTimeout)
 	defer cancel()
@@ -1819,20 +1820,6 @@ func (c *countingManagedTransport) Close() error {
 	return c.managedSyncTransport.Close()
 }
 
-type countingManagedPeerListTransport struct {
-	managedSyncTransport
-	listPeerCalls atomic.Int32
-}
-
-func (c *countingManagedPeerListTransport) ListPeers(ctx context.Context, local apitypes.LocalContext) ([]SyncPeer, error) {
-	c.listPeerCalls.Add(1)
-	return c.managedSyncTransport.ListPeers(ctx, local)
-}
-
-func (c *countingManagedPeerListTransport) ListPeerCalls() int {
-	return int(c.listPeerCalls.Load())
-}
-
 type peerListCallCounter interface {
 	ListPeerCalls() int
 }
@@ -1902,19 +1889,6 @@ func waitForPeerListCalls(t *testing.T, transport peerListCallCounter, want int)
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("list peers calls = %d, want at least %d", transport.ListPeerCalls(), want)
-}
-
-func waitForManagedPeerListCalls(t *testing.T, transport *countingManagedPeerListTransport, want int) {
-	t.Helper()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if transport.ListPeerCalls() >= want {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("managed list peers calls = %d, want at least %d", transport.ListPeerCalls(), want)
 }
 
 type signalNotifyCounter interface {

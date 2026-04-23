@@ -11,6 +11,7 @@ import (
 	"ben/desktop/internal/platform"
 	"ben/desktop/internal/playback"
 	"ben/desktop/internal/settings"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

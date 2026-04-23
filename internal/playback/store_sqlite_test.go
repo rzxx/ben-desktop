@@ -16,7 +16,7 @@ func TestSQLiteStoreRestoresPlayingAsPaused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	duration := int64(180000)
 	err = store.Save(context.Background(), SessionSnapshot{
@@ -81,7 +81,7 @@ func TestSQLiteStoreMissingDatabaseLoadsIdle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	snapshot, err := store.Load(context.Background())
 	if err != nil {
@@ -106,13 +106,13 @@ func TestSQLiteStoreCorruptPayloadResetsCleanly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	raw, err := sql.Open("sqlite", storePath)
 	if err != nil {
 		t.Fatalf("open raw sqlite connection: %v", err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 
 	_, err = raw.Exec(`
 INSERT INTO playback_session_state
@@ -147,7 +147,7 @@ func TestSQLiteStoreSchemaMismatchPreservesShufflePreference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	if err := store.Save(context.Background(), SessionSnapshot{
 		Shuffle:   true,
@@ -162,7 +162,7 @@ func TestSQLiteStoreSchemaMismatchPreservesShufflePreference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open raw sqlite connection: %v", err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 
 	if _, err := raw.Exec(`UPDATE playback_session_state SET schema_version = ? WHERE id = ?`, playbackSessionSchemaVersion-1, playbackSessionStateRowID); err != nil {
 		t.Fatalf("downgrade schema version: %v", err)
@@ -207,7 +207,7 @@ func TestSQLiteStoreSavedShufflePreferenceFollowsLatestSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	if err := store.Save(context.Background(), SessionSnapshot{
 		Shuffle:   true,
@@ -228,7 +228,7 @@ func TestSQLiteStoreSavedShufflePreferenceFollowsLatestSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open raw sqlite connection: %v", err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 
 	if _, err := raw.Exec(`DELETE FROM playback_session_state WHERE id = ?`, playbackSessionStateRowID); err != nil {
 		t.Fatalf("delete session row: %v", err)
@@ -267,7 +267,7 @@ func TestSQLiteStoreExplicitMuteVolumeSurvivesLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	if err := store.Save(context.Background(), SessionSnapshot{
 		Volume:    0,
