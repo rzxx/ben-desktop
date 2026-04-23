@@ -747,9 +747,6 @@ func (b *mpvBackend) readPlaylistSnapshotLocked() (mpvPlaylistSnapshot, error) {
 			if ok {
 				entry.EntryID = entryID
 			}
-		} else {
-			// Some mpv builds expose playlist indexes but fail individual item ids.
-			// Treat entry id as optional and fall back to URI/index matching later.
 		}
 		if filename, ok, err := b.getStringPropertyLocked(fmt.Sprintf("playlist/%d/filename", index)); err == nil {
 			if ok {

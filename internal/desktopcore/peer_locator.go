@@ -91,7 +91,7 @@ func (l *httpPeerLocator) Announce(ctx context.Context, req registryauth.Presenc
 			lastErr = fmt.Errorf("announce presence: %w", err)
 		} else {
 			func() {
-				defer resp.Body.Close()
+				defer func() { _ = resp.Body.Close() }()
 				if resp.StatusCode/100 == 2 {
 					lastErr = nil
 					return
@@ -150,7 +150,7 @@ func (l *httpPeerLocator) lookup(ctx context.Context, path string, payload any) 
 	if err != nil {
 		return PeerPresenceRecord{}, false, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return PeerPresenceRecord{}, false, nil
 	}

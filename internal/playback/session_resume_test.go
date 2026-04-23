@@ -15,11 +15,11 @@ func TestSessionPlayRestoresPersistedPositionOnFirstPlay(t *testing.T) {
 	store := &memoryStore{
 		snapshot: SessionSnapshot{
 			ContextQueue: &ContextQueue{
-				Kind: ContextKindAlbum,
-				ID:   "album-1",
-				StartIndex: 0,
+				Kind:         ContextKindAlbum,
+				ID:           "album-1",
+				StartIndex:   0,
 				CurrentIndex: 0,
-				ResumeIndex: 0,
+				ResumeIndex:  0,
 				Entries: []SessionEntry{
 					{
 						EntryID:      "ctx-1",
@@ -53,7 +53,7 @@ func TestSessionPlayRestoresPersistedPositionOnFirstPlay(t *testing.T) {
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	snapshot, err := session.Play(context.Background())
 	if err != nil {
@@ -69,4 +69,3 @@ func TestSessionPlayRestoresPersistedPositionOnFirstPlay(t *testing.T) {
 		t.Fatalf("status = %q, want %q", snapshot.Status, StatusPlaying)
 	}
 }
-

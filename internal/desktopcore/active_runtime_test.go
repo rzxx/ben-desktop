@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	apitypes "ben/desktop/api/types"
+
 	"github.com/fsnotify/fsnotify"
 )
 

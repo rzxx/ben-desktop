@@ -357,7 +357,7 @@ func (c *inviteClientTransport) roundTrip(ctx context.Context, ownerAddrs, expec
 	if err != nil {
 		return "", "", fmt.Errorf("open invite stream: %w", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
 
 	if err := json.NewEncoder(stream).Encode(req); err != nil {

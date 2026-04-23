@@ -15,6 +15,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -1289,7 +1290,7 @@ func sha256File(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {

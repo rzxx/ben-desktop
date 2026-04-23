@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	apitypes "ben/desktop/api/types"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

@@ -222,28 +222,28 @@ type IssuedInvite struct {
 }
 
 type JoinSession struct {
-	SessionID                      string `gorm:"primaryKey;size:64"`
-	InviteToken                    string `gorm:"type:TEXT;not null"`
-	InviteAuthJSON                 string `gorm:"type:TEXT;not null"`
-	LibraryID                      string `gorm:"size:64;not null;index"`
-	RegistryURL                    string `gorm:"size:2048;not null"`
-	OwnerPeerID                    string `gorm:"size:256"`
+	SessionID                       string `gorm:"primaryKey;size:64"`
+	InviteToken                     string `gorm:"type:TEXT;not null"`
+	InviteAuthJSON                  string `gorm:"type:TEXT;not null"`
+	LibraryID                       string `gorm:"size:64;not null;index"`
+	RegistryURL                     string `gorm:"size:2048;not null"`
+	OwnerPeerID                     string `gorm:"size:256"`
 	LastResolvedOwnerRelayAddrsJSON string `gorm:"type:TEXT"`
-	DeviceID                       string `gorm:"size:64;not null;index"`
-	DeviceName                     string `gorm:"size:256;not null"`
-	RequestID                      string `gorm:"size:64;index"`
-	Status                         string `gorm:"size:32;not null;index"`
-	Message                        string `gorm:"size:512"`
-	Role                           string `gorm:"size:32"`
-	LocalPeerID                    string `gorm:"size:256"`
-	DeviceFingerprint              string `gorm:"size:64"`
-	OwnerDeviceID                  string `gorm:"size:64"`
-	OwnerRole                      string `gorm:"size:32"`
-	OwnerFingerprint               string `gorm:"size:64"`
-	MaterialJSON                   string `gorm:"type:TEXT"`
-	ExpiresAt                      time.Time
-	CreatedAt                      time.Time `gorm:"not null;index"`
-	UpdatedAt                      time.Time `gorm:"not null;index"`
+	DeviceID                        string `gorm:"size:64;not null;index"`
+	DeviceName                      string `gorm:"size:256;not null"`
+	RequestID                       string `gorm:"size:64;index"`
+	Status                          string `gorm:"size:32;not null;index"`
+	Message                         string `gorm:"size:512"`
+	Role                            string `gorm:"size:32"`
+	LocalPeerID                     string `gorm:"size:256"`
+	DeviceFingerprint               string `gorm:"size:64"`
+	OwnerDeviceID                   string `gorm:"size:64"`
+	OwnerRole                       string `gorm:"size:32"`
+	OwnerFingerprint                string `gorm:"size:64"`
+	MaterialJSON                    string `gorm:"type:TEXT"`
+	ExpiresAt                       time.Time
+	CreatedAt                       time.Time `gorm:"not null;index"`
+	UpdatedAt                       time.Time `gorm:"not null;index"`
 }
 
 type Artist struct {

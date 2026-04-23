@@ -11,6 +11,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -101,7 +102,7 @@ func (w *activeScanWatcher) run() {
 		w.app.logf("desktopcore: create scan watcher failed: %v", err)
 		return
 	}
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	watchedDirs := make(map[string]struct{})
 	for _, root := range w.roots {

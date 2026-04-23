@@ -5,11 +5,13 @@ package playback
 import (
 	"context"
 	"errors"
+	"sync"
 )
 
 var errNoMPVBackend = errors.New("mpv playback backend is disabled in this build")
 
 type stubBackend struct {
+	mu        sync.Mutex
 	loadedURI string
 	playing   bool
 	paused    bool
@@ -27,6 +29,8 @@ func newBackend() Backend {
 }
 
 func (b *stubBackend) Load(_ context.Context, uri string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.loadedURI = uri
 	b.position = 0
 	return errNoMPVBackend
@@ -37,6 +41,8 @@ func (b *stubBackend) ActivatePreloaded(context.Context, string) (BackendActivat
 }
 
 func (b *stubBackend) Play(context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.loadedURI == "" {
 		return errNoMPVBackend
 	}
@@ -46,6 +52,8 @@ func (b *stubBackend) Play(context.Context) error {
 }
 
 func (b *stubBackend) Pause(context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if !b.playing {
 		return errNoMPVBackend
 	}
@@ -54,6 +62,8 @@ func (b *stubBackend) Pause(context.Context) error {
 }
 
 func (b *stubBackend) Stop(context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.playing = false
 	b.paused = false
 	b.position = 0
@@ -61,6 +71,8 @@ func (b *stubBackend) Stop(context.Context) error {
 }
 
 func (b *stubBackend) SeekTo(_ context.Context, positionMS int64) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if positionMS < 0 {
 		positionMS = 0
 	}
@@ -69,15 +81,21 @@ func (b *stubBackend) SeekTo(_ context.Context, positionMS int64) error {
 }
 
 func (b *stubBackend) SetVolume(_ context.Context, volume int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.volume = volume
 	return nil
 }
 
 func (b *stubBackend) PositionMS() (int64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return b.position, nil
 }
 
 func (b *stubBackend) DurationMS() (*int64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return cloneInt64Ptr(b.duration), nil
 }
 

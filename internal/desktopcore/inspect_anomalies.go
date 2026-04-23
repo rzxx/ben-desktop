@@ -2,7 +2,6 @@ package desktopcore
 
 import (
 	"context"
-	"errors"
 	"os"
 	"sort"
 	"strings"
@@ -29,15 +28,15 @@ func inspectAnomaly(code, severity, message string, evidence map[string]any) Ins
 
 func recordingComparatorInputs(row recordingVariantRow, explicitPreferredID string) map[string]any {
 	return map[string]any{
-		"track_variant_id":      strings.TrimSpace(row.TrackVariantID),
-		"track_cluster_id":      strings.TrimSpace(row.TrackClusterID),
-		"explicit_preferred":    strings.TrimSpace(row.TrackVariantID) == strings.TrimSpace(explicitPreferredID),
-		"is_present_local":      row.IsPresentLocal,
-		"is_cached_local":       row.IsCachedLocal,
-		"quality_rank":          row.QualityRank,
-		"bitrate":               row.Bitrate,
-		"album_variant_id":      strings.TrimSpace(row.AlbumVariantID),
-		"source_file_id":        strings.TrimSpace(row.SourceFileID),
+		"track_variant_id":   strings.TrimSpace(row.TrackVariantID),
+		"track_cluster_id":   strings.TrimSpace(row.TrackClusterID),
+		"explicit_preferred": strings.TrimSpace(row.TrackVariantID) == strings.TrimSpace(explicitPreferredID),
+		"is_present_local":   row.IsPresentLocal,
+		"is_cached_local":    row.IsCachedLocal,
+		"quality_rank":       row.QualityRank,
+		"bitrate":            row.Bitrate,
+		"album_variant_id":   strings.TrimSpace(row.AlbumVariantID),
+		"source_file_id":     strings.TrimSpace(row.SourceFileID),
 	}
 }
 
@@ -72,9 +71,9 @@ func blobFileMetadata(path string) map[string]any {
 		}
 	}
 	return map[string]any{
-		"available":   true,
-		"path":        path,
-		"size_bytes":  info.Size(),
+		"available":  true,
+		"path":       path,
+		"size_bytes": info.Size(),
 	}
 }
 
@@ -128,17 +127,6 @@ func (i *Inspector) loadTrackVariants(ctx context.Context, libraryID string, ids
 	var rows []TrackVariantModel
 	if err := i.app.storage.WithContext(ctx).
 		Where("library_id = ? AND track_variant_id IN ?", libraryID, ids).
-		Order("track_variant_id ASC").
-		Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (i *Inspector) loadTrackVariantsByCluster(ctx context.Context, libraryID string, clusterID string) ([]TrackVariantModel, error) {
-	var rows []TrackVariantModel
-	if err := i.app.storage.WithContext(ctx).
-		Where("library_id = ? AND track_cluster_id = ?", libraryID, strings.TrimSpace(clusterID)).
 		Order("track_variant_id ASC").
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -327,18 +315,4 @@ func (i *Inspector) loadDevices(ctx context.Context, deviceIDs []string) ([]Devi
 		return nil, err
 	}
 	return rows, nil
-}
-
-func joinAnyErrors(errs ...error) error {
-	parts := make([]string, 0, len(errs))
-	for _, err := range errs {
-		if err == nil {
-			continue
-		}
-		parts = append(parts, err.Error())
-	}
-	if len(parts) == 0 {
-		return nil
-	}
-	return errors.New(strings.Join(parts, "; "))
 }

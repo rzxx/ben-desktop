@@ -159,7 +159,8 @@ export function SharingSurface() {
     state,
     trackedSessionId,
   } = useSharingPage();
-  const activeInviteCount = state.network?.ActiveInviteCount ?? state.invites.length;
+  const activeInviteCount =
+    state.network?.ActiveInviteCount ?? state.invites.length;
   const inviteReachabilityRequired = Boolean(
     state.network?.InviteReachabilityRequired,
   );
@@ -207,7 +208,8 @@ export function SharingSurface() {
                 {pendingRequests.length === 1 ? "" : "s"}
               </span>
               <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
-                {activeInviteCount} active invite{activeInviteCount === 1 ? "" : "s"}
+                {activeInviteCount} active invite
+                {activeInviteCount === 1 ? "" : "s"}
               </span>
             </div>
           </div>
@@ -877,17 +879,17 @@ export function SharingSurface() {
               <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
                 <KeyRound className="h-5 w-5" />
               </div>
-                <div>
-                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
-                    Active invites
-                  </h2>
-                  <p className="text-theme-600 text-sm dark:text-white/48">
-                    Only currently usable invite tokens remain here. Expired,
-                    exhausted, and deleted invites are removed instead of kept
-                    as history.
-                  </p>
-                </div>
+              <div>
+                <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
+                  Active invites
+                </h2>
+                <p className="text-theme-600 text-sm dark:text-white/48">
+                  Only currently usable invite tokens remain here. Expired,
+                  exhausted, and deleted invites are removed instead of kept as
+                  history.
+                </p>
               </div>
+            </div>
 
             <div className="mt-5 space-y-3">
               {state.invites.length === 0 ? (

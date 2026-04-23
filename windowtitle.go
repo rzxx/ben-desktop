@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"ben/desktop/internal/playback"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

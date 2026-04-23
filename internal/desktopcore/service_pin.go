@@ -9,6 +9,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -1134,7 +1135,7 @@ func (s *PinService) runPinScopeRefreshJob(ctx context.Context, libraryID, scope
 		return
 	}
 
-	resolvedScopeID := scopeID
+	var resolvedScopeID string
 	var recordingIDs []string
 	switch strings.TrimSpace(scope) {
 	case "recording":

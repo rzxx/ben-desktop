@@ -8,8 +8,8 @@ import (
 type PlaylistKind string
 
 const (
-	PlaylistKindNormal PlaylistKind = "normal"
-	PlaylistKindLiked  PlaylistKind = "liked"
+	PlaylistKindNormal  PlaylistKind = "normal"
+	PlaylistKindLiked   PlaylistKind = "liked"
 	PlaylistKindOffline PlaylistKind = "offline"
 )
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -83,13 +84,6 @@ type likedRecordingSeedRow struct {
 	ItemID             string
 	LibraryRecordingID string
 	AddedAt            time.Time
-}
-
-type offlineRecordingSeedRow struct {
-	LibraryRecordingID string
-	OfflineSince       time.Time
-	HasLocalSource     bool
-	HasLocalCached     bool
 }
 
 type chosenRecordingVariant struct {

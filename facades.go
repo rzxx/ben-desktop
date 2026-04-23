@@ -7,6 +7,7 @@ import (
 
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

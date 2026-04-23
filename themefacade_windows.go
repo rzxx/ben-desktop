@@ -9,6 +9,7 @@ import (
 
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/platform"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/zzl/go-win32api/v2/win32"

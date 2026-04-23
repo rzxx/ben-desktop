@@ -255,12 +255,16 @@ type PlaybackCore interface {
 }
 
 type SessionStore interface {
+	// Session may call store methods from playback, ticker, and shutdown goroutines.
+	// Implementations must be safe for concurrent use.
 	Load(ctx context.Context) (SessionSnapshot, error)
 	Save(ctx context.Context, snapshot SessionSnapshot) error
 	Clear(ctx context.Context) error
 }
 
 type Backend interface {
+	// Session may call backend methods from playback, event, retry, and ticker goroutines.
+	// Implementations must be safe for concurrent use.
 	Load(ctx context.Context, uri string) error
 	ActivatePreloaded(ctx context.Context, uri string) (BackendActivationRef, error)
 	Play(ctx context.Context) error

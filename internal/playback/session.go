@@ -866,22 +866,6 @@ func anchorFromEntry(entry SessionEntry) PlaybackSourceAnchor {
 	}
 }
 
-func restoreContextIndex(entries []SessionEntry, preferred *SessionEntry, fallbackIndex int, defaultIndex int) int {
-	if entry, ok := restoreContextEntry(entries, preferred); ok {
-		return entry.ContextIndex
-	}
-	if fallbackIndex >= 0 && fallbackIndex < len(entries) {
-		return fallbackIndex
-	}
-	if defaultIndex >= 0 && defaultIndex < len(entries) {
-		return defaultIndex
-	}
-	if len(entries) == 0 {
-		return -1
-	}
-	return 0
-}
-
 func restoreContextEntry(entries []SessionEntry, preferred *SessionEntry) (SessionEntry, bool) {
 	if preferred != nil {
 		for index, entry := range entries {
@@ -3703,10 +3687,6 @@ func (s *Session) contextEntryAtLocked(index int) SessionEntry {
 	return contextEntryAt(s.snapshot, index)
 }
 
-func (s *Session) contextEntryCountLocked() int {
-	return len(contextAllEntries(s.snapshot))
-}
-
 func isSourceBackedContext(queue *ContextQueue) bool {
 	return queue != nil && queue.Source != nil
 }
@@ -4183,32 +4163,6 @@ func (s *Session) completePendingPlayback(ctx context.Context, entry SessionEntr
 	return nil
 }
 
-func (s *Session) previousContextEntryLocked() (SessionEntry, bool) {
-	if currentMatchesContext(s.snapshot) {
-		index := previousContextIndexFromAnchor(s.snapshot, currentContextIndex(s.snapshot))
-		if index < 0 || s.snapshot.ContextQueue == nil || index >= len(contextAllEntries(s.snapshot)) {
-			return SessionEntry{}, false
-		}
-		return s.contextEntryAtLocked(index), true
-	}
-	detachedIndex := detachedCurrentContextIndex(s.snapshot)
-	if detachedIndex < 0 {
-		return SessionEntry{}, false
-	}
-	index := previousDetachedContextIndex(s.snapshot, detachedIndex)
-	if index < 0 || s.snapshot.ContextQueue == nil || index >= len(contextAllEntries(s.snapshot)) {
-		return SessionEntry{}, false
-	}
-	return s.contextEntryAtLocked(index), true
-}
-
-func (s *Session) returnContextEntryLocked() (SessionEntry, bool) {
-	if !isValidContextIndex(s.snapshot, currentContextIndex(s.snapshot)) || s.snapshot.ContextQueue == nil {
-		return SessionEntry{}, false
-	}
-	return s.contextEntryAtLocked(currentContextIndex(s.snapshot)), true
-}
-
 func (s *Session) consumeSkippedUserEntries(skipped []skippedPlaybackEntry, candidate *playbackCandidate, state SessionSnapshot) SessionSnapshot {
 	if candidate == nil || candidate.Origin != EntryOriginQueued || len(skipped) == 0 {
 		return state
@@ -4632,18 +4586,6 @@ func buildUpcomingEntries(snapshot SessionSnapshot) []SessionEntry {
 	return out
 }
 
-func buildNextActionEntries(snapshot SessionSnapshot) []SessionEntry {
-	upcoming := buildUpcomingEntries(snapshot)
-	if snapshot.RepeatMode != RepeatOne || snapshot.CurrentEntry == nil {
-		return upcoming
-	}
-
-	out := make([]SessionEntry, 0, len(upcoming)+1)
-	out = append(out, *cloneEntryPtr(snapshot.CurrentEntry))
-	out = append(out, upcoming...)
-	return out
-}
-
 func buildPreviousActionPlan(snapshot SessionSnapshot) []plannedCandidate {
 	allEntries := contextAllEntries(snapshot)
 	if len(allEntries) == 0 || snapshot.CurrentEntry == nil {
@@ -4923,22 +4865,6 @@ func (s *Session) setEntryAvailabilityLocked(entryID string, status apitypes.Rec
 	return true
 }
 
-func (s *Session) clearEntryAvailabilityLocked(entryID string) bool {
-	entryID = strings.TrimSpace(entryID)
-	if entryID == "" || len(s.snapshot.EntryAvailability) == 0 {
-		return false
-	}
-	if _, ok := s.snapshot.EntryAvailability[entryID]; !ok {
-		return false
-	}
-	delete(s.snapshot.EntryAvailability, entryID)
-	if len(s.snapshot.EntryAvailability) == 0 {
-		s.snapshot.EntryAvailability = nil
-	}
-	s.markQueueDirtyLocked()
-	return true
-}
-
 func (s *Session) pruneEntryAvailabilityLocked() {
 	if len(s.snapshot.EntryAvailability) == 0 {
 		return
@@ -5039,18 +4965,6 @@ func deriveCurrentLane(snapshot SessionSnapshot) CurrentLane {
 		return laneFromOrigin(snapshot.LoadingEntry.Origin)
 	}
 	return ""
-}
-
-func buildQueuePlan(upcoming []SessionEntry) *QueuePlan {
-	if len(upcoming) == 0 {
-		return nil
-	}
-	entry := upcoming[0]
-	return &QueuePlan{
-		Entry:   cloneEntryPtr(&entry),
-		Lane:    laneFromOrigin(entry.Origin),
-		Planned: true,
-	}
 }
 
 func buildQueuePlanFromSnapshot(snapshot SessionSnapshot) *QueuePlan {

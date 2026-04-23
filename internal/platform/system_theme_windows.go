@@ -3,14 +3,21 @@
 package platform
 
 import (
-	"strings"
 	"unsafe"
 
 	apitypes "ben/desktop/api/types"
+
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/zzl/go-win32api/v2/win32"
+)
+
+var (
+	kernel32             = windows.NewLazySystemDLL("kernel32.dll")
+	procLstrcmpiW        = kernel32.NewProc("lstrcmpiW")
+	procLstrlenW         = kernel32.NewProc("lstrlenW")
+	immersiveColorSetPtr = windows.StringToUTF16Ptr("ImmersiveColorSet")
 )
 
 func CurrentSystemTheme() apitypes.ResolvedTheme {
@@ -18,7 +25,7 @@ func CurrentSystemTheme() apitypes.ResolvedTheme {
 	if err != nil {
 		return apitypes.ResolvedThemeDark
 	}
-	defer key.Close()
+	defer func() { _ = key.Close() }()
 
 	value, _, err := key.GetIntegerValue("AppsUseLightTheme")
 	if err != nil {
@@ -38,9 +45,18 @@ func IsSystemThemeChangeMessage(msg uint32, lParam win32.LPARAM) bool {
 		if lParam == 0 {
 			return true
 		}
-		setting := strings.TrimSpace(windows.UTF16PtrToString((*uint16)(unsafe.Pointer(lParam))))
-		return setting == "" || strings.EqualFold(setting, "ImmersiveColorSet")
+		return settingChangeNameEmpty(lParam) || settingChangeNameEqual(lParam, immersiveColorSetPtr)
 	default:
 		return false
 	}
+}
+
+func settingChangeNameEmpty(lParam win32.LPARAM) bool {
+	length, _, _ := procLstrlenW.Call(lParam)
+	return length == 0
+}
+
+func settingChangeNameEqual(lParam win32.LPARAM, name *uint16) bool {
+	result, _, _ := procLstrcmpiW.Call(lParam, uintptr(unsafe.Pointer(name)))
+	return result == 0
 }
