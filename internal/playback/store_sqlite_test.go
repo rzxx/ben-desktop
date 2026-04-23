@@ -139,6 +139,110 @@ VALUES
 	}
 }
 
+func TestSQLiteStoreSchemaMismatchPreservesShufflePreference(t *testing.T) {
+	t.Parallel()
+
+	storePath := t.TempDir() + "\\playback-state.db"
+	store, err := NewSQLiteStore(storePath)
+	if err != nil {
+		t.Fatalf("new sqlite store: %v", err)
+	}
+	defer store.Close()
+
+	if err := store.Save(context.Background(), SessionSnapshot{
+		Shuffle:   true,
+		Volume:    37,
+		Status:    StatusPaused,
+		UpdatedAt: formatTimestamp(time.Now().UTC()),
+	}); err != nil {
+		t.Fatalf("save shuffled snapshot: %v", err)
+	}
+
+	raw, err := sql.Open("sqlite", storePath)
+	if err != nil {
+		t.Fatalf("open raw sqlite connection: %v", err)
+	}
+	defer raw.Close()
+
+	if _, err := raw.Exec(`UPDATE playback_session_state SET schema_version = ? WHERE id = ?`, playbackSessionSchemaVersion-1, playbackSessionStateRowID); err != nil {
+		t.Fatalf("downgrade schema version: %v", err)
+	}
+	if _, err := raw.Exec(`DELETE FROM playback_preferences WHERE id = ?`, playbackPreferenceRowID); err != nil {
+		t.Fatalf("delete independent preference row: %v", err)
+	}
+
+	snapshot, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load schema-mismatched snapshot: %v", err)
+	}
+	if !snapshot.Shuffle {
+		t.Fatalf("expected shuffle preference to survive schema reset, got %+v", snapshot)
+	}
+	if snapshot.Volume != DefaultVolume {
+		t.Fatalf("expected incompatible session snapshot to reset volume to default %d, got %d", DefaultVolume, snapshot.Volume)
+	}
+
+	var sessionRows int
+	if err := raw.QueryRow(`SELECT COUNT(*) FROM playback_session_state WHERE id = ?`, playbackSessionStateRowID).Scan(&sessionRows); err != nil {
+		t.Fatalf("count session rows: %v", err)
+	}
+	if sessionRows != 0 {
+		t.Fatalf("expected incompatible session snapshot row to be deleted, got %d rows", sessionRows)
+	}
+
+	snapshot, err = store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("reload after schema reset: %v", err)
+	}
+	if !snapshot.Shuffle {
+		t.Fatalf("expected independent shuffle preference to survive after session row deletion, got %+v", snapshot)
+	}
+}
+
+func TestSQLiteStoreSavedShufflePreferenceFollowsLatestSnapshot(t *testing.T) {
+	t.Parallel()
+
+	storePath := t.TempDir() + "\\playback-state.db"
+	store, err := NewSQLiteStore(storePath)
+	if err != nil {
+		t.Fatalf("new sqlite store: %v", err)
+	}
+	defer store.Close()
+
+	if err := store.Save(context.Background(), SessionSnapshot{
+		Shuffle:   true,
+		Status:    StatusPaused,
+		UpdatedAt: formatTimestamp(time.Now().UTC()),
+	}); err != nil {
+		t.Fatalf("save shuffled snapshot: %v", err)
+	}
+	if err := store.Save(context.Background(), SessionSnapshot{
+		Shuffle:   false,
+		Status:    StatusPaused,
+		UpdatedAt: formatTimestamp(time.Now().UTC()),
+	}); err != nil {
+		t.Fatalf("save unshuffled snapshot: %v", err)
+	}
+
+	raw, err := sql.Open("sqlite", storePath)
+	if err != nil {
+		t.Fatalf("open raw sqlite connection: %v", err)
+	}
+	defer raw.Close()
+
+	if _, err := raw.Exec(`DELETE FROM playback_session_state WHERE id = ?`, playbackSessionStateRowID); err != nil {
+		t.Fatalf("delete session row: %v", err)
+	}
+
+	snapshot, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load after session deletion: %v", err)
+	}
+	if snapshot.Shuffle {
+		t.Fatalf("expected latest saved shuffle preference to be false, got %+v", snapshot)
+	}
+}
+
 func TestDefaultSessionSnapshotUsesDefaultVolumeWhenPayloadOmitsIt(t *testing.T) {
 	t.Parallel()
 

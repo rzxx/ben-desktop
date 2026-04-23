@@ -843,6 +843,85 @@ func TestPlaybackServiceQueueLikedTrackUsesLikedItemContext(t *testing.T) {
 	}
 }
 
+func TestPlaybackServicePlayLikedTrackPreservesShuffle(t *testing.T) {
+	t.Parallel()
+
+	stub := &passthroughRuntimeStub{
+		listLikedRecordingsFn: func(_ context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
+			return apitypes.Page[apitypes.LikedRecordingItem]{
+				Items: []apitypes.LikedRecordingItem{
+					{LibraryRecordingID: "cluster-1", RecordingID: "variant-1", Title: "One", DurationMS: 1000},
+					{LibraryRecordingID: "cluster-2", RecordingID: "variant-2", Title: "Two", DurationMS: 2000},
+				},
+				Page: apitypes.PageInfo{Total: 2},
+			}, nil
+		},
+		resolvePlaybackRecordingFn: func(_ context.Context, recordingID, _ string) (apitypes.PlaybackResolveResult, error) {
+			return makePlaybackResolveResult(recordingID), nil
+		},
+		preparePlaybackRecordingFn: func(_ context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (apitypes.PlaybackPreparationStatus, error) {
+			result := makePlaybackResolveResult(recordingID)
+			return apitypes.PlaybackPreparationStatus{
+				LibraryRecordingID: result.LibraryRecordingID,
+				RecordingID:        recordingID,
+				PreferredProfile:   preferredProfile,
+				Purpose:            purpose,
+				Phase:              apitypes.PlaybackPreparationReady,
+				SourceKind:         result.SourceKind,
+				PlayableURI:        result.PlayableURI,
+				UpdatedAt:          time.Now().UTC(),
+			}, nil
+		},
+		getPlaybackPreparationFn: func(_ context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
+			result := makePlaybackResolveResult(recordingID)
+			return apitypes.PlaybackPreparationStatus{
+				LibraryRecordingID: result.LibraryRecordingID,
+				RecordingID:        recordingID,
+				PreferredProfile:   preferredProfile,
+				Purpose:            apitypes.PlaybackPreparationPlayNow,
+				Phase:              apitypes.PlaybackPreparationReady,
+				SourceKind:         result.SourceKind,
+				PlayableURI:        result.PlayableURI,
+				UpdatedAt:          time.Now().UTC(),
+			}, nil
+		},
+		getRecordingAvailabilityFn: func(_ context.Context, recordingID, _ string) (apitypes.RecordingPlaybackAvailability, error) {
+			return makePlaybackAvailability(recordingID), nil
+		},
+	}
+
+	session := playback.NewSession(stub, newPlaybackBackendStub(), nil, "desktop", nil)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer session.Close()
+
+	service := &PlaybackService{
+		core:    stub,
+		session: session,
+	}
+
+	shuffled, err := service.SetShuffle(true)
+	if err != nil {
+		t.Fatalf("enable shuffle: %v", err)
+	}
+	if !shuffled.Shuffle {
+		t.Fatalf("expected shuffle enabled, got %+v", shuffled)
+	}
+
+	snapshot, err := service.PlayLikedTrack(context.Background(), "cluster-2")
+	if err != nil {
+		t.Fatalf("play liked track: %v", err)
+	}
+	if !snapshot.Shuffle {
+		t.Fatalf("expected play liked track to preserve shuffle, got %+v", snapshot)
+	}
+	entry := selectedPlaybackEntry(snapshot)
+	if entry == nil || entry.Item.RecordingID != "cluster-2" {
+		t.Fatalf("selected liked entry = %+v, want cluster-2", entry)
+	}
+}
+
 func TestLoadPlaybackTraceEnabledSetting(t *testing.T) {
 	originalLoader := loadPlaybackSettingsState
 	loadPlaybackSettingsState = func() (settings.State, error) {
