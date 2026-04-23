@@ -372,11 +372,7 @@ func (s *PlaybackService) PlayAlbum(ctx context.Context, albumID string) (playba
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildAlbumSource(albumID), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildAlbumSource(albumID))
 }
 
 func (s *PlaybackService) PlayAlbumTrack(ctx context.Context, albumID string, recordingID string) (playback.SessionSnapshot, error) {
@@ -384,11 +380,7 @@ func (s *PlaybackService) PlayAlbumTrack(ctx context.Context, albumID string, re
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildAlbumTrackSource(albumID, recordingID), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildAlbumTrackSource(albumID, recordingID))
 }
 
 func (s *PlaybackService) QueueAlbum(ctx context.Context, albumID string) (playback.SessionSnapshot, error) {
@@ -408,11 +400,7 @@ func (s *PlaybackService) PlayPlaylist(ctx context.Context, playlistID string) (
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildPlaylistSource(playlistID), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildPlaylistSource(playlistID))
 }
 
 func (s *PlaybackService) PlayPlaylistTrack(ctx context.Context, playlistID string, itemID string) (playback.SessionSnapshot, error) {
@@ -420,11 +408,7 @@ func (s *PlaybackService) PlayPlaylistTrack(ctx context.Context, playlistID stri
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildPlaylistTrackSource(playlistID, itemID), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildPlaylistTrackSource(playlistID, itemID))
 }
 
 func (s *PlaybackService) QueuePlaylist(ctx context.Context, playlistID string) (playback.SessionSnapshot, error) {
@@ -456,11 +440,7 @@ func (s *PlaybackService) PlayRecording(ctx context.Context, recordingID string)
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildRecordingSource(recordingID), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildRecordingSource(recordingID))
 }
 
 func (s *PlaybackService) QueueRecording(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
@@ -480,11 +460,7 @@ func (s *PlaybackService) PlayLiked(ctx context.Context) (playback.SessionSnapsh
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildLikedSource(), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildLikedSource())
 }
 
 func (s *PlaybackService) PlayLikedTrack(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
@@ -492,11 +468,7 @@ func (s *PlaybackService) PlayLikedTrack(ctx context.Context, recordingID string
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildLikedTrackSource(recordingID), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildLikedTrackSource(recordingID))
 }
 
 func (s *PlaybackService) PlayOffline(ctx context.Context) (playback.SessionSnapshot, error) {
@@ -504,11 +476,7 @@ func (s *PlaybackService) PlayOffline(ctx context.Context) (playback.SessionSnap
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildOfflineSource(), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildOfflineSource())
 }
 
 func (s *PlaybackService) PlayOfflineTrack(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
@@ -516,11 +484,7 @@ func (s *PlaybackService) PlayOfflineTrack(ctx context.Context, recordingID stri
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildOfflineTrackSource(recordingID), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildOfflineTrackSource(recordingID))
 }
 
 func (s *PlaybackService) PlayTracks(ctx context.Context) (playback.SessionSnapshot, error) {
@@ -528,11 +492,7 @@ func (s *PlaybackService) PlayTracks(ctx context.Context) (playback.SessionSnaps
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildTracksSource(), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildTracksSource())
 }
 
 func (s *PlaybackService) ShuffleTracks(ctx context.Context) (playback.SessionSnapshot, error) {
@@ -552,11 +512,7 @@ func (s *PlaybackService) PlayTracksFrom(ctx context.Context, recordingID string
 	if err != nil {
 		return playback.SessionSnapshot{}, err
 	}
-	session, err := s.requireSession()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return session.ReplaceSourceAndPlay(ctx, loader.BuildTracksTrackSource(recordingID), false)
+	return s.replaceSourceAndPlay(ctx, loader.BuildTracksTrackSource(recordingID))
 }
 
 func (s *PlaybackService) QueueLikedTrack(ctx context.Context, recordingID string) (playback.SessionSnapshot, error) {
@@ -613,6 +569,14 @@ func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapsh
 			app.Event.Emit(playback.EventQueueChanged, playback.BuildQueueEventSnapshot(snapshot))
 		}
 	}
+}
+
+func (s *PlaybackService) replaceSourceAndPlay(ctx context.Context, req playback.PlaybackSourceRequest) (playback.SessionSnapshot, error) {
+	session, err := s.requireSession()
+	if err != nil {
+		return playback.SessionSnapshot{}, err
+	}
+	return session.ReplaceSourceAndPlay(ctx, req, session.Snapshot().Shuffle)
 }
 
 func (s *PlaybackService) requireLoader() (*playback.CatalogLoader, error) {
