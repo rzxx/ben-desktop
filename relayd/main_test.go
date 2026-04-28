@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	_ "modernc.org/sqlite"
 )
@@ -42,8 +43,8 @@ func TestRegistryAuthEnforcement(t *testing.T) {
 			DeviceID:  member.deviceID,
 			PeerID:    member.peerID,
 			Addrs: []string{
-				"/ip4/203.0.113.10/tcp/4101/p2p/" + member.peerID,
-				"/ip4/203.0.113.11/tcp/4101/p2p/relay-1/p2p-circuit/p2p/" + member.peerID,
+				directAddrForPeer(t, member.peerID),
+				relayAddrForPeer(t, member.peerID),
 			},
 		},
 		RootPublicKey: member.rootPub,
@@ -126,7 +127,7 @@ func TestInviteOwnerRejectsExpiredAttestation(t *testing.T) {
 			LibraryID: member.libraryID,
 			DeviceID:  member.deviceID,
 			PeerID:    member.peerID,
-			Addrs:     []string{"/ip4/203.0.113.10/tcp/4101/p2p/" + member.peerID},
+			Addrs:     []string{directAddrForPeer(t, member.peerID)},
 		},
 		RootPublicKey: member.rootPub,
 		Auth:          member.auth,
@@ -151,6 +152,25 @@ func TestInviteOwnerRejectsExpiredAttestation(t *testing.T) {
 	}
 }
 
+func TestInviteOwnerRejectsMissingAttestationExpiry(t *testing.T) {
+	t.Parallel()
+
+	server := openTestRelaydServer(t)
+	member := newMembershipFixture(t, "lib-1", "device-1", "peer-1")
+	invite, err := registryauth.SignInviteAttestation(registryauth.InviteAttestation{
+		LibraryID:     member.libraryID,
+		TokenID:       "token-no-expiry",
+		OwnerPeerID:   member.peerID,
+		RootPublicKey: member.rootPub,
+	}, member.rootPriv)
+	if err != nil {
+		t.Fatalf("sign invite attestation: %v", err)
+	}
+	if status := serveJSON(t, server.handleInviteOwner, registryauth.InviteOwnerLookupRequest{Invite: invite}); status != http.StatusUnauthorized {
+		t.Fatalf("missing-expiry invite lookup status = %d", status)
+	}
+}
+
 func TestInviteOwnerRejectsDirectOnlyPresence(t *testing.T) {
 	t.Parallel()
 
@@ -162,7 +182,7 @@ func TestInviteOwnerRejectsDirectOnlyPresence(t *testing.T) {
 			LibraryID: member.libraryID,
 			DeviceID:  member.deviceID,
 			PeerID:    member.peerID,
-			Addrs:     []string{"/ip4/203.0.113.10/tcp/4101/p2p/" + member.peerID},
+			Addrs:     []string{directAddrForPeer(t, member.peerID)},
 		},
 		RootPublicKey: member.rootPub,
 		Auth:          member.auth,
@@ -187,6 +207,46 @@ func TestInviteOwnerRejectsDirectOnlyPresence(t *testing.T) {
 	}
 }
 
+func TestPresenceAnnounceRejectsInvalidAddress(t *testing.T) {
+	t.Parallel()
+
+	server := openTestRelaydServer(t)
+	member := newMembershipFixture(t, "lib-1", "device-1", "peer-1")
+	status := serveJSON(t, server.handlePresenceAnnounce, registryauth.PresenceAnnounceRequest{
+		Record: registryauth.PresenceRecord{
+			LibraryID: member.libraryID,
+			DeviceID:  member.deviceID,
+			PeerID:    member.peerID,
+			Addrs:     []string{"not-a-multiaddr"},
+		},
+		RootPublicKey: member.rootPub,
+		Auth:          member.auth,
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("invalid address announce status = %d", status)
+	}
+}
+
+func TestPresenceAnnounceRejectsAddressPeerMismatch(t *testing.T) {
+	t.Parallel()
+
+	server := openTestRelaydServer(t)
+	member := newMembershipFixture(t, "lib-1", "device-1", "peer-1")
+	status := serveJSON(t, server.handlePresenceAnnounce, registryauth.PresenceAnnounceRequest{
+		Record: registryauth.PresenceRecord{
+			LibraryID: member.libraryID,
+			DeviceID:  member.deviceID,
+			PeerID:    member.peerID,
+			Addrs:     []string{directAddrForPeer(t, mustGenerateTestPeerID(t))},
+		},
+		RootPublicKey: member.rootPub,
+		Auth:          member.auth,
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("peer-mismatch announce status = %d", status)
+	}
+}
+
 func TestPresenceAnnounceRejectsPinnedRootMismatch(t *testing.T) {
 	t.Parallel()
 
@@ -198,7 +258,7 @@ func TestPresenceAnnounceRejectsPinnedRootMismatch(t *testing.T) {
 			LibraryID: member.libraryID,
 			DeviceID:  member.deviceID,
 			PeerID:    member.peerID,
-			Addrs:     []string{"/ip4/203.0.113.10/tcp/4101/p2p/" + member.peerID},
+			Addrs:     []string{directAddrForPeer(t, member.peerID)},
 		},
 		RootPublicKey: member.rootPub,
 		Auth:          member.auth,
@@ -212,7 +272,7 @@ func TestPresenceAnnounceRejectsPinnedRootMismatch(t *testing.T) {
 			LibraryID: otherRoot.libraryID,
 			DeviceID:  otherRoot.deviceID,
 			PeerID:    otherRoot.peerID,
-			Addrs:     []string{"/ip4/203.0.113.11/tcp/4101/p2p/" + otherRoot.peerID},
+			Addrs:     []string{directAddrForPeer(t, otherRoot.peerID)},
 		},
 		RootPublicKey: otherRoot.rootPub,
 		Auth:          otherRoot.auth,
@@ -234,7 +294,7 @@ func TestPresenceAnnounceRejectsStaleMembershipSerial(t *testing.T) {
 			LibraryID: member.libraryID,
 			DeviceID:  member.deviceID,
 			PeerID:    member.peerID,
-			Addrs:     []string{"/ip4/203.0.113.10/tcp/4101/p2p/" + member.peerID},
+			Addrs:     []string{directAddrForPeer(t, member.peerID)},
 		},
 		RootPublicKey: member.rootPub,
 		Auth:          newerAuth,
@@ -247,7 +307,7 @@ func TestPresenceAnnounceRejectsStaleMembershipSerial(t *testing.T) {
 			LibraryID: member.libraryID,
 			DeviceID:  member.deviceID,
 			PeerID:    member.peerID,
-			Addrs:     []string{"/ip4/203.0.113.10/tcp/4101/p2p/" + member.peerID},
+			Addrs:     []string{directAddrForPeer(t, member.peerID)},
 		},
 		RootPublicKey: member.rootPub,
 		Auth:          member.auth,
@@ -557,6 +617,9 @@ func openTestRelaydServer(t *testing.T) *relaydServer {
 
 func newMembershipFixture(t *testing.T, libraryID, deviceID, peerID string) membershipFixture {
 	t.Helper()
+	if _, err := peer.Decode(peerID); err != nil {
+		peerID = mustGenerateTestPeerID(t)
+	}
 	rootPub, rootPriv := generateKeyPair(t)
 	authorityPub, authorityPriv := generateKeyPair(t)
 	now := time.Now().UTC()
@@ -589,6 +652,29 @@ func newMembershipFixture(t *testing.T, libraryID, deviceID, peerID string) memb
 			AuthorityChain: []registryauth.AdmissionAuthorityEnvelope{authority},
 		},
 	}
+}
+
+func directAddrForPeer(t *testing.T, peerID string) string {
+	t.Helper()
+	return "/ip4/203.0.113.10/tcp/4101/p2p/" + peerID
+}
+
+func relayAddrForPeer(t *testing.T, peerID string) string {
+	t.Helper()
+	return "/ip4/203.0.113.11/tcp/4101/p2p/" + mustGenerateTestPeerID(t) + "/p2p-circuit/p2p/" + peerID
+}
+
+func mustGenerateTestPeerID(t *testing.T) string {
+	t.Helper()
+	priv, _, err := libp2pcrypto.GenerateEd25519Key(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate test peer key: %v", err)
+	}
+	id, err := peer.IDFromPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("test peer id: %v", err)
+	}
+	return id.String()
 }
 
 func signedMembershipCert(t *testing.T, member membershipFixture, serial int64, peerID string, expiresAt time.Time) registryauth.MembershipCertEnvelope {

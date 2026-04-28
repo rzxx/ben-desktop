@@ -218,7 +218,10 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 		return apitypes.JoinSession{}, err
 	}
 	now := time.Now().UTC()
-	if payload.ExpiresAt > 0 && time.Unix(payload.ExpiresAt, 0).UTC().Before(now) {
+	if payload.ExpiresAt <= 0 {
+		return apitypes.JoinSession{}, fmt.Errorf("invite expiry is required")
+	}
+	if time.Unix(payload.ExpiresAt, 0).UTC().Before(now) {
 		return apitypes.JoinSession{}, fmt.Errorf("invite expired")
 	}
 	if strings.TrimSpace(payload.RegistryURL) == "" || payload.InviteAuth == nil {

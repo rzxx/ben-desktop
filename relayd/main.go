@@ -37,6 +37,8 @@ const (
 	defaultIdentityKeyPath = "ben-relayd.identity.key"
 	defaultMaxBodyBytes    = int64(1 << 20)
 	sqliteBusyTimeout      = 5 * time.Second
+	maxPresenceAddrs       = 16
+	maxPresenceAddrsBytes  = 8 << 10
 )
 
 const (
@@ -660,7 +662,6 @@ func (s *relaydServer) handlePresenceAnnounce(w http.ResponseWriter, r *http.Req
 	record.LibraryID = strings.TrimSpace(record.LibraryID)
 	record.DeviceID = strings.TrimSpace(record.DeviceID)
 	record.PeerID = strings.TrimSpace(record.PeerID)
-	record.Addrs = compactNonEmptyStrings(record.Addrs)
 	if record.LibraryID == "" || record.DeviceID == "" || record.PeerID == "" {
 		http.Error(w, "libraryId, deviceId, and peerId are required", http.StatusBadRequest)
 		return
@@ -669,6 +670,12 @@ func (s *relaydServer) handlePresenceAnnounce(w http.ResponseWriter, r *http.Req
 		http.Error(w, "presence record identity does not match authenticated membership", http.StatusForbidden)
 		return
 	}
+	addrs, err := validatePresenceAddrs(record.Addrs, record.PeerID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("validate presence addrs: %v", err), http.StatusBadRequest)
+		return
+	}
+	record.Addrs = addrs
 	if record.UpdatedAt.IsZero() {
 		record.UpdatedAt = time.Now().UTC()
 	}
@@ -751,7 +758,7 @@ func (s *relaydServer) handleInviteOwner(w http.ResponseWriter, r *http.Request)
 		http.NotFound(w, r)
 		return
 	}
-	record.Addrs = inviteLookupRelayAddrs(record.Addrs)
+	record.Addrs = inviteLookupRelayAddrsForPeer(record.Addrs, req.Invite.OwnerPeerID)
 	if len(record.Addrs) == 0 {
 		http.NotFound(w, r)
 		return
@@ -760,14 +767,81 @@ func (s *relaydServer) handleInviteOwner(w http.ResponseWriter, r *http.Request)
 }
 
 func inviteLookupRelayAddrs(addrs []string) []string {
-	out := make([]string, 0, len(addrs))
-	for _, addr := range compactNonEmptyStrings(addrs) {
-		if !strings.Contains(addr, "/p2p-circuit") {
+	return inviteLookupRelayAddrsForPeer(addrs, "")
+}
+
+func inviteLookupRelayAddrsForPeer(addrs []string, peerID string) []string {
+	valid, err := validatePresenceAddrs(addrs, peerID)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(valid))
+	for _, addr := range valid {
+		parsed, err := ma.NewMultiaddr(addr)
+		if err != nil {
+			continue
+		}
+		if !multiaddrHasProtocol(parsed, ma.P_CIRCUIT) {
 			continue
 		}
 		out = append(out, addr)
 	}
 	return compactNonEmptyStrings(out)
+}
+
+func validatePresenceAddrs(addrs []string, peerID string) ([]string, error) {
+	addrs = compactNonEmptyStrings(addrs)
+	if len(addrs) > maxPresenceAddrs {
+		return nil, fmt.Errorf("too many addresses: %d > %d", len(addrs), maxPresenceAddrs)
+	}
+	totalBytes := 0
+	out := make([]string, 0, len(addrs))
+	for _, value := range addrs {
+		totalBytes += len(value)
+		if totalBytes > maxPresenceAddrsBytes {
+			return nil, fmt.Errorf("addresses exceed %d bytes", maxPresenceAddrsBytes)
+		}
+		addr, err := ma.NewMultiaddr(value)
+		if err != nil {
+			return nil, fmt.Errorf("parse address %q: %w", value, err)
+		}
+		if expectedPeerID := strings.TrimSpace(peerID); expectedPeerID != "" {
+			actualPeerID := finalMultiaddrPeerID(addr)
+			if actualPeerID == "" {
+				return nil, fmt.Errorf("address %q is missing final peer id", value)
+			}
+			if actualPeerID != expectedPeerID {
+				return nil, fmt.Errorf("address %q peer id mismatch", value)
+			}
+		}
+		out = append(out, addr.String())
+	}
+	return compactNonEmptyStrings(out), nil
+}
+
+func multiaddrHasProtocol(addr ma.Multiaddr, protocolCode int) bool {
+	if addr == nil {
+		return false
+	}
+	for _, component := range addr {
+		if component.Code() == protocolCode {
+			return true
+		}
+	}
+	return false
+}
+
+func finalMultiaddrPeerID(addr ma.Multiaddr) string {
+	if addr == nil {
+		return ""
+	}
+	var value string
+	for _, component := range addr {
+		if component.Code() == ma.P_P2P {
+			value = strings.TrimSpace(component.Value())
+		}
+	}
+	return value
 }
 
 func (s *relaydServer) lookupPresence(libraryID, peerID string) (presenceRecord, bool, error) {
