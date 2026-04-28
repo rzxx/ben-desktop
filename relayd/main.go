@@ -159,6 +159,9 @@ func main() {
 		log.Fatalf("parse options: %v", err)
 	}
 
+	if err := prepareProcessPrivileges(opts); err != nil {
+		log.Fatalf("prepare process privileges: %v", err)
+	}
 	if err := prepareRegistryStorage(opts); err != nil {
 		log.Fatalf("prepare registry storage: %v", err)
 	}

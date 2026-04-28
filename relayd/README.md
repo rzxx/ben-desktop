@@ -164,6 +164,7 @@ RELAYD_DB_PATH=/data/registry.db
 RELAYD_IDENTITY_KEY_PATH=/data/identity.key
 RELAYD_PEER_LISTEN_ADDRS=/ip4/0.0.0.0/tcp/4001
 RELAYD_ADVERTISE_ADDRS=/dns4/<your-tcp-proxy-hostname>/tcp/<railway-proxy-port>
+RAILWAY_RUN_UID=0
 ```
 
 If `RELAYD_DB_PATH` and `RELAYD_IDENTITY_KEY_PATH` are not set, `relayd` automatically stores `ben-relayd.db` and `ben-relayd.identity.key` under Railway's injected `RAILWAY_VOLUME_MOUNT_PATH`.
@@ -173,7 +174,7 @@ Notes:
 - Railway documents public HTTP/HTTPS and public TCP proxying. This README therefore recommends a TCP-only relay configuration on Railway.
 - If you use a custom hostname for the TCP proxy, keep the Railway-assigned proxy port in the advertised multiaddr.
 - The volume is required so the relay peer identity and SQLite registry survive redeploys.
-- The container runs as the distroless `nonroot` user. Ensure the mounted `/data` directory is writable by UID/GID 65532, or set storage paths to a writable mount owned by that user.
+- Railway mounts volumes as `root`. Set `RAILWAY_RUN_UID=0` so relayd can claim the storage directory at startup; on Linux it immediately drops to UID/GID 65532 before opening SQLite, loading the relay identity, or serving traffic.
 
 ## App Configuration
 
