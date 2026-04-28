@@ -18,6 +18,7 @@ import (
 
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/prometheus/client_golang/prometheus"
 	_ "modernc.org/sqlite"
 )
 
@@ -422,6 +423,24 @@ func TestParseOptionsRejectsInvalidAdvertiseAddr(t *testing.T) {
 	}
 }
 
+func TestParseOptionsRejectsClientIPHeaderWithoutTrustedProxies(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseOptionsFromArgs([]string{"-client-ip-header", "X-Forwarded-For"})
+	if err == nil || !strings.Contains(err.Error(), "trusted proxies are required") {
+		t.Fatalf("client ip header error = %v", err)
+	}
+}
+
+func TestParseOptionsRejectsInvalidTrustedProxy(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseOptionsFromArgs([]string{"-trusted-proxies", "not-an-ip"})
+	if err == nil || !strings.Contains(err.Error(), "parse trusted proxy") {
+		t.Fatalf("trusted proxy error = %v", err)
+	}
+}
+
 func TestInitSchemaConfiguresSQLiteBusyTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -492,7 +511,7 @@ func TestRateLimitMiddlewareRejectsBurstExceededRequests(t *testing.T) {
 	limiter := newIPRateLimiter(1, 1, time.Minute)
 	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}), limiter)
+	}), limiter, trustedProxySet{}, "", nil)
 
 	req1 := httptest.NewRequest(http.MethodGet, "/v1/presence/member", nil)
 	req1.RemoteAddr = "203.0.113.10:1234"
@@ -508,6 +527,83 @@ func TestRateLimitMiddlewareRejectsBurstExceededRequests(t *testing.T) {
 	handler.ServeHTTP(resp2, req2)
 	if resp2.Code != http.StatusTooManyRequests {
 		t.Fatalf("second response = %d", resp2.Code)
+	}
+}
+
+func TestRateLimitMiddlewareUsesTrustedForwardedClientIP(t *testing.T) {
+	t.Parallel()
+
+	limiter := newIPRateLimiter(1, 1, time.Minute)
+	proxies, err := parseTrustedProxySet([]string{"10.0.0.0/8"})
+	if err != nil {
+		t.Fatalf("parse proxies: %v", err)
+	}
+	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), limiter, proxies, "X-Forwarded-For", nil)
+
+	req1 := httptest.NewRequest(http.MethodGet, "/v1/presence/member", nil)
+	req1.RemoteAddr = "10.1.2.3:1234"
+	req1.Header.Set("X-Forwarded-For", "203.0.113.10")
+	resp1 := httptest.NewRecorder()
+	handler.ServeHTTP(resp1, req1)
+	if resp1.Code != http.StatusOK {
+		t.Fatalf("first response = %d", resp1.Code)
+	}
+
+	req2 := httptest.NewRequest(http.MethodGet, "/v1/presence/member", nil)
+	req2.RemoteAddr = "10.1.2.3:1235"
+	req2.Header.Set("X-Forwarded-For", "203.0.113.10")
+	resp2 := httptest.NewRecorder()
+	handler.ServeHTTP(resp2, req2)
+	if resp2.Code != http.StatusTooManyRequests {
+		t.Fatalf("second response = %d", resp2.Code)
+	}
+}
+
+func TestRateLimitMiddlewareIgnoresForwardedClientIPFromUntrustedRemote(t *testing.T) {
+	t.Parallel()
+
+	limiter := newIPRateLimiter(1, 1, time.Minute)
+	proxies, err := parseTrustedProxySet([]string{"10.0.0.0/8"})
+	if err != nil {
+		t.Fatalf("parse proxies: %v", err)
+	}
+	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), limiter, proxies, "X-Forwarded-For", nil)
+
+	for _, remote := range []string{"198.51.100.10:1234", "198.51.100.11:1235"} {
+		req := httptest.NewRequest(http.MethodGet, "/v1/presence/member", nil)
+		req.RemoteAddr = remote
+		req.Header.Set("X-Forwarded-For", "203.0.113.10")
+		resp := httptest.NewRecorder()
+		handler.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("response for %s = %d", remote, resp.Code)
+		}
+	}
+}
+
+func TestRelaydMetricsRegisterCollectors(t *testing.T) {
+	t.Parallel()
+
+	registry := prometheus.NewRegistry()
+	metrics := newRelaydMetrics(registry)
+	metrics.registryEvent("presence_announce", "ok")
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	found := false
+	for _, family := range families {
+		if family.GetName() == "relayd_registry_events_total" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected relayd_registry_events_total metric")
 	}
 }
 
@@ -551,7 +647,7 @@ func TestMaxBodyBytesMiddlewareRejectsOversizeRequests(t *testing.T) {
 		MaxReservationsPerASN:      1,
 		RelayLimitDuration:         time.Second,
 		RelayLimitDataBytes:        1024,
-	})
+	}, nil)
 
 	body := `{"payload":"abcdefghijklmnopqrstuvwxyz"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/presence/member", strings.NewReader(body))
@@ -569,7 +665,7 @@ func TestHealthzBypassesRateLimit(t *testing.T) {
 	limiter := newIPRateLimiter(1, 1, time.Minute)
 	handler := rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}), limiter)
+	}), limiter, trustedProxySet{}, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	req.RemoteAddr = "203.0.113.10:1234"
 	for i := 0; i < 3; i++ {

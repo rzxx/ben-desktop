@@ -6,6 +6,7 @@ require (
 	ben/registryauth v0.0.0
 	github.com/libp2p/go-libp2p v0.48.0
 	github.com/multiformats/go-multiaddr v0.16.0
+	github.com/prometheus/client_golang v1.22.0
 	golang.org/x/time v0.12.0
 	modernc.org/sqlite v1.46.1
 )
@@ -72,7 +73,6 @@ require (
 	github.com/pion/transport/v4 v4.0.1 // indirect
 	github.com/pion/turn/v4 v4.0.2 // indirect
 	github.com/pion/webrtc/v4 v4.1.2 // indirect
-	github.com/prometheus/client_golang v1.22.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.64.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect

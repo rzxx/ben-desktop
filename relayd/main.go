@@ -27,6 +27,8 @@ import (
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	ma "github.com/multiformats/go-multiaddr"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
 	_ "modernc.org/sqlite"
 )
@@ -50,6 +52,8 @@ const (
 	envAdvertiseAddrs  = "RELAYD_ADVERTISE_ADDRS"
 	envTLSCertPath     = "RELAYD_TLS_CERT_PATH"
 	envTLSKeyPath      = "RELAYD_TLS_KEY_PATH"
+	envTrustedProxies  = "RELAYD_TRUSTED_PROXIES"
+	envClientIPHeader  = "RELAYD_CLIENT_IP_HEADER"
 )
 
 var defaultPeerListenAddrs = []string{
@@ -87,6 +91,8 @@ type relaydOptions struct {
 	RateLimitRequestsPerSecond float64
 	RateLimitBurst             int
 	RateLimitIdleTTL           time.Duration
+	TrustedProxies             []string
+	ClientIPHeader             string
 	ReservationTTL             time.Duration
 	MaxReservations            int
 	MaxCircuits                int
@@ -98,8 +104,30 @@ type relaydOptions struct {
 }
 
 type relaydServer struct {
-	db   *sql.DB
-	host host.Host
+	db      *sql.DB
+	host    host.Host
+	metrics *relaydMetrics
+}
+
+type relaydMetrics struct {
+	httpRequestsTotal       *prometheus.CounterVec
+	httpRequestDuration     *prometheus.HistogramVec
+	registryEventsTotal     *prometheus.CounterVec
+	rateLimitRejectedTotal  prometheus.Counter
+	presenceRecordsGauge    prometheus.Gauge
+	memberAuthStateGauge    prometheus.Gauge
+	libraryRootsGauge       prometheus.Gauge
+	sqliteOperationFailures *prometheus.CounterVec
+}
+
+type statusResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+type trustedProxySet struct {
+	nets []*net.IPNet
+	ips  map[string]struct{}
 }
 
 type ipRateLimiter struct {
@@ -137,14 +165,16 @@ func main() {
 	}
 	defer hostNode.Close()
 
-	server := &relaydServer{db: db, host: hostNode}
+	metrics := newRelaydMetrics(prometheus.DefaultRegisterer)
+	server := &relaydServer{db: db, host: hostNode, metrics: metrics}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", server.handleHealth)
+	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/v1/presence/announce", server.handlePresenceAnnounce)
 	mux.HandleFunc("/v1/presence/member", server.handlePresenceMember)
 	mux.HandleFunc("/v1/invites/owner", server.handleInviteOwner)
 
-	handler, limiter := buildHTTPHandler(mux, opts)
+	handler, limiter := buildHTTPHandler(mux, opts, metrics)
 	httpServer := &http.Server{
 		Addr:              opts.HTTPAddr,
 		Handler:           handler,
@@ -157,10 +187,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	go cleanupLoop(ctx, db)
+	go cleanupLoop(ctx, db, metrics)
 	if limiter != nil {
 		go limiter.cleanupLoop(ctx)
 	}
+	go metricsLoop(ctx, db, metrics)
 
 	go func() {
 		<-ctx.Done()
@@ -198,6 +229,7 @@ func parseOptionsFromArgs(args []string) (relaydOptions, error) {
 	var opts relaydOptions
 	var peerListenAddrs string
 	var advertiseAddrs string
+	var trustedProxies string
 	fs.StringVar(&opts.HTTPAddr, "http-addr", defaultHTTPAddrForEnv(), "HTTP listen address")
 	fs.StringVar(&opts.DBPath, "db", envOrDefault(envDBPath, defaultDBPath), "SQLite registry database path")
 	fs.StringVar(&opts.IdentityKeyPath, "identity-key", envOrDefault(envIdentityKeyPath, defaultIdentityKeyPath), "libp2p relay identity private key path")
@@ -214,6 +246,8 @@ func parseOptionsFromArgs(args []string) (relaydOptions, error) {
 	fs.Float64Var(&opts.RateLimitRequestsPerSecond, "rate-limit-rps", 10, "per-IP HTTP request rate limit in requests per second; set to 0 to disable")
 	fs.IntVar(&opts.RateLimitBurst, "rate-limit-burst", 20, "per-IP HTTP request burst limit")
 	fs.DurationVar(&opts.RateLimitIdleTTL, "rate-limit-idle-ttl", 10*time.Minute, "how long to retain idle per-IP rate limit state")
+	fs.StringVar(&trustedProxies, "trusted-proxies", strings.Join(envListOrDefault(envTrustedProxies, nil), ","), "comma-separated trusted reverse proxy IPs or CIDRs allowed to supply the client IP header")
+	fs.StringVar(&opts.ClientIPHeader, "client-ip-header", envOrDefault(envClientIPHeader, ""), "client IP header to trust only from trusted proxies, for example X-Forwarded-For")
 	fs.DurationVar(&opts.ReservationTTL, "relay-reservation-ttl", time.Hour, "relay reservation TTL")
 	fs.IntVar(&opts.MaxReservations, "relay-max-reservations", 128, "maximum relay reservations")
 	fs.IntVar(&opts.MaxCircuits, "relay-max-circuits", 8, "maximum concurrent relay circuits")
@@ -233,6 +267,8 @@ func parseOptionsFromArgs(args []string) (relaydOptions, error) {
 	opts.TLSKeyPath = strings.TrimSpace(opts.TLSKeyPath)
 	opts.PeerListenAddrs = compactNonEmptyStrings(strings.Split(peerListenAddrs, ","))
 	opts.AdvertiseAddrs = compactNonEmptyStrings(strings.Split(advertiseAddrs, ","))
+	opts.TrustedProxies = compactNonEmptyStrings(strings.Split(trustedProxies, ","))
+	opts.ClientIPHeader = strings.TrimSpace(opts.ClientIPHeader)
 	if err := opts.validate(); err != nil {
 		return relaydOptions{}, err
 	}
@@ -370,6 +406,8 @@ func (o relaydOptions) validate() error {
 		return fmt.Errorf("rate limit burst must be positive when rate limiting is enabled")
 	case o.RateLimitIdleTTL <= 0:
 		return fmt.Errorf("rate limit idle ttl must be positive")
+	case o.ClientIPHeader != "" && len(o.TrustedProxies) == 0:
+		return fmt.Errorf("trusted proxies are required when client ip header is set")
 	case o.ReservationTTL <= 0:
 		return fmt.Errorf("relay reservation ttl must be positive")
 	case o.MaxReservations <= 0:
@@ -386,9 +424,11 @@ func (o relaydOptions) validate() error {
 		return fmt.Errorf("relay limit duration must be positive")
 	case o.RelayLimitDataBytes <= 0:
 		return fmt.Errorf("relay limit data bytes must be positive")
-	default:
-		return nil
 	}
+	if _, err := parseTrustedProxySet(o.TrustedProxies); err != nil {
+		return err
+	}
+	return nil
 }
 
 func validateMultiaddrs(values []string, kind string) error {
@@ -451,14 +491,18 @@ func serveHTTP(server *http.Server, opts relaydOptions) error {
 	return server.ListenAndServe()
 }
 
-func buildHTTPHandler(next http.Handler, opts relaydOptions) (http.Handler, *ipRateLimiter) {
+func buildHTTPHandler(next http.Handler, opts relaydOptions, metrics *relaydMetrics) (http.Handler, *ipRateLimiter) {
 	handler := http.Handler(next)
-	handler = requestLogMiddleware(handler)
+	handler = requestLogMiddleware(handler, metrics)
 	handler = maxBodyBytesMiddleware(handler, opts.MaxBodyBytes)
 	var limiter *ipRateLimiter
 	if opts.RateLimitRequestsPerSecond > 0 {
 		limiter = newIPRateLimiter(rate.Limit(opts.RateLimitRequestsPerSecond), opts.RateLimitBurst, opts.RateLimitIdleTTL)
-		handler = rateLimitMiddleware(handler, limiter)
+		proxies, err := parseTrustedProxySet(opts.TrustedProxies)
+		if err != nil {
+			proxies = trustedProxySet{}
+		}
+		handler = rateLimitMiddleware(handler, limiter, proxies, opts.ClientIPHeader, metrics)
 	}
 	return handler, limiter
 }
@@ -485,18 +529,39 @@ func maxBodyBytesMiddleware(next http.Handler, limit int64) http.Handler {
 	})
 }
 
-func rateLimitMiddleware(next http.Handler, limiter *ipRateLimiter) http.Handler {
+func rateLimitMiddleware(next http.Handler, limiter *ipRateLimiter, proxies trustedProxySet, clientIPHeader string, metrics *relaydMetrics) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if limiter == nil || r.URL.Path == "/healthz" {
+		if limiter == nil || r.URL.Path == "/healthz" || r.URL.Path == "/metrics" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !limiter.Allow(remoteIP(r)) {
+		if !limiter.Allow(clientIP(r, proxies, clientIPHeader)) {
+			if metrics != nil {
+				metrics.rateLimitRejectedTotal.Inc()
+			}
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func clientIP(r *http.Request, proxies trustedProxySet, clientIPHeader string) string {
+	remote := remoteIP(r)
+	if strings.TrimSpace(clientIPHeader) == "" || !proxies.Contains(remote) {
+		return remote
+	}
+	switch strings.ToLower(strings.TrimSpace(clientIPHeader)) {
+	case "x-forwarded-for":
+		if ip := firstForwardedForIP(r.Header.Values(clientIPHeader)); ip != "" {
+			return ip
+		}
+	default:
+		if ip := parseHeaderIP(r.Header.Get(clientIPHeader)); ip != "" {
+			return ip
+		}
+	}
+	return remote
 }
 
 func remoteIP(r *http.Request) string {
@@ -508,6 +573,66 @@ func remoteIP(r *http.Request) string {
 		return host
 	}
 	return strings.TrimSpace(r.RemoteAddr)
+}
+
+func firstForwardedForIP(values []string) string {
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			if ip := parseHeaderIP(part); ip != "" {
+				return ip
+			}
+		}
+	}
+	return ""
+}
+
+func parseHeaderIP(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.Contains(value, ":") {
+		if host, _, err := net.SplitHostPort(value); err == nil {
+			value = host
+		}
+	}
+	ip := net.ParseIP(strings.Trim(value, "[]"))
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
+}
+
+func parseTrustedProxySet(values []string) (trustedProxySet, error) {
+	set := trustedProxySet{ips: make(map[string]struct{})}
+	for _, value := range compactNonEmptyStrings(values) {
+		if ip := net.ParseIP(value); ip != nil {
+			set.ips[ip.String()] = struct{}{}
+			continue
+		}
+		_, network, err := net.ParseCIDR(value)
+		if err != nil {
+			return trustedProxySet{}, fmt.Errorf("parse trusted proxy %q: %w", value, err)
+		}
+		set.nets = append(set.nets, network)
+	}
+	return set, nil
+}
+
+func (s trustedProxySet) Contains(value string) bool {
+	ip := net.ParseIP(strings.TrimSpace(value))
+	if ip == nil {
+		return false
+	}
+	if _, ok := s.ips[ip.String()]; ok {
+		return true
+	}
+	for _, network := range s.nets {
+		if network != nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func newIPRateLimiter(limit rate.Limit, burst int, idleTTL time.Duration) *ipRateLimiter {
@@ -621,7 +746,7 @@ func initSchema(db *sql.DB) error {
 	return nil
 }
 
-func cleanupLoop(ctx context.Context, db *sql.DB) {
+func cleanupLoop(ctx context.Context, db *sql.DB, metrics *relaydMetrics) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -630,10 +755,59 @@ func cleanupLoop(ctx context.Context, db *sql.DB) {
 			return
 		case <-ticker.C:
 			if _, err := db.Exec(`DELETE FROM presence_records WHERE expires_at < ?`, time.Now().UTC().Unix()); err != nil {
+				if metrics != nil {
+					metrics.sqliteOperationFailures.WithLabelValues("cleanup_presence").Inc()
+				}
 				log.Printf("cleanup presence records: %v", err)
 			}
 		}
 	}
+}
+
+func metricsLoop(ctx context.Context, db *sql.DB, metrics *relaydMetrics) {
+	if db == nil || metrics == nil {
+		return
+	}
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	collectRegistryMetrics(db, metrics)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			collectRegistryMetrics(db, metrics)
+		}
+	}
+}
+
+func collectRegistryMetrics(db *sql.DB, metrics *relaydMetrics) {
+	now := time.Now().UTC().Unix()
+	setCountGauge(db, metrics.presenceRecordsGauge, `SELECT COUNT(*) FROM presence_records WHERE expires_at >= ?`, now, metrics, "metrics_presence")
+	setCountGauge(db, metrics.memberAuthStateGauge, `SELECT COUNT(*) FROM member_auth_state WHERE cert_expires_at <= 0 OR cert_expires_at >= ?`, time.Now().UTC().UnixNano(), metrics, "metrics_member_auth")
+	setCountGauge(db, metrics.libraryRootsGauge, `SELECT COUNT(*) FROM library_roots`, nil, metrics, "metrics_library_roots")
+}
+
+func setCountGauge(db *sql.DB, gauge prometheus.Gauge, query string, arg any, metrics *relaydMetrics, op string) {
+	if db == nil || gauge == nil {
+		return
+	}
+	var (
+		count int64
+		err   error
+	)
+	if arg == nil {
+		err = db.QueryRow(query).Scan(&count)
+	} else {
+		err = db.QueryRow(query, arg).Scan(&count)
+	}
+	if err != nil {
+		if metrics != nil {
+			metrics.sqliteOperationFailures.WithLabelValues(op).Inc()
+		}
+		return
+	}
+	gauge.Set(float64(count))
 }
 
 func (s *relaydServer) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -655,6 +829,7 @@ func (s *relaydServer) handlePresenceAnnounce(w http.ResponseWriter, r *http.Req
 	}
 	member, err := s.authenticateMembership(r.Context(), req.Record.LibraryID, req.RootPublicKey, req.Auth)
 	if err != nil {
+		s.metrics.registryEvent("presence_announce", "auth_failed")
 		http.Error(w, fmt.Sprintf("authenticate presence announce: %v", err), http.StatusUnauthorized)
 		return
 	}
@@ -663,15 +838,18 @@ func (s *relaydServer) handlePresenceAnnounce(w http.ResponseWriter, r *http.Req
 	record.DeviceID = strings.TrimSpace(record.DeviceID)
 	record.PeerID = strings.TrimSpace(record.PeerID)
 	if record.LibraryID == "" || record.DeviceID == "" || record.PeerID == "" {
+		s.metrics.registryEvent("presence_announce", "bad_request")
 		http.Error(w, "libraryId, deviceId, and peerId are required", http.StatusBadRequest)
 		return
 	}
 	if record.LibraryID != member.LibraryID || record.DeviceID != member.DeviceID || record.PeerID != member.PeerID {
+		s.metrics.registryEvent("presence_announce", "forbidden")
 		http.Error(w, "presence record identity does not match authenticated membership", http.StatusForbidden)
 		return
 	}
 	addrs, err := validatePresenceAddrs(record.Addrs, record.PeerID)
 	if err != nil {
+		s.metrics.registryEvent("presence_announce", "bad_address")
 		http.Error(w, fmt.Sprintf("validate presence addrs: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -696,9 +874,11 @@ func (s *relaydServer) handlePresenceAnnounce(w http.ResponseWriter, r *http.Req
 			updated_at = excluded.updated_at
 	`, record.LibraryID, record.DeviceID, record.PeerID, string(addrsJSON), record.ExpiresAt.UTC().Unix(), record.UpdatedAt.UTC().Unix())
 	if err != nil {
+		s.metrics.registryEvent("presence_announce", "store_failed")
 		http.Error(w, fmt.Sprintf("store presence: %v", err), http.StatusInternalServerError)
 		return
 	}
+	s.metrics.registryEvent("presence_announce", "ok")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -713,22 +893,27 @@ func (s *relaydServer) handlePresenceMember(w http.ResponseWriter, r *http.Reque
 	}
 	member, err := s.authenticateMembership(r.Context(), req.LibraryID, req.RootPublicKey, req.Auth)
 	if err != nil {
+		s.metrics.registryEvent("presence_member", "auth_failed")
 		http.Error(w, fmt.Sprintf("authenticate member lookup: %v", err), http.StatusUnauthorized)
 		return
 	}
 	if strings.TrimSpace(req.LibraryID) != member.LibraryID {
+		s.metrics.registryEvent("presence_member", "forbidden")
 		http.Error(w, "library lookup is not authorized", http.StatusForbidden)
 		return
 	}
 	record, ok, err := s.lookupPresence(req.LibraryID, req.PeerID)
 	if err != nil {
+		s.metrics.registryEvent("presence_member", "lookup_failed")
 		http.Error(w, fmt.Sprintf("lookup member: %v", err), http.StatusInternalServerError)
 		return
 	}
 	if !ok {
+		s.metrics.registryEvent("presence_member", "not_found")
 		http.NotFound(w, r)
 		return
 	}
+	s.metrics.registryEvent("presence_member", "ok")
 	writeJSON(w, http.StatusOK, record)
 }
 
@@ -742,27 +927,33 @@ func (s *relaydServer) handleInviteOwner(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := registryauth.VerifyInviteAttestation(req.Invite, time.Now().UTC()); err != nil {
+		s.metrics.registryEvent("invite_owner", "auth_failed")
 		http.Error(w, fmt.Sprintf("authenticate invite lookup: %v", err), http.StatusUnauthorized)
 		return
 	}
 	if err := s.pinLibraryRoot(req.Invite.LibraryID, req.Invite.RootPublicKey); err != nil {
+		s.metrics.registryEvent("invite_owner", "pin_failed")
 		http.Error(w, fmt.Sprintf("pin invite library root: %v", err), http.StatusUnauthorized)
 		return
 	}
 	record, ok, err := s.lookupPresence(req.Invite.LibraryID, req.Invite.OwnerPeerID)
 	if err != nil {
+		s.metrics.registryEvent("invite_owner", "lookup_failed")
 		http.Error(w, fmt.Sprintf("lookup owner: %v", err), http.StatusInternalServerError)
 		return
 	}
 	if !ok {
+		s.metrics.registryEvent("invite_owner", "not_found")
 		http.NotFound(w, r)
 		return
 	}
 	record.Addrs = inviteLookupRelayAddrsForPeer(record.Addrs, req.Invite.OwnerPeerID)
 	if len(record.Addrs) == 0 {
+		s.metrics.registryEvent("invite_owner", "not_found")
 		http.NotFound(w, r)
 		return
 	}
+	s.metrics.registryEvent("invite_owner", "ok")
 	writeJSON(w, http.StatusOK, record)
 }
 
@@ -1048,12 +1239,83 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func requestLogMiddleware(next http.Handler) http.Handler {
+func newRelaydMetrics(registerer prometheus.Registerer) *relaydMetrics {
+	if registerer == nil {
+		registerer = prometheus.DefaultRegisterer
+	}
+	metrics := &relaydMetrics{
+		httpRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "relayd_http_requests_total",
+			Help: "Total relayd HTTP requests.",
+		}, []string{"method", "path", "status"}),
+		httpRequestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "relayd_http_request_duration_seconds",
+			Help:    "Relayd HTTP request duration.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"method", "path", "status"}),
+		registryEventsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "relayd_registry_events_total",
+			Help: "Registry events by operation and result.",
+		}, []string{"operation", "result"}),
+		rateLimitRejectedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "relayd_rate_limit_rejected_total",
+			Help: "HTTP requests rejected by the per-client rate limiter.",
+		}),
+		presenceRecordsGauge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "relayd_presence_records",
+			Help: "Currently active presence records.",
+		}),
+		memberAuthStateGauge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "relayd_member_auth_state_records",
+			Help: "Currently valid member auth state records.",
+		}),
+		libraryRootsGauge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "relayd_library_roots",
+			Help: "Pinned library root records.",
+		}),
+		sqliteOperationFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "relayd_sqlite_operation_failures_total",
+			Help: "SQLite operation failures by operation.",
+		}, []string{"operation"}),
+	}
+	registerer.MustRegister(
+		metrics.httpRequestsTotal,
+		metrics.httpRequestDuration,
+		metrics.registryEventsTotal,
+		metrics.rateLimitRejectedTotal,
+		metrics.presenceRecordsGauge,
+		metrics.memberAuthStateGauge,
+		metrics.libraryRootsGauge,
+		metrics.sqliteOperationFailures,
+	)
+	return metrics
+}
+
+func (m *relaydMetrics) registryEvent(operation, result string) {
+	if m == nil {
+		return
+	}
+	m.registryEventsTotal.WithLabelValues(operation, result).Inc()
+}
+
+func requestLogMiddleware(next http.Handler, metrics *relaydMetrics) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startedAt := time.Now()
-		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(startedAt).Round(time.Millisecond))
+		recorder := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r)
+		duration := time.Since(startedAt)
+		status := fmt.Sprintf("%d", recorder.status)
+		if metrics != nil {
+			metrics.httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, status).Inc()
+			metrics.httpRequestDuration.WithLabelValues(r.Method, r.URL.Path, status).Observe(duration.Seconds())
+		}
+		log.Printf("%s %s %d %s", r.Method, r.URL.Path, recorder.status, duration.Round(time.Millisecond))
 	})
+}
+
+func (w *statusResponseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
 }
 
 func hostIDString(h host.Host) string {
