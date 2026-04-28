@@ -16,4 +16,6 @@ FROM gcr.io/distroless/static-debian12
 
 COPY --from=builder /out/relayd /relayd
 
+USER nonroot:nonroot
+
 ENTRYPOINT ["/relayd"]

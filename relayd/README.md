@@ -15,6 +15,8 @@ Standalone public relay and registry service for the Ben desktop network plane.
   - single pinned root public key per library
   - membership certificate signature and authority-chain validation
   - stale membership certificate serial rejection per device
+  - signed invite and membership revocation state pushed by owners/admins
+  - membership-backed Circuit Relay reservation ACLs
 
 ## Deployment Modes
 
@@ -48,7 +50,10 @@ For closed beta, either mode is fine. If you already have standard ingress or a 
   - `-rate-limit-rps`
   - `-rate-limit-burst`
   - `-rate-limit-idle-ttl`
+  - `-trusted-proxies`
+  - `-client-ip-header`
 - Relay capacity controls:
+  - `-relay-acl-disabled` for local development only
   - `-relay-reservation-ttl`
   - `-relay-max-reservations`
   - `-relay-max-circuits`
@@ -88,6 +93,40 @@ Example:
 
 The relay logs both the local `listenAddrs` and the public `advertiseAddrs` at startup.
 
+## Metrics
+
+`relayd` exposes Prometheus metrics at `/metrics`.
+
+Useful production signals include:
+
+- `relayd_http_requests_total`
+- `relayd_http_request_duration_seconds`
+- `relayd_registry_events_total`
+- `relayd_rate_limit_rejected_total`
+- `relayd_presence_records`
+- `relayd_member_auth_state_records`
+- `relayd_relay_acl_decisions_total`
+- `relayd_sqlite_operation_failures_total`
+
+`/healthz` checks SQLite availability and returns HTTP 503 when the registry database is not usable.
+
+## Reverse Proxies And Rate Limiting
+
+By default, per-client HTTP rate limiting uses the TCP remote address. If the registry HTTP API is behind a trusted reverse proxy, configure both:
+
+```text
+RELAYD_TRUSTED_PROXIES=<proxy-ip-or-cidr>
+RELAYD_CLIENT_IP_HEADER=X-Forwarded-For
+```
+
+Forwarded client IP headers are ignored unless the TCP remote address matches `-trusted-proxies`. Do not set `-client-ip-header` without a trusted proxy list.
+
+## Relay ACL
+
+Circuit Relay reservations are membership-gated by default. Desktop clients authorize their relay peer ID with `/v1/relay/authorize` before reserving. The ACL allows reservations only for currently authenticated member peer IDs, and allows relay connections only to authorized destination peers.
+
+`-relay-acl-disabled` exists only for local development and should not be used for public deployments.
+
 ## Environment Variables
 
 `relayd` also accepts these environment variables as defaults, with CLI flags taking precedence:
@@ -101,6 +140,8 @@ The relay logs both the local `listenAddrs` and the public `advertiseAddrs` at s
 - `RELAYD_ADVERTISE_ADDRS`
 - `RELAYD_TLS_CERT_PATH`
 - `RELAYD_TLS_KEY_PATH`
+- `RELAYD_TRUSTED_PROXIES`
+- `RELAYD_CLIENT_IP_HEADER`
 
 This makes hosted deployments easier because the binary can run with no custom start command if the platform injects `PORT`.
 
@@ -128,6 +169,7 @@ Notes:
 - Railway documents public HTTP/HTTPS and public TCP proxying. This README therefore recommends a TCP-only relay configuration on Railway.
 - If you use a custom hostname for the TCP proxy, keep the Railway-assigned proxy port in the advertised multiaddr.
 - The volume is required so the relay peer identity and SQLite registry survive redeploys.
+- The container runs as the distroless `nonroot` user. Ensure the mounted `/data` directory is writable by UID/GID 65532, or set storage paths to a writable mount owned by that user.
 
 ## App Configuration
 
@@ -158,9 +200,7 @@ This service is now suitable for a normal closed beta rollout if you provide:
 
 ## Remaining Open Items
 
-- Immediate membership revocation:
-  - `relayd` still does not ingest owner-pushed membership revocation state, so the currently highest valid certificate for a device remains accepted until expiry or supersession.
-- Immediate invite revocation:
-  - `relayd` still does not ingest an owner-pushed invite revocation feed; invite lookup is bounded by signed attestation expiry instead.
 - Operational hardening beyond the process itself:
-  - metrics, dashboards, alerting, and backup/restore for the SQLite DB are still deployment tasks, not built into the binary.
+  - dashboards, alerting, and backup/restore for the SQLite DB are deployment tasks.
+- Multi-replica operation:
+  - keep one writer replica unless the registry database is moved to external storage with explicit coordination.
