@@ -19,6 +19,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/multiformats/go-multiaddr"
@@ -1079,7 +1080,9 @@ func (t *libp2pSyncTransport) resolvePeerIdentityAddresses(ctx context.Context, 
 	if err == nil {
 		addrs = append(addrs, cached...)
 	}
-	for _, addr := range compactNonEmptyStrings(addrs) {
+	allAddrs := compactNonEmptyStrings(addrs)
+	t.seedPeerstoreAddrs(peerID, allAddrs)
+	for _, addr := range allAddrs {
 		if _, err := t.ResolvePeer(ctx, apitypes.LocalContext{}, addr); err == nil {
 			return nil
 		}
@@ -1095,6 +1098,23 @@ func (t *libp2pSyncTransport) resolvePeerIdentityAddresses(ctx context.Context, 
 		})
 	}
 	return nil
+}
+
+func (t *libp2pSyncTransport) seedPeerstoreAddrs(peerID peer.ID, addrs []string) {
+	if t == nil || t.host == nil || peerID == "" {
+		return
+	}
+	for _, addr := range compactNonEmptyStrings(addrs) {
+		parsed, err := multiaddr.NewMultiaddr(addr)
+		if err != nil {
+			continue
+		}
+		info, err := peer.AddrInfoFromP2pAddr(parsed)
+		if err != nil || info == nil || info.ID != peerID || len(info.Addrs) == 0 {
+			continue
+		}
+		t.host.Peerstore().AddAddrs(peerID, info.Addrs, peerstore.TempAddrTTL)
+	}
 }
 
 func (t *libp2pSyncTransport) setLastRegistryAnnounceAt(value time.Time) {

@@ -1465,10 +1465,12 @@ func (s *TransportService) announceRuntimePresence(runtime *activeTransportRunti
 	if err != nil {
 		return err
 	}
-	addrs := runtime.transport.ListenAddrs()
+	listenAddrs := runtime.transport.ListenAddrs()
+	relayAddrs := []string(nil)
 	if reporter, ok := runtime.transport.(*libp2pSyncTransport); ok {
-		addrs = compactNonEmptyStrings(append(reporter.relayReservationAddrs(), addrs...))
+		relayAddrs = reporter.relayReservationAddrs()
 	}
+	addrs := selectPresenceAnnounceAddrs(peerID, relayAddrs, listenAddrs)
 	if err := s.app.saveKnownPeerAddrs(runtime.ctx, local.LibraryID, peerID, addrs); err != nil {
 		return err
 	}
