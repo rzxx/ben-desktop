@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -522,6 +523,39 @@ func TestParseOptionsUsesRailwayFriendlyEnvDefaults(t *testing.T) {
 	}
 	if !opts.TLSEnabled() {
 		t.Fatal("expected tls to be enabled from env")
+	}
+}
+
+func TestParseOptionsUsesRailwayVolumeForDefaultStoragePaths(t *testing.T) {
+	volumePath := filepath.Join(t.TempDir(), "railway-volume")
+	t.Setenv(envRailwayVolume, volumePath)
+
+	opts, err := parseOptionsFromArgs(nil)
+	if err != nil {
+		t.Fatalf("parse options from env: %v", err)
+	}
+	if opts.DBPath != filepath.Join(volumePath, defaultDBPath) {
+		t.Fatalf("db path = %q", opts.DBPath)
+	}
+	if opts.IdentityKeyPath != filepath.Join(volumePath, defaultIdentityKeyPath) {
+		t.Fatalf("identity key path = %q", opts.IdentityKeyPath)
+	}
+}
+
+func TestPrepareRegistryStorageCreatesWritableDirectories(t *testing.T) {
+	base := t.TempDir()
+	opts := relaydOptions{
+		DBPath:          filepath.Join(base, "db", "registry.db"),
+		IdentityKeyPath: filepath.Join(base, "identity", "identity.key"),
+	}
+
+	if err := prepareRegistryStorage(opts); err != nil {
+		t.Fatalf("prepare registry storage: %v", err)
+	}
+	for _, dir := range []string{filepath.Dir(opts.DBPath), filepath.Dir(opts.IdentityKeyPath)} {
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("stat prepared directory %q: %v", dir, err)
+		}
 	}
 }
 

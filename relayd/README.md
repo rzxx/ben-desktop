@@ -136,6 +136,8 @@ Circuit Relay reservations are membership-gated by default. Desktop clients auth
 - `RELAYD_HTTP_ADDR`
 - `RELAYD_DB_PATH`
 - `RELAYD_IDENTITY_KEY_PATH`
+- `RAILWAY_VOLUME_MOUNT_PATH`
+  - used as the default directory for the DB and identity key when the explicit relayd storage variables are unset
 - `RELAYD_PEER_LISTEN_ADDRS`
 - `RELAYD_ADVERTISE_ADDRS`
 - `RELAYD_TLS_CERT_PATH`
@@ -163,6 +165,8 @@ RELAYD_IDENTITY_KEY_PATH=/data/identity.key
 RELAYD_PEER_LISTEN_ADDRS=/ip4/0.0.0.0/tcp/4001
 RELAYD_ADVERTISE_ADDRS=/dns4/<your-tcp-proxy-hostname>/tcp/<railway-proxy-port>
 ```
+
+If `RELAYD_DB_PATH` and `RELAYD_IDENTITY_KEY_PATH` are not set, `relayd` automatically stores `ben-relayd.db` and `ben-relayd.identity.key` under Railway's injected `RAILWAY_VOLUME_MOUNT_PATH`.
 
 Notes:
 

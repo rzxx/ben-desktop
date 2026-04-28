@@ -50,6 +50,7 @@ const (
 	envHTTPAddr        = "RELAYD_HTTP_ADDR"
 	envDBPath          = "RELAYD_DB_PATH"
 	envIdentityKeyPath = "RELAYD_IDENTITY_KEY_PATH"
+	envRailwayVolume   = "RAILWAY_VOLUME_MOUNT_PATH"
 	envPeerListenAddrs = "RELAYD_PEER_LISTEN_ADDRS"
 	envAdvertiseAddrs  = "RELAYD_ADVERTISE_ADDRS"
 	envTLSCertPath     = "RELAYD_TLS_CERT_PATH"
@@ -158,6 +159,10 @@ func main() {
 		log.Fatalf("parse options: %v", err)
 	}
 
+	if err := prepareRegistryStorage(opts); err != nil {
+		log.Fatalf("prepare registry storage: %v", err)
+	}
+
 	db, err := sql.Open("sqlite", opts.DBPath)
 	if err != nil {
 		log.Fatalf("open registry db: %v", err)
@@ -242,8 +247,8 @@ func parseOptionsFromArgs(args []string) (relaydOptions, error) {
 	var advertiseAddrs string
 	var trustedProxies string
 	fs.StringVar(&opts.HTTPAddr, "http-addr", defaultHTTPAddrForEnv(), "HTTP listen address")
-	fs.StringVar(&opts.DBPath, "db", envOrDefault(envDBPath, defaultDBPath), "SQLite registry database path")
-	fs.StringVar(&opts.IdentityKeyPath, "identity-key", envOrDefault(envIdentityKeyPath, defaultIdentityKeyPath), "libp2p relay identity private key path")
+	fs.StringVar(&opts.DBPath, "db", envOrDefault(envDBPath, defaultStoragePath(defaultDBPath)), "SQLite registry database path")
+	fs.StringVar(&opts.IdentityKeyPath, "identity-key", envOrDefault(envIdentityKeyPath, defaultStoragePath(defaultIdentityKeyPath)), "libp2p relay identity private key path")
 	fs.StringVar(&peerListenAddrs, "peer-listen-addrs", strings.Join(envListOrDefault(envPeerListenAddrs, defaultPeerListenAddrs), ","), "comma-separated libp2p listen multiaddrs for the public relay")
 	fs.StringVar(&advertiseAddrs, "advertise-addrs", strings.Join(envListOrDefault(envAdvertiseAddrs, nil), ","), "comma-separated public libp2p multiaddrs to advertise instead of the listen addresses")
 	fs.StringVar(&opts.TLSCertPath, "tls-cert", envOrDefault(envTLSCertPath, ""), "optional TLS certificate path for serving the registry API directly over HTTPS")
@@ -405,6 +410,45 @@ func loadOrCreateRelayIdentityKey(path string) (crypto.PrivKey, error) {
 	return priv, nil
 }
 
+func prepareRegistryStorage(opts relaydOptions) error {
+	if err := ensureWritableParent(opts.DBPath, "registry database"); err != nil {
+		return err
+	}
+	if err := ensureWritableParent(opts.IdentityKeyPath, "relay identity key"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureWritableParent(path, description string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("%s path is required", description)
+	}
+	dir := filepath.Dir(path)
+	if dir == "." || dir == "" {
+		dir = "."
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create %s directory %q: %w", description, dir, err)
+	}
+	probe, err := os.CreateTemp(dir, ".ben-relayd-write-test-*")
+	if err != nil {
+		return fmt.Errorf("write test %s directory %q: %w", description, dir, err)
+	}
+	probePath := probe.Name()
+	if closeErr := probe.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
+	if removeErr := os.Remove(probePath); removeErr != nil && err == nil {
+		err = removeErr
+	}
+	if err != nil {
+		return fmt.Errorf("write test %s directory %q: %w", description, dir, err)
+	}
+	return nil
+}
+
 func (o relaydOptions) relayResources() relayv2.Resources {
 	resources := relayv2.DefaultResources()
 	resources.ReservationTTL = o.ReservationTTL
@@ -510,6 +554,13 @@ func envOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func defaultStoragePath(filename string) string {
+	if volumePath := strings.TrimSpace(os.Getenv(envRailwayVolume)); volumePath != "" {
+		return filepath.Join(volumePath, filename)
+	}
+	return filename
 }
 
 func envListOrDefault(name string, fallback []string) []string {
