@@ -18,10 +18,8 @@ import {
   playTracks,
   playTracksFrom,
   previousTrack,
-  queueAlbum,
   queueLikedTrack,
   queueOfflineTrack,
-  queuePlaylist,
   queuePlaylistTrack,
   queueRecording,
   removeQueuedEntry,
@@ -108,10 +106,8 @@ type PlaybackStore = {
   setRepeatMode: (mode: string) => Promise<void>;
   playAlbum: (albumId: string) => Promise<void>;
   playAlbumTrack: (albumId: string, recordingId: string) => Promise<void>;
-  queueAlbum: (albumId: string) => Promise<void>;
   playPlaylist: (playlistId: string) => Promise<void>;
   playPlaylistTrack: (playlistId: string, itemId: string) => Promise<void>;
-  queuePlaylist: (playlistId: string) => Promise<void>;
   queuePlaylistTrack: (playlistId: string, itemId: string) => Promise<void>;
   playRecording: (recordingId: string) => Promise<void>;
   queueRecording: (recordingId: string) => Promise<void>;
@@ -689,16 +685,6 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       (error) => set({ error }),
     );
   },
-  queueAlbum: async (albumId) => {
-    const generation = get().generation;
-    await runPlaybackAction(
-      () => queueAlbum(albumId),
-      () => get().started && get().generation === generation,
-      () => get().transportStateSequence,
-      get().bootstrapFromSnapshot,
-      (error) => set({ error }),
-    );
-  },
   playPlaylist: async (playlistId) => {
     const generation = get().generation;
     await runPlaybackAction(
@@ -713,16 +699,6 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
     const generation = get().generation;
     await runPlaybackAction(
       () => playPlaylistTrack(playlistId, itemId),
-      () => get().started && get().generation === generation,
-      () => get().transportStateSequence,
-      get().bootstrapFromSnapshot,
-      (error) => set({ error }),
-    );
-  },
-  queuePlaylist: async (playlistId) => {
-    const generation = get().generation;
-    await runPlaybackAction(
-      () => queuePlaylist(playlistId),
       () => get().started && get().generation === generation,
       () => get().transportStateSequence,
       get().bootstrapFromSnapshot,

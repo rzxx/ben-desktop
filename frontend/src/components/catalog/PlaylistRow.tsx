@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { Pencil, Play, Trash2 } from "lucide-react";
 import type { PinState, PlaylistListItem } from "@/lib/api/models";
 import {
   ConfirmPlaylistDeleteDialog,
@@ -30,7 +30,6 @@ export function PlaylistRow({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const artworkUrl = useThumbnailUrl(playlist.Thumb);
   const playPlaylist = usePlaybackStore((state) => state.playPlaylist);
-  const queuePlaylist = usePlaybackStore((state) => state.queuePlaylist);
   const playLiked = usePlaybackStore((state) => state.playLiked);
   const playOffline = usePlaybackStore((state) => state.playOffline);
   const isLiked = playlist.Kind === "liked";
@@ -112,17 +111,6 @@ export function PlaylistRow({
         >
           <Play className="h-4 w-4" />
         </IconButton>
-        {!isReserved ? (
-          <IconButton
-            disabled={!canPlayPlaylist}
-            label="Queue playlist"
-            onClick={() => {
-              void queuePlaylist(playlist.PlaylistID);
-            }}
-          >
-            <Plus className="h-4 w-4" />
-          </IconButton>
-        ) : null}
         {!isReserved ? (
           <IconButton
             label="Rename playlist"

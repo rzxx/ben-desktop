@@ -6,7 +6,6 @@ import {
   LoaderCircle,
   Pencil,
   Play,
-  Plus,
   Trash2,
 } from "lucide-react";
 import type { JobSnapshot, PlaylistTrackItem } from "@/lib/api/models";
@@ -87,7 +86,6 @@ export function PlaylistDetailPage() {
   });
   const { playlistId } = playlistDetailRouteApi.useParams();
   const playPlaylist = usePlaybackStore((state) => state.playPlaylist);
-  const queuePlaylist = usePlaybackStore((state) => state.queuePlaylist);
   const playPlaylistTrack = usePlaybackStore(
     (state) => state.playPlaylistTrack,
   );
@@ -351,15 +349,6 @@ export function PlaylistDetailPage() {
               tone="primary"
             >
               Play playlist
-            </Button>
-            <Button
-              disabled={!canPlayPlaylistNow}
-              icon={<Plus className="h-4 w-4" />}
-              onClick={() => {
-                void queuePlaylist(playlistId);
-              }}
-            >
-              Queue playlist
             </Button>
             <Button
               disabled={pinBusy}

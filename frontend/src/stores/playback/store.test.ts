@@ -16,10 +16,8 @@ const playbackApi = vi.hoisted(() => ({
   playTracks: vi.fn(),
   playTracksFrom: vi.fn(),
   previousTrack: vi.fn(),
-  queueAlbum: vi.fn(),
   queueLikedTrack: vi.fn(),
   queueOfflineTrack: vi.fn(),
-  queuePlaylist: vi.fn(),
   queuePlaylistTrack: vi.fn(),
   queueRecording: vi.fn(),
   removeQueuedEntry: vi.fn(),
@@ -74,10 +72,8 @@ vi.mock("@/lib/api/playback", () => ({
   playTracks: playbackApi.playTracks,
   playTracksFrom: playbackApi.playTracksFrom,
   previousTrack: playbackApi.previousTrack,
-  queueAlbum: playbackApi.queueAlbum,
   queueLikedTrack: playbackApi.queueLikedTrack,
   queueOfflineTrack: playbackApi.queueOfflineTrack,
-  queuePlaylist: playbackApi.queuePlaylist,
   queuePlaylistTrack: playbackApi.queuePlaylistTrack,
   queueRecording: playbackApi.queueRecording,
   removeQueuedEntry: playbackApi.removeQueuedEntry,
@@ -263,10 +259,8 @@ beforeEach(() => {
   playbackApi.playTracks.mockResolvedValue(undefined);
   playbackApi.playTracksFrom.mockResolvedValue(undefined);
   playbackApi.previousTrack.mockResolvedValue(undefined);
-  playbackApi.queueAlbum.mockResolvedValue(undefined);
   playbackApi.queueLikedTrack.mockResolvedValue(undefined);
   playbackApi.queueOfflineTrack.mockResolvedValue(undefined);
-  playbackApi.queuePlaylist.mockResolvedValue(undefined);
   playbackApi.queuePlaylistTrack.mockResolvedValue(undefined);
   playbackApi.queueRecording.mockResolvedValue(undefined);
   playbackApi.removeQueuedEntry.mockResolvedValue(undefined);

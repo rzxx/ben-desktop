@@ -129,12 +129,6 @@ export function Previous(): $CancellablePromise<playback$0.SessionSnapshot> {
     });
 }
 
-export function QueueAlbum(albumID: string): $CancellablePromise<playback$0.SessionSnapshot> {
-    return $Call.ByID(3156120874, albumID).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
 export function QueueItems(items: playback$0.SessionItem[], mode: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2333187429, items, mode).then(($result: any) => {
         return $$createType0($result);
@@ -149,12 +143,6 @@ export function QueueLikedTrack(recordingID: string): $CancellablePromise<playba
 
 export function QueueOfflineTrack(recordingID: string): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(747776729, recordingID).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
-export function QueuePlaylist(playlistID: string): $CancellablePromise<playback$0.SessionSnapshot> {
-    return $Call.ByID(2887176341, playlistID).then(($result: any) => {
         return $$createType0($result);
     });
 }

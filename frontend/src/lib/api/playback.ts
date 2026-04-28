@@ -146,20 +146,12 @@ export function playAlbumTrack(albumId: string, recordingId: string) {
   return PlaybackService.PlayAlbumTrack(albumId, recordingId);
 }
 
-export function queueAlbum(albumId: string) {
-  return PlaybackService.QueueAlbum(albumId);
-}
-
 export function playPlaylist(playlistId: string) {
   return PlaybackService.PlayPlaylist(playlistId);
 }
 
 export function playPlaylistTrack(playlistId: string, itemId: string) {
   return PlaybackService.PlayPlaylistTrack(playlistId, itemId);
-}
-
-export function queuePlaylist(playlistId: string) {
-  return PlaybackService.QueuePlaylist(playlistId);
 }
 
 export function queuePlaylistTrack(playlistId: string, itemId: string) {

@@ -391,18 +391,6 @@ func (s *PlaybackService) PlayAlbumTrack(ctx context.Context, albumID string, re
 	return session.ReplaceSourceAndPlay(ctx, loader.BuildAlbumTrackSource(albumID, recordingID), false)
 }
 
-func (s *PlaybackService) QueueAlbum(ctx context.Context, albumID string) (playback.SessionSnapshot, error) {
-	loader, err := s.requireLoader()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	contextInput, err := loader.MaterializeSource(ctx, loader.BuildAlbumSource(albumID))
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return s.QueueItems(contextInput.Items, string(playback.QueueInsertLast))
-}
-
 func (s *PlaybackService) PlayPlaylist(ctx context.Context, playlistID string) (playback.SessionSnapshot, error) {
 	loader, err := s.requireLoader()
 	if err != nil {
@@ -425,18 +413,6 @@ func (s *PlaybackService) PlayPlaylistTrack(ctx context.Context, playlistID stri
 		return playback.SessionSnapshot{}, err
 	}
 	return session.ReplaceSourceAndPlay(ctx, loader.BuildPlaylistTrackSource(playlistID, itemID), false)
-}
-
-func (s *PlaybackService) QueuePlaylist(ctx context.Context, playlistID string) (playback.SessionSnapshot, error) {
-	loader, err := s.requireLoader()
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	contextInput, err := loader.MaterializeSource(ctx, loader.BuildPlaylistSource(playlistID))
-	if err != nil {
-		return playback.SessionSnapshot{}, err
-	}
-	return s.QueueItems(contextInput.Items, string(playback.QueueInsertLast))
 }
 
 func (s *PlaybackService) QueuePlaylistTrack(ctx context.Context, playlistID string, itemID string) (playback.SessionSnapshot, error) {
