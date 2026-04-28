@@ -462,6 +462,72 @@ func TestInitSchemaConfiguresSQLiteBusyTimeout(t *testing.T) {
 	if busyTimeoutMS != int(sqliteBusyTimeout/time.Millisecond) {
 		t.Fatalf("busy_timeout = %dms, want %dms", busyTimeoutMS, int(sqliteBusyTimeout/time.Millisecond))
 	}
+	var synchronous int
+	if err := db.QueryRow(`PRAGMA synchronous;`).Scan(&synchronous); err != nil {
+		t.Fatalf("query synchronous: %v", err)
+	}
+	if synchronous != 1 {
+		t.Fatalf("synchronous = %d, want 1", synchronous)
+	}
+	for _, indexName := range []string{
+		"idx_presence_expires_at",
+		"idx_member_auth_peer",
+		"idx_member_auth_library_peer",
+		"idx_member_auth_cert_expires_at",
+	} {
+		var name string
+		if err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`, indexName).Scan(&name); err != nil {
+			t.Fatalf("query index %s: %v", indexName, err)
+		}
+	}
+	var version int
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatalf("query schema version: %v", err)
+	}
+	if version != currentSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, currentSchemaVersion)
+	}
+}
+
+func TestCleanupExpiredRegistryStateDeletesExpiredPresenceAndMemberAuth(t *testing.T) {
+	t.Parallel()
+
+	db, err := sql.Open("sqlite", "file:"+t.Name()+"?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	configureSQLite(db)
+	defer db.Close()
+	if err := initSchema(db); err != nil {
+		t.Fatalf("init schema: %v", err)
+	}
+	now := time.Now().UTC()
+	if _, err := db.Exec(`
+		INSERT INTO presence_records(library_id, device_id, peer_id, addrs_json, expires_at, updated_at)
+		VALUES('lib', 'device', 'peer', '[]', ?, ?)
+	`, now.Add(-time.Minute).Unix(), now.Add(-2*time.Minute).Unix()); err != nil {
+		t.Fatalf("insert presence: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO member_auth_state(library_id, device_id, peer_id, cert_serial, cert_expires_at, updated_at)
+		VALUES('lib', 'device', 'peer', 1, ?, ?)
+	`, now.Add(-time.Minute).UnixNano(), now.Add(-2*time.Minute).Unix()); err != nil {
+		t.Fatalf("insert member auth: %v", err)
+	}
+
+	cleanupExpiredRegistryState(db, now, nil)
+
+	var presenceCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM presence_records`).Scan(&presenceCount); err != nil {
+		t.Fatalf("count presence: %v", err)
+	}
+	var memberCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM member_auth_state`).Scan(&memberCount); err != nil {
+		t.Fatalf("count member auth: %v", err)
+	}
+	if presenceCount != 0 || memberCount != 0 {
+		t.Fatalf("remaining rows presence=%d member=%d", presenceCount, memberCount)
+	}
 }
 
 func TestNewRelayHostUsesExplicitAdvertiseAddrs(t *testing.T) {
@@ -674,6 +740,23 @@ func TestHealthzBypassesRateLimit(t *testing.T) {
 		if resp.Code != http.StatusOK {
 			t.Fatalf("healthz attempt %d status = %d", i, resp.Code)
 		}
+	}
+}
+
+func TestHealthReportsDatabaseFailure(t *testing.T) {
+	t.Parallel()
+
+	server := openTestRelaydServer(t)
+	if err := server.db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+	recorder := httptest.NewRecorder()
+	server.handleHealth(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("health status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"ok":false`) {
+		t.Fatalf("health body = %s", recorder.Body.String())
 	}
 }
 

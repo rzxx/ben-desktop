@@ -41,6 +41,7 @@ const (
 	sqliteBusyTimeout      = 5 * time.Second
 	maxPresenceAddrs       = 16
 	maxPresenceAddrsBytes  = 8 << 10
+	currentSchemaVersion   = 2
 )
 
 const (
@@ -709,41 +710,110 @@ func configureSQLite(db *sql.DB) {
 }
 
 func initSchema(db *sql.DB) error {
-	queries := []string{
-		`PRAGMA journal_mode=WAL;`,
-		fmt.Sprintf(`PRAGMA busy_timeout=%d;`, sqliteBusyTimeout/time.Millisecond),
-		`CREATE TABLE IF NOT EXISTS presence_records (
-			library_id TEXT NOT NULL,
-			device_id TEXT NOT NULL,
-			peer_id TEXT NOT NULL,
-			addrs_json TEXT NOT NULL,
-			expires_at INTEGER NOT NULL,
-			updated_at INTEGER NOT NULL,
-			PRIMARY KEY (library_id, device_id, peer_id)
-		);`,
-		`CREATE TABLE IF NOT EXISTS library_roots (
-			library_id TEXT PRIMARY KEY,
-			root_public_key TEXT NOT NULL,
-			updated_at INTEGER NOT NULL
-		);`,
-		`CREATE TABLE IF NOT EXISTS member_auth_state (
-			library_id TEXT NOT NULL,
-			device_id TEXT NOT NULL,
-			peer_id TEXT NOT NULL,
-			cert_serial INTEGER NOT NULL,
-			cert_expires_at INTEGER NOT NULL,
-			updated_at INTEGER NOT NULL,
-			PRIMARY KEY (library_id, device_id)
-		);`,
-		`CREATE INDEX IF NOT EXISTS idx_presence_peer ON presence_records(peer_id, updated_at DESC);`,
-		`CREATE INDEX IF NOT EXISTS idx_presence_library_peer ON presence_records(library_id, peer_id, updated_at DESC);`,
+	if db == nil {
+		return fmt.Errorf("db is nil")
 	}
-	for _, query := range queries {
+	pragmas := []string{
+		`PRAGMA journal_mode=WAL;`,
+		`PRAGMA synchronous=NORMAL;`,
+		`PRAGMA wal_autocheckpoint=1000;`,
+		fmt.Sprintf(`PRAGMA busy_timeout=%d;`, sqliteBusyTimeout/time.Millisecond),
+	}
+	for _, query := range pragmas {
 		if _, err := db.Exec(query); err != nil {
 			return err
 		}
 	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version INTEGER PRIMARY KEY,
+		applied_at INTEGER NOT NULL
+	);`); err != nil {
+		return err
+	}
+	for version := 1; version <= currentSchemaVersion; version++ {
+		applied, err := schemaMigrationApplied(db, version)
+		if err != nil {
+			return err
+		}
+		if applied {
+			continue
+		}
+		if err := applySchemaMigration(db, version); err != nil {
+			return fmt.Errorf("apply schema migration %d: %w", version, err)
+		}
+	}
 	return nil
+}
+
+func schemaMigrationApplied(db *sql.DB, version int) (bool, error) {
+	var existing int
+	err := db.QueryRow(`SELECT version FROM schema_migrations WHERE version = ?`, version).Scan(&existing)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return existing == version, nil
+}
+
+func applySchemaMigration(db *sql.DB, version int) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, query := range schemaMigrationQueries(version) {
+		if _, err := tx.Exec(query); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)`, version, time.Now().UTC().Unix()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func schemaMigrationQueries(version int) []string {
+	switch version {
+	case 1:
+		return []string{
+			`CREATE TABLE IF NOT EXISTS presence_records (
+				library_id TEXT NOT NULL,
+				device_id TEXT NOT NULL,
+				peer_id TEXT NOT NULL,
+				addrs_json TEXT NOT NULL,
+				expires_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				PRIMARY KEY (library_id, device_id, peer_id)
+			);`,
+			`CREATE TABLE IF NOT EXISTS library_roots (
+				library_id TEXT PRIMARY KEY,
+				root_public_key TEXT NOT NULL,
+				updated_at INTEGER NOT NULL
+			);`,
+			`CREATE TABLE IF NOT EXISTS member_auth_state (
+				library_id TEXT NOT NULL,
+				device_id TEXT NOT NULL,
+				peer_id TEXT NOT NULL,
+				cert_serial INTEGER NOT NULL,
+				cert_expires_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				PRIMARY KEY (library_id, device_id)
+			);`,
+			`CREATE INDEX IF NOT EXISTS idx_presence_peer ON presence_records(peer_id, updated_at DESC);`,
+			`CREATE INDEX IF NOT EXISTS idx_presence_library_peer ON presence_records(library_id, peer_id, updated_at DESC);`,
+		}
+	case 2:
+		return []string{
+			`CREATE INDEX IF NOT EXISTS idx_presence_expires_at ON presence_records(expires_at);`,
+			`CREATE INDEX IF NOT EXISTS idx_member_auth_peer ON member_auth_state(peer_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_member_auth_library_peer ON member_auth_state(library_id, peer_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_member_auth_cert_expires_at ON member_auth_state(cert_expires_at);`,
+		}
+	default:
+		return nil
+	}
 }
 
 func cleanupLoop(ctx context.Context, db *sql.DB, metrics *relaydMetrics) {
@@ -754,13 +824,26 @@ func cleanupLoop(ctx context.Context, db *sql.DB, metrics *relaydMetrics) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if _, err := db.Exec(`DELETE FROM presence_records WHERE expires_at < ?`, time.Now().UTC().Unix()); err != nil {
-				if metrics != nil {
-					metrics.sqliteOperationFailures.WithLabelValues("cleanup_presence").Inc()
-				}
-				log.Printf("cleanup presence records: %v", err)
-			}
+			cleanupExpiredRegistryState(db, time.Now().UTC(), metrics)
 		}
+	}
+}
+
+func cleanupExpiredRegistryState(db *sql.DB, now time.Time, metrics *relaydMetrics) {
+	if db == nil {
+		return
+	}
+	if _, err := db.Exec(`DELETE FROM presence_records WHERE expires_at < ?`, now.UTC().Unix()); err != nil {
+		if metrics != nil {
+			metrics.sqliteOperationFailures.WithLabelValues("cleanup_presence").Inc()
+		}
+		log.Printf("cleanup presence records: %v", err)
+	}
+	if _, err := db.Exec(`DELETE FROM member_auth_state WHERE cert_expires_at > 0 AND cert_expires_at < ?`, now.UTC().UnixNano()); err != nil {
+		if metrics != nil {
+			metrics.sqliteOperationFailures.WithLabelValues("cleanup_member_auth").Inc()
+		}
+		log.Printf("cleanup member auth state: %v", err)
 	}
 }
 
@@ -811,10 +894,27 @@ func setCountGauge(db *sql.DB, gauge prometheus.Gauge, query string, arg any, me
 }
 
 func (s *relaydServer) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	dbOK := false
+	dbErr := ""
+	if s != nil && s.db != nil {
+		if err := s.db.Ping(); err != nil {
+			dbErr = err.Error()
+		} else {
+			dbOK = true
+		}
+	}
+	status := http.StatusOK
+	if !dbOK {
+		status = http.StatusServiceUnavailable
+	}
+	writeJSON(w, status, map[string]any{
 		"peerId": hostIDString(s.host),
 		"addrs":  formatHostAddrs(s.host),
-		"time":   time.Now().UTC(),
+		"db": map[string]any{
+			"ok":    dbOK,
+			"error": dbErr,
+		},
+		"time": time.Now().UTC(),
 	})
 }
 
