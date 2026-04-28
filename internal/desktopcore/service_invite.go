@@ -205,11 +205,41 @@ func (s *InviteService) DeleteInvite(ctx context.Context, inviteID string) error
 		}
 		return err
 	}
+	if err := s.syncInviteRevocation(ctx, row); err != nil {
+		return err
+	}
 	if err := s.deleteInviteTx(s.app.storage.WithContext(ctx), row); err != nil {
 		return err
 	}
 	s.app.transportService.refreshInviteReachabilityState(local.LibraryID)
 	return nil
+}
+
+func (s *InviteService) syncInviteRevocation(ctx context.Context, row IssuedInvite) error {
+	if s == nil || s.app == nil {
+		return nil
+	}
+	locator := s.app.peerLocator(row.RegistryURL)
+	if locator == nil {
+		return nil
+	}
+	var library Library
+	if err := s.app.storage.WithContext(ctx).Where("library_id = ?", strings.TrimSpace(row.LibraryID)).Take(&library).Error; err != nil {
+		return err
+	}
+	if strings.TrimSpace(library.RootPrivateKey) == "" {
+		return fmt.Errorf("library root private key is required for revocation sync")
+	}
+	req, err := registryauth.SignRevocationSync(registryauth.RevocationSyncRequest{
+		LibraryID:      row.LibraryID,
+		RootPublicKey:  library.RootPublicKey,
+		Revision:       time.Now().UTC().UnixNano(),
+		InviteTokenIDs: []string{row.TokenID},
+	}, library.RootPrivateKey)
+	if err != nil {
+		return fmt.Errorf("sign invite revocation sync: %w", err)
+	}
+	return locator.SyncRevocations(ctx, req)
 }
 
 func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {

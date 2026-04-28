@@ -42,7 +42,7 @@ const (
 	sqliteBusyTimeout      = 5 * time.Second
 	maxPresenceAddrs       = 16
 	maxPresenceAddrsBytes  = 8 << 10
-	currentSchemaVersion   = 2
+	currentSchemaVersion   = 3
 )
 
 const (
@@ -182,6 +182,7 @@ func main() {
 	mux.HandleFunc("/v1/presence/announce", server.handlePresenceAnnounce)
 	mux.HandleFunc("/v1/presence/member", server.handlePresenceMember)
 	mux.HandleFunc("/v1/relay/authorize", server.handleRelayAuthorize)
+	mux.HandleFunc("/v1/revocations/sync", server.handleRevocationSync)
 	mux.HandleFunc("/v1/invites/owner", server.handleInviteOwner)
 
 	handler, limiter := buildHTTPHandler(mux, opts, metrics)
@@ -863,6 +864,32 @@ func schemaMigrationQueries(version int) []string {
 			`CREATE INDEX IF NOT EXISTS idx_member_auth_library_peer ON member_auth_state(library_id, peer_id);`,
 			`CREATE INDEX IF NOT EXISTS idx_member_auth_cert_expires_at ON member_auth_state(cert_expires_at);`,
 		}
+	case 3:
+		return []string{
+			`CREATE TABLE IF NOT EXISTS revocation_state (
+				library_id TEXT PRIMARY KEY,
+				root_public_key TEXT NOT NULL,
+				revision INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			);`,
+			`CREATE TABLE IF NOT EXISTS revoked_invites (
+				library_id TEXT NOT NULL,
+				token_id TEXT NOT NULL,
+				revision INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				PRIMARY KEY (library_id, token_id)
+			);`,
+			`CREATE TABLE IF NOT EXISTS revoked_members (
+				library_id TEXT NOT NULL,
+				device_id TEXT NOT NULL,
+				max_serial INTEGER NOT NULL,
+				revision INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				PRIMARY KEY (library_id, device_id)
+			);`,
+			`CREATE INDEX IF NOT EXISTS idx_revoked_invites_library_token ON revoked_invites(library_id, token_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_revoked_members_library_device ON revoked_members(library_id, device_id);`,
+		}
 	default:
 		return nil
 	}
@@ -1092,6 +1119,39 @@ func (s *relaydServer) handleRelayAuthorize(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+func (s *relaydServer) handleRevocationSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req registryauth.RevocationSyncRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := registryauth.VerifyRevocationSync(req); err != nil {
+		s.metrics.registryEvent("revocation_sync", "auth_failed")
+		http.Error(w, fmt.Sprintf("authenticate revocation sync: %v", err), http.StatusUnauthorized)
+		return
+	}
+	if err := s.pinLibraryRoot(req.LibraryID, req.RootPublicKey); err != nil {
+		s.metrics.registryEvent("revocation_sync", "pin_failed")
+		http.Error(w, fmt.Sprintf("pin revocation library root: %v", err), http.StatusUnauthorized)
+		return
+	}
+	applied, err := s.applyRevocationSync(r.Context(), req)
+	if err != nil {
+		s.metrics.registryEvent("revocation_sync", "store_failed")
+		http.Error(w, fmt.Sprintf("store revocation sync: %v", err), http.StatusInternalServerError)
+		return
+	}
+	result := "stale"
+	if applied {
+		result = "ok"
+	}
+	s.metrics.registryEvent("revocation_sync", result)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "applied": applied})
+}
+
 func (s *relaydServer) handleInviteOwner(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1109,6 +1169,15 @@ func (s *relaydServer) handleInviteOwner(w http.ResponseWriter, r *http.Request)
 	if err := s.pinLibraryRoot(req.Invite.LibraryID, req.Invite.RootPublicKey); err != nil {
 		s.metrics.registryEvent("invite_owner", "pin_failed")
 		http.Error(w, fmt.Sprintf("pin invite library root: %v", err), http.StatusUnauthorized)
+		return
+	}
+	if revoked, err := s.inviteRevoked(req.Invite.LibraryID, req.Invite.TokenID); err != nil {
+		s.metrics.registryEvent("invite_owner", "revocation_check_failed")
+		http.Error(w, fmt.Sprintf("check invite revocation: %v", err), http.StatusInternalServerError)
+		return
+	} else if revoked {
+		s.metrics.registryEvent("invite_owner", "revoked")
+		http.Error(w, "invite is revoked", http.StatusUnauthorized)
 		return
 	}
 	record, ok, err := s.lookupPresence(req.Invite.LibraryID, req.Invite.OwnerPeerID)
@@ -1249,6 +1318,90 @@ func (s *relaydServer) lookupPresence(libraryID, peerID string) (presenceRecord,
 	return record, true, nil
 }
 
+func (s *relaydServer) applyRevocationSync(ctx context.Context, req registryauth.RevocationSyncRequest) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var existingRevision int64
+	err = tx.QueryRow(`SELECT revision FROM revocation_state WHERE library_id = ?`, strings.TrimSpace(req.LibraryID)).Scan(&existingRevision)
+	switch {
+	case err == nil && existingRevision >= req.Revision:
+		return false, tx.Commit()
+	case err == sql.ErrNoRows:
+	case err != nil:
+		return false, err
+	}
+	now := time.Now().UTC().Unix()
+	if _, err := tx.Exec(`
+		INSERT INTO revocation_state(library_id, root_public_key, revision, updated_at)
+		VALUES(?, ?, ?, ?)
+		ON CONFLICT(library_id) DO UPDATE SET
+			root_public_key = excluded.root_public_key,
+			revision = excluded.revision,
+			updated_at = excluded.updated_at
+	`, strings.TrimSpace(req.LibraryID), strings.TrimSpace(req.RootPublicKey), req.Revision, now); err != nil {
+		return false, err
+	}
+	for _, tokenID := range compactNonEmptyStrings(req.InviteTokenIDs) {
+		if _, err := tx.Exec(`
+			INSERT INTO revoked_invites(library_id, token_id, revision, updated_at)
+			VALUES(?, ?, ?, ?)
+			ON CONFLICT(library_id, token_id) DO UPDATE SET
+				revision = max(revoked_invites.revision, excluded.revision),
+				updated_at = excluded.updated_at
+		`, strings.TrimSpace(req.LibraryID), tokenID, req.Revision, now); err != nil {
+			return false, err
+		}
+	}
+	for _, revocation := range req.MembershipRevocations {
+		deviceID := strings.TrimSpace(revocation.DeviceID)
+		if deviceID == "" || revocation.MaxSerial <= 0 {
+			continue
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO revoked_members(library_id, device_id, max_serial, revision, updated_at)
+			VALUES(?, ?, ?, ?, ?)
+			ON CONFLICT(library_id, device_id) DO UPDATE SET
+				max_serial = max(revoked_members.max_serial, excluded.max_serial),
+				revision = max(revoked_members.revision, excluded.revision),
+				updated_at = excluded.updated_at
+		`, strings.TrimSpace(req.LibraryID), deviceID, revocation.MaxSerial, req.Revision, now); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *relaydServer) inviteRevoked(libraryID, tokenID string) (bool, error) {
+	var exists int
+	err := s.db.QueryRow(`SELECT 1 FROM revoked_invites WHERE library_id = ? AND token_id = ? LIMIT 1`, strings.TrimSpace(libraryID), strings.TrimSpace(tokenID)).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil && exists == 1, err
+}
+
+func (s *relaydServer) membershipRevoked(libraryID, deviceID string, serial int64) (bool, error) {
+	return membershipRevokedQuery(s.db, libraryID, deviceID, serial)
+}
+
+func membershipRevokedQuery(db sqlQueryExecutor, libraryID, deviceID string, serial int64) (bool, error) {
+	var maxSerial int64
+	err := db.QueryRow(`SELECT max_serial FROM revoked_members WHERE library_id = ? AND device_id = ?`, strings.TrimSpace(libraryID), strings.TrimSpace(deviceID)).Scan(&maxSerial)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return serial <= maxSerial, nil
+}
+
 type sqlQueryExecutor interface {
 	Exec(query string, args ...any) (sql.Result, error)
 	QueryRow(query string, args ...any) *sql.Row
@@ -1306,6 +1459,11 @@ func authenticateMembershipTx(db sqlQueryExecutor, libraryID, claimedRootPublicK
 	}
 	if err := registryauth.VerifyMembershipCert(cert, auth.AuthorityChain, rootPublicKey, time.Now().UTC(), libraryID, cert.DeviceID, cert.PeerID); err != nil {
 		return verifiedMembership{}, err
+	}
+	if revoked, err := membershipRevokedQuery(db, libraryID, cert.DeviceID, cert.Serial); err != nil {
+		return verifiedMembership{}, err
+	} else if revoked {
+		return verifiedMembership{}, fmt.Errorf("membership certificate is revoked")
 	}
 	member := verifiedMembership{
 		LibraryID:     libraryID,

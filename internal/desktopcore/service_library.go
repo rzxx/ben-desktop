@@ -376,6 +376,9 @@ func (s *LibraryService) UpdateLibraryMemberRole(ctx context.Context, deviceID, 
 	}); err != nil {
 		return err
 	}
+	if err := s.app.syncMembershipRevocations(ctx, local.LibraryID); err != nil {
+		return err
+	}
 	return s.app.syncActiveRuntimeServices(ctx)
 }
 
@@ -425,6 +428,9 @@ func (s *LibraryService) RemoveLibraryMember(ctx context.Context, deviceID strin
 			Where("device_id = ? AND active_library_id = ?", deviceID, local.LibraryID).
 			Update("active_library_id", nil).Error
 	}); err != nil {
+		return err
+	}
+	if err := s.app.syncMembershipRevocations(ctx, local.LibraryID); err != nil {
 		return err
 	}
 	return s.app.syncActiveRuntimeServices(ctx)

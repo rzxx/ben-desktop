@@ -78,6 +78,20 @@ type RelayAuthorizeRequest struct {
 	Auth          TransportPeerAuth `json:"auth"`
 }
 
+type MembershipRevocation struct {
+	DeviceID  string `json:"deviceId"`
+	MaxSerial int64  `json:"maxSerial"`
+}
+
+type RevocationSyncRequest struct {
+	LibraryID             string                 `json:"libraryId"`
+	RootPublicKey         string                 `json:"rootPublicKey"`
+	Revision              int64                  `json:"revision"`
+	InviteTokenIDs        []string               `json:"inviteTokenIds,omitempty"`
+	MembershipRevocations []MembershipRevocation `json:"membershipRevocations,omitempty"`
+	Sig                   []byte                 `json:"sig,omitempty"`
+}
+
 type InviteOwnerLookupRequest struct {
 	Invite InviteAttestation `json:"invite"`
 }
@@ -200,6 +214,81 @@ func InviteAttestationSigningPayload(attestation InviteAttestation) ([]byte, err
 		return nil, fmt.Errorf("marshal invite attestation payload: %w", err)
 	}
 	return out, nil
+}
+
+func RevocationSyncSigningPayload(req RevocationSyncRequest) ([]byte, error) {
+	inviteTokenIDs := CompactNonEmptyStrings(req.InviteTokenIDs)
+	sort.Strings(inviteTokenIDs)
+	revocations := append([]MembershipRevocation(nil), req.MembershipRevocations...)
+	for i := range revocations {
+		revocations[i].DeviceID = strings.TrimSpace(revocations[i].DeviceID)
+	}
+	sort.Slice(revocations, func(i, j int) bool {
+		if revocations[i].DeviceID == revocations[j].DeviceID {
+			return revocations[i].MaxSerial < revocations[j].MaxSerial
+		}
+		return revocations[i].DeviceID < revocations[j].DeviceID
+	})
+	body := struct {
+		LibraryID             string                 `json:"library_id"`
+		RootPublicKey         string                 `json:"root_public_key"`
+		Revision              int64                  `json:"revision"`
+		InviteTokenIDs        []string               `json:"invite_token_ids,omitempty"`
+		MembershipRevocations []MembershipRevocation `json:"membership_revocations,omitempty"`
+	}{
+		LibraryID:             strings.TrimSpace(req.LibraryID),
+		RootPublicKey:         strings.TrimSpace(req.RootPublicKey),
+		Revision:              req.Revision,
+		InviteTokenIDs:        inviteTokenIDs,
+		MembershipRevocations: revocations,
+	}
+	out, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal revocation sync payload: %w", err)
+	}
+	return out, nil
+}
+
+func SignRevocationSync(req RevocationSyncRequest, encodedPrivateKey string) (RevocationSyncRequest, error) {
+	privateKey, err := DecodeEd25519PrivateKey(encodedPrivateKey)
+	if err != nil {
+		return RevocationSyncRequest{}, err
+	}
+	derivedPublicKey := base64.StdEncoding.EncodeToString(ed25519.PrivateKey(privateKey).Public().(ed25519.PublicKey))
+	if strings.TrimSpace(req.RootPublicKey) == "" {
+		req.RootPublicKey = derivedPublicKey
+	} else if strings.TrimSpace(req.RootPublicKey) != derivedPublicKey {
+		return RevocationSyncRequest{}, fmt.Errorf("revocation sync root public key mismatch")
+	}
+	payload, err := RevocationSyncSigningPayload(req)
+	if err != nil {
+		return RevocationSyncRequest{}, err
+	}
+	req.Sig = ed25519.Sign(ed25519.PrivateKey(privateKey), payload)
+	return req, nil
+}
+
+func VerifyRevocationSync(req RevocationSyncRequest) error {
+	req.LibraryID = strings.TrimSpace(req.LibraryID)
+	req.RootPublicKey = strings.TrimSpace(req.RootPublicKey)
+	if req.LibraryID == "" || req.RootPublicKey == "" {
+		return fmt.Errorf("revocation sync is incomplete")
+	}
+	if req.Revision <= 0 {
+		return fmt.Errorf("revocation sync revision is invalid")
+	}
+	publicKey, err := DecodeEd25519PublicKey(req.RootPublicKey)
+	if err != nil {
+		return fmt.Errorf("decode revocation root public key: %w", err)
+	}
+	payload, err := RevocationSyncSigningPayload(req)
+	if err != nil {
+		return err
+	}
+	if !ed25519.Verify(ed25519.PublicKey(publicKey), payload, req.Sig) {
+		return fmt.Errorf("invalid revocation sync signature")
+	}
+	return nil
 }
 
 func SignInviteAttestation(attestation InviteAttestation, encodedPrivateKey string) (InviteAttestation, error) {

@@ -78,6 +78,8 @@ func (r *inviteTestRegistry) serveHTTP(w http.ResponseWriter, req *http.Request)
 		r.handlePresenceMember(w, req)
 	case "/v1/relay/authorize":
 		r.handleRelayAuthorize(w, req)
+	case "/v1/revocations/sync":
+		w.WriteHeader(http.StatusOK)
 	case "/v1/invites/owner":
 		r.handleInviteOwner(w, req)
 	default:

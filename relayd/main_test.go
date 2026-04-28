@@ -373,6 +373,61 @@ func TestRelayACLAllowsAuthorizedReserveAndDestinationConnect(t *testing.T) {
 	}
 }
 
+func TestRevocationSyncRejectsRevokedInviteAndMembership(t *testing.T) {
+	t.Parallel()
+
+	server := openTestRelaydServer(t)
+	member := newMembershipFixture(t, "lib-1", "device-1", "peer-1")
+	if status := serveJSON(t, server.handlePresenceAnnounce, registryauth.PresenceAnnounceRequest{
+		Record: registryauth.PresenceRecord{
+			LibraryID: member.libraryID,
+			DeviceID:  member.deviceID,
+			PeerID:    member.peerID,
+			Addrs:     []string{relayAddrForPeer(t, member.peerID)},
+		},
+		RootPublicKey: member.rootPub,
+		Auth:          member.auth,
+	}); status != http.StatusOK {
+		t.Fatalf("presence announce status = %d", status)
+	}
+	invite, err := registryauth.SignInviteAttestation(registryauth.InviteAttestation{
+		LibraryID:     member.libraryID,
+		TokenID:       "token-revoked",
+		OwnerPeerID:   member.peerID,
+		RootPublicKey: member.rootPub,
+		ExpiresAt:     time.Now().Add(time.Hour).Unix(),
+	}, member.rootPriv)
+	if err != nil {
+		t.Fatalf("sign invite: %v", err)
+	}
+	revocations, err := registryauth.SignRevocationSync(registryauth.RevocationSyncRequest{
+		LibraryID:      member.libraryID,
+		RootPublicKey:  member.rootPub,
+		Revision:       time.Now().UnixNano(),
+		InviteTokenIDs: []string{invite.TokenID},
+		MembershipRevocations: []registryauth.MembershipRevocation{{
+			DeviceID:  member.deviceID,
+			MaxSerial: member.auth.Cert.Serial,
+		}},
+	}, member.rootPriv)
+	if err != nil {
+		t.Fatalf("sign revocations: %v", err)
+	}
+	if status := serveJSON(t, server.handleRevocationSync, revocations); status != http.StatusOK {
+		t.Fatalf("revocation sync status = %d", status)
+	}
+	if status := serveJSON(t, server.handleInviteOwner, registryauth.InviteOwnerLookupRequest{Invite: invite}); status != http.StatusUnauthorized {
+		t.Fatalf("revoked invite status = %d", status)
+	}
+	if status := serveJSON(t, server.handleRelayAuthorize, registryauth.RelayAuthorizeRequest{
+		LibraryID:     member.libraryID,
+		RootPublicKey: member.rootPub,
+		Auth:          member.auth,
+	}); status != http.StatusUnauthorized {
+		t.Fatalf("revoked membership authorize status = %d", status)
+	}
+}
+
 func TestLoadOrCreateRelayIdentityKeyPersistsPeerID(t *testing.T) {
 	t.Parallel()
 

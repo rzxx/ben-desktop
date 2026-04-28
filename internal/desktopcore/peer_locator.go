@@ -27,6 +27,7 @@ var (
 type PeerLocator interface {
 	Announce(ctx context.Context, req registryauth.PresenceAnnounceRequest) error
 	AuthorizeRelay(ctx context.Context, req registryauth.RelayAuthorizeRequest) error
+	SyncRevocations(ctx context.Context, req registryauth.RevocationSyncRequest) error
 	LookupMemberPeer(ctx context.Context, req registryauth.MemberLookupRequest) (PeerPresenceRecord, bool, error)
 	LookupInviteOwner(ctx context.Context, req registryauth.InviteOwnerLookupRequest) (PeerPresenceRecord, bool, error)
 }
@@ -158,6 +159,34 @@ func (l *httpPeerLocator) AuthorizeRelay(ctx context.Context, req registryauth.R
 	}
 	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	return fmt.Errorf("authorize relay failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+}
+
+func (l *httpPeerLocator) SyncRevocations(ctx context.Context, req registryauth.RevocationSyncRequest) error {
+	if l == nil {
+		return fmt.Errorf("peer locator is not configured")
+	}
+	if err := registryauth.VerifyRevocationSync(req); err != nil {
+		return fmt.Errorf("invalid revocation sync request: %w", err)
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal revocation sync request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, l.baseURL+"/v1/revocations/sync", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build revocation sync request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := l.client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("sync revocations: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode/100 == 2 {
+		return nil
+	}
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return fmt.Errorf("sync revocations failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 }
 
 func (l *httpPeerLocator) LookupInviteOwner(ctx context.Context, req registryauth.InviteOwnerLookupRequest) (PeerPresenceRecord, bool, error) {
