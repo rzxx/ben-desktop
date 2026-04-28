@@ -26,6 +26,7 @@ var (
 
 type PeerLocator interface {
 	Announce(ctx context.Context, req registryauth.PresenceAnnounceRequest) error
+	AuthorizeRelay(ctx context.Context, req registryauth.RelayAuthorizeRequest) error
 	LookupMemberPeer(ctx context.Context, req registryauth.MemberLookupRequest) (PeerPresenceRecord, bool, error)
 	LookupInviteOwner(ctx context.Context, req registryauth.InviteOwnerLookupRequest) (PeerPresenceRecord, bool, error)
 }
@@ -127,6 +128,36 @@ func (l *httpPeerLocator) LookupMemberPeer(ctx context.Context, req registryauth
 	req.PeerID = strings.TrimSpace(req.PeerID)
 	req.RootPublicKey = strings.TrimSpace(req.RootPublicKey)
 	return l.lookup(ctx, "/v1/presence/member", req)
+}
+
+func (l *httpPeerLocator) AuthorizeRelay(ctx context.Context, req registryauth.RelayAuthorizeRequest) error {
+	if l == nil {
+		return fmt.Errorf("peer locator is not configured")
+	}
+	req.LibraryID = strings.TrimSpace(req.LibraryID)
+	req.RootPublicKey = strings.TrimSpace(req.RootPublicKey)
+	if req.LibraryID == "" || req.RootPublicKey == "" {
+		return fmt.Errorf("library id and root public key are required")
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal relay authorization request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, l.baseURL+"/v1/relay/authorize", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build relay authorization request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := l.client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("authorize relay: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode/100 == 2 {
+		return nil
+	}
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return fmt.Errorf("authorize relay failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 }
 
 func (l *httpPeerLocator) LookupInviteOwner(ctx context.Context, req registryauth.InviteOwnerLookupRequest) (PeerPresenceRecord, bool, error) {

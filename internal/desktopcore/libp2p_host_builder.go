@@ -1,6 +1,7 @@
 package desktopcore
 
 import (
+	"ben/registryauth"
 	"context"
 	"errors"
 	"fmt"
@@ -196,6 +197,10 @@ func (a *App) ensureActiveTransportRelayReservation(ctx context.Context, timeout
 			if addrs := transport.relayReservationAddrs(); len(addrs) > 0 {
 				return nil
 			}
+			if err := a.authorizeRelayReservation(waitCtx, transport); err != nil {
+				lastErr = err
+				continue
+			}
 			reserveTimeout := transportConnectTimeout
 			if deadline, ok := waitCtx.Deadline(); ok {
 				if remaining := time.Until(deadline); remaining > 0 && remaining < reserveTimeout {
@@ -239,6 +244,25 @@ func (a *App) ensureActiveTransportRelayReservation(ctx context.Context, timeout
 		return fmt.Errorf("ensure active transport relay reservation: %w", lastErr)
 	}
 	return context.DeadlineExceeded
+}
+
+func (a *App) authorizeRelayReservation(ctx context.Context, transport *libp2pSyncTransport) error {
+	if a == nil || transport == nil || transport.host == nil {
+		return nil
+	}
+	locator := a.peerLocator(a.cfg.RegistryURL)
+	if locator == nil {
+		return nil
+	}
+	auth, err := a.registryMembershipAuth(ctx, transport.libraryID, transport.deviceID, transport.host.ID().String())
+	if err != nil {
+		return err
+	}
+	return locator.AuthorizeRelay(ctx, registryauth.RelayAuthorizeRequest{
+		LibraryID:     transport.libraryID,
+		RootPublicKey: auth.RootPublicKey,
+		Auth:          auth.Auth,
+	})
 }
 
 func relayReservationBootstrapAddrs(info peer.AddrInfo, localPeerID peer.ID) []string {

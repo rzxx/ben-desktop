@@ -76,6 +76,8 @@ func (r *inviteTestRegistry) serveHTTP(w http.ResponseWriter, req *http.Request)
 		r.handlePresenceAnnounce(w, req)
 	case "/v1/presence/member":
 		r.handlePresenceMember(w, req)
+	case "/v1/relay/authorize":
+		r.handleRelayAuthorize(w, req)
 	case "/v1/invites/owner":
 		r.handleInviteOwner(w, req)
 	default:
@@ -111,6 +113,14 @@ func (r *inviteTestRegistry) handlePresenceAnnounce(w http.ResponseWriter, req *
 	r.mu.Lock()
 	r.records[inviteRegistryKey(record.LibraryID, record.PeerID)] = record
 	r.mu.Unlock()
+	w.WriteHeader(http.StatusOK)
+}
+
+func (r *inviteTestRegistry) handleRelayAuthorize(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 

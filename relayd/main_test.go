@@ -317,6 +317,62 @@ func TestPresenceAnnounceRejectsStaleMembershipSerial(t *testing.T) {
 	}
 }
 
+func TestRelayAuthorizePersistsRelayACLState(t *testing.T) {
+	t.Parallel()
+
+	server := openTestRelaydServer(t)
+	member := newMembershipFixture(t, "lib-1", "device-1", "peer-1")
+	if relayPeerAuthorized(server.db, member.peerID) {
+		t.Fatal("peer should not be authorized before relay authorization")
+	}
+	status := serveJSON(t, server.handleRelayAuthorize, registryauth.RelayAuthorizeRequest{
+		LibraryID:     member.libraryID,
+		RootPublicKey: member.rootPub,
+		Auth:          member.auth,
+	})
+	if status != http.StatusOK {
+		t.Fatalf("relay authorize status = %d", status)
+	}
+	if !relayPeerAuthorized(server.db, member.peerID) {
+		t.Fatal("peer should be authorized after relay authorization")
+	}
+}
+
+func TestRelayACLAllowsAuthorizedReserveAndDestinationConnect(t *testing.T) {
+	t.Parallel()
+
+	server := openTestRelaydServer(t)
+	member := newMembershipFixture(t, "lib-1", "device-1", "peer-1")
+	acl := &relayACL{db: server.db}
+	memberPeer, err := peer.Decode(member.peerID)
+	if err != nil {
+		t.Fatalf("decode member peer: %v", err)
+	}
+	otherPeer, err := peer.Decode(mustGenerateTestPeerID(t))
+	if err != nil {
+		t.Fatalf("decode other peer: %v", err)
+	}
+	if acl.AllowReserve(memberPeer, nil) {
+		t.Fatal("reserve should be denied before authorization")
+	}
+	if status := serveJSON(t, server.handleRelayAuthorize, registryauth.RelayAuthorizeRequest{
+		LibraryID:     member.libraryID,
+		RootPublicKey: member.rootPub,
+		Auth:          member.auth,
+	}); status != http.StatusOK {
+		t.Fatalf("relay authorize status = %d", status)
+	}
+	if !acl.AllowReserve(memberPeer, nil) {
+		t.Fatal("reserve should be allowed after authorization")
+	}
+	if !acl.AllowConnect(otherPeer, nil, memberPeer) {
+		t.Fatal("connect to authorized destination should be allowed")
+	}
+	if acl.AllowConnect(memberPeer, nil, otherPeer) {
+		t.Fatal("connect to unauthorized destination should be denied")
+	}
+}
+
 func TestLoadOrCreateRelayIdentityKeyPersistsPeerID(t *testing.T) {
 	t.Parallel()
 
@@ -556,7 +612,7 @@ func TestNewRelayHostUsesExplicitAdvertiseAddrs(t *testing.T) {
 		RelayLimitDuration:     time.Second,
 		RelayLimitDataBytes:    1024,
 	}
-	hostNode, err := newRelayHost(opts)
+	hostNode, err := newRelayHost(opts, nil, nil)
 	if err != nil {
 		t.Fatalf("new relay host: %v", err)
 	}

@@ -24,6 +24,7 @@ import (
 	crypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	ma "github.com/multiformats/go-multiaddr"
@@ -94,6 +95,7 @@ type relaydOptions struct {
 	RateLimitIdleTTL           time.Duration
 	TrustedProxies             []string
 	ClientIPHeader             string
+	RelayACLDisabled           bool
 	ReservationTTL             time.Duration
 	MaxReservations            int
 	MaxCircuits                int
@@ -119,6 +121,12 @@ type relaydMetrics struct {
 	memberAuthStateGauge    prometheus.Gauge
 	libraryRootsGauge       prometheus.Gauge
 	sqliteOperationFailures *prometheus.CounterVec
+	relayACLDecisionsTotal  *prometheus.CounterVec
+}
+
+type relayACL struct {
+	db      *sql.DB
+	metrics *relaydMetrics
 }
 
 type statusResponseWriter struct {
@@ -160,19 +168,20 @@ func main() {
 		log.Fatalf("init registry db: %v", err)
 	}
 
-	hostNode, err := newRelayHost(opts)
+	metrics := newRelaydMetrics(prometheus.DefaultRegisterer)
+	hostNode, err := newRelayHost(opts, db, metrics)
 	if err != nil {
 		log.Fatalf("create relay host: %v", err)
 	}
 	defer hostNode.Close()
 
-	metrics := newRelaydMetrics(prometheus.DefaultRegisterer)
 	server := &relaydServer{db: db, host: hostNode, metrics: metrics}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", server.handleHealth)
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/v1/presence/announce", server.handlePresenceAnnounce)
 	mux.HandleFunc("/v1/presence/member", server.handlePresenceMember)
+	mux.HandleFunc("/v1/relay/authorize", server.handleRelayAuthorize)
 	mux.HandleFunc("/v1/invites/owner", server.handleInviteOwner)
 
 	handler, limiter := buildHTTPHandler(mux, opts, metrics)
@@ -249,6 +258,7 @@ func parseOptionsFromArgs(args []string) (relaydOptions, error) {
 	fs.DurationVar(&opts.RateLimitIdleTTL, "rate-limit-idle-ttl", 10*time.Minute, "how long to retain idle per-IP rate limit state")
 	fs.StringVar(&trustedProxies, "trusted-proxies", strings.Join(envListOrDefault(envTrustedProxies, nil), ","), "comma-separated trusted reverse proxy IPs or CIDRs allowed to supply the client IP header")
 	fs.StringVar(&opts.ClientIPHeader, "client-ip-header", envOrDefault(envClientIPHeader, ""), "client IP header to trust only from trusted proxies, for example X-Forwarded-For")
+	fs.BoolVar(&opts.RelayACLDisabled, "relay-acl-disabled", false, "disable membership-backed circuit relay ACL; intended only for local development")
 	fs.DurationVar(&opts.ReservationTTL, "relay-reservation-ttl", time.Hour, "relay reservation TTL")
 	fs.IntVar(&opts.MaxReservations, "relay-max-reservations", 128, "maximum relay reservations")
 	fs.IntVar(&opts.MaxCircuits, "relay-max-circuits", 8, "maximum concurrent relay circuits")
@@ -276,7 +286,7 @@ func parseOptionsFromArgs(args []string) (relaydOptions, error) {
 	return opts, nil
 }
 
-func newRelayHost(opts relaydOptions) (host.Host, error) {
+func newRelayHost(opts relaydOptions, db *sql.DB, metrics *relaydMetrics) (host.Host, error) {
 	priv, err := loadOrCreateRelayIdentityKey(opts.IdentityKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("load relay identity: %w", err)
@@ -285,12 +295,16 @@ func newRelayHost(opts relaydOptions) (host.Host, error) {
 	if err != nil {
 		return nil, err
 	}
+	relayOpts := []relayv2.Option{relayv2.WithResources(opts.relayResources())}
+	if !opts.RelayACLDisabled {
+		relayOpts = append(relayOpts, relayv2.WithACL(&relayACL{db: db, metrics: metrics}))
+	}
 	libp2pOpts := []libp2p.Option{
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(opts.listenAddrs()...),
 		libp2p.ResourceManager(rm),
 		libp2p.ForceReachabilityPublic(),
-		libp2p.EnableRelayService(relayv2.WithResources(opts.relayResources())),
+		libp2p.EnableRelayService(relayOpts...),
 	}
 	if advertiseAddrs, err := parseMultiaddrs(opts.advertiseAddrs(), "advertise address"); err != nil {
 		return nil, err
@@ -319,6 +333,44 @@ func newRelayResourceManager() (network.ResourceManager, error) {
 	scaling := rcmgr.DefaultLimits
 	libp2p.SetDefaultServiceLimits(&scaling)
 	return rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(scaling.AutoScale()), rcmgr.WithMetricsDisabled())
+}
+
+func (a *relayACL) AllowReserve(p peer.ID, _ ma.Multiaddr) bool {
+	allowed := relayPeerAuthorized(a.db, p.String())
+	a.record("reserve", allowed)
+	return allowed
+}
+
+func (a *relayACL) AllowConnect(_ peer.ID, _ ma.Multiaddr, dest peer.ID) bool {
+	allowed := relayPeerAuthorized(a.db, dest.String())
+	a.record("connect", allowed)
+	return allowed
+}
+
+func (a *relayACL) record(operation string, allowed bool) {
+	if a == nil || a.metrics == nil {
+		return
+	}
+	result := "denied"
+	if allowed {
+		result = "allowed"
+	}
+	a.metrics.relayACLDecisionsTotal.WithLabelValues(operation, result).Inc()
+}
+
+func relayPeerAuthorized(db *sql.DB, peerID string) bool {
+	if db == nil || strings.TrimSpace(peerID) == "" {
+		return false
+	}
+	var exists int
+	err := db.QueryRow(`
+		SELECT 1
+		FROM member_auth_state
+		WHERE peer_id = ?
+			AND (cert_expires_at <= 0 OR cert_expires_at >= ?)
+		LIMIT 1
+	`, strings.TrimSpace(peerID), time.Now().UTC().UnixNano()).Scan(&exists)
+	return err == nil && exists == 1
 }
 
 func loadOrCreateRelayIdentityKey(path string) (crypto.PrivKey, error) {
@@ -1017,6 +1069,29 @@ func (s *relaydServer) handlePresenceMember(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, record)
 }
 
+func (s *relaydServer) handleRelayAuthorize(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req registryauth.RelayAuthorizeRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	member, err := s.authenticateMembership(r.Context(), req.LibraryID, req.RootPublicKey, req.Auth)
+	if err != nil {
+		s.metrics.registryEvent("relay_authorize", "auth_failed")
+		http.Error(w, fmt.Sprintf("authenticate relay authorization: %v", err), http.StatusUnauthorized)
+		return
+	}
+	s.metrics.registryEvent("relay_authorize", "ok")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"peerId":  member.PeerID,
+		"expires": member.CertExpiresAt,
+	})
+}
+
 func (s *relaydServer) handleInviteOwner(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1377,6 +1452,10 @@ func newRelaydMetrics(registerer prometheus.Registerer) *relaydMetrics {
 			Name: "relayd_sqlite_operation_failures_total",
 			Help: "SQLite operation failures by operation.",
 		}, []string{"operation"}),
+		relayACLDecisionsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "relayd_relay_acl_decisions_total",
+			Help: "Circuit relay ACL decisions by operation and result.",
+		}, []string{"operation", "result"}),
 	}
 	registerer.MustRegister(
 		metrics.httpRequestsTotal,
@@ -1387,6 +1466,7 @@ func newRelaydMetrics(registerer prometheus.Registerer) *relaydMetrics {
 		metrics.memberAuthStateGauge,
 		metrics.libraryRootsGauge,
 		metrics.sqliteOperationFailures,
+		metrics.relayACLDecisionsTotal,
 	)
 	return metrics
 }

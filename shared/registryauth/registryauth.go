@@ -72,6 +72,12 @@ type MemberLookupRequest struct {
 	Auth          TransportPeerAuth `json:"auth"`
 }
 
+type RelayAuthorizeRequest struct {
+	LibraryID     string            `json:"libraryId"`
+	RootPublicKey string            `json:"rootPublicKey"`
+	Auth          TransportPeerAuth `json:"auth"`
+}
+
 type InviteOwnerLookupRequest struct {
 	Invite InviteAttestation `json:"invite"`
 }
