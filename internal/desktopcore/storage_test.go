@@ -116,6 +116,70 @@ func TestOpenRejectsDatabaseWithOfflinePinsTable(t *testing.T) {
 	}
 }
 
+func TestAutoMigrateDropsLegacyIssuedInviteRequiredColumns(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "library.db")
+
+	db, err := openSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer func() {
+		if err := closeSQL(db); err != nil {
+			t.Fatalf("close sqlite: %v", err)
+		}
+	}()
+
+	if err := db.Exec(`CREATE TABLE issued_invites (
+		invite_id TEXT PRIMARY KEY,
+		library_id TEXT NOT NULL,
+		token_id TEXT NOT NULL,
+		service_tag TEXT NOT NULL,
+		invite_code TEXT NOT NULL,
+		registry_url TEXT NOT NULL,
+		owner_peer_id TEXT NOT NULL,
+		invite_auth_json TEXT NOT NULL,
+		role TEXT,
+		max_uses INTEGER NOT NULL DEFAULT 1,
+		expires_at datetime NOT NULL,
+		created_at datetime NOT NULL
+	)`).Error; err != nil {
+		t.Fatalf("create legacy issued_invites table: %v", err)
+	}
+
+	if err := autoMigrate(db); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+
+	for _, column := range []string{"service_tag", "invite_code"} {
+		hasColumn, err := sqliteTableHasColumn(db, "issued_invites", column)
+		if err != nil {
+			t.Fatalf("inspect issued_invites columns: %v", err)
+		}
+		if hasColumn {
+			t.Fatalf("expected legacy issued_invites.%s column to be dropped", column)
+		}
+	}
+
+	now := time.Now().UTC()
+	if err := db.Create(&IssuedInvite{
+		InviteID:       "invite-1",
+		LibraryID:      "library-1",
+		TokenID:        "token-1",
+		RegistryURL:    "https://registry.example",
+		OwnerPeerID:    "peer-1",
+		InviteAuthJSON: "{}",
+		Role:           roleGuest,
+		MaxUses:        1,
+		ExpiresAt:      now.Add(time.Hour),
+		CreatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("insert issued invite without service tag: %v", err)
+	}
+}
+
 func openBaselineTestApp(t *testing.T, ctx context.Context, root string) *App {
 	t.Helper()
 

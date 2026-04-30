@@ -126,7 +126,41 @@ func autoMigrate(db *gorm.DB) error {
 	); err != nil {
 		return err
 	}
+	if err := ensureIssuedInviteSchema(db); err != nil {
+		return err
+	}
 	return ensureReadOptimizedIndexes(db)
+}
+
+func ensureIssuedInviteSchema(db *gorm.DB) error {
+	for _, column := range []string{"service_tag", "invite_code"} {
+		if err := dropSQLiteColumnIfExists(db, "issued_invites", column); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func dropSQLiteColumnIfExists(db *gorm.DB, table, column string) error {
+	table = strings.TrimSpace(table)
+	column = strings.TrimSpace(column)
+	if table == "" || column == "" {
+		return nil
+	}
+	hasColumn, err := sqliteTableHasColumn(db, table, column)
+	if err != nil {
+		return err
+	}
+	if !hasColumn {
+		return nil
+	}
+	if err := dropSQLiteIndexesReferencingColumn(db, table, column); err != nil {
+		return err
+	}
+	if err := db.Exec("ALTER TABLE " + table + " DROP COLUMN " + column).Error; err != nil {
+		return fmt.Errorf("drop obsolete %s.%s column: %w", table, column, err)
+	}
+	return nil
 }
 
 func ensureReadOptimizedIndexes(db *gorm.DB) error {
@@ -219,6 +253,68 @@ func sqliteTableExists(db *gorm.DB, table string) (bool, error) {
 		return false, fmt.Errorf("query sqlite_master for table %q: %w", table, err)
 	}
 	return count > 0, nil
+}
+
+func sqliteTableHasColumn(db *gorm.DB, table, column string) (bool, error) {
+	table = strings.TrimSpace(table)
+	column = strings.TrimSpace(column)
+	if table == "" || column == "" {
+		return false, nil
+	}
+	exists, err := sqliteTableExists(db, table)
+	if err != nil || !exists {
+		return false, err
+	}
+
+	var rows []struct {
+		Name string `gorm:"column:name"`
+	}
+	if err := db.Raw("PRAGMA table_info(" + table + ")").Scan(&rows).Error; err != nil {
+		return false, fmt.Errorf("query sqlite columns for %q: %w", table, err)
+	}
+	for _, row := range rows {
+		if strings.EqualFold(strings.TrimSpace(row.Name), column) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func dropSQLiteIndexesReferencingColumn(db *gorm.DB, table, column string) error {
+	table = strings.TrimSpace(table)
+	column = strings.TrimSpace(column)
+	if table == "" || column == "" {
+		return nil
+	}
+
+	var indexes []struct {
+		Name string `gorm:"column:name"`
+	}
+	if err := db.Raw("PRAGMA index_list(" + table + ")").Scan(&indexes).Error; err != nil {
+		return fmt.Errorf("query sqlite indexes for %q: %w", table, err)
+	}
+	for _, index := range indexes {
+		indexName := strings.TrimSpace(index.Name)
+		if indexName == "" {
+			continue
+		}
+		var columns []struct {
+			Name string `gorm:"column:name"`
+		}
+		if err := db.Raw("PRAGMA index_info(" + indexName + ")").Scan(&columns).Error; err != nil {
+			return fmt.Errorf("query sqlite index %q columns: %w", indexName, err)
+		}
+		for _, indexedColumn := range columns {
+			if !strings.EqualFold(strings.TrimSpace(indexedColumn.Name), column) {
+				continue
+			}
+			if err := db.Exec("DROP INDEX IF EXISTS " + indexName).Error; err != nil {
+				return fmt.Errorf("drop sqlite index %q: %w", indexName, err)
+			}
+			break
+		}
+	}
+	return nil
 }
 
 func sqliteTableHasRows(db *gorm.DB, table string) (bool, error) {
