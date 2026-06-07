@@ -1902,7 +1902,7 @@ func joinSessionOwnerAddrs(session JoinSession) []string {
 }
 
 func (a *App) peerLocator(registryURL string) PeerLocator {
-	return newPeerLocator(firstNonEmpty(strings.TrimSpace(registryURL), strings.TrimSpace(a.cfg.RegistryURL)))
+	return newPeerLocator(firstNonEmpty(strings.TrimSpace(a.cfg.RegistryURL), strings.TrimSpace(registryURL)))
 }
 
 func (s *InviteService) resolveInviteOwnerAddrs(ctx context.Context, payload inviteCodePayload) ([]string, error) {

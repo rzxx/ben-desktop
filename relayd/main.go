@@ -12,6 +12,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -46,17 +48,20 @@ const (
 )
 
 const (
-	envPort            = "PORT"
-	envHTTPAddr        = "RELAYD_HTTP_ADDR"
-	envDBPath          = "RELAYD_DB_PATH"
-	envIdentityKeyPath = "RELAYD_IDENTITY_KEY_PATH"
-	envRailwayVolume   = "RAILWAY_VOLUME_MOUNT_PATH"
-	envPeerListenAddrs = "RELAYD_PEER_LISTEN_ADDRS"
-	envAdvertiseAddrs  = "RELAYD_ADVERTISE_ADDRS"
-	envTLSCertPath     = "RELAYD_TLS_CERT_PATH"
-	envTLSKeyPath      = "RELAYD_TLS_KEY_PATH"
-	envTrustedProxies  = "RELAYD_TRUSTED_PROXIES"
-	envClientIPHeader  = "RELAYD_CLIENT_IP_HEADER"
+	envPort             = "PORT"
+	envHTTPAddr         = "RELAYD_HTTP_ADDR"
+	envDBPath           = "RELAYD_DB_PATH"
+	envIdentityKeyPath  = "RELAYD_IDENTITY_KEY_PATH"
+	envStorageDir       = "RELAYD_STORAGE_DIR"
+	envRailwayVolume    = "RAILWAY_VOLUME_MOUNT_PATH"
+	envUnkeyStorageDir  = "UNKEY_EPHEMERAL_DISK_PATH"
+	envPeerListenAddrs  = "RELAYD_PEER_LISTEN_ADDRS"
+	envAdvertiseAddrs   = "RELAYD_ADVERTISE_ADDRS"
+	envTLSCertPath      = "RELAYD_TLS_CERT_PATH"
+	envTLSKeyPath       = "RELAYD_TLS_KEY_PATH"
+	envTrustedProxies   = "RELAYD_TRUSTED_PROXIES"
+	envClientIPHeader   = "RELAYD_CLIENT_IP_HEADER"
+	envWebSocketIngress = "RELAYD_WEBSOCKET_INGRESS"
 )
 
 var defaultPeerListenAddrs = []string{
@@ -96,6 +101,7 @@ type relaydOptions struct {
 	RateLimitIdleTTL           time.Duration
 	TrustedProxies             []string
 	ClientIPHeader             string
+	WebSocketIngress           bool
 	RelayACLDisabled           bool
 	ReservationTTL             time.Duration
 	MaxReservations            int
@@ -193,7 +199,10 @@ func main() {
 	mux.HandleFunc("/v1/revocations/sync", server.handleRevocationSync)
 	mux.HandleFunc("/v1/invites/owner", server.handleInviteOwner)
 
-	handler, limiter := buildHTTPHandler(mux, opts, metrics)
+	handler, limiter, err := buildHTTPHandler(mux, opts, metrics, hostNode)
+	if err != nil {
+		log.Fatalf("build http handler: %v", err)
+	}
 	httpServer := &http.Server{
 		Addr:              opts.HTTPAddr,
 		Handler:           handler,
@@ -267,6 +276,7 @@ func parseOptionsFromArgs(args []string) (relaydOptions, error) {
 	fs.DurationVar(&opts.RateLimitIdleTTL, "rate-limit-idle-ttl", 10*time.Minute, "how long to retain idle per-IP rate limit state")
 	fs.StringVar(&trustedProxies, "trusted-proxies", strings.Join(envListOrDefault(envTrustedProxies, nil), ","), "comma-separated trusted reverse proxy IPs or CIDRs allowed to supply the client IP header")
 	fs.StringVar(&opts.ClientIPHeader, "client-ip-header", envOrDefault(envClientIPHeader, ""), "client IP header to trust only from trusted proxies, for example X-Forwarded-For")
+	fs.BoolVar(&opts.WebSocketIngress, "websocket-ingress", envBoolOrDefault(envWebSocketIngress, false), "route incoming HTTP WebSocket upgrades to a local libp2p websocket listener")
 	fs.BoolVar(&opts.RelayACLDisabled, "relay-acl-disabled", false, "disable membership-backed circuit relay ACL; intended only for local development")
 	fs.DurationVar(&opts.ReservationTTL, "relay-reservation-ttl", time.Hour, "relay reservation TTL")
 	fs.IntVar(&opts.MaxReservations, "relay-max-reservations", 128, "maximum relay reservations")
@@ -560,10 +570,28 @@ func envOrDefault(name, fallback string) string {
 }
 
 func defaultStoragePath(filename string) string {
+	if storageDir := strings.TrimSpace(os.Getenv(envStorageDir)); storageDir != "" {
+		return filepath.Join(storageDir, filename)
+	}
 	if volumePath := strings.TrimSpace(os.Getenv(envRailwayVolume)); volumePath != "" {
 		return filepath.Join(volumePath, filename)
 	}
+	if storageDir := strings.TrimSpace(os.Getenv(envUnkeyStorageDir)); storageDir != "" {
+		return filepath.Join(storageDir, filename)
+	}
 	return filename
+}
+
+func envBoolOrDefault(name string, fallback bool) bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	switch value {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func envListOrDefault(name string, fallback []string) []string {
@@ -599,7 +627,7 @@ func serveHTTP(server *http.Server, opts relaydOptions) error {
 	return server.ListenAndServe()
 }
 
-func buildHTTPHandler(next http.Handler, opts relaydOptions, metrics *relaydMetrics) (http.Handler, *ipRateLimiter) {
+func buildHTTPHandler(next http.Handler, opts relaydOptions, metrics *relaydMetrics, relayHost host.Host) (http.Handler, *ipRateLimiter, error) {
 	handler := http.Handler(next)
 	handler = requestLogMiddleware(handler, metrics)
 	handler = maxBodyBytesMiddleware(handler, opts.MaxBodyBytes)
@@ -612,7 +640,88 @@ func buildHTTPHandler(next http.Handler, opts relaydOptions, metrics *relaydMetr
 		}
 		handler = rateLimitMiddleware(handler, limiter, proxies, opts.ClientIPHeader, metrics)
 	}
-	return handler, limiter
+	if opts.WebSocketIngress {
+		proxy, target, err := websocketIngressProxy(relayHost)
+		if err != nil {
+			return nil, nil, err
+		}
+		log.Printf("ben-relayd websocket ingress forwarding upgrades to %s", target)
+		handler = websocketIngressMiddleware(handler, proxy)
+	}
+	return handler, limiter, nil
+}
+
+func websocketIngressProxy(relayHost host.Host) (*httputil.ReverseProxy, string, error) {
+	target, err := localWebSocketListenURL(relayHost)
+	if err != nil {
+		return nil, "", err
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	return proxy, target.String(), nil
+}
+
+func localWebSocketListenURL(relayHost host.Host) (*url.URL, error) {
+	if relayHost == nil || relayHost.Network() == nil {
+		return nil, fmt.Errorf("websocket ingress requires a relay host")
+	}
+	for _, addr := range relayHost.Network().ListenAddresses() {
+		if !multiaddrHasProtocol(addr, ma.P_WS) {
+			continue
+		}
+		port, err := addr.ValueForProtocol(ma.P_TCP)
+		if err != nil || strings.TrimSpace(port) == "" {
+			continue
+		}
+		hostValue := localMultiaddrHost(addr)
+		if hostValue == "" {
+			continue
+		}
+		if strings.Contains(hostValue, ":") {
+			hostValue = "[" + hostValue + "]"
+		}
+		return &url.URL{Scheme: "http", Host: hostValue + ":" + port}, nil
+	}
+	return nil, fmt.Errorf("websocket ingress requires a local /ws peer listen address")
+}
+
+func localMultiaddrHost(addr ma.Multiaddr) string {
+	for _, code := range []int{ma.P_IP4, ma.P_IP6, ma.P_DNS, ma.P_DNS4, ma.P_DNS6} {
+		value, err := addr.ValueForProtocol(code)
+		if err == nil {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func websocketIngressMiddleware(next http.Handler, proxy http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isWebSocketUpgrade(r) {
+			proxy.ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isWebSocketUpgrade(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") && headerContainsToken(r.Header.Get("Connection"), "upgrade")
+}
+
+func headerContainsToken(value, token string) bool {
+	token = strings.ToLower(strings.TrimSpace(token))
+	for part := range strings.SplitSeq(value, ",") {
+		if strings.ToLower(strings.TrimSpace(part)) == token {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {

@@ -110,7 +110,7 @@ func (a *App) relayBootstrapAddrsForHost(extra []string) []string {
 	if a == nil {
 		return compactNonEmptyStrings(extra)
 	}
-	return compactNonEmptyStrings(append(append([]string(nil), extra...), a.cfg.RelayBootstrapAddrs...))
+	return compactNonEmptyStrings(append(append([]string(nil), a.cfg.RelayBootstrapAddrs...), extra...))
 }
 
 func parseRelayBootstrapAddrInfos(values []string) ([]peer.AddrInfo, error) {

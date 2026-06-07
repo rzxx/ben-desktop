@@ -542,6 +542,38 @@ func TestParseOptionsUsesRailwayVolumeForDefaultStoragePaths(t *testing.T) {
 	}
 }
 
+func TestParseOptionsUsesGenericStorageDirBeforePlatformFallbacks(t *testing.T) {
+	storageDir := filepath.Join(t.TempDir(), "storage")
+	railwayVolumePath := filepath.Join(t.TempDir(), "railway-volume")
+	unkeyStoragePath := filepath.Join(t.TempDir(), "unkey-storage")
+	t.Setenv(envStorageDir, storageDir)
+	t.Setenv(envRailwayVolume, railwayVolumePath)
+	t.Setenv(envUnkeyStorageDir, unkeyStoragePath)
+
+	opts, err := parseOptionsFromArgs(nil)
+	if err != nil {
+		t.Fatalf("parse options from env: %v", err)
+	}
+	if opts.DBPath != filepath.Join(storageDir, defaultDBPath) {
+		t.Fatalf("db path = %q", opts.DBPath)
+	}
+	if opts.IdentityKeyPath != filepath.Join(storageDir, defaultIdentityKeyPath) {
+		t.Fatalf("identity key path = %q", opts.IdentityKeyPath)
+	}
+}
+
+func TestParseOptionsReadsWebSocketIngressEnv(t *testing.T) {
+	t.Setenv(envWebSocketIngress, "true")
+
+	opts, err := parseOptionsFromArgs(nil)
+	if err != nil {
+		t.Fatalf("parse options from env: %v", err)
+	}
+	if !opts.WebSocketIngress {
+		t.Fatal("expected websocket ingress to be enabled")
+	}
+}
+
 func TestPrepareRegistryStorageCreatesWritableDirectories(t *testing.T) {
 	base := t.TempDir()
 	opts := relaydOptions{
@@ -836,7 +868,7 @@ func TestRateLimiterCleanupDropsIdleVisitors(t *testing.T) {
 func TestMaxBodyBytesMiddlewareRejectsOversizeRequests(t *testing.T) {
 	t.Parallel()
 
-	handler, _ := buildHTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler, _, err := buildHTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]string
 		if !decodeJSON(w, r, &payload) {
 			return
@@ -858,7 +890,10 @@ func TestMaxBodyBytesMiddlewareRejectsOversizeRequests(t *testing.T) {
 		MaxReservationsPerASN:      1,
 		RelayLimitDuration:         time.Second,
 		RelayLimitDataBytes:        1024,
-	}, nil)
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("build handler: %v", err)
+	}
 
 	body := `{"payload":"abcdefghijklmnopqrstuvwxyz"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/presence/member", strings.NewReader(body))
@@ -867,6 +902,64 @@ func TestMaxBodyBytesMiddlewareRejectsOversizeRequests(t *testing.T) {
 	handler.ServeHTTP(resp, req)
 	if resp.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("response code = %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestBuildHTTPHandlerRequiresWebSocketListenAddressForIngress(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := buildHTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), relaydOptions{
+		MaxBodyBytes:               32,
+		RateLimitRequestsPerSecond: 0,
+		WebSocketIngress:           true,
+	}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "websocket ingress requires") {
+		t.Fatalf("websocket ingress error = %v", err)
+	}
+}
+
+func TestWebSocketIngressFindsLocalRelayListener(t *testing.T) {
+	t.Parallel()
+
+	opts := relaydOptions{
+		IdentityKeyPath:        filepath.Join(t.TempDir(), "identity.key"),
+		PeerListenAddrs:        []string{"/ip4/127.0.0.1/tcp/0/ws"},
+		RelayACLDisabled:       true,
+		ReservationTTL:         time.Hour,
+		MaxReservations:        1,
+		MaxCircuits:            1,
+		MaxReservationsPerPeer: 1,
+		MaxReservationsPerIP:   1,
+		MaxReservationsPerASN:  1,
+		RelayLimitDuration:     time.Second,
+		RelayLimitDataBytes:    1024,
+	}
+	hostNode, err := newRelayHost(opts, nil, nil)
+	if err != nil {
+		t.Fatalf("new relay host: %v", err)
+	}
+	defer func() { _ = hostNode.Close() }()
+
+	target, err := localWebSocketListenURL(hostNode)
+	if err != nil {
+		t.Fatalf("local websocket listen url: %v", err)
+	}
+	if target.Scheme != "http" || !strings.HasPrefix(target.Host, "127.0.0.1:") {
+		t.Fatalf("local websocket target = %s", target.String())
+	}
+}
+
+func TestIsWebSocketUpgrade(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "keep-alive, Upgrade")
+
+	if !isWebSocketUpgrade(req) {
+		t.Fatal("expected websocket upgrade")
 	}
 }
 

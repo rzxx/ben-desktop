@@ -136,20 +136,52 @@ Circuit Relay reservations are membership-gated by default. Desktop clients auth
 - `RELAYD_HTTP_ADDR`
 - `RELAYD_DB_PATH`
 - `RELAYD_IDENTITY_KEY_PATH`
+- `RELAYD_STORAGE_DIR`
+  - generic default directory for the DB and identity key when the explicit relayd storage variables are unset
 - `RAILWAY_VOLUME_MOUNT_PATH`
-  - used as the default directory for the DB and identity key when the explicit relayd storage variables are unset
+  - legacy Railway fallback for the DB and identity key when the explicit relayd storage variables and `RELAYD_STORAGE_DIR` are unset
+- `UNKEY_EPHEMERAL_DISK_PATH`
+  - Unkey fallback for the DB and identity key when explicit storage variables, `RELAYD_STORAGE_DIR`, and the Railway fallback are unset
 - `RELAYD_PEER_LISTEN_ADDRS`
 - `RELAYD_ADVERTISE_ADDRS`
 - `RELAYD_TLS_CERT_PATH`
 - `RELAYD_TLS_KEY_PATH`
 - `RELAYD_TRUSTED_PROXIES`
 - `RELAYD_CLIENT_IP_HEADER`
+- `RELAYD_WEBSOCKET_INGRESS`
+  - set to `true` when HTTP WebSocket upgrade requests should be forwarded to a local libp2p `/ws` listener
 
 This makes hosted deployments easier because the binary can run with no custom start command if the platform injects `PORT`.
 
+## Hosted WebSocket Deployment
+
+On hosts that expose one public HTTPS/WebSocket port, use the portable WebSocket ingress shape:
+
+```text
+RELAYD_STORAGE_DIR=/data
+RELAYD_WEBSOCKET_INGRESS=true
+RELAYD_PEER_LISTEN_ADDRS=/ip4/127.0.0.1/tcp/0/ws
+RELAYD_ADVERTISE_ADDRS=/dns4/<relay-domain>/tcp/443/wss
+```
+
+Then configure the desktop app with:
+
+```json
+{
+  "core": {
+    "registryUrl": "https://<relay-domain>",
+    "relayBootstrap": [
+      "/dns4/<relay-domain>/tcp/443/wss/p2p/<relay-peer-id>"
+    ]
+  }
+}
+```
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for Unkey setup, Render setup, Railway compatibility, and the migration checklist.
+
 ## Railway Deployment
 
-Recommended Railway setup:
+Railway setup:
 
 1. Create one service for `relayd`.
 2. Set `RAILWAY_DOCKERFILE_PATH=build/docker/Dockerfile.relayd`.
