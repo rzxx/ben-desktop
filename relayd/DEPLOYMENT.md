@@ -15,7 +15,7 @@ Any host you choose needs persistent writable storage for the relay identity key
 Useful references:
 
 - Unkey Deploy apps, Dockerfiles, runtime settings, and variables: https://www.unkey.com/docs/platform/apps/overview
-- Unkey changelog for WebSocket servers, `PORT`, read-only root filesystem, and `/data` storage: https://www.unkey.com/changelog
+- Unkey app settings for storage: https://www.unkey.com/docs/platform/apps/settings
 - Render web services, Docker, `PORT`, and WebSocket support: https://render.com/docs/web-services
 - Render free tier storage/spin-down limitations: https://render.com/free
 - Render persistent disks: https://render.com/docs/disks
@@ -50,13 +50,15 @@ curl https://<relay-domain>/healthz
 
 ## Unkey Deploy setup
 
-Create an Unkey Deploy project/app for this repository and configure:
+Unkey Deploy can run `relayd` and supports WebSocket ingress, but its configured `/data` storage is ephemeral. The Unkey docs describe `/data` as an ephemeral disk volume that is created when an instance starts and destroyed when it stops. That means Unkey is not a durable production home for this relay unless Unkey adds persistent volumes or the relay database/identity are moved to external persistent storage.
+
+Use this setup only for a temporary/free relay or deployment smoke test:
 
 - Dockerfile/build context: `build/docker/Dockerfile.relayd`
 - Public HTTP port: platform `PORT`
 - Health check path: `/healthz`
 - Replicas/instances: minimum `1`, maximum `1`
-- Storage/volume: mount writable storage at `/data`
+- Storage: smallest ephemeral `/data` disk available
 
 Set environment variables:
 
@@ -74,22 +76,28 @@ Do not set `RELAYD_TLS_CERT_PATH` or `RELAYD_TLS_KEY_PATH` on Unkey. TLS termina
 After deployment:
 
 1. Open `https://<unkey-domain>/healthz`.
-2. Copy `peerId` from the JSON response.
+2. Confirm the JSON response includes `db.ok: true`, `peerId`, and at least one `/wss` address in `addrs`.
 3. Put this in desktop settings:
 
 ```json
 {
   "core": {
-    "registryUrl": "https://<unkey-domain>",
-    "relayBootstrap": [
-      "/dns4/<unkey-domain>/tcp/443/wss/p2p/<relay-peer-id>"
-    ]
+    "registryUrl": "https://<unkey-domain>"
   }
 }
 ```
 
+The desktop app discovers the current relay bootstrap address from `GET /healthz`, so `relayBootstrap` can be omitted for this hosted WebSocket shape. Static `relayBootstrap` entries still work as fallback, but a stale static peer ID should not be your primary Unkey path.
+
 4. Restart the desktop app or restart the network runtime so it reloads settings.
-5. Create a fresh invite and verify that `/healthz` still reports the same `peerId` after a redeploy.
+5. Redeploy once and check `/healthz` again. If `peerId` changes, the relay identity was lost. With current Unkey ephemeral storage, this is expected after instance replacement. Restarting the desktop network runtime lets it discover the new relay address from `registryUrl`.
+
+What resets when Unkey replaces the instance:
+
+- The relay peer ID can change.
+- Presence and relay authorization state are rebuilt by online clients.
+- Owners/admins should let revocation sync run again.
+- Create fresh invites after a reset; old or in-progress invite joins can still carry stale peer/relay details.
 
 ## Render setup
 
@@ -138,10 +146,10 @@ RELAYD_ADVERTISE_ADDRS=/dns4/<railway-tcp-proxy-host>/tcp/<railway-tcp-proxy-por
 
 ## Migration checklist
 
-1. Deploy the new relay with persistent storage.
+1. Deploy the new relay with persistent storage. Do not count Unkey ephemeral `/data` as persistent storage.
 2. Confirm `/healthz` returns `db.ok: true`.
 3. Copy the new relay peer ID.
-4. Update every desktop install's `core.registryUrl` and `core.relayBootstrap`.
+4. Update every desktop install's `core.registryUrl`. For hosted WebSocket relays that expose `/healthz.addrs`, `core.relayBootstrap` can be omitted and discovered at runtime.
 5. Restart network runtimes.
 6. Create new invites after the config swap. Invite lookup now prefers the configured registry URL over the URL embedded in an invite, but fresh invites avoid stale cached owner addresses.
 7. Create fresh invites after the cutover. Old invites or in-progress join sessions may still contain stale relay addresses.

@@ -141,7 +141,7 @@ Circuit Relay reservations are membership-gated by default. Desktop clients auth
 - `RAILWAY_VOLUME_MOUNT_PATH`
   - legacy Railway fallback for the DB and identity key when the explicit relayd storage variables and `RELAYD_STORAGE_DIR` are unset
 - `UNKEY_EPHEMERAL_DISK_PATH`
-  - Unkey fallback for the DB and identity key when explicit storage variables, `RELAYD_STORAGE_DIR`, and the Railway fallback are unset
+  - Unkey ephemeral disk fallback for the DB and identity key when explicit storage variables, `RELAYD_STORAGE_DIR`, and the Railway fallback are unset; this is not durable across instance stops
 - `RELAYD_PEER_LISTEN_ADDRS`
 - `RELAYD_ADVERTISE_ADDRS`
 - `RELAYD_TLS_CERT_PATH`
@@ -169,15 +169,16 @@ Then configure the desktop app with:
 ```json
 {
   "core": {
-    "registryUrl": "https://<relay-domain>",
-    "relayBootstrap": [
-      "/dns4/<relay-domain>/tcp/443/wss/p2p/<relay-peer-id>"
-    ]
+    "registryUrl": "https://<relay-domain>"
   }
 }
 ```
 
+The desktop app discovers the current relay bootstrap multiaddr from `GET /healthz`. You can still set `core.relayBootstrap` explicitly, but discovery is better for ephemeral hosts where the relay peer ID can change after instance replacement.
+
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for Unkey setup, Render setup, Railway compatibility, and the migration checklist.
+
+The host still needs durable storage for production. Unkey Deploy's `/data` storage is currently documented as ephemeral, so it is suitable for smoke testing this shape but not for keeping a stable relay identity and SQLite registry through instance replacement.
 
 ## Railway Deployment
 
