@@ -341,12 +341,12 @@ func TestTransportStartupCatchupInstallsCheckpointAfterRestart(t *testing.T) {
 	t.Cleanup(func() {
 		_ = owner.Close()
 	})
-	owner.transportService.backgroundInterval = 0
-	owner.transportService.factory = registry.factory("memory://owner", owner)
+	owner.transportService.setBackgroundIntervalForTest(0)
+	owner.transportService.setTransportFactoryForTest(registry.factory("memory://owner", owner))
 	joinerRoot := t.TempDir()
 	joiner := openPlaylistTestAppAtPath(t, joinerRoot)
-	joiner.transportService.backgroundInterval = 0
-	joiner.transportService.factory = registry.factory("memory://joiner", joiner)
+	joiner.transportService.setBackgroundIntervalForTest(0)
+	joiner.transportService.setTransportFactoryForTest(registry.factory("memory://joiner", joiner))
 
 	library, err := owner.CreateLibrary(ctx, "checkpoint-restart-bootstrap")
 	if err != nil {
@@ -363,8 +363,8 @@ func TestTransportStartupCatchupInstallsCheckpointAfterRestart(t *testing.T) {
 	t.Cleanup(func() {
 		_ = joiner.Close()
 	})
-	joiner.transportService.backgroundInterval = 0
-	joiner.transportService.factory = registry.factory("memory://joiner", joiner)
+	joiner.transportService.setBackgroundIntervalForTest(0)
+	joiner.transportService.setTransportFactoryForTest(registry.factory("memory://joiner", joiner))
 	joiner.transportService.Stop()
 	if err := joiner.syncActiveRuntimeServices(ctx); err != nil {
 		t.Fatalf("restart joiner runtime services: %v", err)
@@ -395,8 +395,8 @@ func TestManagedTransportAutoAppliesRemoteUpdateWithoutReconnect(t *testing.T) {
 	registry := newManagedMemorySyncRegistry()
 	owner := openPlaylistTestApp(t)
 	joiner := openPlaylistTestApp(t)
-	owner.transportService.factory = registry.factory("memory://owner", owner)
-	joiner.transportService.factory = registry.factory("memory://joiner", joiner)
+	owner.transportService.setTransportFactoryForTest(registry.factory("memory://owner", owner))
+	joiner.transportService.setTransportFactoryForTest(registry.factory("memory://joiner", joiner))
 
 	library, err := owner.CreateLibrary(ctx, "managed-remote-update")
 	if err != nil {

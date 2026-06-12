@@ -68,13 +68,13 @@ func TestActiveLibraryRuntimeOwnsTransportAndWatcherLifecycle(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.backgroundInterval = 0
+	app.transportService.setBackgroundIntervalForTest(0)
 
 	var (
 		mu         sync.Mutex
 		transports []*fakeManagedTransport
 	)
-	app.transportService.factory = func(_ context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(_ context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
 		transport := &fakeManagedTransport{
 			libraryID: local.LibraryID,
 			deviceID:  local.DeviceID,
@@ -84,7 +84,7 @@ func TestActiveLibraryRuntimeOwnsTransportAndWatcherLifecycle(t *testing.T) {
 		transports = append(transports, transport)
 		mu.Unlock()
 		return transport, nil
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "runtime-a"); err != nil {
 		t.Fatalf("create first library: %v", err)

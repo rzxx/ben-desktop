@@ -1504,19 +1504,21 @@ func deviceClockSeqTx(tx *gorm.DB, libraryID, deviceID string) (int64, error) {
 
 func applyBufferedDeviceOplogTx(tx *gorm.DB, libraryID, deviceID string, nextSeq int64) (int64, error) {
 	appliedUntil := nextSeq - 1
-	for seq := nextSeq; ; seq++ {
-		var row OplogEntry
-		err := tx.Where("library_id = ? AND device_id = ? AND seq = ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID), seq).Take(&row).Error
-		if err != nil {
-			if err == gorm.ErrRecordNotFound {
-				break
-			}
-			return appliedUntil, err
+	var rows []OplogEntry
+	if err := tx.
+		Where("library_id = ? AND device_id = ? AND seq >= ?", strings.TrimSpace(libraryID), strings.TrimSpace(deviceID), nextSeq).
+		Order("seq ASC").
+		Find(&rows).Error; err != nil {
+		return appliedUntil, err
+	}
+	for _, row := range rows {
+		if row.Seq != appliedUntil+1 {
+			break
 		}
 		if err := applyOplogEntryTx(tx, row); err != nil {
 			return appliedUntil, err
 		}
-		appliedUntil = seq
+		appliedUntil = row.Seq
 	}
 	if appliedUntil >= nextSeq {
 		if err := upsertDeviceClockTx(tx, libraryID, deviceID, appliedUntil); err != nil {

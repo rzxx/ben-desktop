@@ -20,15 +20,15 @@ func TestLocalOplogMutationBroadcastsOnlyAfterCommit(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return &fakeManagedTransport{peerID: "peer-oplog-commit"}, nil
-	}
+	})
 
 	var peerUpdates atomic.Int32
-	app.transportService.peerUpdateBroadcastHook = func(_ *activeTransportRuntime) {
+	app.transportService.setPeerUpdateBroadcastHookForTest(func(_ *activeTransportRuntime) {
 		peerUpdates.Add(1)
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "oplog-commit-broadcast"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -66,15 +66,15 @@ func TestLocalOplogMutationCoalescesBroadcastsWithinATransaction(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return &fakeManagedTransport{peerID: "peer-oplog-retry"}, nil
-	}
+	})
 
 	var peerUpdates atomic.Int32
-	app.transportService.peerUpdateBroadcastHook = func(_ *activeTransportRuntime) {
+	app.transportService.setPeerUpdateBroadcastHookForTest(func(_ *activeTransportRuntime) {
 		peerUpdates.Add(1)
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "oplog-commit-retry"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -103,15 +103,15 @@ func TestLocalOplogMutationCoalescesBroadcastsWithinATransaction(t *testing.T) {
 func TestLocalOplogMutationCommitHookWaitsForTransactionReturn(t *testing.T) {
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return &fakeManagedTransport{peerID: "peer-oplog-long-commit"}, nil
-	}
+	})
 
 	var peerUpdates atomic.Int32
-	app.transportService.peerUpdateBroadcastHook = func(_ *activeTransportRuntime) {
+	app.transportService.setPeerUpdateBroadcastHookForTest(func(_ *activeTransportRuntime) {
 		peerUpdates.Add(1)
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "oplog-long-commit"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -153,7 +153,7 @@ func TestTransportServiceStartsAndStopsWithActiveLibrarySelection(t *testing.T) 
 		mu        sync.Mutex
 		instances []*fakeManagedTransport
 	)
-	app.transportService.factory = func(_ context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(_ context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
 		transport := &fakeManagedTransport{
 			libraryID: local.LibraryID,
 			deviceID:  local.DeviceID,
@@ -163,7 +163,7 @@ func TestTransportServiceStartsAndStopsWithActiveLibrarySelection(t *testing.T) 
 		instances = append(instances, transport)
 		mu.Unlock()
 		return transport, nil
-	}
+	})
 
 	first, err := app.CreateLibrary(ctx, "transport-a")
 	if err != nil {
@@ -547,8 +547,8 @@ func TestLibp2pTransportConnectPeerAppliesIncrementalSync(t *testing.T) {
 	ctx := context.Background()
 	owner := openPlaylistTestApp(t)
 	joiner := openPlaylistTestApp(t)
-	owner.transportService.backgroundInterval = 0
-	joiner.transportService.backgroundInterval = 0
+	owner.transportService.setBackgroundIntervalForTest(0)
+	joiner.transportService.setBackgroundIntervalForTest(0)
 
 	var (
 		ownerMu     sync.Mutex
@@ -556,7 +556,7 @@ func TestLibp2pTransportConnectPeerAppliesIncrementalSync(t *testing.T) {
 		ownerWraps  []*countingManagedTransport
 		joinerWraps []*countingManagedTransport
 	)
-	owner.transportService.factory = func(ctx context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
+	owner.transportService.setTransportFactoryForTest(func(ctx context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
 		base, err := owner.newLibp2pSyncTransport(ctx, local)
 		if err != nil {
 			return nil, err
@@ -566,8 +566,8 @@ func TestLibp2pTransportConnectPeerAppliesIncrementalSync(t *testing.T) {
 		ownerWraps = append(ownerWraps, wrapped)
 		ownerMu.Unlock()
 		return wrapped, nil
-	}
-	joiner.transportService.factory = func(ctx context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
+	})
+	joiner.transportService.setTransportFactoryForTest(func(ctx context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
 		base, err := joiner.newLibp2pSyncTransport(ctx, local)
 		if err != nil {
 			return nil, err
@@ -577,7 +577,7 @@ func TestLibp2pTransportConnectPeerAppliesIncrementalSync(t *testing.T) {
 		joinerWraps = append(joinerWraps, wrapped)
 		joinerMu.Unlock()
 		return wrapped, nil
-	}
+	})
 
 	library, err := owner.CreateLibrary(ctx, "libp2p-sync")
 	if err != nil {
@@ -701,8 +701,8 @@ func TestLibp2pTransportAutoAppliesRemoteUpdateWithoutReconnect(t *testing.T) {
 	ctx := context.Background()
 	owner := openPlaylistTestApp(t)
 	joiner := openPlaylistTestApp(t)
-	owner.transportService.backgroundInterval = 0
-	joiner.transportService.backgroundInterval = 0
+	owner.transportService.setBackgroundIntervalForTest(0)
+	joiner.transportService.setBackgroundIntervalForTest(0)
 
 	library, err := owner.CreateLibrary(ctx, "libp2p-remote-update")
 	if err != nil {
@@ -747,13 +747,13 @@ func TestTransportServiceDoesNotPollWhenPeriodicFallbackDisabled(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.backgroundInterval = 0
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
+	app.transportService.setBackgroundIntervalForTest(0)
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
 
 	transport := &testPeerListTransport{peerID: "peer-no-poll"}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "transport-no-poll"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -771,12 +771,12 @@ func TestTransportServicePeriodicFallbackPollsWithoutEvents(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.backgroundInterval = 20 * time.Millisecond
+	app.transportService.setBackgroundIntervalForTest(20 * time.Millisecond)
 
 	transport := &testPeerListTransport{peerID: "peer-periodic-poll"}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "transport-periodic-poll"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -790,16 +790,16 @@ func TestLocalOplogMutationBroadcastsPeerUpdateWithoutLocalCatchup(t *testing.T)
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
 
 	signalPeer := &testSignalPeer{peerID: "peer-remote-update"}
 	transport := &testPeerListTransport{
 		peerID: "peer-local-update",
 		peers:  []SyncPeer{signalPeer},
 	}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "transport-local-update"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -821,21 +821,21 @@ func TestLocalOplogMutationSchedulesCheckpointMaintenanceWithoutCatchup(t *testi
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
 
 	transport := &testPeerListTransport{peerID: "peer-checkpoint-update"}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	var catchupRuns atomic.Int32
 	var maintenanceRuns atomic.Int32
-	app.transportService.catchupRunHook = func(_ *activeTransportRuntime, _ apitypes.NetworkSyncReason) {
+	app.transportService.setCatchupRunHookForTest(func(_ *activeTransportRuntime, _ apitypes.NetworkSyncReason) {
 		catchupRuns.Add(1)
-	}
-	app.transportService.checkpointMaintenanceRunHook = func(_ *activeTransportRuntime) {
+	})
+	app.transportService.setCheckpointMaintenanceRunHookForTest(func(_ *activeTransportRuntime) {
 		maintenanceRuns.Add(1)
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "transport-checkpoint-update"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -860,21 +860,21 @@ func TestCatchupFailureStillSchedulesCheckpointMaintenance(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.backgroundInterval = 0
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
+	app.transportService.setBackgroundIntervalForTest(0)
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
 
 	transport := &testPeerListTransport{
 		peerID:          "peer-maintenance-after-failure",
 		failOnListCalls: map[int]error{1: errors.New("startup catch-up failed")},
 	}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	var maintenanceRuns atomic.Int32
-	app.transportService.checkpointMaintenanceRunHook = func(_ *activeTransportRuntime) {
+	app.transportService.setCheckpointMaintenanceRunHookForTest(func(_ *activeTransportRuntime) {
 		maintenanceRuns.Add(1)
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "transport-maintenance-after-failure"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -888,8 +888,8 @@ func TestLocalOplogMutationRetriesPeerBroadcastAfterListPeersFailure(t *testing.
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
-	app.transportService.peerRetryDelay = 20 * time.Millisecond
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
+	app.transportService.setPeerRetryDelayForTest(20 * time.Millisecond)
 
 	signalPeer := &testSignalPeer{peerID: "peer-list-retry"}
 	transport := &testPeerListTransport{
@@ -897,9 +897,9 @@ func TestLocalOplogMutationRetriesPeerBroadcastAfterListPeersFailure(t *testing.
 		peers:           []SyncPeer{signalPeer},
 		failOnListCalls: map[int]error{2: errors.New("transient peer list failure")},
 	}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "transport-list-retry"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -922,8 +922,8 @@ func TestLocalOplogMutationRetriesPeerBroadcastAfterNotifyFailure(t *testing.T) 
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
-	app.transportService.peerRetryDelay = 20 * time.Millisecond
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
+	app.transportService.setPeerRetryDelayForTest(20 * time.Millisecond)
 
 	signalPeer := &testSignalPeer{
 		peerID:            "peer-notify-retry",
@@ -933,9 +933,9 @@ func TestLocalOplogMutationRetriesPeerBroadcastAfterNotifyFailure(t *testing.T) 
 		peerID: "peer-local-notify-retry",
 		peers:  []SyncPeer{signalPeer},
 	}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "transport-notify-retry"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -957,10 +957,10 @@ func TestLocalOplogMutationRetriesOnlyFailingPeerWithRetryCap(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
-	app.transportService.peerRetryDelay = 20 * time.Millisecond
-	app.transportService.peerRetryMaxDelay = 20 * time.Millisecond
-	app.transportService.peerRetryMaxCount = 3
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
+	app.transportService.setPeerRetryDelayForTest(20 * time.Millisecond)
+	app.transportService.setPeerRetryMaxDelayForTest(20 * time.Millisecond)
+	app.transportService.setPeerRetryMaxCountForTest(3)
 
 	healthyPeer := &testSignalPeer{peerID: "peer-notify-healthy"}
 	brokenPeer := &testSignalPeer{
@@ -977,9 +977,9 @@ func TestLocalOplogMutationRetriesOnlyFailingPeerWithRetryCap(t *testing.T) {
 		peerID: "peer-local-notify-cap",
 		peers:  []SyncPeer{healthyPeer, brokenPeer},
 	}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "transport-notify-cap"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -1009,9 +1009,9 @@ func TestPeerUpdateRetriesDoNotWaitForSlowestPeerBackoff(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.peerRetryDelay = 20 * time.Millisecond
-	app.transportService.peerRetryMaxDelay = 200 * time.Millisecond
-	app.transportService.peerRetryMaxCount = 6
+	app.transportService.setPeerRetryDelayForTest(20 * time.Millisecond)
+	app.transportService.setPeerRetryMaxDelayForTest(200 * time.Millisecond)
+	app.transportService.setPeerRetryMaxCountForTest(6)
 
 	fastPeer := &testSignalPeer{peerID: "peer-retry-fast"}
 	slowPeer := &testSignalPeer{peerID: "peer-retry-slow"}
@@ -1019,9 +1019,9 @@ func TestPeerUpdateRetriesDoNotWaitForSlowestPeerBackoff(t *testing.T) {
 		peerID: "peer-local-retry-split",
 		peers:  []SyncPeer{fastPeer, slowPeer},
 	}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	library, err := app.CreateLibrary(ctx, "transport-retry-split")
 	if err != nil {
@@ -1052,21 +1052,21 @@ func TestRuntimeCatchupSignalSchedulesSingleRerun(t *testing.T) {
 	app := openPlaylistTestApp(t)
 
 	transport := &testPeerListTransport{peerID: "peer-rerun"}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	started := make(chan struct{}, 4)
 	release := make(chan struct{})
 	var runs atomic.Int32
-	app.transportService.catchupRunHook = func(_ *activeTransportRuntime, _ apitypes.NetworkSyncReason) {
+	app.transportService.setCatchupRunHookForTest(func(_ *activeTransportRuntime, _ apitypes.NetworkSyncReason) {
 		runs.Add(1)
 		select {
 		case started <- struct{}{}:
 		default:
 		}
 		<-release
-	}
+	})
 
 	library, err := app.CreateLibrary(ctx, "transport-rerun")
 	if err != nil {
@@ -1093,9 +1093,9 @@ func TestRuntimeCatchupPreservesQueuedPeerRequests(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return &fakeManagedTransport{peerID: "peer-merge-targeted"}, nil
-	}
+	})
 
 	library, err := app.CreateLibrary(ctx, "transport-merge-targeted")
 	if err != nil {
@@ -1119,7 +1119,7 @@ func TestRuntimeCatchupPreservesQueuedPeerRequests(t *testing.T) {
 		peers   []string
 		runs    atomic.Int32
 	)
-	app.transportService.catchupPeerRunHook = func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
+	app.transportService.setCatchupPeerRunHookForTest(func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
 		if reason != apitypes.NetworkSyncReasonConnect {
 			t.Fatalf("queued peer catch-up reason = %q, want %q", reason, apitypes.NetworkSyncReasonConnect)
 		}
@@ -1136,7 +1136,7 @@ func TestRuntimeCatchupPreservesQueuedPeerRequests(t *testing.T) {
 			}
 			<-release
 		}
-	}
+	})
 
 	app.transportService.scheduleRuntimeCatchupPeer(runtime, apitypes.NetworkSyncReasonConnect, &testSignalPeer{peerID: "peer-one"}, 0)
 	waitForChannelSignal(t, started)
@@ -1159,25 +1159,25 @@ func TestRuntimeStopClearsPendingScheduledTasks(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.eventSyncDebounce = 20 * time.Millisecond
+	app.transportService.setEventSyncDebounceForTest(20 * time.Millisecond)
 
 	transport := &testPeerListTransport{peerID: "peer-stop"}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	var catchupRuns atomic.Int32
 	var peerUpdateRuns atomic.Int32
 	var maintenanceRuns atomic.Int32
-	app.transportService.catchupRunHook = func(_ *activeTransportRuntime, _ apitypes.NetworkSyncReason) {
+	app.transportService.setCatchupRunHookForTest(func(_ *activeTransportRuntime, _ apitypes.NetworkSyncReason) {
 		catchupRuns.Add(1)
-	}
-	app.transportService.peerUpdateBroadcastHook = func(_ *activeTransportRuntime) {
+	})
+	app.transportService.setPeerUpdateBroadcastHookForTest(func(_ *activeTransportRuntime) {
 		peerUpdateRuns.Add(1)
-	}
-	app.transportService.checkpointMaintenanceRunHook = func(_ *activeTransportRuntime) {
+	})
+	app.transportService.setCheckpointMaintenanceRunHookForTest(func(_ *activeTransportRuntime) {
 		maintenanceRuns.Add(1)
-	}
+	})
 
 	library, err := app.CreateLibrary(ctx, "transport-stop-clear")
 	if err != nil {
@@ -1215,28 +1215,28 @@ func TestStartupCatchupCompletesBeforeCheckpointMaintenance(t *testing.T) {
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.eventSyncDebounce = 10 * time.Millisecond
+	app.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
 
 	transport := &testPeerListTransport{peerID: "peer-maintenance"}
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var catchupRuns atomic.Int32
 	var maintenanceRuns atomic.Int32
-	app.transportService.catchupRunHook = func(_ *activeTransportRuntime, _ apitypes.NetworkSyncReason) {
+	app.transportService.setCatchupRunHookForTest(func(_ *activeTransportRuntime, _ apitypes.NetworkSyncReason) {
 		catchupRuns.Add(1)
 		select {
 		case started <- struct{}{}:
 		default:
 		}
 		<-release
-	}
-	app.transportService.checkpointMaintenanceRunHook = func(_ *activeTransportRuntime) {
+	})
+	app.transportService.setCheckpointMaintenanceRunHookForTest(func(_ *activeTransportRuntime) {
 		maintenanceRuns.Add(1)
-	}
+	})
 
 	if _, err := app.CreateLibrary(ctx, "transport-maintenance"); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -1257,9 +1257,9 @@ func TestRuntimeCatchupPreservesDebouncedGlobalUpdateDuringImmediatePeerCatchup(
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return &fakeManagedTransport{peerID: "peer-merge-global"}, nil
-	}
+	})
 
 	library, err := app.CreateLibrary(ctx, "transport-merge-global")
 	if err != nil {
@@ -1282,7 +1282,7 @@ func TestRuntimeCatchupPreservesDebouncedGlobalUpdateDuringImmediatePeerCatchup(
 		runsMu sync.Mutex
 		runs   []recordedCatchupRun
 	)
-	app.transportService.catchupPeerRunHook = func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
+	app.transportService.setCatchupPeerRunHookForTest(func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
 		run := recordedCatchupRun{reason: reason}
 		if peer != nil {
 			run.peerID = peer.PeerID()
@@ -1297,7 +1297,7 @@ func TestRuntimeCatchupPreservesDebouncedGlobalUpdateDuringImmediatePeerCatchup(
 			}
 			<-release
 		}
-	}
+	})
 
 	app.transportService.scheduleRuntimeCatchup(runtime, apitypes.NetworkSyncReasonUpdate, 60*time.Millisecond)
 	app.transportService.scheduleRuntimeCatchupPeer(runtime, apitypes.NetworkSyncReasonConnect, &testSignalPeer{peerID: "peer-connect"}, 0)
@@ -1325,9 +1325,9 @@ func TestRuntimeCatchupPreservesQueuedPeerWorkWhileGlobalUpdateIsDebounced(t *te
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return &fakeManagedTransport{peerID: "peer-merge-queued-global"}, nil
-	}
+	})
 
 	library, err := app.CreateLibrary(ctx, "transport-merge-queued-global")
 	if err != nil {
@@ -1350,7 +1350,7 @@ func TestRuntimeCatchupPreservesQueuedPeerWorkWhileGlobalUpdateIsDebounced(t *te
 		runsMu sync.Mutex
 		runs   []recordedCatchupRun
 	)
-	app.transportService.catchupPeerRunHook = func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
+	app.transportService.setCatchupPeerRunHookForTest(func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
 		run := recordedCatchupRun{reason: reason}
 		if peer != nil {
 			run.peerID = peer.PeerID()
@@ -1365,7 +1365,7 @@ func TestRuntimeCatchupPreservesQueuedPeerWorkWhileGlobalUpdateIsDebounced(t *te
 			}
 			<-release
 		}
-	}
+	})
 
 	app.transportService.scheduleRuntimeCatchup(runtime, apitypes.NetworkSyncReasonUpdate, 60*time.Millisecond)
 	app.transportService.scheduleRuntimeCatchupPeer(runtime, apitypes.NetworkSyncReasonConnect, &testSignalPeer{peerID: "peer-one"}, 0)
@@ -1404,17 +1404,17 @@ func TestHandleLibraryChangedSignalRejectsAuthOrLibraryMismatch(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	ownerLocal, _ := seedSharedLibraryForSync(t, owner, joiner, library)
-	joiner.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	joiner.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return &fakeManagedTransport{
 			libraryID: library.LibraryID,
 			deviceID:  "joiner-device",
 			peerID:    "peer-joiner-signal",
 		}, nil
-	}
+	})
 	var catchupRuns atomic.Int32
-	joiner.transportService.catchupRunHook = func(_ *activeTransportRuntime, _ apitypes.NetworkSyncReason) {
+	joiner.transportService.setCatchupRunHookForTest(func(_ *activeTransportRuntime, _ apitypes.NetworkSyncReason) {
 		catchupRuns.Add(1)
-	}
+	})
 	if err := joiner.syncActiveRuntimeServices(ctx); err != nil {
 		t.Fatalf("start joiner runtime services: %v", err)
 	}
@@ -1473,15 +1473,15 @@ func TestHandleLibraryChangedSignalSchedulesTargetedCatchupWithoutListingPeers(t
 		peerID:       joinerLocal.PeerID,
 		resolvedPeer: &testSignalPeer{peerID: ownerLocal.PeerID},
 	}
-	joiner.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	joiner.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return transport, nil
-	}
+	})
 
 	var (
 		runsMu sync.Mutex
 		runs   []recordedCatchupRun
 	)
-	joiner.transportService.catchupPeerRunHook = func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
+	joiner.transportService.setCatchupPeerRunHookForTest(func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
 		run := recordedCatchupRun{reason: reason}
 		if peer != nil {
 			run.peerID = peer.PeerID()
@@ -1489,7 +1489,7 @@ func TestHandleLibraryChangedSignalSchedulesTargetedCatchupWithoutListingPeers(t
 		runsMu.Lock()
 		runs = append(runs, run)
 		runsMu.Unlock()
-	}
+	})
 	if err := joiner.syncActiveRuntimeServices(ctx); err != nil {
 		t.Fatalf("start joiner runtime services: %v", err)
 	}
@@ -1538,7 +1538,7 @@ func TestHandleLibraryChangedSignalHandsOffToReplacementRuntime(t *testing.T) {
 	ctx := context.Background()
 	owner := openPlaylistTestApp(t)
 	joiner := openPlaylistTestApp(t)
-	joiner.transportService.eventSyncDebounce = 10 * time.Millisecond
+	joiner.transportService.setEventSyncDebounceForTest(10 * time.Millisecond)
 
 	library, err := owner.CreateLibrary(ctx, "library-changed-runtime-handoff")
 	if err != nil {
@@ -1570,7 +1570,7 @@ func TestHandleLibraryChangedSignalHandsOffToReplacementRuntime(t *testing.T) {
 			peerID  string
 		}
 	)
-	joiner.transportService.catchupPeerRunHook = func(runtime *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
+	joiner.transportService.setCatchupPeerRunHookForTest(func(runtime *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
 		run := struct {
 			runtime *activeTransportRuntime
 			reason  apitypes.NetworkSyncReason
@@ -1585,7 +1585,7 @@ func TestHandleLibraryChangedSignalHandsOffToReplacementRuntime(t *testing.T) {
 		runsMu.Lock()
 		runs = append(runs, run)
 		runsMu.Unlock()
-	}
+	})
 
 	localAuth, err := owner.ensureLocalTransportMembershipAuth(ctx, ownerLocal, ownerLocal.PeerID)
 	if err != nil {
@@ -1649,11 +1649,11 @@ func TestLibp2pPeerConnectedSchedulesRuntimeCatchup(t *testing.T) {
 
 	var reasonsMu sync.Mutex
 	var reasons []apitypes.NetworkSyncReason
-	joiner.transportService.catchupRunHook = func(_ *activeTransportRuntime, reason apitypes.NetworkSyncReason) {
+	joiner.transportService.setCatchupRunHookForTest(func(_ *activeTransportRuntime, reason apitypes.NetworkSyncReason) {
 		reasonsMu.Lock()
 		reasons = append(reasons, reason)
 		reasonsMu.Unlock()
-	}
+	})
 
 	runtime := joiner.transportService.activeRuntimeForLibrary(library.LibraryID)
 	if runtime == nil || runtime.transport == nil {
@@ -1691,14 +1691,14 @@ func TestLibp2pPeerConnectedCatchupDoesNotListAllPeers(t *testing.T) {
 		targetPeer   string
 		targetReason apitypes.NetworkSyncReason
 	)
-	joiner.transportService.catchupPeerRunHook = func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
+	joiner.transportService.setCatchupPeerRunHookForTest(func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
 		targetMu.Lock()
 		defer targetMu.Unlock()
 		targetReason = reason
 		if peer != nil {
 			targetPeer = peer.PeerID()
 		}
-	}
+	})
 
 	runtime := joiner.transportService.activeRuntimeForLibrary(library.LibraryID)
 	if runtime == nil || runtime.transport == nil {
@@ -1749,9 +1749,9 @@ func TestLibp2pPeerConnectedSkipsCatchupForUnresolvedMembership(t *testing.T) {
 	}
 
 	var catchupRuns atomic.Int32
-	app.transportService.catchupPeerRunHook = func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
+	app.transportService.setCatchupPeerRunHookForTest(func(_ *activeTransportRuntime, peer SyncPeer, reason apitypes.NetworkSyncReason) {
 		catchupRuns.Add(1)
-	}
+	})
 
 	runtime := app.transportService.activeRuntimeForLibrary(library.LibraryID)
 	if runtime == nil || runtime.transport == nil {
