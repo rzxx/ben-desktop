@@ -93,7 +93,7 @@ func newArtworkService(app *App) *ArtworkService {
 
 func NewArtworkBuilder(ffmpegPath string) ArtworkBuilder {
 	if strings.TrimSpace(ffmpegPath) == "" {
-		ffmpegPath = "ffmpeg"
+		ffmpegPath = resolveMediaRuntimePaths("", "").FFmpegPath
 	}
 	return &ffmpegArtworkBuilder{
 		ffmpegPath: ffmpegPath,

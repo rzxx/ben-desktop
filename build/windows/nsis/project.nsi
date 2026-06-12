@@ -23,7 +23,7 @@ Unicode true
 ## !define INFO_COMPANYNAME    "My Company" # Default "My Company"
 ## !define INFO_PRODUCTNAME    "My Product Name" # Default "My Product"
 ## !define INFO_PRODUCTVERSION "1.0.0"     # Default "0.1.0"
-## !define INFO_COPYRIGHT      "(c) Now, My Company" # Default "© 2026, My Company"
+## !define INFO_COPYRIGHT      "(c) Now, My Company" # Default "(c) 2026, My Company"
 ###
 ## !define PRODUCT_EXECUTABLE  "Application.exe"      # Default "${INFO_PROJECTNAME}.exe"
 ## !define UNINST_KEY_NAME     "UninstKeyInRegistry"  # Default "${INFO_COMPANYNAME}${INFO_PRODUCTNAME}"
@@ -32,6 +32,12 @@ Unicode true
 ####
 ## Include the wails tools
 ####
+!define INFO_PROJECTNAME    "ben-desktop"
+!define INFO_COMPANYNAME    "Ben Project"
+!define INFO_PRODUCTNAME    "Ben Desktop"
+!define INFO_PRODUCTVERSION "0.1.0"
+!define INFO_COPYRIGHT      "(c) 2026, Ben Desktop contributors"
+!define PRODUCT_EXECUTABLE  "ben-desktop.exe"
 !include "wails_tools.nsh"
 
 # The version information for this two must consist of 4 parts
@@ -57,7 +63,7 @@ ManifestDPIAware true
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
-# !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
+!insertmacro MUI_PAGE_LICENSE "..\..\..\LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
 !insertmacro MUI_PAGE_INSTFILES # Installing page.
 !insertmacro MUI_PAGE_FINISH # Finished installation page.
@@ -87,8 +93,18 @@ Section
     SetOutPath $INSTDIR
     
     !insertmacro wails.files
-    !if /FileExists "..\..\..\bin\libmpv.dll"
-        File "..\..\..\bin\libmpv.dll"
+    !if /FileExists "..\..\..\bin\*.dll"
+        File "..\..\..\bin\*.dll"
+    !endif
+    !if /FileExists "..\..\..\bin\runtime\*.*"
+        SetOutPath "$INSTDIR\runtime"
+        File /r "..\..\..\bin\runtime\*.*"
+        SetOutPath $INSTDIR
+    !endif
+    !if /FileExists "..\..\..\bin\licenses\*.*"
+        SetOutPath "$INSTDIR\licenses"
+        File /r "..\..\..\bin\licenses\*.*"
+        SetOutPath $INSTDIR
     !endif
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"

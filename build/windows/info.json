@@ -5,11 +5,11 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "0.1.0",
-			"CompanyName": "My Company",
-			"FileDescription": "A ben-desktop application",
-			"LegalCopyright": "© 2026, My Company",
-			"ProductName": "My Product",
-			"Comments": "This is a comment"
+			"CompanyName": "Ben Project",
+			"FileDescription": "Desktop-first local music library, playback, sync, and diagnostics app",
+			"LegalCopyright": "(c) 2026, Ben Desktop contributors",
+			"ProductName": "Ben Desktop",
+			"Comments": "Licensed under GPL-3.0-or-later"
 		}
 	}
 }

@@ -91,7 +91,7 @@ func (b *ffmpegAACBuilder) BuildAAC(ctx context.Context, sourcePath string, prof
 	}
 	ffmpegPath := strings.TrimSpace(b.ffmpegPath)
 	if ffmpegPath == "" {
-		ffmpegPath = "ffmpeg"
+		ffmpegPath = resolveMediaRuntimePaths("", "").FFmpegPath
 	}
 
 	tempDir, err := os.MkdirTemp("", "ben-transcode-*")
@@ -127,7 +127,7 @@ func runFFmpeg(ctx context.Context, ffmpegPath string, args []string) error {
 	if err != nil {
 		var execErr *exec.Error
 		if errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
-			return fmt.Errorf("ffmpeg executable %q not found (install ffmpeg or pass a valid path): %w", ffmpegPath, err)
+			return fmt.Errorf("ffmpeg executable %q not found (the packaged media runtime is missing or the configured path is invalid): %w", ffmpegPath, err)
 		}
 		stderr := strings.TrimSpace(string(output))
 		if stderr == "" {
