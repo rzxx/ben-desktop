@@ -1,6 +1,6 @@
 [Desktop Entry]
 Version=1.0
-Name=My Product
+Name=Ben Desktop
 Comment=Desktop-first local music library, playback, sync, and diagnostics app
 # The Exec line includes %u to pass the URL to the application
 Exec=/usr/local/bin/ben-desktop %u

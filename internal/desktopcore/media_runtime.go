@@ -31,40 +31,58 @@ func resolveMediaRuntimePaths(preferredFFmpegPath, preferredFFprobePath string) 
 
 	envFFmpeg := strings.TrimSpace(mediaRuntimeGetenv(envFFmpegPath))
 	envFFprobe := strings.TrimSpace(mediaRuntimeGetenv(envFFprobePath))
-	if envFFmpeg != "" {
-		return completeMediaRuntimePaths(envFFmpeg, firstNonEmpty(envFFprobe, preferredFFprobePath), "environment")
-	}
-	if preferredFFmpegPath != "" {
-		return completeMediaRuntimePaths(preferredFFmpegPath, firstNonEmpty(preferredFFprobePath, envFFprobe), "configured")
-	}
-	if packaged, ok := packagedMediaRuntimePaths(firstNonEmpty(preferredFFprobePath, envFFprobe)); ok {
-		return packaged
+
+	ffmpegPath := firstNonEmpty(envFFmpeg, preferredFFmpegPath)
+	ffprobePath := firstNonEmpty(envFFprobe, preferredFFprobePath)
+
+	source := "path"
+	if envFFmpeg != "" || envFFprobe != "" {
+		source = "environment"
+	} else if preferredFFmpegPath != "" || preferredFFprobePath != "" {
+		source = "configured"
 	}
 
-	ffmpegPath := "ffmpeg"
-	if found, err := mediaRuntimeLookPath("ffmpeg"); err == nil && strings.TrimSpace(found) != "" {
-		ffmpegPath = found
-	}
-	ffprobePath := firstNonEmpty(preferredFFprobePath, envFFprobe)
-	if ffprobePath == "" {
-		if found, err := mediaRuntimeLookPath("ffprobe"); err == nil && strings.TrimSpace(found) != "" {
-			ffprobePath = found
+	if ffmpegPath == "" {
+		if path, ok := findPackagedBinary("ffmpeg"); ok {
+			ffmpegPath = path
+			if source == "path" {
+				source = "packaged"
+			}
+		} else {
+			if found, err := mediaRuntimeLookPath("ffmpeg"); err == nil && strings.TrimSpace(found) != "" {
+				ffmpegPath = found
+			} else {
+				ffmpegPath = "ffmpeg"
+			}
 		}
 	}
-	return completeMediaRuntimePaths(ffmpegPath, ffprobePath, "path")
+	if ffprobePath == "" {
+		if path, ok := findPackagedBinary("ffprobe"); ok {
+			ffprobePath = path
+			if source == "path" {
+				source = "packaged"
+			}
+		} else {
+			if found, err := mediaRuntimeLookPath("ffprobe"); err == nil && strings.TrimSpace(found) != "" {
+				ffprobePath = found
+			} else {
+				ffprobePath = "ffprobe"
+			}
+		}
+	}
+
+	return completeMediaRuntimePaths(ffmpegPath, ffprobePath, source)
 }
 
-func packagedMediaRuntimePaths(overrideFFprobe string) (mediaRuntimePaths, bool) {
-	ffmpegName := mediaRuntimeBinaryName("ffmpeg")
-	ffprobeName := mediaRuntimeBinaryName("ffprobe")
+func findPackagedBinary(name string) (string, bool) {
+	binName := mediaRuntimeBinaryName(name)
 	for _, dir := range packagedFFmpegBinDirs() {
-		ffmpegPath := filepath.Join(dir, ffmpegName)
-		ffprobePath := filepath.Join(dir, ffprobeName)
-		if fileExists(ffmpegPath) && fileExists(ffprobePath) {
-			return completeMediaRuntimePaths(ffmpegPath, overrideFFprobe, "packaged"), true
+		path := filepath.Join(dir, binName)
+		if fileExists(path) {
+			return path, true
 		}
 	}
-	return mediaRuntimePaths{}, false
+	return "", false
 }
 
 func packagedFFmpegBinDirs() []string {

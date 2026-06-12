@@ -57,15 +57,23 @@ Copy-FileIfPresent -Source (Join-Path $root "docs\dependency-sources.md") -Desti
 Copy-FileIfPresent -Source (Join-Path $root "build\deps\manifest.json") -Destination (Join-Path $licenseOut "dependency-manifest.json")
 
 if ($RequireMediaRuntime) {
-    $required = @(
-        (Join-Path $bin "runtime\ffmpeg\bin\ffmpeg.exe"),
-        (Join-Path $bin "runtime\ffmpeg\bin\ffprobe.exe"),
-        (Join-Path $bin "libmpv.dll"),
-        (Join-Path $licenseOut "LICENSE"),
-        (Join-Path $licenseOut "THIRD_PARTY_NOTICES.md"),
-        (Join-Path $licenseOut "dependency-sources.md"),
-        (Join-Path $licenseOut "dependency-manifest.json")
-    )
+    $required = [System.Collections.Generic.List[string]]::new()
+    $required.Add((Join-Path $bin "runtime\ffmpeg\bin\ffmpeg.exe"))
+    $required.Add((Join-Path $bin "runtime\ffmpeg\bin\ffprobe.exe"))
+    $required.Add((Join-Path $bin "libmpv.dll"))
+    $required.Add((Join-Path $licenseOut "LICENSE"))
+    $required.Add((Join-Path $licenseOut "THIRD_PARTY_NOTICES.md"))
+    $required.Add((Join-Path $licenseOut "dependency-sources.md"))
+    $required.Add((Join-Path $licenseOut "dependency-manifest.json"))
+
+    # Validate every DLL that was staged in the runtime directory
+    foreach ($dll in (Get-ChildItem -Path $runtime -Filter "*.dll" -File -ErrorAction SilentlyContinue)) {
+        $required.Add((Join-Path $bin $dll.Name))
+    }
+    foreach ($ffmpegDll in (Get-ChildItem -Path (Join-Path $runtime "ffmpeg\bin") -Filter "*.dll" -File -ErrorAction SilentlyContinue)) {
+        $required.Add((Join-Path $bin "runtime\ffmpeg\bin" $ffmpegDll.Name))
+    }
+
     $missing = @($required | Where-Object { -not (Test-Path $_) })
     if ($missing.Count -gt 0) {
         throw "Release media runtime is incomplete. Missing: $($missing -join ', ')"

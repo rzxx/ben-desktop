@@ -43,8 +43,14 @@ tasks:
     cmds:
       - task: generate:syso
       - go build {{.BUILD_FLAGS}} -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe"
-      - cmd: powershell -NoProfile -ExecutionPolicy Bypass -File build/windows/copy-runtime.ps1 -BinDir "{{.BIN_DIR}}"
-        platforms: [windows]
+      - cmd: |
+          if command -v pwsh >/dev/null 2>&1; then
+            pwsh -NoProfile -ExecutionPolicy Bypass -File build/windows/copy-runtime.ps1 -BinDir "{{.BIN_DIR}}"
+          elif command -v powershell >/dev/null 2>&1; then
+            powershell -NoProfile -ExecutionPolicy Bypass -File build/windows/copy-runtime.ps1 -BinDir "{{.BIN_DIR}}"
+          else
+            bash build/windows/copy-runtime.sh --bin-dir "{{.BIN_DIR}}"
+          fi
       - cmd: powershell Remove-item *.syso
         platforms: [windows]
       - cmd: rm -f *.syso
@@ -72,8 +78,14 @@ tasks:
     cmds:
       - task: generate:syso
       - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} {{.CROSS_IMAGE}} windows {{.DOCKER_ARCH}}
-      - cmd: powershell -NoProfile -ExecutionPolicy Bypass -File build/windows/copy-runtime.ps1 -BinDir "{{.BIN_DIR}}"
-        platforms: [windows]
+      - cmd: |
+          if command -v pwsh >/dev/null 2>&1; then
+            pwsh -NoProfile -ExecutionPolicy Bypass -File build/windows/copy-runtime.ps1 -BinDir "{{.BIN_DIR}}"
+          elif command -v powershell >/dev/null 2>&1; then
+            powershell -NoProfile -ExecutionPolicy Bypass -File build/windows/copy-runtime.ps1 -BinDir "{{.BIN_DIR}}"
+          else
+            bash build/windows/copy-runtime.sh --bin-dir "{{.BIN_DIR}}"
+          fi
       - docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
       - rm -f *.syso
     vars:
@@ -119,7 +131,14 @@ tasks:
     cmds:
       # Create the Microsoft WebView2 bootstrapper if it doesn't exist
       - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
-      - powershell -NoProfile -ExecutionPolicy Bypass -File "{{.ROOT_DIR}}/build/windows/copy-runtime.ps1" -BinDir "{{.BIN_DIR}}" -RequireMediaRuntime
+      - cmd: |
+          if command -v pwsh >/dev/null 2>&1; then
+            pwsh -NoProfile -ExecutionPolicy Bypass -File "{{.ROOT_DIR}}/build/windows/copy-runtime.ps1" -BinDir "{{.BIN_DIR}}" -RequireMediaRuntime
+          elif command -v powershell >/dev/null 2>&1; then
+            powershell -NoProfile -ExecutionPolicy Bypass -File "{{.ROOT_DIR}}/build/windows/copy-runtime.ps1" -BinDir "{{.BIN_DIR}}" -RequireMediaRuntime
+          else
+            bash "{{.ROOT_DIR}}/build/windows/copy-runtime.sh" --bin-dir "{{.BIN_DIR}}" --require-media-runtime
+          fi
       - | 
         {{if eq OS "windows"}}
         makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi

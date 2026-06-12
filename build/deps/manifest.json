@@ -61,30 +61,11 @@
         "-Dshaderc=disabled",
         "-Dspirv-cross=disabled"
       ],
-      "knownWindowsRuntimeDllFamilies": [
-        "libass",
-        "fontconfig",
-        "freetype",
-        "fribidi",
-        "harfbuzz",
-        "glib",
-        "libplacebo",
-        "libdovi",
-        "shaderc",
-        "spirv-cross",
-        "libpng",
-        "zlib",
-        "libiconv",
-        "libintl",
-        "brotli",
-        "bzip2",
-        "pcre2",
-        "graphite2",
-        "libunibreak",
-        "vulkan-loader",
-        "gcc-runtime",
-        "winpthreads"
-      ]
+      "knownWindowsRuntimeDllsBuildRecord": {
+        "description": "Exact copied DLLs for the libmpv runtime closure are generated at build time and recorded in the runtime licenses directory.",
+        "generatedBy": "build/deps/windows/build-media-runtime.mingw64.sh",
+        "runtimeRecord": "build/windows/runtime/licenses/media-runtime-build.txt"
+      }
     },
     {
       "name": "go-mpv",
