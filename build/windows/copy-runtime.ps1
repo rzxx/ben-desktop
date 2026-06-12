@@ -71,7 +71,7 @@ if ($RequireMediaRuntime) {
         $required.Add((Join-Path $bin $dll.Name))
     }
     foreach ($ffmpegDll in (Get-ChildItem -Path (Join-Path $runtime "ffmpeg\bin") -Filter "*.dll" -File -ErrorAction SilentlyContinue)) {
-        $required.Add((Join-Path $bin "runtime\ffmpeg\bin" $ffmpegDll.Name))
+        $required.Add((Join-Path -Path (Join-Path -Path $bin -ChildPath "runtime\ffmpeg\bin") -ChildPath $ffmpegDll.Name))
     }
 
     $missing = @($required | Where-Object { -not (Test-Path $_) })
