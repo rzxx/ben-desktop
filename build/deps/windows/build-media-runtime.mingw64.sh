@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+RUNTIME_DIR="$ROOT_DIR/build/windows/runtime"
+WORK_DIR="$ROOT_DIR/build/deps/.work/windows"
+
+FFMPEG_VERSION="${FFMPEG_VERSION:-8.1.1}"
+MPV_VERSION="${MPV_VERSION:-0.41.0}"
+
+mkdir -p "$RUNTIME_DIR/ffmpeg/bin" "$RUNTIME_DIR/licenses" "$WORK_DIR"
+
+if [ "$MSYSTEM" != "MINGW64" ]; then
+  echo "This script must run inside MSYS2 MINGW64. MSYSTEM is '$MSYSTEM'." >&2
+  exit 1
+fi
+
+_compiler_target="$(gcc -dumpmachine 2>/dev/null || true)"
+if [ "$_compiler_target" != "x86_64-w64-mingw32" ]; then
+  echo "Compiler target must be x86_64-w64-mingw32, got: '$_compiler_target'" >&2
+  exit 1
+fi
+
+if ! command -v pacman >/dev/null 2>&1; then
+  echo "This script must run inside MSYS2 MINGW64." >&2
+  exit 1
+fi
+
+pacman -S --needed --noconfirm \
+  base-devel git curl pkgconf nasm yasm meson ninja \
+  mingw-w64-x86_64-toolchain \
+  mingw-w64-x86_64-cmake \
+  mingw-w64-x86_64-meson \
+  mingw-w64-x86_64-python \
+  mingw-w64-x86_64-pkgconf \
+  mingw-w64-x86_64-ntldd \
+  mingw-w64-x86_64-libwebp \
+  mingw-w64-x86_64-aom \
+  mingw-w64-x86_64-zlib
+
+copy_mingw_dll_deps() {
+  local binary="$1"
+  local dest="$2"
+  local deps
+  if ! command -v ntldd >/dev/null 2>&1; then
+    echo "ntldd is not available; dependency DLL closure was not copied for $binary" >&2
+    return 0
+  fi
+  deps="$(ntldd -R "$binary" \
+    | awk '/=>/ { print $3 }' \
+    | grep -Ei '(^/mingw64/bin/.*\.dll$|^[a-z]:\\msys64\\mingw64\\bin\\.*\.dll$)' || true)"
+  while IFS= read -r dep; do
+    [ -n "$dep" ] || continue
+    dep_path="$(cygpath -u "$dep" 2>/dev/null || printf '%s' "$dep")"
+    cp -n "$dep_path" "$dest/"
+  done <<< "$deps"
+}
+
+cd "$WORK_DIR"
+
+if [ ! -d "ffmpeg-$FFMPEG_VERSION" ]; then
+  rm -f "ffmpeg-$FFMPEG_VERSION.tar.xz"
+  curl --retry 10 --retry-delay 5 --retry-all-errors -fL "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" -o "ffmpeg-$FFMPEG_VERSION.tar.xz"
+  tar -xf "ffmpeg-$FFMPEG_VERSION.tar.xz"
+fi
+
+pushd "ffmpeg-$FFMPEG_VERSION" >/dev/null
+./configure \
+  --prefix="$WORK_DIR/ffmpeg-prefix" \
+  --disable-everything \
+  --disable-autodetect \
+  --disable-doc \
+  --disable-debug \
+  --disable-network \
+  --enable-small \
+  --enable-shared \
+  --disable-static \
+  --disable-ffplay \
+  --enable-ffmpeg \
+  --enable-ffprobe \
+  --enable-protocol=file,pipe \
+  --enable-demuxer=aac,flac,mov,mp3,ogg,wav,image2,webp_pipe \
+  --enable-muxer=ipod,mp4,mov,image2,webp,avif,null \
+  --enable-parser=aac,flac,mpegaudio,opus,vorbis,mjpeg,png,webp,av1 \
+  --enable-decoder=aac,aac_fixed,aac_latm,flac,mp3,mp3float,alac,opus,vorbis,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_f64le,pcm_u8,pcm_s16be,pcm_s24be,pcm_s32be,mjpeg,png,webp,av1 \
+  --enable-encoder=aac,mjpeg,libwebp,libaom_av1 \
+  --enable-filter=scale,crop \
+  --enable-swscale \
+  --enable-swresample \
+  --enable-zlib \
+  --enable-libwebp \
+  --enable-libaom
+make -j"$(nproc)"
+make install
+PATH="$WORK_DIR/ffmpeg-prefix/bin:$PATH" "$WORK_DIR/ffmpeg-prefix/bin/ffmpeg.exe" -buildconf > "$RUNTIME_DIR/licenses/ffmpeg-buildconf.txt"
+popd >/dev/null
+
+cp -f "$WORK_DIR/ffmpeg-prefix/bin/ffmpeg.exe" "$RUNTIME_DIR/ffmpeg/bin/ffmpeg.exe"
+cp -f "$WORK_DIR/ffmpeg-prefix/bin/ffprobe.exe" "$RUNTIME_DIR/ffmpeg/bin/ffprobe.exe"
+cp -f "$WORK_DIR/ffmpeg-prefix/bin/"*.dll "$RUNTIME_DIR/ffmpeg/bin/" 2>/dev/null || true
+cp -f "$WORK_DIR/ffmpeg-prefix/bin/"*.dll "$RUNTIME_DIR/" 2>/dev/null || true
+copy_mingw_dll_deps "$RUNTIME_DIR/ffmpeg/bin/ffmpeg.exe" "$RUNTIME_DIR/ffmpeg/bin"
+copy_mingw_dll_deps "$RUNTIME_DIR/ffmpeg/bin/ffprobe.exe" "$RUNTIME_DIR/ffmpeg/bin"
+
+if [ ! -d "mpv" ]; then
+  git clone --depth 1 --branch "v$MPV_VERSION" https://github.com/mpv-player/mpv.git
+else
+  git -C mpv fetch --depth 1 origin "v$MPV_VERSION" || true
+  git -C mpv checkout -f "v$MPV_VERSION"
+  git -C mpv reset --hard "HEAD"
+fi
+
+pushd mpv >/dev/null
+export PKG_CONFIG_PATH="$WORK_DIR/ffmpeg-prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+export PATH="$WORK_DIR/ffmpeg-prefix/bin:$PATH"
+MPV_MESON_OPTIONS=(
+  -Dlibmpv=true
+  -Ddefault_library=shared
+  -Dgpl=false
+  -Drubberband=disabled
+  -Djavascript=disabled
+  -Dlua=disabled
+  -Dlibarchive=disabled
+  -Dlibbluray=disabled
+  -Dvapoursynth=disabled
+  -Duchardet=disabled
+  -Dlcms2=disabled
+  -Djpeg=disabled
+  -Dzimg=disabled
+  -Dvaapi=disabled
+  -Dd3d11=disabled
+  -Dgl=disabled
+  -Dplain-gl=disabled
+  -Dshaderc=disabled
+  -Dspirv-cross=disabled
+)
+if [ -d build ]; then
+  meson setup build --wipe "${MPV_MESON_OPTIONS[@]}"
+else
+  meson setup build "${MPV_MESON_OPTIONS[@]}"
+fi
+meson configure build > "$RUNTIME_DIR/licenses/mpv-meson-configure.txt"
+ninja -C build libmpv-2.dll || ninja -C build
+
+LIBMPV_DLL="$(find build -name 'libmpv-*.dll' -o -name 'libmpv.dll' | head -n 1)"
+if [ -z "$LIBMPV_DLL" ]; then
+  echo "libmpv DLL was not produced" >&2
+  exit 1
+fi
+cp -f "$LIBMPV_DLL" "$RUNTIME_DIR/libmpv.dll"
+copy_mingw_dll_deps "$RUNTIME_DIR/libmpv.dll" "$RUNTIME_DIR"
+popd >/dev/null
+
+cat > "$RUNTIME_DIR/licenses/media-runtime-build.txt" <<EOF
+FFmpeg: $FFMPEG_VERSION
+mpv: $MPV_VERSION
+Built with: MSYS2 MINGW64
+Generated by: build/deps/windows/build-media-runtime.mingw64.sh
+EOF
+
+{
+  echo ""
+  echo "Copied DLLs:"
+  for dll in "$RUNTIME_DIR"/*.dll; do
+    [ -e "$dll" ] || continue
+    basename "$dll"
+  done | sort
+  echo ""
+  echo "FFmpeg bin DLLs:"
+  for dll in "$RUNTIME_DIR/ffmpeg/bin"/*.dll; do
+    [ -e "$dll" ] || continue
+    basename "$dll"
+  done | sort
+} >> "$RUNTIME_DIR/licenses/media-runtime-build.txt"
+
+echo "Media runtime staged in $RUNTIME_DIR"

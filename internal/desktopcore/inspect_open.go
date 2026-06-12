@@ -49,6 +49,7 @@ func OpenInspector(cfg InspectConfig) (*Inspector, error) {
 		DBPath:           resolved.DBPath,
 		BlobRoot:         resolved.BlobRoot,
 		FFmpegPath:       resolved.FFmpegPath,
+		FFprobePath:      resolved.FFprobePath,
 		TranscodeProfile: resolved.PreferredProfile,
 	})
 	if err != nil {
@@ -83,7 +84,7 @@ func OpenInspector(cfg InspectConfig) (*Inspector, error) {
 	return &Inspector{
 		cfg:          resolved,
 		app:          app,
-		mediaChecker: newInspectMediaChecker(strings.TrimSpace(appCfg.FFmpegPath)),
+		mediaChecker: newInspectMediaChecker(strings.TrimSpace(appCfg.FFmpegPath), strings.TrimSpace(appCfg.FFprobePath)),
 	}, nil
 }
 
@@ -103,6 +104,7 @@ func resolveInspectConfig(cfg InspectConfig) (InspectConfig, error) {
 	cfg.BlobRoot = strings.TrimSpace(cfg.BlobRoot)
 	cfg.SettingsAppName = strings.TrimSpace(cfg.SettingsAppName)
 	cfg.FFmpegPath = strings.TrimSpace(cfg.FFmpegPath)
+	cfg.FFprobePath = strings.TrimSpace(cfg.FFprobePath)
 	cfg.PreferredProfile = strings.TrimSpace(cfg.PreferredProfile)
 
 	if cfg.DBPath == "" {

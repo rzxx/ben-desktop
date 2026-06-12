@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "runtimeLayout": {
+    "windows": {
+      "stagingRoot": "build/windows/runtime",
+      "ffmpegBin": "build/windows/runtime/ffmpeg/bin",
+      "mpvDllSource": "build/windows/runtime",
+      "packagedFfmpegBin": "runtime/ffmpeg/bin",
+      "packagedLibmpvLocation": "application directory"
+    }
+  },
+  "components": [
+    {
+      "name": "ffmpeg",
+      "targetVersion": "8.1.1",
+      "licenseTarget": "LGPL-2.1-or-later",
+      "source": "https://ffmpeg.org/releases/",
+      "programs": ["ffmpeg", "ffprobe"],
+      "forbiddenConfigureFlags": ["--enable-gpl", "--enable-nonfree"],
+      "requiredConfigureFlags": [
+        "--disable-everything",
+        "--disable-autodetect",
+        "--disable-network",
+        "--disable-ffplay",
+        "--enable-ffmpeg",
+        "--enable-ffprobe",
+        "--enable-libwebp",
+        "--enable-libaom"
+      ],
+      "requiredRuntimeFeatures": {
+        "protocols": ["file", "pipe"],
+        "demuxers": ["aac", "flac", "mov", "mp3", "ogg", "wav", "image2", "webp_pipe"],
+        "muxers": ["ipod", "mp4", "mov", "image2", "webp", "avif", "null"],
+        "encoders": ["aac", "mjpeg", "libwebp", "libaom_av1"],
+        "filters": ["scale", "crop"]
+      }
+    },
+    {
+      "name": "mpv",
+      "targetVersion": "0.41.0",
+      "licenseTarget": "LGPL-2.1-or-later when built with -Dgpl=false",
+      "source": "https://github.com/mpv-player/mpv",
+      "requiredMesonOptions": [
+        "-Dlibmpv=true",
+        "-Ddefault_library=shared",
+        "-Dgpl=false",
+        "-Drubberband=disabled",
+        "-Djavascript=disabled",
+        "-Dlua=disabled",
+        "-Dlibarchive=disabled",
+        "-Dlibbluray=disabled",
+        "-Dvapoursynth=disabled",
+        "-Duchardet=disabled",
+        "-Dlcms2=disabled",
+        "-Djpeg=disabled",
+        "-Dzimg=disabled",
+        "-Dvaapi=disabled",
+        "-Dd3d11=disabled",
+        "-Dgl=disabled",
+        "-Dplain-gl=disabled",
+        "-Dshaderc=disabled",
+        "-Dspirv-cross=disabled"
+      ],
+      "knownWindowsRuntimeDllsBuildRecord": {
+        "description": "Exact copied DLLs for the libmpv runtime closure are generated at build time and recorded in the runtime licenses directory.",
+        "generatedBy": "build/deps/windows/build-media-runtime.mingw64.sh",
+        "runtimeRecord": "build/windows/runtime/licenses/media-runtime-build.txt"
+      }
+    },
+    {
+      "name": "go-mpv",
+      "version": "v0.2.3",
+      "license": "GPL-3.0",
+      "source": "https://github.com/gen2brain/go-mpv",
+      "notes": "Direct Go dependency. App license is GPL-3.0-or-later while this dependency remains."
+    }
+  ]
+}

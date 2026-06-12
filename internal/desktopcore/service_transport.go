@@ -120,6 +120,72 @@ func newTransportService(app *App) *TransportService {
 	}
 }
 
+func (s *TransportService) transportFactory() transportFactory {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.factory
+}
+
+func (s *TransportService) backgroundLoopInterval() time.Duration {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.backgroundInterval
+}
+
+func (s *TransportService) eventSyncDelay() time.Duration {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.eventSyncDebounce
+}
+
+func (s *TransportService) peerRetrySettings() (time.Duration, time.Duration, int) {
+	if s == nil {
+		return 0, 0, 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.peerRetryDelay, s.peerRetryMaxDelay, s.peerRetryMaxCount
+}
+
+func (s *TransportService) catchupHooks() (
+	func(*activeTransportRuntime, SyncPeer, apitypes.NetworkSyncReason),
+	func(*activeTransportRuntime, apitypes.NetworkSyncReason),
+) {
+	if s == nil {
+		return nil, nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.catchupPeerRunHook, s.catchupRunHook
+}
+
+func (s *TransportService) getPeerUpdateBroadcastHook() func(*activeTransportRuntime) {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.peerUpdateBroadcastHook
+}
+
+func (s *TransportService) getCheckpointMaintenanceRunHook() func(*activeTransportRuntime) {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.checkpointMaintenanceRunHook
+}
+
 func (s *TransportService) SyncTransport() SyncTransport {
 	if s == nil {
 		return nil
@@ -189,7 +255,11 @@ func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.Local
 	}
 	s.app.runtimeMu.Unlock()
 
-	next, err := s.factory(ctx, local)
+	factory := s.transportFactory()
+	if factory == nil {
+		return nil
+	}
+	next, err := factory(ctx, local)
 	if err != nil {
 		return err
 	}
@@ -241,7 +311,7 @@ func (s *TransportService) runBackgroundLoop(runtime *activeTransportRuntime) {
 	if s == nil || runtime == nil {
 		return
 	}
-	interval := s.backgroundInterval
+	interval := s.backgroundLoopInterval()
 	if interval <= 0 {
 		return
 	}
@@ -270,8 +340,9 @@ func (s *TransportService) noteLocalLibraryMutation(libraryID string) {
 	if runtime == nil {
 		return
 	}
-	s.scheduleRuntimePeerUpdateBroadcast(runtime, s.eventSyncDebounce)
-	s.scheduleRuntimeCheckpointMaintenance(runtime, s.eventSyncDebounce)
+	delay := s.eventSyncDelay()
+	s.scheduleRuntimePeerUpdateBroadcast(runtime, delay)
+	s.scheduleRuntimeCheckpointMaintenance(runtime, delay)
 }
 
 func (s *TransportService) scheduleRuntimeCatchup(runtime *activeTransportRuntime, reason apitypes.NetworkSyncReason, delay time.Duration) {
@@ -480,24 +551,23 @@ func (s *TransportService) peerUpdateRetryDelay(attempt int) (time.Duration, boo
 	if attempt <= 0 {
 		return 0, false
 	}
-	maxCount := s.peerRetryMaxCount
+	delay, maxDelay, maxCount := s.peerRetrySettings()
 	if maxCount <= 0 {
 		maxCount = 1
 	}
 	if attempt >= maxCount {
 		return 0, false
 	}
-	delay := s.peerRetryDelay
 	if delay <= 0 {
 		delay = time.Second
 	}
 	for step := 1; step < attempt; step++ {
-		if delay >= s.peerRetryMaxDelay && s.peerRetryMaxDelay > 0 {
-			return s.peerRetryMaxDelay, true
+		if delay >= maxDelay && maxDelay > 0 {
+			return maxDelay, true
 		}
 		delay *= 2
 	}
-	if maxDelay := s.peerRetryMaxDelay; maxDelay > 0 && delay > maxDelay {
+	if maxDelay > 0 && delay > maxDelay {
 		delay = maxDelay
 	}
 	return delay, true
@@ -627,14 +697,15 @@ func (s *TransportService) runRuntimeCatchup(runtime *activeTransportRuntime, re
 	if s == nil || s.app == nil || runtime == nil {
 		return
 	}
-	if s.catchupPeerRunHook != nil {
-		s.catchupPeerRunHook(runtime, peer, reason)
-		s.scheduleRuntimeCheckpointMaintenance(runtime, s.eventSyncDebounce)
+	catchupPeerRunHook, catchupRunHook := s.catchupHooks()
+	if catchupPeerRunHook != nil {
+		catchupPeerRunHook(runtime, peer, reason)
+		s.scheduleRuntimeCheckpointMaintenance(runtime, s.eventSyncDelay())
 		return
 	}
-	if s.catchupRunHook != nil {
-		s.catchupRunHook(runtime, reason)
-		s.scheduleRuntimeCheckpointMaintenance(runtime, s.eventSyncDebounce)
+	if catchupRunHook != nil {
+		catchupRunHook(runtime, reason)
+		s.scheduleRuntimeCheckpointMaintenance(runtime, s.eventSyncDelay())
 		return
 	}
 	local, ok := s.runtimeLocalContext(runtime)
@@ -672,7 +743,7 @@ func (s *TransportService) runRuntimeCatchup(runtime *activeTransportRuntime, re
 		s.finishRuntimeSync(runtime, nil)
 	}
 	if runtime.ctx.Err() == nil {
-		s.scheduleRuntimeCheckpointMaintenance(runtime, s.eventSyncDebounce)
+		s.scheduleRuntimeCheckpointMaintenance(runtime, s.eventSyncDelay())
 	}
 }
 
@@ -680,8 +751,8 @@ func (s *TransportService) runRuntimePeerUpdateBroadcast(runtime *activeTranspor
 	if s == nil || s.app == nil || runtime == nil {
 		return
 	}
-	if s.peerUpdateBroadcastHook != nil {
-		s.peerUpdateBroadcastHook(runtime)
+	if hook := s.getPeerUpdateBroadcastHook(); hook != nil {
+		hook(runtime)
 		return
 	}
 
@@ -794,8 +865,8 @@ func (s *TransportService) runRuntimeCheckpointMaintenance(runtime *activeTransp
 	if s == nil || s.app == nil || runtime == nil {
 		return
 	}
-	if s.checkpointMaintenanceRunHook != nil {
-		s.checkpointMaintenanceRunHook(runtime)
+	if hook := s.getCheckpointMaintenanceRunHook(); hook != nil {
+		hook(runtime)
 		return
 	}
 	local, ok := s.runtimeLocalContext(runtime)
@@ -836,9 +907,9 @@ func (s *TransportService) handleLibraryChangedSignal(ctx context.Context, runti
 		target, resolveErr := s.resolveRuntimePeerByIdentity(ctx, scheduleRuntime, req.DeviceID, actualPeerID)
 		if resolveErr != nil {
 			s.app.logf("desktopcore: resolve signaled peer for targeted catch-up failed for %s: %v", scheduleRuntime.libraryID, resolveErr)
-			s.scheduleRuntimeCatchup(scheduleRuntime, apitypes.NetworkSyncReasonUpdate, s.eventSyncDebounce)
+			s.scheduleRuntimeCatchup(scheduleRuntime, apitypes.NetworkSyncReasonUpdate, s.eventSyncDelay())
 		} else {
-			s.scheduleRuntimeCatchupPeer(scheduleRuntime, apitypes.NetworkSyncReasonUpdate, target, s.eventSyncDebounce)
+			s.scheduleRuntimeCatchupPeer(scheduleRuntime, apitypes.NetworkSyncReasonUpdate, target, s.eventSyncDelay())
 		}
 	}
 	return resp, nil

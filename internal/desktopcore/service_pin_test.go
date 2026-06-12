@@ -183,9 +183,9 @@ func TestSyncActiveRuntimeServicesRefreshesPinRootsEvenWhenPendingCountIsZero(t 
 
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
-	app.transportService.factory = func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
+	app.transportService.setTransportFactoryForTest(func(context.Context, apitypes.LocalContext) (managedSyncTransport, error) {
 		return &fakeManagedTransport{peerID: "peer-pin-startup-refresh"}, nil
-	}
+	})
 
 	library, err := app.CreateLibrary(ctx, "pin-startup-refresh")
 	if err != nil {

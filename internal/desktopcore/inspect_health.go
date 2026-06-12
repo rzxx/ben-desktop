@@ -33,14 +33,13 @@ type ffmpegInspectMediaChecker struct {
 	ffprobePath string
 }
 
-func newInspectMediaChecker(ffmpegPath string) inspectMediaChecker {
+func newInspectMediaChecker(ffmpegPath, ffprobePath string) inspectMediaChecker {
 	ffmpegPath = strings.TrimSpace(ffmpegPath)
-	if ffmpegPath == "" {
-		ffmpegPath = "ffmpeg"
-	}
+	ffprobePath = strings.TrimSpace(ffprobePath)
+	paths := resolveMediaRuntimePaths(ffmpegPath, ffprobePath)
 	return &ffmpegInspectMediaChecker{
-		ffmpegPath:  ffmpegPath,
-		ffprobePath: companionBinaryPath(ffmpegPath, "ffmpeg", "ffprobe"),
+		ffmpegPath:  paths.FFmpegPath,
+		ffprobePath: paths.FFprobePath,
 	}
 }
 
@@ -221,7 +220,7 @@ func (i *Inspector) HealthCheck(ctx context.Context, req HealthCheckRequest) (He
 
 	checker := i.mediaChecker
 	if checker == nil && req.Decode {
-		checker = newInspectMediaChecker(strings.TrimSpace(i.app.cfg.FFmpegPath))
+		checker = newInspectMediaChecker(strings.TrimSpace(i.app.cfg.FFmpegPath), strings.TrimSpace(i.app.cfg.FFprobePath))
 	}
 
 	for _, row := range filtered {

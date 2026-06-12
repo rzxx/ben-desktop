@@ -40,13 +40,14 @@ func (b *boolFlag) String() string {
 }
 
 type commonFlags struct {
-	db         string
-	blobRoot   string
-	libraryID  string
-	deviceID   string
-	profile    string
-	ffmpegPath string
-	network    boolFlag
+	db          string
+	blobRoot    string
+	libraryID   string
+	deviceID    string
+	profile     string
+	ffmpegPath  string
+	ffprobePath string
+	network     boolFlag
 }
 
 func main() {
@@ -71,6 +72,8 @@ func run(args []string) int {
 		inspector, err := desktopcore.OpenInspector(desktopcore.InspectConfig{
 			DBPath:           common.db,
 			BlobRoot:         common.blobRoot,
+			FFmpegPath:       common.ffmpegPath,
+			FFprobePath:      common.ffprobePath,
 			PreferredProfile: common.profile,
 		})
 		if err != nil {
@@ -224,6 +227,7 @@ func newCommonFlagSet(name string) (*commonFlags, *flag.FlagSet) {
 	fs.StringVar(&common.deviceID, "device-id", "", "device id")
 	fs.StringVar(&common.profile, "profile", "", "preferred profile")
 	fs.StringVar(&common.ffmpegPath, "ffmpeg", "", "ffmpeg executable path")
+	fs.StringVar(&common.ffprobePath, "ffprobe", "", "ffprobe executable path")
 	fs.Var(&common.network, "network-running", "network running override")
 	return common, fs
 }
@@ -233,6 +237,7 @@ func openInspector(common *commonFlags) (*desktopcore.Inspector, error) {
 		DBPath:           common.db,
 		BlobRoot:         common.blobRoot,
 		FFmpegPath:       common.ffmpegPath,
+		FFprobePath:      common.ffprobePath,
 		PreferredProfile: common.profile,
 	})
 }

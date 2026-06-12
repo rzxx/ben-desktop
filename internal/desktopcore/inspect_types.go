@@ -9,6 +9,7 @@ type InspectConfig struct {
 	BlobRoot         string
 	SettingsAppName  string
 	FFmpegPath       string
+	FFprobePath      string
 	PreferredProfile string
 }
 

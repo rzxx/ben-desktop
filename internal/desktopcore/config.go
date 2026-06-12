@@ -18,6 +18,7 @@ type Config struct {
 	BlobRoot                          string
 	IdentityKeyPath                   string
 	FFmpegPath                        string
+	FFprobePath                       string
 	TranscodeProfile                  string
 	RelayBootstrapAddrs               []string
 	RegistryURL                       string
@@ -101,6 +102,7 @@ func ResolveConfig(cfg Config) (Config, error) {
 	cfg.BlobRoot = strings.TrimSpace(cfg.BlobRoot)
 	cfg.IdentityKeyPath = strings.TrimSpace(cfg.IdentityKeyPath)
 	cfg.FFmpegPath = strings.TrimSpace(cfg.FFmpegPath)
+	cfg.FFprobePath = strings.TrimSpace(cfg.FFprobePath)
 	cfg.TranscodeProfile = settings.EffectiveTranscodeProfile(cfg.TranscodeProfile)
 	cfg.RelayBootstrapAddrs = compactNonEmptyStrings(cfg.RelayBootstrapAddrs)
 	cfg.RegistryURL = strings.TrimSpace(cfg.RegistryURL)
@@ -126,9 +128,9 @@ func ResolveConfig(cfg Config) (Config, error) {
 		}
 		cfg.IdentityKeyPath = path
 	}
-	if cfg.FFmpegPath == "" {
-		cfg.FFmpegPath = "ffmpeg"
-	}
+	mediaRuntime := resolveMediaRuntimePaths(cfg.FFmpegPath, cfg.FFprobePath)
+	cfg.FFmpegPath = mediaRuntime.FFmpegPath
+	cfg.FFprobePath = mediaRuntime.FFprobePath
 	if cfg.TranscodeProfile == "" {
 		cfg.TranscodeProfile = settings.DefaultTranscodeProfile
 	}

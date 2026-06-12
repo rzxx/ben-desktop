@@ -174,6 +174,7 @@ func ensureReadOptimizedIndexes(db *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_offline_members_paging ON offline_members(library_id, device_id, offline_since DESC, library_recording_id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_offline_members_updated ON offline_members(library_id, device_id, updated_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_track_variants_browse_title ON track_variants(library_id, LOWER(title), track_cluster_id, track_variant_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_oplog_entity_latest ON oplog_entries(library_id, entity_type, entity_id, tsns DESC, op_id DESC)`,
 	}
 	for _, query := range indexes {
 		if err := db.Exec(query).Error; err != nil {
