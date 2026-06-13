@@ -56,3 +56,17 @@ func TestClassifyEventScopesRemovedDirectoryToRemovedPath(t *testing.T) {
 		t.Fatalf("presence roots = %+v, want [%s]", presenceRoots, removed)
 	}
 }
+
+func TestClassifyEventIgnoresTemporaryFileChurn(t *testing.T) {
+	root := t.TempDir()
+	tempPath := filepath.Join(root, "artist", "album", "track.flac.tmp")
+
+	watcher := &activeScanWatcher{roots: []string{filepath.Clean(root)}}
+	paths, presenceRoots, artworkRoots, startupRoots := watcher.classifyEvent(fsnotify.Event{
+		Name: tempPath,
+		Op:   fsnotify.Remove,
+	})
+	if len(paths) != 0 || len(presenceRoots) != 0 || len(artworkRoots) != 0 || len(startupRoots) != 0 {
+		t.Fatalf("temporary file event queued work: paths=%+v presence=%+v artwork=%+v startup=%+v", paths, presenceRoots, artworkRoots, startupRoots)
+	}
+}

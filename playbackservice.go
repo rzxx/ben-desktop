@@ -537,12 +537,16 @@ func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapsh
 		subscriber(snapshot)
 	}
 	if app != nil && app.Event != nil {
-		playback.RecordDebugTrace(playback.NewDebugTraceEntry("service.emit.transport", &snapshot))
+		if playback.DebugTraceEnabled() {
+			playback.RecordDebugTrace(playback.NewDebugTraceEntry("service.emit.transport", &snapshot))
+		}
 		app.Event.Emit(playback.EventTransportChanged, playback.BuildTransportEventSnapshot(snapshot))
 		if queueChanged {
-			queueTrace := playback.NewDebugTraceEntry("service.emit.queue", &snapshot)
-			queueTrace.Reason = "queue_changed"
-			playback.RecordDebugTrace(queueTrace)
+			if playback.DebugTraceEnabled() {
+				queueTrace := playback.NewDebugTraceEntry("service.emit.queue", &snapshot)
+				queueTrace.Reason = "queue_changed"
+				playback.RecordDebugTrace(queueTrace)
+			}
 			app.Event.Emit(playback.EventQueueChanged, playback.BuildQueueEventSnapshot(snapshot))
 		}
 	}

@@ -178,6 +178,34 @@ func TestRunPinScopeRefreshJobSchedulesRetryWhenTracksRemainPending(t *testing.T
 	}
 }
 
+func TestReconcileScopeReportsNoChangeForEquivalentRows(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := openPlaylistTestApp(t)
+
+	library, err := app.CreateLibrary(ctx, "pin-reconcile-no-op")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	local, err := app.requireActiveContext(ctx)
+	if err != nil {
+		t.Fatalf("active context: %v", err)
+	}
+	seedPlaylistRecording(t, app, library.LibraryID, "rec-reconcile-no-op", "Reconcile No-op")
+
+	if err := app.pin.upsertPinRoot(ctx, local, "recording", "rec-reconcile-no-op", "desktop"); err != nil {
+		t.Fatalf("upsert pin root: %v", err)
+	}
+	changed, err := app.pin.reconcileScope(ctx, local, "recording", "rec-reconcile-no-op", "desktop")
+	if err != nil {
+		t.Fatalf("reconcile pin root: %v", err)
+	}
+	if changed {
+		t.Fatal("expected equivalent pin rows to reconcile as no-op")
+	}
+}
+
 func TestSyncActiveRuntimeServicesRefreshesPinRootsEvenWhenPendingCountIsZero(t *testing.T) {
 	t.Parallel()
 

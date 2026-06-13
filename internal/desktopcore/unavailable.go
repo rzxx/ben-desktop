@@ -44,6 +44,10 @@ func (c *UnavailableCore) NetworkStatus() apitypes.NetworkStatus {
 	return apitypes.NetworkStatus{}
 }
 
+func (c *UnavailableCore) SubscribeNetworkStatus(func(apitypes.NetworkStatus)) func() {
+	return func() {}
+}
+
 func (c *UnavailableCore) StartSyncNow(context.Context) (JobSnapshot, error) {
 	return JobSnapshot{}, c.err
 }

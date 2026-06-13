@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -355,7 +356,8 @@ func (s *PinService) upsertPinRoot(ctx context.Context, local apitypes.LocalCont
 	}); err != nil {
 		return err
 	}
-	return s.reconcileScope(ctx, local, scope, scopeID, profile)
+	_, err := s.reconcileScope(ctx, local, scope, scopeID, profile)
+	return err
 }
 
 func (s *PinService) deletePinRoot(ctx context.Context, local apitypes.LocalContext, scope, scopeID string) error {
@@ -1163,11 +1165,14 @@ func (s *PinService) runPinScopeRefreshJob(ctx context.Context, libraryID, scope
 		return
 	}
 	if len(pendingIDs) == 0 {
-		if err := s.reconcileScope(ctx, local, scope, resolvedScopeID, profile); err != nil {
+		changed, err := s.reconcileScope(ctx, local, scope, resolvedScopeID, profile)
+		if err != nil {
 			job.Fail(0, "pinned scope refresh failed", err)
 			return
 		}
-		s.app.playback.emitPinAvailabilityInvalidation(local, scope, resolvedScopeID, recordingIDs)
+		if changed {
+			s.app.playback.emitPinAvailabilityInvalidation(local, scope, resolvedScopeID, recordingIDs)
+		}
 		job.Complete(1, "Pinned scope already up to date")
 		return
 	}
@@ -1185,7 +1190,9 @@ func (s *PinService) runPinScopeRefreshJob(ctx context.Context, libraryID, scope
 	if outcome.pendingCount > 0 {
 		s.schedulePinScopeRefreshRetry(local.LibraryID, scope, resolvedScopeID, profile)
 	}
-	s.app.playback.emitPinAvailabilityInvalidation(local, scope, resolvedScopeID, recordingIDs)
+	if outcome.changed {
+		s.app.playback.emitPinAvailabilityInvalidation(local, scope, resolvedScopeID, recordingIDs)
+	}
 }
 
 func (s *PinService) filterRecordingsNeedingPinFetch(ctx context.Context, local apitypes.LocalContext, recordingIDs []string, preferredProfile string) ([]string, error) {
@@ -1340,11 +1347,11 @@ type artworkScopeRef struct {
 	ScopeID   string
 }
 
-func (s *PinService) reconcileScope(ctx context.Context, local apitypes.LocalContext, scope, scopeID, profile string) error {
+func (s *PinService) reconcileScope(ctx context.Context, local apitypes.LocalContext, scope, scopeID, profile string) (bool, error) {
 	scope = strings.TrimSpace(scope)
 	scopeID = strings.TrimSpace(scopeID)
 	if scope == "" || scopeID == "" {
-		return nil
+		return false, nil
 	}
 
 	var root PinRoot
@@ -1352,9 +1359,9 @@ func (s *PinService) reconcileScope(ctx context.Context, local apitypes.LocalCon
 		Where("library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?", local.LibraryID, local.DeviceID, scope, scopeID).
 		Take(&root).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 	if strings.TrimSpace(root.Profile) != "" {
 		profile = strings.TrimSpace(root.Profile)
@@ -1362,7 +1369,7 @@ func (s *PinService) reconcileScope(ctx context.Context, local apitypes.LocalCon
 
 	members, err := s.resolveMembers(ctx, local, root.Scope, root.ScopeID, profile)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	now := time.Now().UTC()
@@ -1390,10 +1397,18 @@ func (s *PinService) reconcileScope(ctx context.Context, local apitypes.LocalCon
 
 	blobRefs, err := s.resolveBlobRefs(ctx, local, root.Scope, root.ScopeID, profile, rows, now)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	return s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
+	unchanged, err := s.pinScopeReconcileUnchanged(ctx, local, root, profile, pendingCount, rows, blobRefs)
+	if err != nil {
+		return false, err
+	}
+	if unchanged {
+		return false, nil
+	}
+
+	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Where(
 			"library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?",
 			local.LibraryID,
@@ -1432,7 +1447,130 @@ func (s *PinService) reconcileScope(ctx context.Context, local apitypes.LocalCon
 				"last_reconciled_at": now,
 				"updated_at":         now,
 			}).Error
-	})
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *PinService) pinScopeReconcileUnchanged(
+	ctx context.Context,
+	local apitypes.LocalContext,
+	root PinRoot,
+	profile string,
+	pendingCount int,
+	rows []PinMember,
+	blobRefs []PinBlobRef,
+) (bool, error) {
+	if strings.TrimSpace(root.Profile) != strings.TrimSpace(profile) || root.PendingCount != pendingCount {
+		return false, nil
+	}
+
+	var existingMembers []PinMember
+	if err := s.app.storage.WithContext(ctx).
+		Where(
+			"library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?",
+			local.LibraryID,
+			local.DeviceID,
+			root.Scope,
+			root.ScopeID,
+		).
+		Find(&existingMembers).Error; err != nil {
+		return false, err
+	}
+	if !pinMembersEqual(existingMembers, rows) {
+		return false, nil
+	}
+
+	var existingBlobRefs []PinBlobRef
+	if err := s.app.storage.WithContext(ctx).
+		Where(
+			"library_id = ? AND device_id = ? AND scope = ? AND scope_id = ?",
+			local.LibraryID,
+			local.DeviceID,
+			root.Scope,
+			root.ScopeID,
+		).
+		Find(&existingBlobRefs).Error; err != nil {
+		return false, err
+	}
+	return pinBlobRefsEqual(existingBlobRefs, blobRefs), nil
+}
+
+func pinMembersEqual(left, right []PinMember) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	left = append([]PinMember(nil), left...)
+	right = append([]PinMember(nil), right...)
+	sort.Slice(left, func(i, j int) bool { return pinMemberSortKey(left[i]) < pinMemberSortKey(left[j]) })
+	sort.Slice(right, func(i, j int) bool { return pinMemberSortKey(right[i]) < pinMemberSortKey(right[j]) })
+	for index := range left {
+		if strings.TrimSpace(left[index].LibraryID) != strings.TrimSpace(right[index].LibraryID) ||
+			strings.TrimSpace(left[index].DeviceID) != strings.TrimSpace(right[index].DeviceID) ||
+			strings.TrimSpace(left[index].Scope) != strings.TrimSpace(right[index].Scope) ||
+			strings.TrimSpace(left[index].ScopeID) != strings.TrimSpace(right[index].ScopeID) ||
+			strings.TrimSpace(left[index].Profile) != strings.TrimSpace(right[index].Profile) ||
+			strings.TrimSpace(left[index].VariantRecordingID) != strings.TrimSpace(right[index].VariantRecordingID) ||
+			strings.TrimSpace(left[index].LibraryRecordingID) != strings.TrimSpace(right[index].LibraryRecordingID) ||
+			strings.TrimSpace(left[index].ResolutionPolicy) != strings.TrimSpace(right[index].ResolutionPolicy) ||
+			left[index].Pending != right[index].Pending ||
+			strings.TrimSpace(left[index].LastError) != strings.TrimSpace(right[index].LastError) {
+			return false
+		}
+	}
+	return true
+}
+
+func pinMemberSortKey(member PinMember) string {
+	return strings.Join([]string{
+		strings.TrimSpace(member.LibraryID),
+		strings.TrimSpace(member.DeviceID),
+		strings.TrimSpace(member.Scope),
+		strings.TrimSpace(member.ScopeID),
+		strings.TrimSpace(member.Profile),
+		strings.TrimSpace(member.VariantRecordingID),
+	}, "\x00")
+}
+
+func pinBlobRefsEqual(left, right []PinBlobRef) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	left = append([]PinBlobRef(nil), left...)
+	right = append([]PinBlobRef(nil), right...)
+	sort.Slice(left, func(i, j int) bool { return pinBlobRefSortKey(left[i]) < pinBlobRefSortKey(left[j]) })
+	sort.Slice(right, func(i, j int) bool { return pinBlobRefSortKey(right[i]) < pinBlobRefSortKey(right[j]) })
+	for index := range left {
+		if strings.TrimSpace(left[index].LibraryID) != strings.TrimSpace(right[index].LibraryID) ||
+			strings.TrimSpace(left[index].DeviceID) != strings.TrimSpace(right[index].DeviceID) ||
+			strings.TrimSpace(left[index].Scope) != strings.TrimSpace(right[index].Scope) ||
+			strings.TrimSpace(left[index].ScopeID) != strings.TrimSpace(right[index].ScopeID) ||
+			strings.TrimSpace(left[index].Profile) != strings.TrimSpace(right[index].Profile) ||
+			strings.TrimSpace(left[index].BlobID) != strings.TrimSpace(right[index].BlobID) ||
+			strings.TrimSpace(left[index].RefKind) != strings.TrimSpace(right[index].RefKind) ||
+			strings.TrimSpace(left[index].SubjectID) != strings.TrimSpace(right[index].SubjectID) ||
+			strings.TrimSpace(left[index].RecordingID) != strings.TrimSpace(right[index].RecordingID) ||
+			strings.TrimSpace(left[index].ArtworkScopeType) != strings.TrimSpace(right[index].ArtworkScopeType) ||
+			strings.TrimSpace(left[index].ArtworkScopeID) != strings.TrimSpace(right[index].ArtworkScopeID) ||
+			strings.TrimSpace(left[index].ArtworkVariant) != strings.TrimSpace(right[index].ArtworkVariant) {
+			return false
+		}
+	}
+	return true
+}
+
+func pinBlobRefSortKey(ref PinBlobRef) string {
+	return strings.Join([]string{
+		strings.TrimSpace(ref.LibraryID),
+		strings.TrimSpace(ref.DeviceID),
+		strings.TrimSpace(ref.Scope),
+		strings.TrimSpace(ref.ScopeID),
+		strings.TrimSpace(ref.Profile),
+		strings.TrimSpace(ref.BlobID),
+		strings.TrimSpace(ref.RefKind),
+		strings.TrimSpace(ref.SubjectID),
+	}, "\x00")
 }
 
 func (s *PinService) resolveMembers(ctx context.Context, local apitypes.LocalContext, scope, scopeID, profile string) ([]resolvedPinMember, error) {

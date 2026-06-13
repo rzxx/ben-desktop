@@ -14,19 +14,20 @@ import (
 )
 
 const (
-	positionPollInterval  = 500 * time.Millisecond
-	pendingRetryInterval  = time.Second
-	pendingRetryTimeout   = 2 * time.Minute
-	nextPreparationPoll   = 5 * time.Second
-	transportRetryTimeout = 3 * time.Second
-	seekObserveTimeout    = 250 * time.Millisecond
-	seekObserveInterval   = 10 * time.Millisecond
-	seekObserveTolerance  = int64(750)
-	trackEndNearEOFWindow = int64(3000)
-	availabilityBatchSize = 64
-	availabilityCacheTTL  = 2 * time.Second
-	preloadAfterPlayedMS  = int64(45_000)
-	preloadRemainingMS    = int64(30_000)
+	positionPollInterval       = 500 * time.Millisecond
+	positionCheckpointInterval = 10 * time.Second
+	pendingRetryInterval       = time.Second
+	pendingRetryTimeout        = 2 * time.Minute
+	nextPreparationPoll        = 5 * time.Second
+	transportRetryTimeout      = 3 * time.Second
+	seekObserveTimeout         = 250 * time.Millisecond
+	seekObserveInterval        = 10 * time.Millisecond
+	seekObserveTolerance       = int64(750)
+	trackEndNearEOFWindow      = int64(3000)
+	availabilityBatchSize      = 64
+	availabilityCacheTTL       = 2 * time.Second
+	preloadAfterPlayedMS       = int64(45_000)
+	preloadRemainingMS         = int64(30_000)
 )
 
 type Logger interface {
@@ -66,6 +67,7 @@ type Session struct {
 	preloadedID         string
 	preloadedURI        string
 	backendPreloadArmed bool
+	lastTickerPublishAt time.Time
 
 	nextPreparationRetryEntryID string
 	nextPreparationRetryAt      time.Time
@@ -2641,12 +2643,12 @@ func (s *Session) clearAuthoritativePositionLocked() {
 	s.snapshot.PositionCapturedAtMS = 0
 }
 
-func (s *Session) refreshPosition(reason string) {
+func (s *Session) refreshPosition(reason string) (SessionSnapshot, bool) {
 	s.mu.Lock()
 	backend := s.backend
 	s.mu.Unlock()
 	if backend == nil {
-		return
+		return SessionSnapshot{}, false
 	}
 
 	positionSampleStartedAtMS := currentTransportCaptureMS()
@@ -2669,14 +2671,17 @@ func (s *Session) refreshPosition(reason string) {
 	state := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
 
-	trace := NewDebugTraceEntry("session.refresh", &state)
-	trace.Reason = reason
-	if positionErr == nil {
-		trace.ObservedPositionMS = &positionMS
-	} else {
-		trace.Message = positionErr.Error()
+	if DebugTraceEnabled() {
+		trace := NewDebugTraceEntry("session.refresh", &state)
+		trace.Reason = reason
+		if positionErr == nil {
+			trace.ObservedPositionMS = &positionMS
+		} else {
+			trace.Message = positionErr.Error()
+		}
+		RecordDebugTrace(trace)
 	}
-	RecordDebugTrace(trace)
+	return state, true
 }
 
 func (s *Session) refreshPositionAfterSeek(ctx context.Context, targetPositionMS int64) {
@@ -2737,27 +2742,29 @@ func (s *Session) refreshPositionAfterSeek(ctx context.Context, targetPositionMS
 	state := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
 
-	trace := NewDebugTraceEntry("session.refresh", &state)
-	trace.Reason = "seek"
-	if matchedTarget {
-		trace.ObservedPositionMS = &observedPositionMS
-	} else {
-		trace.ObservedPositionMS = &observedPositionMS
-		if positionErr != nil {
-			trace.Message = fmt.Sprintf(
-				"seek observe fallback target=%d position_err=%v",
-				targetPositionMS,
-				positionErr,
-			)
+	if DebugTraceEnabled() {
+		trace := NewDebugTraceEntry("session.refresh", &state)
+		trace.Reason = "seek"
+		if matchedTarget {
+			trace.ObservedPositionMS = &observedPositionMS
 		} else {
-			trace.Message = fmt.Sprintf(
-				"seek observe fallback target=%d last_observed=%d",
-				targetPositionMS,
-				observedPositionMS,
-			)
+			trace.ObservedPositionMS = &observedPositionMS
+			if positionErr != nil {
+				trace.Message = fmt.Sprintf(
+					"seek observe fallback target=%d position_err=%v",
+					targetPositionMS,
+					positionErr,
+				)
+			} else {
+				trace.Message = fmt.Sprintf(
+					"seek observe fallback target=%d last_observed=%d",
+					targetPositionMS,
+					observedPositionMS,
+				)
+			}
 		}
+		RecordDebugTrace(trace)
 	}
-	RecordDebugTrace(trace)
 }
 
 func (s *Session) preloadNext(ctx context.Context) {
@@ -3020,6 +3027,44 @@ func (s *Session) shouldAttemptBackendPreloadLocked() bool {
 		return false
 	}
 	return (*s.snapshot.DurationMS - s.snapshot.PositionMS) <= preloadRemainingMS
+}
+
+func (s *Session) shouldRunTickerPreload(now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.shouldArmNextPreparationLocked() {
+		return false
+	}
+	if s.nextPreparationRetryEntryID != "" && s.shouldPollNextPreparationLocked(s.nextPreparationRetryEntryID, now) {
+		return true
+	}
+	if !s.shouldAttemptBackendPreloadLocked() {
+		return false
+	}
+
+	next := s.snapshot.NextPreparation
+	if next == nil {
+		return true
+	}
+	switch next.Status.Phase {
+	case apitypes.PlaybackPreparationReady:
+		if strings.TrimSpace(next.Status.PlayableURI) == "" {
+			return true
+		}
+		if s.shouldSuppressBackendPreloadLocked(next.EntryID, next.Status.PlayableURI) {
+			return false
+		}
+		return strings.TrimSpace(s.preloadedID) != strings.TrimSpace(next.EntryID) ||
+			normalizePlaybackURI(s.preloadedURI) != normalizePlaybackURI(next.Status.PlayableURI)
+	case apitypes.PlaybackPreparationPreparingFetch,
+		apitypes.PlaybackPreparationPreparingTranscode,
+		apitypes.PlaybackPreparationUnavailable,
+		apitypes.PlaybackPreparationFailed:
+		return s.shouldPollNextPreparationLocked(next.EntryID, now)
+	default:
+		return true
+	}
 }
 
 func (s *Session) clearNextPreparationStateLocked() {
@@ -3469,9 +3514,13 @@ func (s *Session) runTicker(stop <-chan struct{}) {
 			if !playing {
 				continue
 			}
-			s.refreshPosition("ticker")
-			s.preloadNext(context.Background())
-			s.publishSnapshot(s.Snapshot())
+			snapshot, ok := s.refreshPosition("ticker")
+			if s.shouldRunTickerPreload(time.Now()) {
+				s.preloadNext(context.Background())
+			}
+			if ok {
+				s.publishTickerSnapshot(snapshot)
+			}
 		}
 	}
 }
@@ -4279,11 +4328,24 @@ func (s *Session) persistSnapshot(snapshot SessionSnapshot) {
 func (s *Session) publishSnapshot(snapshot SessionSnapshot) {
 	s.persistSnapshot(snapshot)
 	s.mu.Lock()
+	s.lastTickerPublishAt = time.Now()
 	emitter := s.emit
 	s.mu.Unlock()
 	if emitter != nil {
 		emitter(snapshot)
 	}
+}
+
+func (s *Session) publishTickerSnapshot(snapshot SessionSnapshot) {
+	now := time.Now()
+	s.mu.Lock()
+	if !s.lastTickerPublishAt.IsZero() && now.Sub(s.lastTickerPublishAt) < positionCheckpointInterval {
+		s.mu.Unlock()
+		return
+	}
+	s.lastTickerPublishAt = now
+	s.mu.Unlock()
+	s.publishSnapshot(snapshot)
 }
 
 func prepareSnapshotForPersistence(snapshot SessionSnapshot) SessionSnapshot {

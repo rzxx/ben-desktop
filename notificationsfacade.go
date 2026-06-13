@@ -23,7 +23,6 @@ const (
 	artworkNotificationEmitInterval      = 250 * time.Millisecond
 	artworkNotificationEmitProgressDelta = 0.02
 	joinSessionRefreshInterval           = 2 * time.Second
-	networkSyncPollInterval              = 500 * time.Millisecond
 )
 
 type notificationEmitState struct {
@@ -100,13 +99,16 @@ func (s *NotificationsFacade) ServiceStartup(ctx context.Context, _ application.
 		s.host.SubscribeJobSnapshots(s.handleJobSnapshot),
 		s.host.SubscribeActivitySnapshots(s.handleActivitySnapshot),
 	}
+	if network := s.host.NetworkRuntime(); network != nil {
+		stops = append(stops, network.SubscribeNetworkStatus(s.handleNetworkSyncStatus))
+		s.handleNetworkSyncStatus(network.NetworkStatus())
+	}
 	if s.playback != nil {
 		stops = append(stops, s.playback.subscribeSnapshots(s.handlePlaybackSnapshot))
 	}
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	stops = append(stops, backgroundCancel)
 	go s.runJoinSessionRefreshLoop(backgroundCtx)
-	go s.runNetworkSyncPollLoop(backgroundCtx)
 
 	s.mu.Lock()
 	s.stopListening = stops
@@ -1055,30 +1057,7 @@ func (s *NotificationsFacade) activeJoinSessionIDs() []string {
 	return out
 }
 
-func (s *NotificationsFacade) runNetworkSyncPollLoop(ctx context.Context) {
-	ticker := time.NewTicker(networkSyncPollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.pollNetworkSyncStatus()
-		}
-	}
-}
-
-func (s *NotificationsFacade) pollNetworkSyncStatus() {
-	if s.host == nil {
-		return
-	}
-	runtime := s.host.NetworkRuntime()
-	if runtime == nil {
-		return
-	}
-
-	status := runtime.NetworkStatus()
+func (s *NotificationsFacade) handleNetworkSyncStatus(status apitypes.NetworkStatus) {
 	manualJobID := s.currentManualSyncJobID()
 	if status.Mode != apitypes.NetworkSyncModeIdle && status.Reason == apitypes.NetworkSyncReasonManual && manualJobID != "" {
 		s.upsertNotification(apitypes.NotificationSnapshot{
