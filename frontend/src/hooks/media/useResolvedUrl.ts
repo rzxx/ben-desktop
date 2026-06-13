@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from "react";
 const resolvedUrlCache = new Map<string, string>();
 const pendingResolvedUrlCache = new Map<string, Promise<string>>();
 const missingResolvedUrlCache = new Set<string>();
-const cacheInvalidationListeners = new Set<() => void>();
+const cacheInvalidationListeners = new Set<
+  (filter: (key: string) => boolean) => void
+>();
 let resolvedUrlCacheEpoch = 0;
 
 export function invalidateResolvedUrlCache(
@@ -33,15 +35,40 @@ export function invalidateResolvedUrlCache(
   }
   resolvedUrlCacheEpoch += 1;
   for (const listener of cacheInvalidationListeners) {
-    listener();
+    listener(shouldInvalidate);
   }
 }
 
-function subscribeResolvedUrlInvalidations(listener: () => void) {
+function subscribeResolvedUrlInvalidations(
+  listener: (filter: (key: string) => boolean) => void,
+) {
   cacheInvalidationListeners.add(listener);
   return () => {
     cacheInvalidationListeners.delete(listener);
   };
+}
+
+function isNotFoundError(error: unknown): boolean {
+  if (error == null) {
+    return false;
+  }
+  if (typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    if (record.status === 404 || record.name === "NotFoundError") {
+      return true;
+    }
+  }
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : undefined;
+  if (typeof message === "string") {
+    const lower = message.toLowerCase();
+    return lower.includes("not found") || lower.includes("record not found");
+  }
+  return false;
 }
 
 async function resolveCached(key: string, load: () => Promise<string>) {
@@ -65,7 +92,7 @@ async function resolveCached(key: string, load: () => Promise<string>) {
         return value;
       })
       .catch((error) => {
-        if (epoch === resolvedUrlCacheEpoch) {
+        if (epoch === resolvedUrlCacheEpoch && isNotFoundError(error)) {
           missingResolvedUrlCache.add(key);
         }
         throw error;
@@ -87,16 +114,24 @@ export function useResolvedUrl(cacheKey: string, load?: () => Promise<string>) {
   });
   const [cacheRevision, setCacheRevision] = useState(0);
   const loadRef = useRef(load);
+  const cacheKeyRef = useRef(cacheKey);
 
   useEffect(() => {
     loadRef.current = load;
   }, [load]);
 
+  useEffect(() => {
+    cacheKeyRef.current = cacheKey;
+  }, [cacheKey]);
+
   useEffect(
     () =>
-      subscribeResolvedUrlInvalidations(() =>
-        setCacheRevision((value) => value + 1),
-      ),
+      subscribeResolvedUrlInvalidations((filter) => {
+        const key = cacheKeyRef.current;
+        if (key && filter(key)) {
+          setCacheRevision((value) => value + 1);
+        }
+      }),
     [],
   );
 

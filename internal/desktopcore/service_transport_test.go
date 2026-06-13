@@ -260,21 +260,44 @@ func TestNetworkStatusReflectsRuntimeSyncState(t *testing.T) {
 	}
 	app.runtimeMu.Unlock()
 
-	var events []apitypes.NetworkStatus
+	var eventsMu sync.Mutex
+	events := []apitypes.NetworkStatus{}
 	stopListening := app.transportService.SubscribeNetworkStatus(func(status apitypes.NetworkStatus) {
+		eventsMu.Lock()
 		events = append(events, status)
+		eventsMu.Unlock()
 	})
 	defer stopListening()
+
+	waitForEvents := func(n int) {
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			eventsMu.Lock()
+			l := len(events)
+			eventsMu.Unlock()
+			if l >= n {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %d network status events, got %d", n, l)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 
 	app.transportService.beginRuntimeSync(runtime, apitypes.NetworkSyncReasonStartup)
 	app.transportService.noteRuntimeSyncProgress(library.LibraryID, "peer-remote", apitypes.NetworkSyncActivityCheckpointInstall, 42, 7)
 	app.transportService.noteRuntimeSyncProgress(library.LibraryID, "peer-remote", apitypes.NetworkSyncActivityCheckpointInstall, 42, 7)
 
+	waitForEvents(2)
 	if len(events) != 2 {
 		t.Fatalf("network status event count after duplicate progress = %d, want 2", len(events))
 	}
-	if events[1].Mode != apitypes.NetworkSyncModeCatchup || events[1].ActivePeerID != "peer-remote" {
-		t.Fatalf("unexpected progress event: %+v", events[1].NetworkSyncState)
+	eventsMu.Lock()
+	progressEvent := events[1]
+	eventsMu.Unlock()
+	if progressEvent.Mode != apitypes.NetworkSyncModeCatchup || progressEvent.ActivePeerID != "peer-remote" {
+		t.Fatalf("unexpected progress event: %+v", progressEvent.NetworkSyncState)
 	}
 
 	status := app.NetworkStatus()
@@ -289,8 +312,15 @@ func TestNetworkStatusReflectsRuntimeSyncState(t *testing.T) {
 	}
 
 	app.transportService.finishRuntimeSync(runtime, nil)
-	if len(events) != 3 || events[2].Mode != apitypes.NetworkSyncModeIdle || events[2].CompletedAt == nil {
+	waitForEvents(3)
+	if len(events) != 3 {
 		t.Fatalf("unexpected finish event sequence: %+v", events)
+	}
+	eventsMu.Lock()
+	finishEvent := events[2]
+	eventsMu.Unlock()
+	if finishEvent.Mode != apitypes.NetworkSyncModeIdle || finishEvent.CompletedAt == nil {
+		t.Fatalf("unexpected finish event: %+v", finishEvent.NetworkSyncState)
 	}
 	status = app.NetworkStatus()
 	if status.Mode != apitypes.NetworkSyncModeIdle || status.CompletedAt == nil || status.LastSyncError != "" {

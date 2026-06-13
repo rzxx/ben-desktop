@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -1576,12 +1577,44 @@ func (s *TransportService) networkStatusSubscribersLocked() []func(apitypes.Netw
 	return out
 }
 
+const networkStatusWorkerCount = 1
+const networkStatusNotificationQueueSize = 64
+
+type networkStatusNotification struct {
+	subscriber func(apitypes.NetworkStatus)
+	status     apitypes.NetworkStatus
+}
+
+var networkStatusNotificationQueue = make(chan networkStatusNotification, networkStatusNotificationQueueSize)
+
+func init() {
+	for i := 0; i < networkStatusWorkerCount; i++ {
+		go networkStatusNotificationWorker()
+	}
+}
+
+func networkStatusNotificationWorker() {
+	for n := range networkStatusNotificationQueue {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("panic in network status subscriber: %v", r)
+				}
+			}()
+			n.subscriber(n.status)
+		}()
+	}
+}
+
 func notifyNetworkStatusSubscribers(subscribers []func(apitypes.NetworkStatus), status apitypes.NetworkStatus) {
 	if len(subscribers) == 0 {
 		return
 	}
 	for _, subscriber := range subscribers {
-		subscriber(status)
+		networkStatusNotificationQueue <- networkStatusNotification{
+			subscriber: subscriber,
+			status:     status,
+		}
 	}
 }
 
