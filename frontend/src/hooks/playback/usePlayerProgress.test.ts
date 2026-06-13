@@ -68,14 +68,6 @@ describe("usePlayerProgress", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    vi.stubGlobal("requestAnimationFrame", ((callback: FrameRequestCallback) =>
-      setTimeout(
-        () => callback(Date.now()),
-        16,
-      )) as typeof requestAnimationFrame);
-    vi.stubGlobal("cancelAnimationFrame", ((
-      handle: ReturnType<typeof setTimeout>,
-    ) => clearTimeout(handle)) as typeof cancelAnimationFrame);
   });
 
   afterEach(() => {
@@ -99,7 +91,7 @@ describe("usePlayerProgress", () => {
     expect(activeRoot.latest().shownPositionMs).toBe(1_500);
 
     act(() => {
-      vi.advanceTimersByTime(64);
+      vi.advanceTimersByTime(250);
     });
 
     expect(activeRoot.latest().shownPositionMs).toBeGreaterThan(1_500);
@@ -245,7 +237,7 @@ describe("usePlayerProgress", () => {
     });
 
     act(() => {
-      vi.advanceTimersByTime(96);
+      vi.advanceTimersByTime(250);
     });
 
     const movingPosition = activeRoot.latest().shownPositionMs;
@@ -259,7 +251,7 @@ describe("usePlayerProgress", () => {
     expect(frozenPosition).toBe(movingPosition);
 
     act(() => {
-      vi.advanceTimersByTime(96);
+      vi.advanceTimersByTime(250);
     });
 
     expect(activeRoot.latest().shownPositionMs).toBe(frozenPosition);

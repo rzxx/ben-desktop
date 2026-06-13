@@ -2,50 +2,105 @@ import { useEffect, useRef, useState } from "react";
 
 const resolvedUrlCache = new Map<string, string>();
 const pendingResolvedUrlCache = new Map<string, Promise<string>>();
-const retryDelaysMs = [1000, 2500, 5000, 10000, 15000];
+const missingResolvedUrlCache = new Set<string>();
+const cacheInvalidationListeners = new Set<() => void>();
+let resolvedUrlCacheEpoch = 0;
+
+export function invalidateResolvedUrlCache(
+  shouldInvalidate: (key: string) => boolean = () => true,
+) {
+  let changed = false;
+  for (const key of Array.from(resolvedUrlCache.keys())) {
+    if (shouldInvalidate(key)) {
+      resolvedUrlCache.delete(key);
+      changed = true;
+    }
+  }
+  for (const key of Array.from(missingResolvedUrlCache.keys())) {
+    if (shouldInvalidate(key)) {
+      missingResolvedUrlCache.delete(key);
+      changed = true;
+    }
+  }
+  for (const key of Array.from(pendingResolvedUrlCache.keys())) {
+    if (shouldInvalidate(key)) {
+      pendingResolvedUrlCache.delete(key);
+      changed = true;
+    }
+  }
+  if (!changed) {
+    return;
+  }
+  resolvedUrlCacheEpoch += 1;
+  for (const listener of cacheInvalidationListeners) {
+    listener();
+  }
+}
+
+function subscribeResolvedUrlInvalidations(listener: () => void) {
+  cacheInvalidationListeners.add(listener);
+  return () => {
+    cacheInvalidationListeners.delete(listener);
+  };
+}
 
 async function resolveCached(key: string, load: () => Promise<string>) {
   if (resolvedUrlCache.has(key)) {
     return resolvedUrlCache.get(key) ?? "";
   }
+  if (missingResolvedUrlCache.has(key)) {
+    return "";
+  }
   if (!pendingResolvedUrlCache.has(key)) {
-    pendingResolvedUrlCache.set(
-      key,
-      load()
-        .then((value) => {
+    const epoch = resolvedUrlCacheEpoch;
+    const pending = load()
+      .then((value) => {
+        if (epoch === resolvedUrlCacheEpoch) {
           if (value) {
             resolvedUrlCache.set(key, value);
+          } else {
+            missingResolvedUrlCache.add(key);
           }
+        }
+        return value;
+      })
+      .catch((error) => {
+        if (epoch === resolvedUrlCacheEpoch) {
+          missingResolvedUrlCache.add(key);
+        }
+        throw error;
+      })
+      .finally(() => {
+        if (pendingResolvedUrlCache.get(key) === pending) {
           pendingResolvedUrlCache.delete(key);
-          return value;
-        })
-        .catch((error) => {
-          pendingResolvedUrlCache.delete(key);
-          throw error;
-        }),
-    );
+        }
+      });
+    pendingResolvedUrlCache.set(key, pending);
   }
   return pendingResolvedUrlCache.get(key) ?? Promise.resolve("");
-}
-
-function retryDelayMs(attempt: number) {
-  return retryDelaysMs[Math.min(attempt, retryDelaysMs.length - 1)];
 }
 
 export function useResolvedUrl(cacheKey: string, load?: () => Promise<string>) {
   const [state, setState] = useState({
     key: "",
-    retryAttempt: 0,
     url: "",
   });
+  const [cacheRevision, setCacheRevision] = useState(0);
   const loadRef = useRef(load);
 
   useEffect(() => {
     loadRef.current = load;
   }, [load]);
 
+  useEffect(
+    () =>
+      subscribeResolvedUrlInvalidations(() =>
+        setCacheRevision((value) => value + 1),
+      ),
+    [],
+  );
+
   const cachedUrl = cacheKey ? (resolvedUrlCache.get(cacheKey) ?? "") : "";
-  const retryAttempt = state.key === cacheKey ? state.retryAttempt : 0;
 
   useEffect(() => {
     const currentLoad = loadRef.current;
@@ -54,7 +109,6 @@ export function useResolvedUrl(cacheKey: string, load?: () => Promise<string>) {
     }
 
     let active = true;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     void resolveCached(cacheKey, currentLoad)
       .then((value) => {
@@ -63,32 +117,14 @@ export function useResolvedUrl(cacheKey: string, load?: () => Promise<string>) {
         }
 
         setState((current) => {
-          const nextRetryAttempt =
-            current.key === cacheKey ? current.retryAttempt : 0;
-          if (
-            current.key === cacheKey &&
-            nextRetryAttempt === current.retryAttempt &&
-            current.url === value
-          ) {
+          if (current.key === cacheKey && current.url === value) {
             return current;
           }
           return {
             key: cacheKey,
-            retryAttempt: nextRetryAttempt,
             url: value,
           };
         });
-
-        if (!value) {
-          retryTimer = setTimeout(() => {
-            setState((current) => ({
-              key: cacheKey,
-              retryAttempt:
-                current.key === cacheKey ? current.retryAttempt + 1 : 1,
-              url: current.key === cacheKey ? current.url : "",
-            }));
-          }, retryDelayMs(retryAttempt));
-        }
       })
       .catch(() => {
         if (!active) {
@@ -96,39 +132,20 @@ export function useResolvedUrl(cacheKey: string, load?: () => Promise<string>) {
         }
 
         setState((current) => {
-          const nextRetryAttempt =
-            current.key === cacheKey ? current.retryAttempt : 0;
-          if (
-            current.key === cacheKey &&
-            nextRetryAttempt === current.retryAttempt &&
-            current.url === ""
-          ) {
+          if (current.key === cacheKey && current.url === "") {
             return current;
           }
           return {
             key: cacheKey,
-            retryAttempt: nextRetryAttempt,
             url: "",
           };
         });
-
-        retryTimer = setTimeout(() => {
-          setState((current) => ({
-            key: cacheKey,
-            retryAttempt:
-              current.key === cacheKey ? current.retryAttempt + 1 : 1,
-            url: "",
-          }));
-        }, retryDelayMs(retryAttempt));
       });
 
     return () => {
       active = false;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-      }
     };
-  }, [cacheKey, retryAttempt]);
+  }, [cacheKey, cacheRevision]);
 
   if (!cacheKey) {
     return "";

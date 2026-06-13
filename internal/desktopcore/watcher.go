@@ -238,6 +238,9 @@ func (w *activeScanWatcher) classifyEvent(event fsnotify.Event) ([]string, []str
 	if path == "" {
 		return nil, nil, nil, append([]string(nil), w.roots...)
 	}
+	if shouldIgnoreWatchPath(path) {
+		return nil, nil, nil, nil
+	}
 
 	affectedRoots := w.presenceRootsForPath(path)
 	artworkRoots := w.artworkRootsForPath(path)
@@ -294,6 +297,26 @@ func (w *activeScanWatcher) presenceRootsForPath(path string) []string {
 		return sortedWatcherRoots(out)
 	}
 	return nil
+}
+
+func shouldIgnoreWatchPath(path string) bool {
+	name := strings.ToLower(strings.TrimSpace(filepath.Base(path)))
+	if name == "" {
+		return false
+	}
+	switch name {
+	case ".ds_store", "thumbs.db", "desktop.ini":
+		return true
+	}
+	if strings.HasPrefix(name, "~$") {
+		return true
+	}
+	for _, suffix := range []string{".tmp", ".temp", ".part", ".download", ".crdownload", ".swp", ".swx", "~"} {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *activeScanWatcher) artworkRootsForPath(path string) []string {

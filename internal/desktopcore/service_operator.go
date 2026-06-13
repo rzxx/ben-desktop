@@ -189,6 +189,13 @@ func (a *OperatorService) NetworkStatus() apitypes.NetworkStatus {
 	}
 }
 
+func (a *OperatorService) SubscribeNetworkStatus(listener func(apitypes.NetworkStatus)) func() {
+	if a != nil && a.transportService != nil && !a.hasTransportOverride() {
+		return a.transportService.SubscribeNetworkStatus(listener)
+	}
+	return func() {}
+}
+
 func (a *OperatorService) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
 	local, err := a.EnsureLocalContext(ctx)
 	if err != nil {

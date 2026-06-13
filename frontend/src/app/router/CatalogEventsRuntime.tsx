@@ -7,6 +7,7 @@ import {
   ensureAlbumAvailability,
   ensureTrackAvailability,
 } from "@/lib/catalog/loader-availability";
+import { invalidateResolvedUrlCache } from "@/hooks/media/useResolvedUrl";
 import {
   getDetailRecord,
   getIdQuery,
@@ -39,6 +40,76 @@ function loadedAlbumAvailabilityIDs() {
     .map(([albumID]) => albumID);
 }
 
+const queuedTrackAvailabilityRefresh = new Set<string>();
+const queuedAlbumAvailabilityRefresh = new Set<string>();
+let availabilityRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+function queueAvailabilityRefresh({
+  albumIDs = [],
+  recordingIDs = [],
+}: {
+  albumIDs?: string[];
+  recordingIDs?: string[];
+}) {
+  for (const recordingID of recordingIDs) {
+    const trimmed = recordingID.trim();
+    if (trimmed) {
+      queuedTrackAvailabilityRefresh.add(trimmed);
+    }
+  }
+  for (const albumID of albumIDs) {
+    const trimmed = albumID.trim();
+    if (trimmed) {
+      queuedAlbumAvailabilityRefresh.add(trimmed);
+    }
+  }
+  if (availabilityRefreshTimer !== undefined) {
+    return;
+  }
+  availabilityRefreshTimer = setTimeout(() => {
+    availabilityRefreshTimer = undefined;
+    const nextRecordingIDs = Array.from(queuedTrackAvailabilityRefresh);
+    const nextAlbumIDs = Array.from(queuedAlbumAvailabilityRefresh);
+    queuedTrackAvailabilityRefresh.clear();
+    queuedAlbumAvailabilityRefresh.clear();
+    if (nextRecordingIDs.length) {
+      void ensureTrackAvailability(nextRecordingIDs, { force: true });
+    }
+    if (nextAlbumIDs.length) {
+      void ensureAlbumAvailability(nextAlbumIDs, { force: true });
+    }
+  }, 0);
+}
+
+function invalidateArtworkUrls(
+  event: InstanceType<typeof Types.CatalogChangeEvent>,
+) {
+  if (event.InvalidateAll) {
+    invalidateResolvedUrlCache(
+      (key) => key.startsWith("recording-artwork:") || key.startsWith("album:"),
+    );
+    return;
+  }
+
+  const recordingIDs = new Set(event.RecordingIDs ?? []);
+  const albumIDs = new Set(event.AlbumIDs ?? []);
+  if (recordingIDs.size === 0 && albumIDs.size === 0) {
+    return;
+  }
+
+  invalidateResolvedUrlCache((key) => {
+    if (key.startsWith("recording-artwork:")) {
+      const recordingID = key.slice("recording-artwork:".length).split(":")[0];
+      return recordingIDs.has(recordingID);
+    }
+    if (key.startsWith("album:")) {
+      const albumID = key.slice("album:".length).split(":")[0];
+      return albumIDs.has(albumID);
+    }
+    return false;
+  });
+}
+
 function refetchDynamicValueQueries(
   prefix: string,
   refetch: (id: string) => void,
@@ -62,6 +133,7 @@ function handleBaseInvalidation(
   event: InstanceType<typeof Types.CatalogChangeEvent>,
 ) {
   const store = useCatalogStore.getState();
+  invalidateArtworkUrls(event);
 
   switch (event.QueryKey) {
     case "albums":
@@ -173,11 +245,11 @@ function handleBaseInvalidation(
     useRecordingLikesStore
       .getState()
       .invalidateRecordingLikes(event.RecordingIDs);
-    void ensureTrackAvailability(event.RecordingIDs, { force: true });
+    queueAvailabilityRefresh({ recordingIDs: event.RecordingIDs });
   }
   if (event.AlbumIDs?.length) {
     store.invalidateAlbumAvailability(event.AlbumIDs);
-    void ensureAlbumAvailability(event.AlbumIDs, { force: true });
+    queueAvailabilityRefresh({ albumIDs: event.AlbumIDs });
   }
 }
 
@@ -225,11 +297,11 @@ function handleAvailabilityInvalidation(
   if (recordingIDs.length) {
     store.invalidateTrackAvailability(recordingIDs);
     useRecordingLikesStore.getState().invalidateRecordingLikes(recordingIDs);
-    void ensureTrackAvailability(recordingIDs, { force: true });
+    queueAvailabilityRefresh({ recordingIDs });
   }
   if (albumIDs.length) {
     store.invalidateAlbumAvailability(albumIDs);
-    void ensureAlbumAvailability(albumIDs, { force: true });
+    queueAvailabilityRefresh({ albumIDs });
   }
 }
 

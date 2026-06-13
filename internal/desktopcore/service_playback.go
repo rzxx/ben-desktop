@@ -1932,6 +1932,7 @@ type pinScopeMaterializationOutcome struct {
 	result       apitypes.PlaybackBatchResult
 	total        int
 	pendingCount int
+	changed      bool
 }
 
 func (s *PlaybackService) resolveRecordingPinTarget(ctx context.Context, local apitypes.LocalContext, recordingID, preferredProfile string) (resolvedRecordingPinTarget, error) {
@@ -2113,7 +2114,8 @@ func (s *PlaybackService) runRecordingPinJob(ctx context.Context, local apitypes
 		job.Fail(0, "track pin failed", err)
 		return
 	}
-	if err := s.app.pin.reconcileScope(ctx, local, "recording", target.scopeID, target.profile); err != nil {
+	changed, err := s.app.pin.reconcileScope(ctx, local, "recording", target.scopeID, target.profile)
+	if err != nil {
 		job.Fail(0, "track pin failed", err)
 		return
 	}
@@ -2121,7 +2123,9 @@ func (s *PlaybackService) runRecordingPinJob(ctx context.Context, local apitypes
 	if pending {
 		s.app.pin.schedulePinScopeRefreshRetry(local.LibraryID, "recording", target.scopeID, target.profile)
 	}
-	s.emitPinAvailabilityInvalidation(local, "recording", target.scopeID, compactNonEmptyStrings([]string{target.scopeRecordingID, target.clusterID}))
+	if changed {
+		s.emitPinAvailabilityInvalidation(local, "recording", target.scopeID, compactNonEmptyStrings([]string{target.scopeRecordingID, target.clusterID}))
+	}
 }
 
 func (s *PlaybackService) runPinScopeJob(ctx context.Context, local apitypes.LocalContext, scope, scopeID, profile string, recordingIDs []string, kind, label string) {
@@ -2144,7 +2148,9 @@ func (s *PlaybackService) runPinScopeJob(ctx context.Context, local apitypes.Loc
 	if outcome.pendingCount > 0 {
 		s.app.pin.schedulePinScopeRefreshRetry(local.LibraryID, scope, scopeID, profile)
 	}
-	s.emitPinAvailabilityInvalidation(local, scope, scopeID, recordingIDs)
+	if outcome.changed {
+		s.emitPinAvailabilityInvalidation(local, scope, scopeID, recordingIDs)
+	}
 }
 
 func (s *PlaybackService) materializePinScopeWithJob(ctx context.Context, local apitypes.LocalContext, scope, scopeID string, recordingIDs []string, profile string, job *JobTracker) (pinScopeMaterializationOutcome, error) {
@@ -2166,7 +2172,9 @@ func (s *PlaybackService) materializePinScopeWithJob(ctx context.Context, local 
 	}
 	if len(uniqueRecordings) == 0 {
 		outcome := pinScopeMaterializationOutcome{}
-		return outcome, s.app.pin.reconcileScope(ctx, local, scope, scopeID, profile)
+		changed, err := s.app.pin.reconcileScope(ctx, local, scope, scopeID, profile)
+		outcome.changed = changed
+		return outcome, err
 	}
 	fetchableRecordings, pendingRecordings, err := s.recordingsReadyForPinFetch(ctx, local, uniqueRecordings, profile)
 	if err != nil {
@@ -2194,7 +2202,9 @@ func (s *PlaybackService) materializePinScopeWithJob(ctx context.Context, local 
 		pendingCount: len(pendingRecordings),
 	}
 	if len(fetchableRecordings) == 0 {
-		return outcome, s.app.pin.reconcileScope(ctx, local, scope, scopeID, profile)
+		changed, err := s.app.pin.reconcileScope(ctx, local, scope, scopeID, profile)
+		outcome.changed = changed
+		return outcome, err
 	}
 
 	workCh := make(chan string)
@@ -2259,7 +2269,9 @@ func (s *PlaybackService) materializePinScopeWithJob(ctx context.Context, local 
 			job.Running(pinJobProgress(processed, len(fetchableRecordings)), fmt.Sprintf("Checked %d/%d tracks", processed, len(fetchableRecordings)))
 		}
 	}
-	return outcome, s.app.pin.reconcileScope(ctx, local, scope, scopeID, profile)
+	changed, err := s.app.pin.reconcileScope(ctx, local, scope, scopeID, profile)
+	outcome.changed = changed
+	return outcome, err
 }
 
 func (s *PlaybackService) materializeRecordingPinBestEffort(ctx context.Context, local apitypes.LocalContext, target resolvedRecordingPinTarget) (apitypes.PlaybackRecordingResult, bool, error) {

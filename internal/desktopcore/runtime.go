@@ -30,6 +30,7 @@ type NetworkRuntime interface {
 	InspectLibraryOplog(ctx context.Context, libraryID string) (apitypes.LibraryOplogDiagnostics, error)
 	ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error)
 	NetworkStatus() apitypes.NetworkStatus
+	SubscribeNetworkStatus(listener func(apitypes.NetworkStatus)) func()
 	StartSyncNow(ctx context.Context) (JobSnapshot, error)
 	StartConnectPeer(ctx context.Context, peerAddr string) (JobSnapshot, error)
 	CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error)

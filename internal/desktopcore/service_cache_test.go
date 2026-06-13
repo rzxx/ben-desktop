@@ -488,7 +488,7 @@ func seedPinRoot(t *testing.T, app *App, libraryID, deviceID, scope, scopeID, pr
 	}).Error; err != nil {
 		t.Fatalf("seed pin root %s/%s: %v", scope, scopeID, err)
 	}
-	if err := app.pin.reconcileScope(context.Background(), apitypes.LocalContext{
+	if _, err := app.pin.reconcileScope(context.Background(), apitypes.LocalContext{
 		LibraryID: libraryID,
 		DeviceID:  deviceID,
 	}, scope, scopeID, profile); err != nil {

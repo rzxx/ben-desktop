@@ -7,6 +7,7 @@ import {
 } from "@/lib/playback/debugTrace";
 
 const pendingSeekMatchToleranceMs = 750;
+const playbackProgressClockIntervalMs = 250;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -193,15 +194,11 @@ export function usePlayerProgress({
       return;
     }
 
-    let frame = 0;
-    const tick = () => {
-      setNowMs(Date.now());
-      frame = requestAnimationFrame(tick);
-    };
+    const tick = () => setNowMs(Date.now());
+    const interval = window.setInterval(tick, playbackProgressClockIntervalMs);
 
-    frame = requestAnimationFrame(tick);
     return () => {
-      cancelAnimationFrame(frame);
+      window.clearInterval(interval);
     };
   }, [hasActiveEntry, isDragging, isPlaying]);
 

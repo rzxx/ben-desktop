@@ -260,8 +260,22 @@ func TestNetworkStatusReflectsRuntimeSyncState(t *testing.T) {
 	}
 	app.runtimeMu.Unlock()
 
+	var events []apitypes.NetworkStatus
+	stopListening := app.transportService.SubscribeNetworkStatus(func(status apitypes.NetworkStatus) {
+		events = append(events, status)
+	})
+	defer stopListening()
+
 	app.transportService.beginRuntimeSync(runtime, apitypes.NetworkSyncReasonStartup)
 	app.transportService.noteRuntimeSyncProgress(library.LibraryID, "peer-remote", apitypes.NetworkSyncActivityCheckpointInstall, 42, 7)
+	app.transportService.noteRuntimeSyncProgress(library.LibraryID, "peer-remote", apitypes.NetworkSyncActivityCheckpointInstall, 42, 7)
+
+	if len(events) != 2 {
+		t.Fatalf("network status event count after duplicate progress = %d, want 2", len(events))
+	}
+	if events[1].Mode != apitypes.NetworkSyncModeCatchup || events[1].ActivePeerID != "peer-remote" {
+		t.Fatalf("unexpected progress event: %+v", events[1].NetworkSyncState)
+	}
 
 	status := app.NetworkStatus()
 	if status.Mode != apitypes.NetworkSyncModeCatchup || status.Reason != apitypes.NetworkSyncReasonStartup {
@@ -275,6 +289,9 @@ func TestNetworkStatusReflectsRuntimeSyncState(t *testing.T) {
 	}
 
 	app.transportService.finishRuntimeSync(runtime, nil)
+	if len(events) != 3 || events[2].Mode != apitypes.NetworkSyncModeIdle || events[2].CompletedAt == nil {
+		t.Fatalf("unexpected finish event sequence: %+v", events)
+	}
 	status = app.NetworkStatus()
 	if status.Mode != apitypes.NetworkSyncModeIdle || status.CompletedAt == nil || status.LastSyncError != "" {
 		t.Fatalf("unexpected completed runtime status: %+v", status.NetworkSyncState)
@@ -373,7 +390,7 @@ func TestUpsertDevicePresenceEmitsAvailabilityInvalidationWhenPeerComesOnline(t 
 	}
 
 	eventsMu.Lock()
-	defer eventsMu.Unlock()
+	firstInvalidationCount := 0
 	for _, event := range events {
 		if event.Kind != apitypes.CatalogChangeInvalidateAvailability {
 			continue
@@ -381,9 +398,49 @@ func TestUpsertDevicePresenceEmitsAvailabilityInvalidationWhenPeerComesOnline(t 
 		if !event.InvalidateAll {
 			t.Fatalf("expected presence availability event to invalidate all, got %+v", event)
 		}
-		return
+		firstInvalidationCount++
 	}
-	t.Fatalf("expected presence update to emit availability invalidation event, got %+v", events)
+	eventsMu.Unlock()
+	if firstInvalidationCount != 1 {
+		t.Fatalf("presence invalidation count = %d, want 1; events=%+v", firstInvalidationCount, events)
+	}
+
+	var first Device
+	if err := app.db.WithContext(ctx).Where("device_id = ?", remoteDeviceID).Take(&first).Error; err != nil {
+		t.Fatalf("load first remote device: %v", err)
+	}
+	if first.LastSeenAt == nil {
+		t.Fatal("expected first remote presence to set last_seen_at")
+	}
+	firstSeenAt := *first.LastSeenAt
+
+	if err := app.transportService.upsertDevicePresence(
+		ctx,
+		remoteDeviceID,
+		"peer-presence-remote",
+		"Remote device",
+	); err != nil {
+		t.Fatalf("second upsert device presence: %v", err)
+	}
+
+	var second Device
+	if err := app.db.WithContext(ctx).Where("device_id = ?", remoteDeviceID).Take(&second).Error; err != nil {
+		t.Fatalf("load second remote device: %v", err)
+	}
+	if second.LastSeenAt == nil || !second.LastSeenAt.Equal(firstSeenAt) {
+		t.Fatalf("expected fresh heartbeat to avoid last_seen_at rewrite, got %v want %v", second.LastSeenAt, firstSeenAt)
+	}
+	eventsMu.Lock()
+	defer eventsMu.Unlock()
+	secondInvalidationCount := 0
+	for _, event := range events {
+		if event.Kind == apitypes.CatalogChangeInvalidateAvailability && event.InvalidateAll {
+			secondInvalidationCount++
+		}
+	}
+	if secondInvalidationCount != firstInvalidationCount {
+		t.Fatalf("fresh heartbeat emitted extra invalidations; count=%d want %d events=%+v", secondInvalidationCount, firstInvalidationCount, events)
+	}
 }
 
 func TestMarkDevicePresenceOfflineEmitsAvailabilityInvalidation(t *testing.T) {

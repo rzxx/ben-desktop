@@ -118,6 +118,10 @@ func (r *networkRuntimeAdapter) NetworkStatus() apitypes.NetworkStatus {
 	return r.operator.NetworkStatus()
 }
 
+func (r *networkRuntimeAdapter) SubscribeNetworkStatus(listener func(apitypes.NetworkStatus)) func() {
+	return r.operator.SubscribeNetworkStatus(listener)
+}
+
 func (r *networkRuntimeAdapter) StartSyncNow(ctx context.Context) (JobSnapshot, error) {
 	return r.sync.StartSyncNow(ctx)
 }

@@ -30,6 +30,8 @@ type transportNetworkStatusReporter interface {
 	appendNetworkStatus(*apitypes.NetworkStatus)
 }
 
+const presenceLastSeenWriteInterval = 30 * time.Second
+
 type transportFactory func(context.Context, apitypes.LocalContext) (managedSyncTransport, error)
 
 type TransportService struct {
@@ -43,6 +45,9 @@ type TransportService struct {
 
 	mu         sync.RWMutex
 	scheduleMu sync.Mutex
+
+	networkStatusSubscribers    map[uint64]func(apitypes.NetworkStatus)
+	nextNetworkStatusSubscriber uint64
 
 	catchupRunHook               func(*activeTransportRuntime, apitypes.NetworkSyncReason)
 	catchupPeerRunHook           func(*activeTransportRuntime, SyncPeer, apitypes.NetworkSyncReason)
@@ -110,13 +115,14 @@ type activeTransportRuntime struct {
 
 func newTransportService(app *App) *TransportService {
 	return &TransportService{
-		app:                app,
-		factory:            app.newLibp2pSyncTransport,
-		backgroundInterval: 15 * time.Second,
-		eventSyncDebounce:  400 * time.Millisecond,
-		peerRetryDelay:     5 * time.Second,
-		peerRetryMaxDelay:  time.Minute,
-		peerRetryMaxCount:  5,
+		app:                      app,
+		factory:                  app.newLibp2pSyncTransport,
+		backgroundInterval:       15 * time.Second,
+		eventSyncDebounce:        400 * time.Millisecond,
+		peerRetryDelay:           5 * time.Second,
+		peerRetryMaxDelay:        time.Minute,
+		peerRetryMaxCount:        5,
+		networkStatusSubscribers: make(map[uint64]func(apitypes.NetworkStatus)),
 	}
 }
 
@@ -1055,6 +1061,27 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 	return out
 }
 
+func (s *TransportService) SubscribeNetworkStatus(listener func(apitypes.NetworkStatus)) func() {
+	if s == nil || listener == nil {
+		return func() {}
+	}
+
+	s.mu.Lock()
+	if s.networkStatusSubscribers == nil {
+		s.networkStatusSubscribers = make(map[uint64]func(apitypes.NetworkStatus))
+	}
+	id := s.nextNetworkStatusSubscriber
+	s.nextNetworkStatusSubscriber++
+	s.networkStatusSubscribers[id] = listener
+	s.mu.Unlock()
+
+	return func() {
+		s.mu.Lock()
+		delete(s.networkStatusSubscribers, id)
+		s.mu.Unlock()
+	}
+}
+
 func (s *TransportService) refreshInviteReachabilityState(libraryID string) {
 	if s == nil || strings.TrimSpace(libraryID) == "" {
 		return
@@ -1129,10 +1156,11 @@ func (s *TransportService) beginRuntimeSync(runtime *activeTransportRuntime, rea
 	}
 	startedAt := time.Now().UTC()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.isActiveRuntime(runtime) {
+		s.mu.Unlock()
 		return
 	}
+	before := cloneNetworkSyncState(runtime.state)
 	runtime.state.Mode = syncModeForReason(reason)
 	runtime.state.Activity = apitypes.NetworkSyncActivityOps
 	runtime.state.Reason = reason
@@ -1141,6 +1169,9 @@ func (s *TransportService) beginRuntimeSync(runtime *activeTransportRuntime, rea
 	runtime.state.LastSyncError = ""
 	runtime.state.ActivePeerID = ""
 	runtime.state.BacklogEstimate = 0
+	status, subscribers := s.networkStatusNotificationLocked(runtime, before)
+	s.mu.Unlock()
+	notifyNetworkStatusSubscribers(subscribers, status)
 }
 
 func (s *TransportService) noteRuntimeSyncPeer(libraryID, peerID string) {
@@ -1152,11 +1183,15 @@ func (s *TransportService) noteRuntimeSyncPeer(libraryID, peerID string) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.isActiveRuntime(runtime) || strings.TrimSpace(runtime.libraryID) != strings.TrimSpace(libraryID) {
+		s.mu.Unlock()
 		return
 	}
+	before := cloneNetworkSyncState(runtime.state)
 	runtime.state.ActivePeerID = strings.TrimSpace(peerID)
+	status, subscribers := s.networkStatusNotificationLocked(runtime, before)
+	s.mu.Unlock()
+	notifyNetworkStatusSubscribers(subscribers, status)
 }
 
 func (s *TransportService) noteRuntimeSyncProgress(libraryID, peerID string, activity apitypes.NetworkSyncActivity, backlog int64, applied int) {
@@ -1168,10 +1203,11 @@ func (s *TransportService) noteRuntimeSyncProgress(libraryID, peerID string, act
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.isActiveRuntime(runtime) || strings.TrimSpace(runtime.libraryID) != strings.TrimSpace(libraryID) {
+		s.mu.Unlock()
 		return
 	}
+	before := cloneNetworkSyncState(runtime.state)
 	if strings.TrimSpace(peerID) != "" {
 		runtime.state.ActivePeerID = strings.TrimSpace(peerID)
 	}
@@ -1184,6 +1220,9 @@ func (s *TransportService) noteRuntimeSyncProgress(libraryID, peerID string, act
 	if applied >= 0 {
 		runtime.state.LastBatchApplied = applied
 	}
+	status, subscribers := s.networkStatusNotificationLocked(runtime, before)
+	s.mu.Unlock()
+	notifyNetworkStatusSubscribers(subscribers, status)
 }
 
 func (s *TransportService) finishRuntimeSync(runtime *activeTransportRuntime, syncErr error) {
@@ -1192,10 +1231,11 @@ func (s *TransportService) finishRuntimeSync(runtime *activeTransportRuntime, sy
 	}
 	completedAt := time.Now().UTC()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.isActiveRuntime(runtime) {
+		s.mu.Unlock()
 		return
 	}
+	before := cloneNetworkSyncState(runtime.state)
 	runtime.state.CompletedAt = cloneTimePtr(&completedAt)
 	runtime.state.ActivePeerID = ""
 	runtime.state.BacklogEstimate = 0
@@ -1206,6 +1246,9 @@ func (s *TransportService) finishRuntimeSync(runtime *activeTransportRuntime, sy
 		runtime.state.LastSyncError = ""
 	}
 	runtime.state.Mode = apitypes.NetworkSyncModeIdle
+	status, subscribers := s.networkStatusNotificationLocked(runtime, before)
+	s.mu.Unlock()
+	notifyNetworkStatusSubscribers(subscribers, status)
 }
 
 func (s *TransportService) activeRuntime() *activeTransportRuntime {
@@ -1478,6 +1521,95 @@ func cloneNetworkSyncState(state apitypes.NetworkSyncState) apitypes.NetworkSync
 	return state
 }
 
+func (s *TransportService) networkStatusNotificationLocked(
+	runtime *activeTransportRuntime,
+	before apitypes.NetworkSyncState,
+) (apitypes.NetworkStatus, []func(apitypes.NetworkStatus)) {
+	if runtime == nil || networkSyncStateEqual(before, runtime.state) {
+		return apitypes.NetworkStatus{}, nil
+	}
+	subscribers := s.networkStatusSubscribersLocked()
+	if len(subscribers) == 0 {
+		return apitypes.NetworkStatus{}, nil
+	}
+	return s.runtimeNetworkStatusSnapshotLocked(runtime), subscribers
+}
+
+func (s *TransportService) runtimeNetworkStatusSnapshotLocked(runtime *activeTransportRuntime) apitypes.NetworkStatus {
+	out := apitypes.NetworkStatus{
+		RegistryURL:                    strings.TrimSpace(s.app.cfg.RegistryURL),
+		RelayBootstrapAddrs:            append([]string(nil), s.app.cfg.RelayBootstrapAddrs...),
+		EnableLANDiscovery:             s.app.cfg.EnableLANDiscovery,
+		RequireDirectForLargeTransfers: s.app.cfg.RequireDirectForLargeTransfers,
+	}
+	if runtime != nil {
+		out.NetworkSyncState = cloneNetworkSyncState(runtime.state)
+		out.LibraryID = strings.TrimSpace(runtime.libraryID)
+		out.DeviceID = strings.TrimSpace(runtime.deviceID)
+		if runtime.transport != nil {
+			out.Running = strings.TrimSpace(runtime.transport.LocalPeerID()) != ""
+			out.PeerID = strings.TrimSpace(runtime.transport.LocalPeerID())
+			out.ListenAddrs = append([]string(nil), runtime.transport.ListenAddrs()...)
+		}
+		out.ActiveInviteCount = runtime.activeInviteCount
+		out.InviteReachabilityRequired = runtime.inviteReachabilityRequired
+		out.InviteReachable = runtime.inviteReachable
+		out.InviteReachabilityError = strings.TrimSpace(runtime.inviteReachabilityError)
+	}
+	if out.LibraryID != "" {
+		out.ServiceTag = serviceTagForLibrary(out.LibraryID)
+	}
+	if out.Mode == "" {
+		out.Mode = apitypes.NetworkSyncModeIdle
+	}
+	return out
+}
+
+func (s *TransportService) networkStatusSubscribersLocked() []func(apitypes.NetworkStatus) {
+	if len(s.networkStatusSubscribers) == 0 {
+		return nil
+	}
+	out := make([]func(apitypes.NetworkStatus), 0, len(s.networkStatusSubscribers))
+	for _, subscriber := range s.networkStatusSubscribers {
+		out = append(out, subscriber)
+	}
+	return out
+}
+
+func notifyNetworkStatusSubscribers(subscribers []func(apitypes.NetworkStatus), status apitypes.NetworkStatus) {
+	if len(subscribers) == 0 {
+		return
+	}
+	for _, subscriber := range subscribers {
+		subscriber(status)
+	}
+}
+
+func networkSyncStateEqual(left, right apitypes.NetworkSyncState) bool {
+	left = cloneNetworkSyncState(left)
+	right = cloneNetworkSyncState(right)
+	return left.Mode == right.Mode &&
+		left.Activity == right.Activity &&
+		left.Reason == right.Reason &&
+		left.ActivePeerID == right.ActivePeerID &&
+		left.BacklogEstimate == right.BacklogEstimate &&
+		left.LastBatchApplied == right.LastBatchApplied &&
+		left.LastSyncError == right.LastSyncError &&
+		timePtrEqual(left.StartedAt, right.StartedAt) &&
+		timePtrEqual(left.CompletedAt, right.CompletedAt)
+}
+
+func timePtrEqual(left, right *time.Time) bool {
+	switch {
+	case left == nil && right == nil:
+		return true
+	case left == nil || right == nil:
+		return false
+	default:
+		return left.Equal(*right)
+	}
+}
+
 func (s *TransportService) hasTransportOverride() bool {
 	if s == nil || s.app == nil {
 		return false
@@ -1654,12 +1786,20 @@ func (s *TransportService) upsertDevicePresence(ctx context.Context, deviceID, p
 	switch err {
 	case nil:
 		wasOffline := existing.LastSeenAt == nil || existing.LastSeenAt.UTC().Before(now.Add(-availabilityOnlineWindow))
-		updates := map[string]any{
-			"peer_id":      peerID,
-			"last_seen_at": cloneTimePtr(&now),
+		lastSeenStale := existing.LastSeenAt == nil || existing.LastSeenAt.UTC().Before(now.Add(-presenceLastSeenWriteInterval))
+		peerChanged := strings.TrimSpace(existing.PeerID) != peerID
+		updates := map[string]any{}
+		if peerChanged {
+			updates["peer_id"] = peerID
+		}
+		if wasOffline || lastSeenStale || peerChanged {
+			updates["last_seen_at"] = cloneTimePtr(&now)
 		}
 		if strings.TrimSpace(existing.Name) == "" || strings.TrimSpace(existing.Name) == deviceID {
 			updates["name"] = deviceName
+		}
+		if len(updates) == 0 {
+			return nil
 		}
 		if err := s.app.storage.WithContext(ctx).
 			Model(&Device{}).

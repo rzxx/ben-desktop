@@ -842,31 +842,27 @@ func TestScanPipelineStillSurfacesArtworkFailures(t *testing.T) {
 	}
 }
 
-func TestPollNetworkSyncStatusSynthesizesManualAndBackgroundUpdates(t *testing.T) {
+func TestHandleNetworkSyncStatusSynthesizesManualAndBackgroundUpdates(t *testing.T) {
 	now := time.Date(2026, time.March, 25, 12, 0, 0, 0, time.UTC)
 	emitted := make([]apitypes.NotificationSnapshot, 0, 6)
-	network := &stubNotificationNetworkRuntime{
-		status: apitypes.NetworkStatus{
-			LibraryID: "lib-1",
-			NetworkSyncState: apitypes.NetworkSyncState{
-				Mode:             apitypes.NetworkSyncModeCatchup,
-				Reason:           apitypes.NetworkSyncReasonManual,
-				ActivePeerID:     "peer-1",
-				BacklogEstimate:  40,
-				LastBatchApplied: 5,
-			},
-		},
-	}
 	facade := newNotificationFacadeForTest(&now, &emitted)
-	facade.host = &coreHost{network: network}
 	facade.activeManualSyncID = "sync:lib-1"
 
-	facade.pollNetworkSyncStatus()
+	facade.handleNetworkSyncStatus(apitypes.NetworkStatus{
+		LibraryID: "lib-1",
+		NetworkSyncState: apitypes.NetworkSyncState{
+			Mode:             apitypes.NetworkSyncModeCatchup,
+			Reason:           apitypes.NetworkSyncReasonManual,
+			ActivePeerID:     "peer-1",
+			BacklogEstimate:  40,
+			LastBatchApplied: 5,
+		},
+	})
 	if len(emitted) != 1 || emitted[0].ID != "job:sync:lib-1" || emitted[0].Phase != apitypes.NotificationPhaseRunning {
 		t.Fatalf("manual sync notification = %+v", emitted)
 	}
 
-	network.status = apitypes.NetworkStatus{
+	status := apitypes.NetworkStatus{
 		LibraryID: "lib-1",
 		NetworkSyncState: apitypes.NetworkSyncState{
 			Mode:             apitypes.NetworkSyncModeCatchup,
@@ -877,12 +873,12 @@ func TestPollNetworkSyncStatusSynthesizesManualAndBackgroundUpdates(t *testing.T
 		},
 	}
 	now = now.Add(time.Second)
-	facade.pollNetworkSyncStatus()
+	facade.handleNetworkSyncStatus(status)
 	if len(emitted) != 2 || emitted[1].Kind != "sync-activity" || emitted[1].Audience != apitypes.NotificationAudienceSystem {
 		t.Fatalf("background sync notification = %+v", emitted)
 	}
 
-	network.status = apitypes.NetworkStatus{
+	status = apitypes.NetworkStatus{
 		LibraryID: "lib-1",
 		NetworkSyncState: apitypes.NetworkSyncState{
 			Mode:             apitypes.NetworkSyncModeIdle,
@@ -890,7 +886,7 @@ func TestPollNetworkSyncStatusSynthesizesManualAndBackgroundUpdates(t *testing.T
 		},
 	}
 	now = now.Add(time.Second)
-	facade.pollNetworkSyncStatus()
+	facade.handleNetworkSyncStatus(status)
 	if len(emitted) != 3 || emitted[2].Phase != apitypes.NotificationPhaseSuccess {
 		t.Fatalf("background sync completion notification = %+v", emitted)
 	}
@@ -940,40 +936,6 @@ func TestJoinSessionRefreshLoopRefreshesActiveSessions(t *testing.T) {
 	if last.Kind != "join-session" || !strings.Contains(last.Message, "approved") {
 		t.Fatalf("last join notification = %+v", last)
 	}
-}
-
-type stubNotificationNetworkRuntime struct {
-	status apitypes.NetworkStatus
-	local  apitypes.LocalContext
-}
-
-func (s *stubNotificationNetworkRuntime) EnsureLocalContext(context.Context) (apitypes.LocalContext, error) {
-	return s.local, nil
-}
-func (s *stubNotificationNetworkRuntime) Inspect(context.Context) (apitypes.InspectSummary, error) {
-	return apitypes.InspectSummary{}, nil
-}
-func (s *stubNotificationNetworkRuntime) InspectLibraryOplog(context.Context, string) (apitypes.LibraryOplogDiagnostics, error) {
-	return apitypes.LibraryOplogDiagnostics{}, nil
-}
-func (s *stubNotificationNetworkRuntime) ActivityStatus(context.Context) (apitypes.ActivityStatus, error) {
-	return apitypes.ActivityStatus{}, nil
-}
-func (s *stubNotificationNetworkRuntime) NetworkStatus() apitypes.NetworkStatus { return s.status }
-func (s *stubNotificationNetworkRuntime) StartSyncNow(context.Context) (desktopcore.JobSnapshot, error) {
-	return desktopcore.JobSnapshot{}, nil
-}
-func (s *stubNotificationNetworkRuntime) StartConnectPeer(context.Context, string) (desktopcore.JobSnapshot, error) {
-	return desktopcore.JobSnapshot{}, nil
-}
-func (s *stubNotificationNetworkRuntime) CheckpointStatus(context.Context) (apitypes.LibraryCheckpointStatus, error) {
-	return apitypes.LibraryCheckpointStatus{}, nil
-}
-func (s *stubNotificationNetworkRuntime) StartPublishCheckpoint(context.Context) (desktopcore.JobSnapshot, error) {
-	return desktopcore.JobSnapshot{}, nil
-}
-func (s *stubNotificationNetworkRuntime) StartCompactCheckpoint(context.Context, bool) (desktopcore.JobSnapshot, error) {
-	return desktopcore.JobSnapshot{}, nil
 }
 
 type stubNotificationInviteRuntime struct {
