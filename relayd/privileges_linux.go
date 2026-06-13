@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +33,12 @@ func prepareProcessPrivileges(opts relaydOptions) error {
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("process is still root after privilege drop")
 	}
-	log.Printf("dropped privileges to uid=%d gid=%d", relaydNonrootUID, relaydNonrootGID)
+	slog.Info(
+		"dropped process privileges",
+		slog.String("service", "relayd"),
+		slog.Int("uid", relaydNonrootUID),
+		slog.Int("gid", relaydNonrootGID),
+	)
 	return nil
 }
 

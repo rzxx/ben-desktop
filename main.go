@@ -3,9 +3,11 @@ package main
 import (
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
+	"ben/desktop/internal/observability"
 	"ben/desktop/internal/playback"
 	"embed"
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -32,6 +34,15 @@ func init() {
 // and starts a goroutine that emits a time-based event every second. It subsequently runs the application and
 // logs any error that might occur.
 func main() {
+	obsManager, logger, err := observability.Initialize(observability.Config{
+		AppName:  "ben-desktop",
+		LogLevel: initialObservabilityLogLevel(),
+	})
+	if err != nil {
+		logger = slog.Default()
+		logger.Error("observability initialization failed", slog.Any("error", err))
+	}
+
 	host := newCoreHost()
 	playbackService := NewPlaybackServiceWithHost(host)
 	notificationsFacade := NewNotificationsFacade(host, playbackService)
@@ -39,10 +50,13 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "ben-desktop",
 		Description: "Desktop host for ben playback and core services",
+		Logger:      logger,
+		LogLevel:    initialObservabilityLogLevel(),
 		Services: []application.Service{
 			application.NewServiceWithOptions(NewArtworkHTTPService(host), application.ServiceOptions{
 				Route: artworkServiceRoute,
 			}),
+			application.NewService(NewObservabilityFacade(obsManager)),
 			application.NewService(NewLibraryFacade(host)),
 			application.NewService(NewNetworkFacade(host)),
 			application.NewService(NewJobsFacade(host)),
@@ -76,10 +90,20 @@ func main() {
 		BackgroundColour: windowBackground,
 		URL:              "/",
 	})
-	err := app.Run()
+	err = app.Run()
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("application run failed", slog.Any("error", err), slog.String("service", "app"))
+		os.Exit(1)
 	}
+}
+
+func initialObservabilityLogLevel() slog.Level {
+	if state, err := loadSettingsState(); err == nil {
+		if level, parseErr := parseSlogLevel(state.Observability.LogLevel); parseErr == nil {
+			return level
+		}
+	}
+	return slog.LevelInfo
 }
 
 func initialWindowBackgroundColour() application.RGBA {

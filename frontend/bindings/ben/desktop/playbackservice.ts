@@ -9,28 +9,16 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as playback$0 from "./internal/playback/models.js";
 
-export function ClearPlaybackDebugTrace(): $CancellablePromise<void> {
-    return $Call.ByID(3207061124);
-}
-
 export function ClearQueue(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(3770044668).then(($result: any) => {
         return $$createType0($result);
     });
 }
 
-export function GetPlaybackDebugDump(): $CancellablePromise<string> {
-    return $Call.ByID(2669322034);
-}
-
 export function GetPlaybackSnapshot(): $CancellablePromise<playback$0.SessionSnapshot> {
     return $Call.ByID(2883480393).then(($result: any) => {
         return $$createType0($result);
     });
-}
-
-export function GetPlaybackTraceEnabled(): $CancellablePromise<boolean> {
-    return $Call.ByID(3686764407);
 }
 
 export function MoveQueuedEntry(entryID: string, toIndex: number): $CancellablePromise<playback$0.SessionSnapshot> {
@@ -175,10 +163,6 @@ export function SelectEntry(entryID: string): $CancellablePromise<playback$0.Ses
     return $Call.ByID(3698480776, entryID).then(($result: any) => {
         return $$createType0($result);
     });
-}
-
-export function SetPlaybackTraceEnabled(enabled: boolean): $CancellablePromise<void> {
-    return $Call.ByID(2789310531, enabled);
 }
 
 export function SetRepeatMode(mode: string): $CancellablePromise<playback$0.SessionSnapshot> {

@@ -46,8 +46,8 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 		Notifications: NotificationUISettings{
 			Verbosity: "  everything  ",
 		},
-		PlaybackTrace: PlaybackTraceSettings{
-			Enabled: true,
+		Observability: ObservabilityUISettings{
+			LogLevel: "  debug  ",
 		},
 	}
 
@@ -71,8 +71,8 @@ func TestStoreSaveLoadRoundTrip(t *testing.T) {
 		Notifications: NotificationUISettings{
 			Verbosity: "everything",
 		},
-		PlaybackTrace: PlaybackTraceSettings{
-			Enabled: true,
+		Observability: ObservabilityUISettings{
+			LogLevel: "debug",
 		},
 		Theme: ThemeUISettings{
 			Mode: "system",
@@ -102,6 +102,22 @@ func TestNormalizeNotificationVerbosity(t *testing.T) {
 	for input, want := range tests {
 		if got := NormalizeNotificationVerbosity(input); got != want {
 			t.Fatalf("normalize notification verbosity(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestNormalizeObservabilityLogLevel(t *testing.T) {
+	tests := map[string]string{
+		"":          "info",
+		"debug":     "debug",
+		"  WARN ":   "warn",
+		"warning":   "warn",
+		"error":     "error",
+		"something": "info",
+	}
+	for input, want := range tests {
+		if got := NormalizeObservabilityLogLevel(input); got != want {
+			t.Fatalf("normalize observability log level(%q) = %q, want %q", input, got, want)
 		}
 	}
 }

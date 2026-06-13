@@ -4,7 +4,7 @@ package platform
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"unsafe"
 
@@ -56,7 +56,7 @@ func (s *windowsController) Start() error {
 	}
 
 	if err := initializeProcessIdentity(); err != nil {
-		log.Printf("platform app identity setup failed: %v", err)
+		slog.Warn("platform app identity setup failed", slog.Any("error", err), slog.String("service", "platform"))
 	}
 
 	if s.app.Window != nil {
@@ -159,7 +159,7 @@ func (s *windowsController) startSMTCIfNeeded() bool {
 		return false
 	}
 	if err := s.smtc.Start(hwnd); err != nil {
-		log.Printf("platform SMTC disabled: %v", err)
+		slog.Warn("platform SMTC disabled", slog.Any("error", err), slog.String("service", "platform"))
 		return false
 	}
 
@@ -209,7 +209,7 @@ func (s *windowsController) startThumbbarIfNeeded() bool {
 		return false
 	}
 	if err := s.thumbbar.Start(hwnd); err != nil {
-		log.Printf("platform thumbnail toolbar disabled: %v", err)
+		slog.Warn("platform thumbnail toolbar disabled", slog.Any("error", err), slog.String("service", "platform"))
 		return false
 	}
 
@@ -293,17 +293,17 @@ func (s *windowsController) registerMediaKeyBindings() {
 
 	s.registerBinding(acceleratorMediaPlayPause, func() {
 		if _, err := s.session.TogglePlayback(context.Background()); err != nil {
-			log.Printf("platform media key toggle failed: %v", err)
+			slog.Warn("platform media key action failed", slog.String("action", "toggle"), slog.Any("error", err), slog.String("service", "platform"))
 		}
 	})
 	s.registerBinding(acceleratorMediaNextTrack, func() {
 		if _, err := s.session.Next(context.Background()); err != nil {
-			log.Printf("platform media key next failed: %v", err)
+			slog.Warn("platform media key action failed", slog.String("action", "next"), slog.Any("error", err), slog.String("service", "platform"))
 		}
 	})
 	s.registerBinding(acceleratorMediaPrevTrack, func() {
 		if _, err := s.session.Previous(context.Background()); err != nil {
-			log.Printf("platform media key previous failed: %v", err)
+			slog.Warn("platform media key action failed", slog.String("action", "previous"), slog.Any("error", err), slog.String("service", "platform"))
 		}
 	})
 }

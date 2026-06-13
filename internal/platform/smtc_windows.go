@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -337,7 +337,7 @@ func (s *smtcRuntimeState) applyMetadata(item *playback.SessionItem, artworkPath
 
 	thumbnail, err := s.resolveTrackThumbnail(artworkPath)
 	if err != nil {
-		log.Printf("smtc artwork resolution failed: %v", err)
+		slog.Warn("smtc artwork resolution failed", slog.Any("error", err), slog.String("service", "platform.smtc"))
 	}
 	s.updater.Put_Thumbnail(thumbnail)
 	s.updater.Update()
@@ -474,7 +474,7 @@ func (s *smtcRuntimeState) onButtonPressed(
 
 func (s *smtcRuntimeState) runAction(name string, action func() error) {
 	if err := action(); err != nil {
-		log.Printf("smtc %s action failed: %v", name, err)
+		slog.Warn("smtc action failed", slog.String("action", name), slog.Any("error", err), slog.String("service", "platform.smtc"))
 	}
 }
 

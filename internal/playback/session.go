@@ -11,6 +11,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+	"ben/desktop/internal/observability"
 )
 
 const (
@@ -1711,22 +1712,22 @@ func (s *Session) SeekTo(ctx context.Context, positionMS int64) (SessionSnapshot
 	stateBefore := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
 
-	trace := NewDebugTraceEntry("session.seek.called", &stateBefore)
-	trace.TargetPositionMS = &positionMS
+	reason := "local_only"
 	if loaded {
-		trace.Reason = "loaded"
-	} else {
-		trace.Reason = "local_only"
+		reason = "loaded"
 	}
-	RecordDebugTrace(trace)
+	recordPlaybackSessionEvent("playback.session.seek.called", stateBefore,
+		observability.Int64("target_position_ms", positionMS),
+		observability.String("reason", reason),
+	)
 
 	if loaded && backend != nil {
 		if err := backend.SeekTo(ctx, positionMS); err != nil {
 			return s.failPlayback(err)
 		}
-		completed := NewDebugTraceEntry("session.seek.backend_complete", &stateBefore)
-		completed.TargetPositionMS = &positionMS
-		RecordDebugTrace(completed)
+		recordPlaybackSessionEvent("playback.session.seek.backend_complete", stateBefore,
+			observability.Int64("target_position_ms", positionMS),
+		)
 		s.refreshPositionAfterSeek(ctx, positionMS)
 		s.mu.Lock()
 		s.touchLocked()
@@ -2671,16 +2672,15 @@ func (s *Session) refreshPosition(reason string) (SessionSnapshot, bool) {
 	state := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
 
-	if DebugTraceEnabled() {
-		trace := NewDebugTraceEntry("session.refresh", &state)
-		trace.Reason = reason
-		if positionErr == nil {
-			trace.ObservedPositionMS = &positionMS
-		} else {
-			trace.Message = positionErr.Error()
-		}
-		RecordDebugTrace(trace)
+	attrs := []observability.Attr{
+		observability.String("reason", reason),
 	}
+	if positionErr == nil {
+		attrs = append(attrs, observability.Int64("observed_position_ms", positionMS))
+	} else {
+		attrs = append(attrs, observability.String("error", positionErr.Error()))
+	}
+	recordPlaybackSessionEvent("playback.session.refresh_position", state, attrs...)
 	return state, true
 }
 
@@ -2742,29 +2742,28 @@ func (s *Session) refreshPositionAfterSeek(ctx context.Context, targetPositionMS
 	state := snapshotCopyLocked(&s.snapshot)
 	s.mu.Unlock()
 
-	if DebugTraceEnabled() {
-		trace := NewDebugTraceEntry("session.refresh", &state)
-		trace.Reason = "seek"
-		if matchedTarget {
-			trace.ObservedPositionMS = &observedPositionMS
-		} else {
-			trace.ObservedPositionMS = &observedPositionMS
-			if positionErr != nil {
-				trace.Message = fmt.Sprintf(
-					"seek observe fallback target=%d position_err=%v",
-					targetPositionMS,
-					positionErr,
-				)
-			} else {
-				trace.Message = fmt.Sprintf(
-					"seek observe fallback target=%d last_observed=%d",
-					targetPositionMS,
-					observedPositionMS,
-				)
-			}
-		}
-		RecordDebugTrace(trace)
+	attrs := []observability.Attr{
+		observability.String("reason", "seek"),
+		observability.Int64("target_position_ms", targetPositionMS),
+		observability.Int64("observed_position_ms", observedPositionMS),
+		observability.Bool("matched_target", matchedTarget),
 	}
+	if !matchedTarget {
+		if positionErr != nil {
+			attrs = append(attrs, observability.String("message", fmt.Sprintf(
+				"seek observe fallback target=%d position_err=%v",
+				targetPositionMS,
+				positionErr,
+			)))
+		} else {
+			attrs = append(attrs, observability.String("message", fmt.Sprintf(
+				"seek observe fallback target=%d last_observed=%d",
+				targetPositionMS,
+				observedPositionMS,
+			)))
+		}
+	}
+	recordPlaybackSessionEvent("playback.session.refresh_position", state, attrs...)
 }
 
 func (s *Session) preloadNext(ctx context.Context) {
@@ -5534,6 +5533,30 @@ func (s *Session) touchLocked() {
 func (s *Session) markQueueDirtyLocked() {
 	s.queueDirty = true
 	s.invalidateNextActionPlanLocked("queue dirty")
+}
+
+func recordPlaybackSessionEvent(name string, snapshot SessionSnapshot, attrs ...observability.Attr) {
+	eventAttrs := []observability.Attr{
+		observability.String("service", "playback"),
+		observability.String("component", "session"),
+		observability.String("status", string(snapshot.Status)),
+		observability.Int64("position_ms", snapshot.PositionMS),
+		observability.Int64("queue_version", snapshot.QueueVersion),
+	}
+	if snapshot.PositionCapturedAtMS > 0 {
+		eventAttrs = append(eventAttrs, observability.Int64("position_captured_at_ms", snapshot.PositionCapturedAtMS))
+	}
+	if snapshot.DurationMS != nil {
+		eventAttrs = append(eventAttrs, observability.Int64("duration_ms", *snapshot.DurationMS))
+	}
+	if snapshot.CurrentEntry != nil {
+		eventAttrs = append(eventAttrs, observability.String("current_entry_id", snapshot.CurrentEntry.EntryID))
+	}
+	if snapshot.LoadingEntry != nil {
+		eventAttrs = append(eventAttrs, observability.String("loading_entry_id", snapshot.LoadingEntry.EntryID))
+	}
+	eventAttrs = append(eventAttrs, attrs...)
+	observability.Default().Event(context.Background(), name, eventAttrs...)
 }
 
 func (s *Session) logErrorf(format string, args ...any) {

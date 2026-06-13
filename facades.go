@@ -82,19 +82,35 @@ func NewLibraryFacade(host *coreHost) *LibraryFacade {
 func (s *LibraryFacade) ServiceName() string { return "LibraryFacade" }
 
 func (s *LibraryFacade) ListLibraries(ctx context.Context) ([]apitypes.LibrarySummary, error) {
-	return s.library().ListLibraries(ctx)
+	ctx, span := startFacadeSpan(ctx, "library", "list_libraries", nil)
+	defer span.End()
+	result, err := s.library().ListLibraries(ctx)
+	return finishFacadeSpan(span, result, err, map[string]any{"count": len(result)})
 }
 
 func (s *LibraryFacade) ActiveLibrary(ctx context.Context) (apitypes.LibrarySummary, bool, error) {
-	return s.library().ActiveLibrary(ctx)
+	ctx, span := startFacadeSpan(ctx, "library", "active_library", nil)
+	defer span.End()
+	result, found, err := s.library().ActiveLibrary(ctx)
+	if err != nil {
+		span.RecordError(err)
+	}
+	span.SetOutput(apitypes.TraceSummary{Summary: "wails response", Fields: map[string]any{"found": found, "library_id": result.LibraryID}})
+	return result, found, err
 }
 
 func (s *LibraryFacade) CreateLibrary(ctx context.Context, name string) (apitypes.LibrarySummary, error) {
-	return s.library().CreateLibrary(ctx, name)
+	ctx, span := startFacadeSpan(ctx, "library", "create_library", map[string]any{"name": name})
+	defer span.End()
+	result, err := s.library().CreateLibrary(ctx, name)
+	return finishFacadeSpan(span, result, err, map[string]any{"library_id": result.LibraryID})
 }
 
 func (s *LibraryFacade) SelectLibrary(ctx context.Context, libraryID string) (apitypes.LibrarySummary, error) {
-	return s.library().SelectLibrary(ctx, libraryID)
+	ctx, span := startFacadeSpan(ctx, "library", "select_library", map[string]any{"library_id": libraryID})
+	defer span.End()
+	result, err := s.library().SelectLibrary(ctx, libraryID)
+	return finishFacadeSpan(span, result, err, map[string]any{"library_id": result.LibraryID})
 }
 
 func (s *LibraryFacade) RenameLibrary(ctx context.Context, libraryID, name string) (apitypes.LibrarySummary, error) {
@@ -138,7 +154,10 @@ func (s *LibraryFacade) ScanRoots(ctx context.Context) ([]string, error) {
 }
 
 func (s *LibraryFacade) StartRepairLibrary(ctx context.Context) (desktopcore.JobSnapshot, error) {
-	return s.library().StartRepairLibrary(ctx)
+	ctx, span := startFacadeSpan(ctx, "library", "start_repair_library", nil)
+	defer span.End()
+	result, err := s.library().StartRepairLibrary(ctx)
+	return finishFacadeSpan(span, result, err, map[string]any{"job_id": result.JobID})
 }
 
 type NetworkFacade struct {
@@ -152,7 +171,10 @@ func NewNetworkFacade(host *coreHost) *NetworkFacade {
 func (s *NetworkFacade) ServiceName() string { return "NetworkFacade" }
 
 func (s *NetworkFacade) EnsureLocalContext(ctx context.Context) (apitypes.LocalContext, error) {
-	return s.network().EnsureLocalContext(ctx)
+	ctx, span := startFacadeSpan(ctx, "network", "ensure_local_context", nil)
+	defer span.End()
+	result, err := s.network().EnsureLocalContext(ctx)
+	return finishFacadeSpan(span, result, err, map[string]any{"library_id": result.LibraryID, "device_id": result.DeviceID, "peer_id": result.PeerID})
 }
 
 func (s *NetworkFacade) Inspect(ctx context.Context) (apitypes.InspectSummary, error) {
@@ -164,43 +186,32 @@ func (s *NetworkFacade) InspectLibraryOplog(ctx context.Context, libraryID strin
 }
 
 func (s *NetworkFacade) ActivityStatus(ctx context.Context) (apitypes.ActivityStatus, error) {
-	return s.network().ActivityStatus(ctx)
+	ctx, span := startFacadeSpan(ctx, "network", "activity_status", nil)
+	defer span.End()
+	result, err := s.network().ActivityStatus(ctx)
+	return finishFacadeSpan(span, result, err, map[string]any{"scan_phase": result.Scan.Phase})
 }
 
 func (s *NetworkFacade) NetworkStatus() apitypes.NetworkStatus {
-	return s.network().NetworkStatus()
-}
-
-func (s *NetworkFacade) GetNetworkDebugDump() (string, error) {
-	return buildNetworkDebugDump(s.network().NetworkStatus())
-}
-
-func (s *NetworkFacade) GetNetworkTraceEnabled() bool {
-	enabled, err := loadNetworkTraceEnabledSetting()
-	if err != nil {
-		return desktopcore.NetworkDebugTraceEnabled()
-	}
-	return enabled
-}
-
-func (s *NetworkFacade) SetNetworkTraceEnabled(enabled bool) error {
-	return setNetworkTraceEnabledSetting(enabled)
-}
-
-func (s *NetworkFacade) GetNetworkDebugTrace() []apitypes.NetworkDebugTraceEntry {
-	return desktopcore.SnapshotNetworkDebugTrace()
-}
-
-func (s *NetworkFacade) ClearNetworkDebugTrace() {
-	desktopcore.ClearNetworkDebugTrace()
+	_, span := startFacadeSpan(context.Background(), "network", "network_status", nil)
+	defer span.End()
+	result := s.network().NetworkStatus()
+	span.SetOutput(apitypes.TraceSummary{Summary: "wails response", Fields: map[string]any{"library_id": result.LibraryID, "running": result.Running, "mode": result.Mode}})
+	return result
 }
 
 func (s *NetworkFacade) StartSyncNow(ctx context.Context) (desktopcore.JobSnapshot, error) {
-	return s.network().StartSyncNow(ctx)
+	ctx, span := startFacadeSpan(ctx, "network", "start_sync_now", nil)
+	defer span.End()
+	result, err := s.network().StartSyncNow(ctx)
+	return finishFacadeSpan(span, result, err, map[string]any{"job_id": result.JobID})
 }
 
 func (s *NetworkFacade) StartConnectPeer(ctx context.Context, peerAddr string) (desktopcore.JobSnapshot, error) {
-	return s.network().StartConnectPeer(ctx, peerAddr)
+	ctx, span := startFacadeSpan(ctx, "network", "start_connect_peer", map[string]any{"peer_addr": peerAddr})
+	defer span.End()
+	result, err := s.network().StartConnectPeer(ctx, peerAddr)
+	return finishFacadeSpan(span, result, err, map[string]any{"job_id": result.JobID})
 }
 
 func (s *NetworkFacade) CheckpointStatus(ctx context.Context) (apitypes.LibraryCheckpointStatus, error) {
@@ -335,15 +346,24 @@ func (s *CatalogFacade) ListArtistAlbums(ctx context.Context, req apitypes.Artis
 }
 
 func (s *CatalogFacade) ListAlbums(ctx context.Context, req apitypes.AlbumListRequest) (apitypes.Page[apitypes.AlbumListItem], error) {
-	return s.catalog().ListAlbums(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "catalog", "list_albums", map[string]any{"offset": req.Offset, "limit": req.Limit})
+	defer span.End()
+	result, err := s.catalog().ListAlbums(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"returned": len(result.Items), "total": result.Page.Total})
 }
 
 func (s *CatalogFacade) GetAlbum(ctx context.Context, albumID string) (apitypes.AlbumListItem, error) {
-	return s.catalog().GetAlbum(ctx, albumID)
+	ctx, span := startFacadeSpan(ctx, "catalog", "get_album", map[string]any{"album_id": albumID})
+	defer span.End()
+	result, err := s.catalog().GetAlbum(ctx, albumID)
+	return finishFacadeSpan(span, result, err, map[string]any{"album_id": result.AlbumID})
 }
 
 func (s *CatalogFacade) ListRecordings(ctx context.Context, req apitypes.RecordingListRequest) (apitypes.Page[apitypes.RecordingListItem], error) {
-	return s.catalog().ListRecordings(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "catalog", "list_recordings", map[string]any{"offset": req.Offset, "limit": req.Limit})
+	defer span.End()
+	result, err := s.catalog().ListRecordings(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"returned": len(result.Items), "total": result.Page.Total})
 }
 
 func (s *CatalogFacade) GetRecording(ctx context.Context, recordingID string) (apitypes.RecordingListItem, error) {
@@ -367,7 +387,10 @@ func (s *CatalogFacade) SetPreferredAlbumVariant(ctx context.Context, albumID, v
 }
 
 func (s *CatalogFacade) ListAlbumTracks(ctx context.Context, req apitypes.AlbumTrackListRequest) (apitypes.Page[apitypes.AlbumTrackItem], error) {
-	return s.catalog().ListAlbumTracks(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "catalog", "list_album_tracks", map[string]any{"album_id": req.AlbumID, "offset": req.Offset, "limit": req.Limit})
+	defer span.End()
+	result, err := s.catalog().ListAlbumTracks(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"returned": len(result.Items), "total": result.Page.Total})
 }
 
 func (s *CatalogFacade) ListPlaylists(ctx context.Context, req apitypes.PlaylistListRequest) (apitypes.Page[apitypes.PlaylistListItem], error) {
@@ -383,11 +406,17 @@ func (s *CatalogFacade) ListPlaylistTracks(ctx context.Context, req apitypes.Pla
 }
 
 func (s *CatalogFacade) ListLikedRecordings(ctx context.Context, req apitypes.LikedRecordingListRequest) (apitypes.Page[apitypes.LikedRecordingItem], error) {
-	return s.catalog().ListLikedRecordings(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "catalog", "list_liked_recordings", map[string]any{"offset": req.Offset, "limit": req.Limit})
+	defer span.End()
+	result, err := s.catalog().ListLikedRecordings(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"returned": len(result.Items), "total": result.Page.Total})
 }
 
 func (s *CatalogFacade) ListOfflineRecordings(ctx context.Context, req apitypes.OfflineRecordingListRequest) (apitypes.Page[apitypes.OfflineRecordingItem], error) {
-	return s.catalog().ListOfflineRecordings(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "catalog", "list_offline_recordings", map[string]any{"offset": req.Offset, "limit": req.Limit})
+	defer span.End()
+	result, err := s.catalog().ListOfflineRecordings(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"returned": len(result.Items), "total": result.Page.Total})
 }
 
 func (s *CatalogFacade) SubscribeCatalogEvents() string {
@@ -453,7 +482,10 @@ func NewInviteFacade(host *coreHost) *InviteFacade {
 func (s *InviteFacade) ServiceName() string { return "InviteFacade" }
 
 func (s *InviteFacade) CreateInvite(ctx context.Context, req apitypes.InviteCreateRequest) (apitypes.InviteRecord, error) {
-	return s.invite().CreateInvite(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "invite", "create_invite", map[string]any{"role": req.Role, "uses": req.Uses})
+	defer span.End()
+	result, err := s.invite().CreateInvite(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"invite_id": result.InviteID, "library_id": result.LibraryID})
 }
 
 func (s *InviteFacade) ListActiveInvites(ctx context.Context) ([]apitypes.InviteRecord, error) {
@@ -465,7 +497,10 @@ func (s *InviteFacade) DeleteInvite(ctx context.Context, inviteID string) error 
 }
 
 func (s *InviteFacade) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
-	return s.invite().StartJoinFromInvite(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "invite", "start_join_from_invite", map[string]any{"has_invite": req.InviteCode != ""})
+	defer span.End()
+	result, err := s.invite().StartJoinFromInvite(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"session_id": result.SessionID, "request_id": result.RequestID})
 }
 
 func (s *InviteFacade) GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error) {
@@ -540,11 +575,20 @@ func (s *PinFacade) ServiceShutdown() error {
 }
 
 func (s *PinFacade) StartPin(ctx context.Context, req apitypes.PinIntentRequest) (desktopcore.JobSnapshot, error) {
-	return s.pin().StartPin(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "pin", "start_pin", map[string]any{"profile": req.Profile, "subject_kind": req.Subject.Kind})
+	defer span.End()
+	result, err := s.pin().StartPin(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"job_id": result.JobID})
 }
 
 func (s *PinFacade) Unpin(ctx context.Context, req apitypes.PinIntentRequest) error {
-	return s.pin().Unpin(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "pin", "unpin", map[string]any{"profile": req.Profile, "subject_kind": req.Subject.Kind})
+	defer span.End()
+	err := s.pin().Unpin(ctx, req)
+	if err != nil {
+		span.RecordError(err)
+	}
+	return err
 }
 
 func (s *PinFacade) ListPinStates(ctx context.Context, req apitypes.PinStateListRequest) ([]apitypes.PinState, error) {
@@ -570,15 +614,24 @@ func NewCacheFacade(host *coreHost) *CacheFacade {
 func (s *CacheFacade) ServiceName() string { return "CacheFacade" }
 
 func (s *CacheFacade) GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error) {
-	return s.cache().GetCacheOverview(ctx)
+	ctx, span := startFacadeSpan(ctx, "cache", "get_cache_overview", nil)
+	defer span.End()
+	result, err := s.cache().GetCacheOverview(ctx)
+	return finishFacadeSpan(span, result, err, map[string]any{"used_bytes": result.UsedBytes, "entries": result.EntryCount})
 }
 
 func (s *CacheFacade) ListCacheEntries(ctx context.Context, req apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error) {
-	return s.cache().ListCacheEntries(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "cache", "list_cache_entries", map[string]any{"offset": req.Offset, "limit": req.Limit})
+	defer span.End()
+	result, err := s.cache().ListCacheEntries(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"returned": len(result.Items), "total": result.Page.Total})
 }
 
 func (s *CacheFacade) CleanupCache(ctx context.Context, req apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error) {
-	return s.cache().CleanupCache(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "cache", "cleanup_cache", nil)
+	defer span.End()
+	result, err := s.cache().CleanupCache(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"deleted_bytes": result.DeletedBytes})
 }
 
 type PlaybackFacade struct {
@@ -592,35 +645,59 @@ func NewPlaybackFacade(host *coreHost) *PlaybackFacade {
 func (s *PlaybackFacade) ServiceName() string { return "PlaybackFacade" }
 
 func (s *PlaybackFacade) StartEnsureRecordingEncoding(ctx context.Context, recordingID, preferredProfile string) (desktopcore.JobSnapshot, error) {
-	return s.playback().StartEnsureRecordingEncoding(ctx, recordingID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "start_ensure_recording_encoding", map[string]any{"recording_id": recordingID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().StartEnsureRecordingEncoding(ctx, recordingID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"job_id": result.JobID})
 }
 
 func (s *PlaybackFacade) StartEnsureAlbumEncodings(ctx context.Context, albumID, preferredProfile string) (desktopcore.JobSnapshot, error) {
-	return s.playback().StartEnsureAlbumEncodings(ctx, albumID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "start_ensure_album_encodings", map[string]any{"album_id": albumID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().StartEnsureAlbumEncodings(ctx, albumID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"job_id": result.JobID})
 }
 
 func (s *PlaybackFacade) StartEnsurePlaylistEncodings(ctx context.Context, playlistID, preferredProfile string) (desktopcore.JobSnapshot, error) {
-	return s.playback().StartEnsurePlaylistEncodings(ctx, playlistID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "start_ensure_playlist_encodings", map[string]any{"playlist_id": playlistID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().StartEnsurePlaylistEncodings(ctx, playlistID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"job_id": result.JobID})
 }
 
 func (s *PlaybackFacade) EnsurePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackRecordingResult, error) {
-	return s.playback().EnsurePlaybackRecording(ctx, recordingID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "ensure_playback_recording", map[string]any{"recording_id": recordingID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().EnsurePlaybackRecording(ctx, recordingID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"source_kind": result.SourceKind, "encoding_id": result.EncodingID})
 }
 
 func (s *PlaybackFacade) InspectPlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
-	return s.playback().InspectPlaybackRecording(ctx, recordingID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "inspect_playback_recording", map[string]any{"recording_id": recordingID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().InspectPlaybackRecording(ctx, recordingID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"phase": result.Phase, "reason": result.Reason})
 }
 
 func (s *PlaybackFacade) StartPreparePlaybackRecording(ctx context.Context, recordingID, preferredProfile string, purpose apitypes.PlaybackPreparationPurpose) (desktopcore.JobSnapshot, error) {
-	return s.playback().StartPreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
+	ctx, span := startFacadeSpan(ctx, "playback", "start_prepare_playback_recording", map[string]any{"recording_id": recordingID, "profile": preferredProfile, "purpose": purpose})
+	defer span.End()
+	result, err := s.playback().StartPreparePlaybackRecording(ctx, recordingID, preferredProfile, purpose)
+	return finishFacadeSpan(span, result, err, map[string]any{"job_id": result.JobID})
 }
 
 func (s *PlaybackFacade) GetPlaybackPreparation(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackPreparationStatus, error) {
-	return s.playback().GetPlaybackPreparation(ctx, recordingID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "get_playback_preparation", map[string]any{"recording_id": recordingID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().GetPlaybackPreparation(ctx, recordingID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"phase": result.Phase, "reason": result.Reason})
 }
 
 func (s *PlaybackFacade) ResolvePlaybackRecording(ctx context.Context, recordingID, preferredProfile string) (apitypes.PlaybackResolveResult, error) {
-	return s.playback().ResolvePlaybackRecording(ctx, recordingID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "resolve_playback_recording", map[string]any{"recording_id": recordingID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().ResolvePlaybackRecording(ctx, recordingID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"source_kind": result.SourceKind, "recording_id": result.RecordingID})
 }
 
 func (s *PlaybackFacade) ResolveThumbnailURL(artwork apitypes.ArtworkRef) (string, error) {
@@ -662,27 +739,45 @@ func (s *PlaybackFacade) ResolveRecordingArtworkURL(ctx context.Context, recordi
 }
 
 func (s *PlaybackFacade) EnsurePlaybackAlbum(ctx context.Context, albumID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return s.playback().EnsurePlaybackAlbum(ctx, albumID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "ensure_playback_album", map[string]any{"album_id": albumID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().EnsurePlaybackAlbum(ctx, albumID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"tracks": result.Tracks, "bytes": result.TotalBytes})
 }
 
 func (s *PlaybackFacade) EnsurePlaybackPlaylist(ctx context.Context, playlistID, preferredProfile string) (apitypes.PlaybackBatchResult, error) {
-	return s.playback().EnsurePlaybackPlaylist(ctx, playlistID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "ensure_playback_playlist", map[string]any{"playlist_id": playlistID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().EnsurePlaybackPlaylist(ctx, playlistID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"tracks": result.Tracks, "bytes": result.TotalBytes})
 }
 
 func (s *PlaybackFacade) ListRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) ([]apitypes.RecordingAvailabilityItem, error) {
-	return s.playback().ListRecordingAvailability(ctx, recordingID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "list_recording_availability", map[string]any{"recording_id": recordingID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().ListRecordingAvailability(ctx, recordingID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"count": len(result)})
 }
 
 func (s *PlaybackFacade) GetRecordingAvailability(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingPlaybackAvailability, error) {
-	return s.playback().GetRecordingAvailability(ctx, recordingID, preferredProfile)
+	ctx, span := startFacadeSpan(ctx, "playback", "get_recording_availability", map[string]any{"recording_id": recordingID, "profile": preferredProfile})
+	defer span.End()
+	result, err := s.playback().GetRecordingAvailability(ctx, recordingID, preferredProfile)
+	return finishFacadeSpan(span, result, err, map[string]any{"state": result.State})
 }
 
 func (s *PlaybackFacade) ListRecordingPlaybackAvailability(ctx context.Context, req apitypes.RecordingPlaybackAvailabilityListRequest) ([]apitypes.RecordingPlaybackAvailability, error) {
-	return s.playback().ListRecordingPlaybackAvailability(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "playback", "list_recording_playback_availability", map[string]any{"count": len(req.RecordingIDs), "profile": req.PreferredProfile})
+	defer span.End()
+	result, err := s.playback().ListRecordingPlaybackAvailability(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"count": len(result)})
 }
 
 func (s *PlaybackFacade) ListAlbumAvailabilitySummaries(ctx context.Context, req apitypes.AlbumAvailabilitySummaryListRequest) ([]apitypes.AlbumAvailabilitySummaryItem, error) {
-	return s.playback().ListAlbumAvailabilitySummaries(ctx, req)
+	ctx, span := startFacadeSpan(ctx, "playback", "list_album_availability_summaries", map[string]any{"count": len(req.AlbumIDs), "profile": req.PreferredProfile})
+	defer span.End()
+	result, err := s.playback().ListAlbumAvailabilitySummaries(ctx, req)
+	return finishFacadeSpan(span, result, err, map[string]any{"count": len(result)})
 }
 
 func (s *PlaybackFacade) GetRecordingAvailabilityOverview(ctx context.Context, recordingID, preferredProfile string) (apitypes.RecordingAvailabilityOverview, error) {

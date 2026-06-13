@@ -423,7 +423,7 @@ func (a *SyncService) discoverCatchupPeers(ctx context.Context, local apitypes.L
 		}
 		peer, err := resolver.ResolvePeerByIdentity(ctx, local, hint.peerID, hint.deviceID)
 		if err != nil {
-			a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 				Level:     "warn",
 				Kind:      "peer.discovery.lookup_failed",
 				Message:   "Peer identity lookup failed",
@@ -517,7 +517,7 @@ func (a *SyncService) ConnectPeer(ctx context.Context, peerAddr string) error {
 		return fmt.Errorf("peer transport is not configured")
 	}
 
-	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:     "info",
 		Kind:      "connect.resolve.start",
 		Message:   "Resolving peer address",
@@ -529,7 +529,7 @@ func (a *SyncService) ConnectPeer(ctx context.Context, peerAddr string) error {
 
 	peer, err := transport.ResolvePeer(ctx, local, peerAddr)
 	if err != nil {
-		a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 			Level:     "error",
 			Kind:      "connect.resolve.failed",
 			Message:   "Peer resolution failed",
@@ -541,7 +541,7 @@ func (a *SyncService) ConnectPeer(ctx context.Context, peerAddr string) error {
 		})
 		return err
 	}
-	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:     "info",
 		Kind:      "connect.resolve.succeeded",
 		Message:   "Peer resolved successfully",
@@ -553,7 +553,7 @@ func (a *SyncService) ConnectPeer(ctx context.Context, peerAddr string) error {
 	})
 	applied, err := a.syncPeerCatchup(ctx, local, peer, apitypes.NetworkSyncReasonConnect, nil)
 	if err != nil {
-		a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 			Level:     "error",
 			Kind:      "connect.catchup.failed",
 			Message:   "Peer catch-up failed",
@@ -566,7 +566,7 @@ func (a *SyncService) ConnectPeer(ctx context.Context, peerAddr string) error {
 		})
 		return err
 	}
-	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:     "info",
 		Kind:      "connect.catchup.succeeded",
 		Message:   fmt.Sprintf("Peer catch-up completed with %d applied ops", applied),
@@ -633,7 +633,7 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 	}()
 	remoteDeviceID := strings.TrimSpace(peer.DeviceID())
 	remotePeerID := strings.TrimSpace(peer.PeerID())
-	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:     "info",
 		Kind:      "sync.catchup.start",
 		Message:   "Starting peer catch-up",
@@ -663,7 +663,7 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				if transient := classifyTransientCatchupError(err); transient != nil {
-					a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+					a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 						Level:     "warn",
 						Kind:      transient.kind,
 						Message:   transient.message,
@@ -793,7 +793,7 @@ func (a *SyncService) syncPeerCatchup(ctx context.Context, local apitypes.LocalC
 				return totalApplied, err
 			}
 			_ = startedAt
-			a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 				Level:     "info",
 				Kind:      "sync.catchup.succeeded",
 				Message:   fmt.Sprintf("Peer catch-up finished in %d rounds with %d applied ops", round+1, totalApplied),
@@ -1558,7 +1558,7 @@ func (a *SyncService) recordPeerSyncFailure(ctx context.Context, libraryID, devi
 	}
 	now := time.Now().UTC()
 	a.upsertPeerSyncState(ctx, libraryID, deviceID, peerID, &now, nil, syncErr.Error(), 0)
-	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:     "error",
 		Kind:      "sync.catchup.failed",
 		Message:   "Peer catch-up failed",

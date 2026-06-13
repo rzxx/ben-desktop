@@ -8,6 +8,7 @@ import * as JobsFacade from "./jobsfacade.js";
 import * as LibraryFacade from "./libraryfacade.js";
 import * as NetworkFacade from "./networkfacade.js";
 import * as NotificationsFacade from "./notificationsfacade.js";
+import * as ObservabilityFacade from "./observabilityfacade.js";
 import * as PinFacade from "./pinfacade.js";
 import * as PlaybackFacade from "./playbackfacade.js";
 import * as PlaybackService from "./playbackservice.js";
@@ -20,6 +21,7 @@ export {
     LibraryFacade,
     NetworkFacade,
     NotificationsFacade,
+    ObservabilityFacade,
     PinFacade,
     PlaybackFacade,
     PlaybackService,

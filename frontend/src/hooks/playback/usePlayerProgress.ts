@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import type { SessionSnapshot } from "@/lib/api/models";
-import {
-  nextPlaybackDebugSeekRequestId,
-  recordPlaybackDebugTrace,
-  updatePlaybackDebugLiveState,
-} from "@/lib/playback/debugTrace";
+import { recordFrontendEvent } from "@/lib/observability/trace";
 
 const pendingSeekMatchToleranceMs = 750;
 const playbackProgressClockIntervalMs = 250;
+
+let seekRequestSequence = 0;
+
+function nextPlaybackSeekRequestId() {
+  seekRequestSequence += 1;
+  return `seek-${Date.now().toString(36)}-${seekRequestSequence.toString(36)}`;
+}
+
+function recordPlaybackProgressEvent(
+  payload: { kind: string } & Record<string, unknown>,
+) {
+  const { kind, ...attrs } = payload;
+  recordFrontendEvent(`playback.progress.${kind}`, attrs, "playback");
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -172,7 +182,7 @@ export function usePlayerProgress({
         pendingSeek: null,
       };
     });
-    recordPlaybackDebugTrace({
+    recordPlaybackProgressEvent({
       kind: "hook:pendingSeek:cleared",
       currentEntryId,
       seekRequestId: pendingSeek.requestId,
@@ -215,7 +225,7 @@ export function usePlayerProgress({
       isDragging: true,
       pendingSeek: null,
     });
-    recordPlaybackDebugTrace({
+    recordPlaybackProgressEvent({
       kind: "slider:valueChange",
       currentEntryId,
       positionMs: nextPositionMs,
@@ -269,7 +279,7 @@ export function usePlayerProgress({
         pendingSeek: null,
       };
     });
-    recordPlaybackDebugTrace({
+    recordPlaybackProgressEvent({
       kind: "slider:interactionStart",
       currentEntryId,
       positionMs: interactionPositionMs,
@@ -284,7 +294,7 @@ export function usePlayerProgress({
     details?: SliderCommitDetails,
   ) => {
     if (details?.reason === "input-change") {
-      recordPlaybackDebugTrace({
+      recordPlaybackProgressEvent({
         kind: "slider:valueCommitted",
         currentEntryId,
         positionMs: clamp(Math.round(nextValue), 0, maxDuration),
@@ -300,7 +310,7 @@ export function usePlayerProgress({
       (details?.reason === "drag" || details?.reason === "track-press") &&
       !hasLiveDrag
     ) {
-      recordPlaybackDebugTrace({
+      recordPlaybackProgressEvent({
         kind: "slider:valueCommitted",
         currentEntryId,
         positionMs: clamp(Math.round(nextValue), 0, maxDuration),
@@ -311,7 +321,7 @@ export function usePlayerProgress({
 
     const nextSeekMs = clamp(Math.round(nextValue), 0, maxDuration);
     const optimisticCapturedAtMs = Date.now();
-    const requestId = nextPlaybackDebugSeekRequestId();
+    const requestId = nextPlaybackSeekRequestId();
 
     dragStateRef.current = {
       entryId: currentEntryId,
@@ -332,7 +342,7 @@ export function usePlayerProgress({
         isPlaying,
       },
     });
-    recordPlaybackDebugTrace({
+    recordPlaybackProgressEvent({
       kind: "slider:valueCommitted",
       currentEntryId,
       seekRequestId: requestId,
@@ -340,7 +350,7 @@ export function usePlayerProgress({
       pendingSeekMs: nextSeekMs,
       message: details?.reason,
     });
-    recordPlaybackDebugTrace({
+    recordPlaybackProgressEvent({
       kind: "hook:pendingSeek:set",
       currentEntryId,
       seekRequestId: requestId,
@@ -359,7 +369,7 @@ export function usePlayerProgress({
                   pendingSeek: null,
                 },
           );
-          recordPlaybackDebugTrace({
+          recordPlaybackProgressEvent({
             kind: "hook:pendingSeek:cleared",
             currentEntryId,
             seekRequestId: requestId,
@@ -383,7 +393,7 @@ export function usePlayerProgress({
                   pendingSeek: null,
                 },
           );
-          recordPlaybackDebugTrace({
+          recordPlaybackProgressEvent({
             kind: "hook:pendingSeek:cleared",
             currentEntryId,
             seekRequestId: requestId,
@@ -392,7 +402,7 @@ export function usePlayerProgress({
           return;
         }
 
-        recordPlaybackDebugTrace({
+        recordPlaybackProgressEvent({
           kind: "hook:pendingSeek:updated",
           currentEntryId,
           seekRequestId: requestId,
@@ -410,7 +420,7 @@ export function usePlayerProgress({
                 pendingSeek: null,
               },
         );
-        recordPlaybackDebugTrace({
+        recordPlaybackProgressEvent({
           kind: "hook:pendingSeek:cleared",
           currentEntryId,
           seekRequestId: requestId,
@@ -439,38 +449,6 @@ export function usePlayerProgress({
       );
     }
   }
-
-  useEffect(() => {
-    updatePlaybackDebugLiveState({
-      currentEntryId,
-      shownPositionMs: hasActiveEntry
-        ? clamp(shownPositionMs, 0, maxDuration)
-        : 0,
-      draftPositionMs,
-      pendingSeekMs:
-        shouldUsePendingSeek && pendingSeek != null
-          ? pendingSeek.positionMs
-          : null,
-      pendingSeekCapturedAtMs:
-        shouldUsePendingSeek && pendingSeek != null
-          ? pendingSeek.positionCapturedAtMs
-          : null,
-      pendingSeekRequestId:
-        shouldUsePendingSeek && pendingSeek != null
-          ? pendingSeek.requestId
-          : "",
-      isDragging,
-    });
-  }, [
-    currentEntryId,
-    draftPositionMs,
-    hasActiveEntry,
-    isDragging,
-    maxDuration,
-    pendingSeek,
-    shouldUsePendingSeek,
-    shownPositionMs,
-  ]);
 
   return {
     shownPositionMs: hasActiveEntry
