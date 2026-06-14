@@ -296,14 +296,15 @@ jobs:
       - name: Sign release assets
         run: |
           test -n "${UPDATER_PRIVATE_KEY_PEM}"
-          mapfile -t ASSETS < <(find dist -maxdepth 1 -type f ! -name '*.sig' ! -name 'SHA256SUMS' -printf '%p\n' | sort)
+          mapfile -t ASSETS < <(find dist -maxdepth 1 -type f ! -empty ! -name '*.sig' ! -name 'SHA256SUMS' -printf '%p\n' | sort)
           go run ./cmd/benreleasetool sign --sums dist/SHA256SUMS "${ASSETS[@]}"
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${RELEASE_TAG}" dist/* \
+          mapfile -t RELEASE_ASSETS < <(find dist -maxdepth 1 -type f ! -empty -printf '%p\n' | sort)
+          gh release create "${RELEASE_TAG}" "${RELEASE_ASSETS[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --title "ben-desktop ${RELEASE_TAG}" \
