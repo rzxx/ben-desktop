@@ -83,6 +83,11 @@ tasks:
   generate:bindings:
     label: generate:bindings-{{.BUILD_FLAGS | default "" | sha256sum | substr 0 8}}
     summary: Generates bindings for the frontend
+    # The darwin universal build runs amd64 and arm64 builds in parallel, and
+    # both depend on this task. Without run: once, Task launches two concurrent
+    # `wails3 generate bindings -clean=true` processes that race on the same
+    # frontend/bindings directory and fail.
+    run: once
     deps:
       - task: go:mod:tidy
     sources:
