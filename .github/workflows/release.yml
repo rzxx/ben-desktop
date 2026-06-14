@@ -126,21 +126,20 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # The media runtime script stages libmpv public headers under
-          # .work/windows/mpv-include. Point CGO at them so wails3 generate
-          # bindings can compile the cgo variant of go-mpv.
-          $includeDir = ($env:GITHUB_WORKSPACE -replace '\\', '/') + '/build/deps/.work/windows/mpv-include'
-          $env:CGO_CFLAGS = "-I$includeDir"
-          wails3 task windows:build ARCH=amd64 APP_VERSION=${env:APP_VERSION} BUILD_COMMIT=${env:BUILD_COMMIT} BUILD_TIME=${env:BUILD_TIME}
-          wails3 task windows:create:nsis:installer ARCH=amd64 APP_VERSION=${env:APP_VERSION} BUILD_COMMIT=${env:BUILD_COMMIT} BUILD_TIME=${env:BUILD_TIME}
+          $env:CGO_ENABLED = '0'
+          wails3 task windows:build ARCH=amd64 CGO_ENABLED=0 APP_VERSION=${env:APP_VERSION} BUILD_COMMIT=${env:BUILD_COMMIT} BUILD_TIME=${env:BUILD_TIME}
+          wails3 task windows:create:nsis:installer ARCH=amd64 CGO_ENABLED=0 APP_VERSION=${env:APP_VERSION} BUILD_COMMIT=${env:BUILD_COMMIT} BUILD_TIME=${env:BUILD_TIME}
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item bin/ben-desktop.exe dist/ben-desktop-windows-amd64-app-update.exe
-          if (Test-Path build/windows/nsis/ben-desktop-installer.exe) {
-            Copy-Item build/windows/nsis/ben-desktop-installer.exe dist/ben-desktop-windows-amd64-setup.exe
+          $installer = "bin/ben-desktop-amd64-installer.exe"
+          if (Test-Path $installer) {
+            Copy-Item $installer dist/ben-desktop-windows-amd64-setup.exe
           }
           $portableDir = "dist/ben-desktop-windows-amd64-portable"
           New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
-          Copy-Item -Path "bin\*" -Destination $portableDir -Recurse -Force
+          Get-ChildItem -Path "bin" -Force |
+            Where-Object { $_.Name -notlike "*-installer.exe" -and $_.Name -notlike "*.msix" } |
+            Copy-Item -Destination $portableDir -Recurse -Force
           Compress-Archive -Path $portableDir -DestinationPath "dist/ben-desktop-windows-amd64-portable.zip" -Force
           Remove-Item -LiteralPath $portableDir -Recurse -Force
           go run ./cmd/benreleasetool runtime-bundle --source build/windows/runtime --version-file build/windows/runtime/version.txt --out-dir dist --require

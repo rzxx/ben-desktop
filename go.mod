@@ -153,3 +153,5 @@ require (
 )
 
 replace ben/registryauth => ./shared/registryauth
+
+replace github.com/gen2brain/go-mpv => ./third_party/go-mpv

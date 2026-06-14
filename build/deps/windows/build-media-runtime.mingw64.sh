@@ -8,12 +8,15 @@ WORK_DIR="$ROOT_DIR/build/deps/.work/windows"
 
 FFMPEG_VERSION="${FFMPEG_VERSION:-8.1.1}"
 MPV_VERSION="${MPV_VERSION:-0.41.0}"
+RUNTIME_VERSION="${RUNTIME_VERSION:-1}"
 FFMPEG_SOURCE_ARCHIVE="ffmpeg-$FFMPEG_VERSION.tar.xz"
 FFMPEG_SOURCE_URL="https://ffmpeg.org/releases/$FFMPEG_SOURCE_ARCHIVE"
 MPV_SOURCE_ARCHIVE="mpv-v$MPV_VERSION.tar.gz"
 MPV_SOURCE_URL="https://github.com/mpv-player/mpv/archive/refs/tags/v$MPV_VERSION.tar.gz"
 
+rm -rf "$RUNTIME_DIR"
 mkdir -p "$RUNTIME_DIR/ffmpeg/bin" "$RUNTIME_DIR/licenses" "$WORK_DIR"
+printf '%s\n' "$RUNTIME_VERSION" > "$RUNTIME_DIR/version.txt"
 
 if [ "$MSYSTEM" != "MINGW64" ]; then
   echo "This script must run inside MSYS2 MINGW64. MSYSTEM is '$MSYSTEM'." >&2
@@ -48,19 +51,77 @@ pacman -S --needed --noconfirm \
 copy_mingw_dll_deps() {
   local binary="$1"
   local dest="$2"
-  local deps
-  if ! command -v ntldd >/dev/null 2>&1; then
-    echo "ntldd is not available; dependency DLL closure was not copied for $binary" >&2
+  local current dep dep_path dep_name any_tool
+  local copied=false
+  local -a queue
+
+  any_tool=false
+  if command -v ntldd >/dev/null 2>&1 || command -v ldd >/dev/null 2>&1; then
+    any_tool=true
+  fi
+  if [ "$any_tool" != true ]; then
+    echo "Neither ntldd nor ldd is available; cannot copy dependency DLL closure for $binary" >&2
+    return 1
+  fi
+
+  queue=("$binary")
+  while [ "${#queue[@]}" -gt 0 ]; do
+    current="${queue[0]}"
+    queue=("${queue[@]:1}")
+    while IFS= read -r dep; do
+      [ -n "$dep" ] || continue
+      dep_path="$(cygpath -u "$dep" 2>/dev/null || printf '%s' "$dep")"
+      [ -f "$dep_path" ] || continue
+      dep_name="$(basename "$dep_path")"
+      if [ ! -f "$dest/$dep_name" ]; then
+        cp -f "$dep_path" "$dest/$dep_name"
+        queue+=("$dest/$dep_name")
+        copied=true
+      fi
+    done < <(mingw_dll_deps_for "$current")
+  done
+
+  if [ "${copied:-false}" != true ]; then
+    echo "No MinGW dependency DLLs were discovered for $binary" >&2
+  fi
+}
+
+mingw_dll_deps_for() {
+  local binary="$1"
+  local output=""
+  local path_prefix
+  path_prefix="$RUNTIME_DIR:$RUNTIME_DIR/ffmpeg/bin:/mingw64/bin:$PATH"
+
+  if command -v ntldd >/dev/null 2>&1; then
+    output="$output
+$(PATH="$path_prefix" ntldd -R "$binary" 2>&1 || true)"
+  fi
+  if command -v ldd >/dev/null 2>&1; then
+    output="$output
+$(PATH="$path_prefix" ldd "$binary" 2>&1 || true)"
+  fi
+
+  printf '%s\n' "$output" |
+    grep -Eio '(/[[:alnum:]_.+ /-]*mingw64/bin/[^[:space:]]+\.dll|[A-Za-z]:[\\/][^[:space:]]*[\\/]mingw64[\\/]bin[\\/][^[:space:]]+\.dll)' |
+    sort -u
+}
+
+validate_runtime_deps() {
+  local binary="$1"
+  local path_prefix="$2"
+  local missing ldd_cmd
+  if ! command -v ldd >/dev/null 2>&1; then
     return 0
   fi
-  deps="$(ntldd -R "$binary" \
-    | awk '/=>/ { print $3 }' \
-    | grep -Ei '(^/mingw64/bin/.*\.dll$|^[a-z]:\\msys64\\mingw64\\bin\\.*\.dll$)' || true)"
-  while IFS= read -r dep; do
-    [ -n "$dep" ] || continue
-    dep_path="$(cygpath -u "$dep" 2>/dev/null || printf '%s' "$dep")"
-    cp -n "$dep_path" "$dest/"
-  done <<< "$deps"
+  ldd_cmd="$(command -v ldd)"
+  missing="$(PATH="$path_prefix:/usr/bin" "$ldd_cmd" "$binary" 2>&1 |
+    grep -E '=> not found' |
+    grep -Eiv '^[[:space:]]*(api-ms-win|ext-ms-win)' || true)"
+  if [ -n "$missing" ]; then
+    echo "Missing runtime DLL dependencies for $binary:" >&2
+    echo "$missing" >&2
+    return 1
+  fi
 }
 
 sha256_file() {
@@ -264,6 +325,8 @@ cp -f "$WORK_DIR/ffmpeg-prefix/bin/"*.dll "$RUNTIME_DIR/ffmpeg/bin/" 2>/dev/null
 cp -f "$WORK_DIR/ffmpeg-prefix/bin/"*.dll "$RUNTIME_DIR/" 2>/dev/null || true
 copy_mingw_dll_deps "$RUNTIME_DIR/ffmpeg/bin/ffmpeg.exe" "$RUNTIME_DIR/ffmpeg/bin"
 copy_mingw_dll_deps "$RUNTIME_DIR/ffmpeg/bin/ffprobe.exe" "$RUNTIME_DIR/ffmpeg/bin"
+validate_runtime_deps "$RUNTIME_DIR/ffmpeg/bin/ffmpeg.exe" "$RUNTIME_DIR/ffmpeg/bin"
+validate_runtime_deps "$RUNTIME_DIR/ffmpeg/bin/ffprobe.exe" "$RUNTIME_DIR/ffmpeg/bin"
 
 if [ ! -f "$MPV_SOURCE_ARCHIVE" ]; then
   curl --retry 10 --retry-delay 5 --retry-all-errors -fL "$MPV_SOURCE_URL" -o "$MPV_SOURCE_ARCHIVE"
@@ -321,6 +384,7 @@ if [ -z "$LIBMPV_DLL" ]; then
 fi
 cp -f "$LIBMPV_DLL" "$RUNTIME_DIR/libmpv.dll"
 copy_mingw_dll_deps "$RUNTIME_DIR/libmpv.dll" "$RUNTIME_DIR"
+validate_runtime_deps "$RUNTIME_DIR/libmpv.dll" "$RUNTIME_DIR:$RUNTIME_DIR/ffmpeg/bin"
 
 # Stage libmpv public headers so CGO-based tooling (e.g. wails3 generate bindings)
 # can find <mpv/client.h> without a system mpv development package.

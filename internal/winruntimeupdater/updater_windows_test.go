@@ -2,7 +2,13 @@
 
 package winruntimeupdater
 
-import "testing"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestCompareRuntimeVersion(t *testing.T) {
 	tests := []struct {
@@ -42,5 +48,54 @@ func TestCleanManifestPath(t *testing.T) {
 				t.Fatalf("unsafe path %q was accepted", path)
 			}
 		})
+	}
+}
+
+func TestLocalRuntimeMatchesManifest(t *testing.T) {
+	dir := t.TempDir()
+	writeRuntimeFile(t, dir, "runtime/ffmpeg/bin/ffmpeg.exe", "ffmpeg")
+	writeRuntimeFile(t, dir, "libmpv.dll", "mpv")
+
+	manifest := runtimeManifest{
+		Files: []runtimeManifestFile{
+			manifestFile(t, dir, "runtime/ffmpeg/bin/ffmpeg.exe"),
+			manifestFile(t, dir, "libmpv.dll"),
+		},
+	}
+	if !localRuntimeMatchesManifest(dir, manifest) {
+		t.Fatal("expected complete runtime to match manifest")
+	}
+
+	if err := os.Remove(filepath.Join(dir, "libmpv.dll")); err != nil {
+		t.Fatalf("remove libmpv: %v", err)
+	}
+	if localRuntimeMatchesManifest(dir, manifest) {
+		t.Fatal("expected missing runtime file to fail manifest match")
+	}
+}
+
+func writeRuntimeFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create dir for %s: %v", rel, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", rel, err)
+	}
+}
+
+func manifestFile(t *testing.T, root, rel string) runtimeManifestFile {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", rel, err)
+	}
+	sum := sha256.Sum256(body)
+	return runtimeManifestFile{
+		Path:   rel,
+		SHA256: hex.EncodeToString(sum[:]),
+		Size:   int64(len(body)),
 	}
 }

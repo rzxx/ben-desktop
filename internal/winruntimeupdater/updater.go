@@ -245,7 +245,11 @@ func checkForUpdate(ctx context.Context) (*runtimePlan, error) {
 	if remoteVersion == "" {
 		return nil, errors.New("winruntimeupdater: runtime manifest missing version")
 	}
-	if compareRuntimeVersion(remoteVersion, localVersion) <= 0 {
+	if len(manifest.Files) == 0 {
+		return nil, errors.New("winruntimeupdater: runtime manifest has no files")
+	}
+	localComplete := localRuntimeMatchesManifest(installDir, manifest)
+	if compareRuntimeVersion(remoteVersion, localVersion) <= 0 && localComplete {
 		return nil, nil
 	}
 	if strings.TrimSpace(manifest.Asset) == "" {
@@ -584,6 +588,31 @@ func readLocalRuntimeVersion(installDir string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(body))
+}
+
+func localRuntimeMatchesManifest(installDir string, manifest runtimeManifest) bool {
+	for _, entry := range manifest.Files {
+		rel, err := cleanManifestPath(entry.Path)
+		if err != nil {
+			return false
+		}
+		path := filepath.Join(installDir, rel)
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			return false
+		}
+		if entry.Size > 0 && info.Size() != entry.Size {
+			return false
+		}
+		if strings.TrimSpace(entry.SHA256) == "" {
+			return false
+		}
+		sum, err := fileSHA256(path)
+		if err != nil || !strings.EqualFold(sum, strings.TrimSpace(entry.SHA256)) {
+			return false
+		}
+	}
+	return true
 }
 
 func currentInstallDir() (string, error) {
