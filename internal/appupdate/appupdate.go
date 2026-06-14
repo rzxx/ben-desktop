@@ -87,7 +87,112 @@ func Configure(app *application.App, logger *slog.Logger) (*CheckRunner, error) 
 	}); err != nil {
 		return nil, err
 	}
+	attachUpdaterLogging(app, logger)
 	return &CheckRunner{app: app, logger: logger}, nil
+}
+
+func attachUpdaterLogging(app *application.App, logger *slog.Logger) {
+	if app == nil || logger == nil {
+		return
+	}
+
+	log := func(level slog.Level, msg string, attrs ...slog.Attr) {
+		if !logger.Enabled(context.Background(), level) {
+			return
+		}
+		logger.LogAttrs(context.Background(), level, msg, append(attrs, slog.String("service", "appupdate"))...)
+	}
+
+	app.Event.On(updater.EventCheckStarted, func(_ *application.CustomEvent) {
+		log(slog.LevelDebug, "update check started")
+	})
+
+	app.Event.On(updater.EventUpdateAvailable, func(e *application.CustomEvent) {
+		rel, ok := e.Data.(*updater.Release)
+		if !ok {
+			log(slog.LevelWarn, "update available event payload has unexpected type", slog.Any("type", e.Data))
+			return
+		}
+		log(slog.LevelInfo, "update available",
+			slog.String("version", rel.Version),
+			slog.String("provider", rel.Provider),
+			slog.String("asset", rel.Artifact.Filename),
+		)
+	})
+
+	app.Event.On(updater.EventNoUpdate, func(_ *application.CustomEvent) {
+		log(slog.LevelInfo, "no update available", slog.String("currentVersion", buildinfo.Version()))
+	})
+
+	app.Event.On(updater.EventDownloadStarted, func(e *application.CustomEvent) {
+		rel, ok := e.Data.(*updater.Release)
+		if !ok {
+			return
+		}
+		log(slog.LevelInfo, "update download started",
+			slog.String("version", rel.Version),
+			slog.String("asset", rel.Artifact.Filename),
+		)
+	})
+
+	app.Event.On(updater.EventDownloadComplete, func(e *application.CustomEvent) {
+		rel, ok := e.Data.(*updater.Release)
+		if !ok {
+			return
+		}
+		log(slog.LevelInfo, "update download complete",
+			slog.String("version", rel.Version),
+			slog.String("asset", rel.Artifact.Filename),
+		)
+	})
+
+	app.Event.On(updater.EventVerifying, func(e *application.CustomEvent) {
+		rel, ok := e.Data.(*updater.Release)
+		if !ok {
+			return
+		}
+		log(slog.LevelInfo, "update verifying", slog.String("version", rel.Version))
+	})
+
+	app.Event.On(updater.EventInstalling, func(e *application.CustomEvent) {
+		rel, ok := e.Data.(*updater.Release)
+		if !ok {
+			return
+		}
+		log(slog.LevelInfo, "update installing", slog.String("version", rel.Version))
+	})
+
+	app.Event.On(updater.EventUpdateReady, func(e *application.CustomEvent) {
+		rel, ok := e.Data.(*updater.Release)
+		if !ok {
+			return
+		}
+		log(slog.LevelInfo, "update ready; restart pending", slog.String("version", rel.Version))
+	})
+
+	app.Event.On(updater.EventError, func(e *application.CustomEvent) {
+		info, ok := e.Data.(updater.ErrorInfo)
+		if !ok {
+			log(slog.LevelWarn, "update error event payload has unexpected type", slog.Any("type", e.Data))
+			return
+		}
+		log(slog.LevelError, "update error",
+			slog.String("stage", string(info.Stage)),
+			slog.String("message", info.Message),
+			slog.String("provider", info.Provider),
+		)
+	})
+
+	app.Event.On(updater.EventMeta, func(e *application.CustomEvent) {
+		meta, ok := e.Data.(updater.Meta)
+		if !ok {
+			return
+		}
+		log(slog.LevelDebug, "update meta",
+			slog.String("currentVersion", meta.CurrentVersion),
+			slog.String("skippedVersion", meta.SkippedVersion),
+		)
+	})
 }
 
 func parseEd25519PublicKey(raw []byte) (ed25519.PublicKey, error) {

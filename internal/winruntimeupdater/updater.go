@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,10 +22,10 @@ import (
 
 	"ben/desktop/internal/appupdate"
 	"ben/desktop/internal/buildinfo"
+	"ben/desktop/internal/winutils"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"golang.org/x/sys/windows"
 )
 
 const (
@@ -165,7 +164,7 @@ func runNormalUpdate(app *application.App, plan *runtimePlan, continueStartup fu
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	writable, err := installDirWritable(plan.installDir)
+	writable, err := winutils.IsWritableDir(plan.installDir)
 	if err != nil {
 		splash.Error("Media component update failed", err.Error(), true)
 		_, _ = splash.WaitForAction(ctx)
@@ -559,29 +558,6 @@ func cleanManifestPath(path string) (string, error) {
 	return clean, nil
 }
 
-func installDirWritable(dir string) (bool, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return false, err
-	}
-	probe, err := os.CreateTemp(dir, ".ben-runtime-write-test-*")
-	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			return false, nil
-		}
-		return false, err
-	}
-	name := probe.Name()
-	closeErr := probe.Close()
-	removeErr := os.Remove(name)
-	if closeErr != nil {
-		return false, closeErr
-	}
-	if removeErr != nil {
-		return false, removeErr
-	}
-	return true, nil
-}
-
 func readLocalRuntimeVersion(installDir string) string {
 	body, err := os.ReadFile(filepath.Join(installDir, "runtime", "version.txt"))
 	if err != nil {
@@ -738,7 +714,7 @@ func launchElevated() error {
 	if err != nil {
 		return err
 	}
-	return shellExecute("runas", exe, elevatedFlag)
+	return winutils.ShellExecute("runas", exe, elevatedFlag)
 }
 
 func relaunchNormal() error {
@@ -746,33 +722,7 @@ func relaunchNormal() error {
 	if err != nil {
 		return err
 	}
-	if err := exec.Command("explorer.exe", exe).Start(); err == nil {
-		return nil
-	}
-	return shellExecute("open", exe, "")
-}
-
-func shellExecute(verb string, exe string, params string) error {
-	verbPtr, err := windows.UTF16PtrFromString(verb)
-	if err != nil {
-		return err
-	}
-	exePtr, err := windows.UTF16PtrFromString(exe)
-	if err != nil {
-		return err
-	}
-	var paramsPtr *uint16
-	if strings.TrimSpace(params) != "" {
-		paramsPtr, err = windows.UTF16PtrFromString(params)
-		if err != nil {
-			return err
-		}
-	}
-	err = windows.ShellExecute(0, verbPtr, exePtr, paramsPtr, nil, windows.SW_SHOWNORMAL)
-	if err != nil {
-		return err
-	}
-	return nil
+	return winutils.RelaunchNormally(exe)
 }
 
 func (m runtimeManifest) runtimeVersion() string {
