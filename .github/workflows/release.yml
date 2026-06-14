@@ -76,8 +76,8 @@ jobs:
           "BUILD_TIME=$((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"))" >> $env:GITHUB_ENV
 
       - name: Build Windows media runtime
-        shell: pwsh
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File build/deps/windows/build-media-runtime.ps1
+        shell: msys2 {0}
+        run: bash ./build/deps/windows/build-media-runtime.mingw64.sh
 
       - name: Build Windows executable and installer
         shell: pwsh
@@ -168,7 +168,7 @@ jobs:
       - name: Install system dependencies and Wails CLI
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
           go install "github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}"
 
       - name: Set build metadata

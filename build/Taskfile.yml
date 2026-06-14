@@ -81,7 +81,7 @@ tasks:
 
 
   generate:bindings:
-    label: generate:bindings (BUILD_FLAGS={{.BUILD_FLAGS}})
+    label: generate:bindings-{{.BUILD_FLAGS | default "" | sha256sum | substr 0 8}}
     summary: Generates bindings for the frontend
     deps:
       - task: go:mod:tidy
