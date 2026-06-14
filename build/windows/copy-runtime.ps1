@@ -40,6 +40,7 @@ function Copy-FileIfPresent {
 
 Copy-TreeIfPresent -Source (Join-Path $runtime "ffmpeg") -Destination (Join-Path $bin "runtime\ffmpeg")
 Copy-TreeIfPresent -Source (Join-Path $runtime "licenses") -Destination (Join-Path $licenseOut "media-runtime")
+Copy-FileIfPresent -Source (Join-Path $runtime "version.txt") -Destination (Join-Path $bin "runtime\version.txt")
 
 Get-ChildItem -Path $runtime -Filter "*.dll" -File -ErrorAction SilentlyContinue | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $bin $_.Name) -Force
@@ -60,6 +61,7 @@ if ($RequireMediaRuntime) {
     $required = [System.Collections.Generic.List[string]]::new()
     $required.Add((Join-Path $bin "runtime\ffmpeg\bin\ffmpeg.exe"))
     $required.Add((Join-Path $bin "runtime\ffmpeg\bin\ffprobe.exe"))
+    $required.Add((Join-Path $bin "runtime\version.txt"))
     $required.Add((Join-Path $bin "libmpv.dll"))
     $required.Add((Join-Path $licenseOut "LICENSE"))
     $required.Add((Join-Path $licenseOut "THIRD_PARTY_NOTICES.md"))

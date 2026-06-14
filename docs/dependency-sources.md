@@ -1,6 +1,9 @@
 # Dependency Sources and Release Build Records
 
-This file records the source and build requirements for bundled media dependencies. Every binary release must update this file or attach an equivalent generated build record to the release.
+This file records the source and build requirements for bundled media dependencies.
+Every binary release must attach the exact source archives and the generated,
+sanitized media runtime source record produced by
+`build/deps/windows/build-media-runtime.mingw64.sh`.
 
 ## Policy
 
@@ -73,9 +76,6 @@ The Windows libmpv dependency closure currently includes additional MSYS2 MINGW6
 Before publishing a binary release:
 
 1. Attach the app source archive for the exact tag.
-2. Attach or link the exact FFmpeg and mpv source archives.
-3. Attach local patches, if any.
-4. Attach FFmpeg `-buildconf` output.
-5. Attach mpv Meson configuration output.
-6. Attach checksums for source archives and produced binaries.
-7. Confirm the installer and portable ZIP include `LICENSE`, `THIRD_PARTY_NOTICES.md`, this file, and `build/deps/manifest.json`.
+2. Attach the exact FFmpeg and mpv source archives used by the release build, the generated `ben-desktop-media-runtime-source-record-windows-amd64.json`, and local patch diffs (even when they are empty).
+3. Confirm the generated record contains source archive SHA-256 values, produced binary SHA-256 values, sanitized FFmpeg `-buildconf` output paths, and sanitized mpv Meson configuration output paths.
+4. Confirm the installer and runtime update ZIP include `LICENSE`, `THIRD_PARTY_NOTICES.md`, this file, `build/deps/manifest.json`, and the generated media runtime source record.

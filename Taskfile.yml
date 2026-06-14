@@ -12,6 +12,10 @@ vars:
   APP_NAME: "ben-desktop"
   BIN_DIR: "bin"
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  APP_VERSION: '{{.APP_VERSION | default "0.1.0-dev"}}'
+  BUILD_COMMIT: '{{.BUILD_COMMIT | default "unknown"}}'
+  BUILD_TIME: '{{.BUILD_TIME | default "unknown"}}'
+  APP_LDFLAGS: '-X ben/desktop/internal/buildinfo.appVersion={{.APP_VERSION}} -X ben/desktop/internal/buildinfo.buildCommit={{.BUILD_COMMIT}} -X ben/desktop/internal/buildinfo.buildTime={{.BUILD_TIME}} -X ben/desktop/internal/buildinfo.githubRepository=rzxx/ben-desktop'
 
 tasks:
   build:
