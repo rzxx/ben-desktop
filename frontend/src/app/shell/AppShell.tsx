@@ -1,8 +1,9 @@
 import type { PropsWithChildren } from "react";
 import { useEffect, useRef } from "react";
-import { DebugControlPanel } from "@/components/debug/DebugControlPanel";
 import { NotificationCenter } from "@/components/notifications/NotificationCenter";
 import { NotificationRuntime } from "@/components/notifications/NotificationRuntime";
+import { ObservabilityPanel } from "@/components/observability/ObservabilityPanel";
+import { ObservabilityRuntime } from "@/components/observability/ObservabilityRuntime";
 import { PlayerBar } from "@/components/playback/PlayerBar";
 import { QueueSidebar } from "@/components/playback/QueueSidebar";
 import { ThemeRuntime } from "@/components/theme/ThemeRuntime";
@@ -114,10 +115,11 @@ export function AppShell({ children }: PropsWithChildren) {
     >
       <div className="bg-theme-50 dark:bg-theme-950 fixed -z-100 h-screen w-screen"></div>
       <ThemeRuntime />
+      <ObservabilityRuntime />
       <TitleBar />
       <NotificationRuntime />
       <NotificationCenter />
-      {notificationVerbosity === "everything" ? <DebugControlPanel /> : null}
+      {notificationVerbosity === "everything" ? <ObservabilityPanel /> : null}
 
       <NavigationSidebar />
 

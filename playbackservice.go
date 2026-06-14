@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
-	"time"
 
+	apitypes "ben/desktop/api/types"
+	"ben/desktop/internal/observability"
 	"ben/desktop/internal/platform"
 	"ben/desktop/internal/playback"
 	"ben/desktop/internal/settings"
@@ -32,11 +32,6 @@ type PlaybackService struct {
 	queueVersionSet  bool
 }
 
-var (
-	loadPlaybackSettingsState = loadSettingsState
-	savePlaybackSettingsState = saveSettingsState
-)
-
 func NewPlaybackService() *PlaybackService {
 	return NewPlaybackServiceWithHost(newCoreHost())
 }
@@ -58,12 +53,6 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		return fmt.Errorf("application is not available")
 	}
 
-	traceEnabled, err := loadPlaybackTraceEnabledSetting()
-	if err != nil {
-		return fmt.Errorf("load playback trace settings: %w", err)
-	}
-	playback.SetDebugTraceEnabled(traceEnabled)
-
 	storePath, err := playback.DefaultStorePath("ben-desktop")
 	if err != nil {
 		return err
@@ -79,14 +68,13 @@ func (s *PlaybackService) ServiceStartup(ctx context.Context, _ application.Serv
 		return err
 	}
 	playbackCore := host
-	playback.ClearDebugTrace()
 
 	session := playback.NewSession(
 		playbackCore,
 		playback.NewBackend(),
 		store,
 		host.PreferredProfile(),
-		serviceLogger{},
+		observability.NewLegacyLogger(slog.Default(), "playback"),
 	)
 	session.SetSnapshotEmitter(s.handlePlaybackSnapshot)
 	if err := session.Start(ctx); err != nil {
@@ -173,52 +161,6 @@ func (s *PlaybackService) GetPlaybackSnapshot() (playback.SessionSnapshot, error
 		return playback.SessionSnapshot{}, err
 	}
 	return session.Snapshot(), nil
-}
-
-func (s *PlaybackService) GetPlaybackDebugDump() (string, error) {
-	var current *playback.DebugTraceEntry
-
-	s.mu.RLock()
-	session := s.session
-	s.mu.RUnlock()
-
-	if session != nil {
-		snapshot := session.Snapshot()
-		entry := playback.NewDebugTraceEntry("service.current", &snapshot)
-		current = &entry
-	}
-
-	payload, err := json.Marshal(map[string]any{
-		"generatedAtMs": time.Now().UTC().UnixMilli(),
-		"enabled":       playback.DebugTraceEnabled(),
-		"current":       current,
-		"entries":       playback.SnapshotDebugTrace(),
-	})
-	if err != nil {
-		return "", err
-	}
-	return string(payload), nil
-}
-
-func (s *PlaybackService) ClearPlaybackDebugTrace() {
-	playback.ClearDebugTrace()
-}
-
-func (s *PlaybackService) GetPlaybackTraceEnabled() bool {
-	return playback.DebugTraceEnabled()
-}
-
-func (s *PlaybackService) SetPlaybackTraceEnabled(enabled bool) error {
-	state, err := loadPlaybackSettingsState()
-	if err != nil {
-		return fmt.Errorf("load playback trace settings: %w", err)
-	}
-	state.PlaybackTrace.Enabled = enabled
-	if err := savePlaybackSettingsState(state); err != nil {
-		return fmt.Errorf("save playback trace settings: %w", err)
-	}
-	playback.SetDebugTraceEnabled(enabled)
-	return nil
 }
 
 func (s *PlaybackService) subscribeSnapshots(listener func(playback.SessionSnapshot)) func() {
@@ -320,27 +262,30 @@ func (s *PlaybackService) Previous(ctx context.Context) (playback.SessionSnapsho
 }
 
 func (s *PlaybackService) SeekTo(ctx context.Context, positionMS int64) (playback.SessionSnapshot, error) {
+	ctx, span := observability.Start(ctx, "wails.playback.seek_to",
+		observability.String("service", "playback"),
+		observability.Int64("target_position_ms", positionMS),
+	)
+	defer span.End()
 	session, err := s.requireSession()
 	if err != nil {
+		span.RecordError(err)
 		return playback.SessionSnapshot{}, err
 	}
 	before := session.Snapshot()
-	start := playback.NewDebugTraceEntry("rpc.seek.start", &before)
-	start.TargetPositionMS = &positionMS
-	playback.RecordDebugTrace(start)
+	span.SetInput(playbackSnapshotSummary("seek request", before, map[string]any{
+		"target_position_ms": positionMS,
+	}))
 
 	snapshot, seekErr := session.SeekTo(ctx, positionMS)
 	if seekErr != nil {
-		failed := playback.NewDebugTraceEntry("rpc.seek.error", &before)
-		failed.TargetPositionMS = &positionMS
-		failed.Message = seekErr.Error()
-		playback.RecordDebugTrace(failed)
+		span.RecordError(seekErr)
 		return playback.SessionSnapshot{}, seekErr
 	}
 
-	result := playback.NewDebugTraceEntry("rpc.seek.result", &snapshot)
-	result.TargetPositionMS = &positionMS
-	playback.RecordDebugTrace(result)
+	span.SetOutput(playbackSnapshotSummary("seek result", snapshot, map[string]any{
+		"target_position_ms": positionMS,
+	}))
 	return snapshot, nil
 }
 
@@ -537,16 +482,18 @@ func (s *PlaybackService) handlePlaybackSnapshot(snapshot playback.SessionSnapsh
 		subscriber(snapshot)
 	}
 	if app != nil && app.Event != nil {
-		if playback.DebugTraceEnabled() {
-			playback.RecordDebugTrace(playback.NewDebugTraceEntry("service.emit.transport", &snapshot))
-		}
+		observability.Default().Event(context.Background(), "playback.emit.transport",
+			observability.String("service", "playback"),
+			observability.Int64("queue_version", snapshot.QueueVersion),
+			observability.String("status", string(snapshot.Status)),
+		)
 		app.Event.Emit(playback.EventTransportChanged, playback.BuildTransportEventSnapshot(snapshot))
 		if queueChanged {
-			if playback.DebugTraceEnabled() {
-				queueTrace := playback.NewDebugTraceEntry("service.emit.queue", &snapshot)
-				queueTrace.Reason = "queue_changed"
-				playback.RecordDebugTrace(queueTrace)
-			}
+			observability.Default().Event(context.Background(), "playback.emit.queue",
+				observability.String("service", "playback"),
+				observability.Int64("queue_version", snapshot.QueueVersion),
+				observability.String("reason", "queue_changed"),
+			)
 			app.Event.Emit(playback.EventQueueChanged, playback.BuildQueueEventSnapshot(snapshot))
 		}
 	}
@@ -600,20 +547,19 @@ func preferredProfile(coreSettings settings.CoreRuntimeSettings) string {
 	return settings.EffectiveTranscodeProfile(coreSettings.TranscodeProfile)
 }
 
-func loadPlaybackTraceEnabledSetting() (bool, error) {
-	state, err := loadPlaybackSettingsState()
-	if err != nil {
-		return false, err
+func playbackSnapshotSummary(summary string, snapshot playback.SessionSnapshot, fields map[string]any) apitypes.TraceSummary {
+	if fields == nil {
+		fields = make(map[string]any)
 	}
-	return state.PlaybackTrace.Enabled, nil
-}
-
-type serviceLogger struct{}
-
-func (serviceLogger) Printf(format string, args ...any) {
-	log.Printf(format, args...)
-}
-
-func (serviceLogger) Errorf(format string, args ...any) {
-	log.Printf(format, args...)
+	fields["status"] = string(snapshot.Status)
+	fields["queue_version"] = snapshot.QueueVersion
+	fields["position_ms"] = snapshot.PositionMS
+	fields["duration_ms"] = snapshot.DurationMS
+	if snapshot.CurrentItem != nil {
+		fields["current_recording_id"] = snapshot.CurrentItem.RecordingID
+	}
+	if snapshot.LoadingItem != nil {
+		fields["loading_recording_id"] = snapshot.LoadingItem.RecordingID
+	}
+	return observability.Summary(summary, fields)
 }

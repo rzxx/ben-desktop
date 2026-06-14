@@ -114,45 +114,63 @@ func (s *ThemeFacade) SetThemeMode(mode apitypes.AppThemeMode) (apitypes.ThemePr
 }
 
 func (s *ThemeFacade) GenerateRecordingTheme(ctx context.Context, recordingID string) (palette.ThemePalette, error) {
+	ctx, span := startFacadeSpan(ctx, "theme", "generate_recording_theme", map[string]any{"recording_id": recordingID})
+	defer span.End()
 	recordingID = strings.TrimSpace(recordingID)
 	if recordingID == "" {
-		return palette.ThemePalette{}, errors.New("recording id is required")
+		err := errors.New("recording id is required")
+		span.RecordError(err)
+		return palette.ThemePalette{}, err
 	}
 
 	playbackRuntime := s.playback()
 	if playbackRuntime == nil {
-		return palette.ThemePalette{}, errors.New("playback runtime is not available")
+		err := errors.New("playback runtime is not available")
+		span.RecordError(err)
+		return palette.ThemePalette{}, err
 	}
 
 	resolved, err := playbackRuntime.ResolveRecordingArtwork(ctx, recordingID, themeArtworkVariant)
 	if err != nil {
+		span.RecordError(err)
 		return palette.ThemePalette{}, err
 	}
 
 	resolvedPath := strings.TrimSpace(resolved.LocalPath)
 	if !resolved.Available || resolvedPath == "" {
-		return palette.ThemePalette{}, errors.New(errThemeArtworkAbsent)
+		err := errors.New(errThemeArtworkAbsent)
+		span.RecordError(err)
+		return palette.ThemePalette{}, err
 	}
 
 	sourceInfo, err := os.Stat(resolvedPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return palette.ThemePalette{}, errors.New(errThemeArtworkAbsent)
+			err := errors.New(errThemeArtworkAbsent)
+			span.RecordError(err)
+			return palette.ThemePalette{}, err
 		}
-		return palette.ThemePalette{}, fmt.Errorf("stat theme artwork: %w", err)
+		err = fmt.Errorf("stat theme artwork: %w", err)
+		span.RecordError(err)
+		return palette.ThemePalette{}, err
 	}
 	sourceModUnixNano := sourceInfo.ModTime().UnixNano()
 
 	if cachedPalette, ok := s.loadCachedPalette(resolvedPath, sourceModUnixNano); ok {
+		span.Event("theme.cache_hit")
+		span.SetOutput(apitypes.TraceSummary{Summary: "theme palette cache hit", Fields: map[string]any{"tones": len(cachedPalette.ThemeScale)}})
 		return cachedPalette, nil
 	}
 
 	themePalette, err := s.extractor.ExtractFromPath(resolvedPath, palette.DefaultExtractOptions())
 	if err != nil {
-		return palette.ThemePalette{}, fmt.Errorf("generate recording theme: %w", err)
+		err = fmt.Errorf("generate recording theme: %w", err)
+		span.RecordError(err)
+		return palette.ThemePalette{}, err
 	}
 
 	s.storeCachedPalette(resolvedPath, sourceModUnixNano, themePalette)
+	span.SetOutput(apitypes.TraceSummary{Summary: "theme palette generated", Fields: map[string]any{"tones": len(themePalette.ThemeScale)}})
 	return themePalette, nil
 }
 

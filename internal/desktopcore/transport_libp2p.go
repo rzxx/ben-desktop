@@ -120,7 +120,7 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 		_ = transport.Close()
 		return nil, fmt.Errorf("update local peer id: %w", err)
 	}
-	a.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	a.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:     "info",
 		Kind:      "transport.started",
 		Message:   "libp2p transport started",
@@ -208,7 +208,7 @@ func (t *libp2pSyncTransport) ResolvePeer(ctx context.Context, _ apitypes.LocalC
 	}
 	connectCtx, cancel := context.WithTimeout(ctx, transportConnectTimeout)
 	defer cancel()
-	t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:     "info",
 		Kind:      "transport.dial.start",
 		Message:   "Dialing peer address",
@@ -218,7 +218,7 @@ func (t *libp2pSyncTransport) ResolvePeer(ctx context.Context, _ apitypes.LocalC
 		Address:   peerAddr,
 	})
 	if err := t.host.Connect(connectCtx, *info); err != nil {
-		t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 			Level:     "error",
 			Kind:      "transport.dial.failed",
 			Message:   "Dial to peer failed",
@@ -230,7 +230,7 @@ func (t *libp2pSyncTransport) ResolvePeer(ctx context.Context, _ apitypes.LocalC
 		})
 		return nil, fmt.Errorf("connect peer: %w", err)
 	}
-	t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:     "info",
 		Kind:      "transport.dial.succeeded",
 		Message:   "Dial to peer succeeded",
@@ -463,7 +463,7 @@ func (p *libp2pSyncPeer) openStream(ctx context.Context, protocolID protocol.ID)
 		return nil, fmt.Errorf("peer transport is not available")
 	}
 	if p.transport.app.cfg.RequireDirectForLargeTransfers && protocolRequiresDirectConnection(protocolID) {
-		p.transport.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		p.transport.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 			Level:              "info",
 			Kind:               "transport.direct_upgrade.started",
 			Message:            "Attempting direct connection upgrade",
@@ -482,7 +482,7 @@ func (p *libp2pSyncPeer) openStream(ctx context.Context, protocolID protocol.ID)
 			state:   state,
 		})
 		if err != nil {
-			p.transport.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			p.transport.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 				Level:              "warn",
 				Kind:               "transport.direct_upgrade.failed",
 				Message:            "Direct connection required but only relayed connectivity is available",
@@ -495,7 +495,7 @@ func (p *libp2pSyncPeer) openStream(ctx context.Context, protocolID protocol.ID)
 				Error:              err.Error(),
 			})
 			if state.OnlyLimitedRelayed {
-				p.transport.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+				p.transport.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 					Level:              "warn",
 					Kind:               "transport.relayed_only",
 					Message:            "Peer is reachable only over a limited relayed connection",
@@ -511,7 +511,7 @@ func (p *libp2pSyncPeer) openStream(ctx context.Context, protocolID protocol.ID)
 			p.transport.setDirectUpgradeState("direct_upgrade_failed")
 			return nil, err
 		}
-		p.transport.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		p.transport.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 			Level:              "info",
 			Kind:               "transport.direct_upgrade.succeeded",
 			Message:            "Direct connection ready",
@@ -892,7 +892,7 @@ func (t *libp2pSyncTransport) handlePeerConnected(peerID peer.ID) {
 		t.app.logf("desktopcore: resolve connected peer %s failed: %v", peerID.String(), err)
 	} else if ok {
 		state := connectionStateForPeer(t.host, peerID)
-		t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 			Level:          "info",
 			Kind:           "peer.connected",
 			Message:        "Peer connection established",
@@ -912,7 +912,7 @@ func (t *libp2pSyncTransport) handlePeerConnected(peerID peer.ID) {
 			_ = t.app.saveKnownPeerAddrs(ctx, t.libraryID, peerID.String(), addrs)
 		}
 	} else {
-		t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 			Level:     "info",
 			Kind:      "peer.connected",
 			Message:   "Peer connection established for unresolved membership",
@@ -944,7 +944,7 @@ func (t *libp2pSyncTransport) handlePeerConnected(peerID peer.ID) {
 			delay = 0
 		} else {
 			delay = transportProtocolUnavailableRetryDelay
-			t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 				Level:     "warn",
 				Kind:      "peer.sync_protocol.unavailable",
 				Message:   "Connected peer has not advertised the sync protocol yet",
@@ -966,7 +966,7 @@ func (t *libp2pSyncTransport) handlePeerDisconnected(peerID peer.ID) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), transportConnectTimeout)
 	defer cancel()
-	t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:          "warn",
 		Kind:           "peer.disconnected",
 		Message:        "Peer disconnected",
@@ -1034,7 +1034,7 @@ func (t *libp2pSyncTransport) recordConnectionState(entry peerConnectionStateDeb
 	if level == "" {
 		level = "info"
 	}
-	t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:          level,
 		Kind:           "transport.connection.state",
 		Message:        "Connection state updated",
@@ -1065,7 +1065,7 @@ func (t *libp2pSyncTransport) resolvePeerIdentityAddresses(ctx context.Context, 
 		if err == nil && ok {
 			addrs = append(addrs, record.Addrs...)
 		} else if err != nil {
-			t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+			t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 				Level:     "warn",
 				Kind:      "registry.lookup.failed",
 				Message:   "Registry member lookup failed",
@@ -1088,7 +1088,7 @@ func (t *libp2pSyncTransport) resolvePeerIdentityAddresses(ctx context.Context, 
 		}
 	}
 	if deviceID != "" {
-		t.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 			Level:     "warn",
 			Kind:      "transport.peer.lookup.missed",
 			Message:   "No peer addresses resolved for identity",

@@ -9,7 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -162,30 +162,30 @@ type rateVisitor struct {
 func main() {
 	opts, err := parseOptions()
 	if err != nil {
-		log.Fatalf("parse options: %v", err)
+		fatal("parse options", err)
 	}
 
 	if err := prepareProcessPrivileges(opts); err != nil {
-		log.Fatalf("prepare process privileges: %v", err)
+		fatal("prepare process privileges", err)
 	}
 	if err := prepareRegistryStorage(opts); err != nil {
-		log.Fatalf("prepare registry storage: %v", err)
+		fatal("prepare registry storage", err)
 	}
 
 	db, err := sql.Open("sqlite", opts.DBPath)
 	if err != nil {
-		log.Fatalf("open registry db: %v", err)
+		fatal("open registry db", err)
 	}
 	defer db.Close()
 	configureSQLite(db)
 	if err := initSchema(db); err != nil {
-		log.Fatalf("init registry db: %v", err)
+		fatal("init registry db", err)
 	}
 
 	metrics := newRelaydMetrics(prometheus.DefaultRegisterer)
 	hostNode, err := newRelayHost(opts, db, metrics)
 	if err != nil {
-		log.Fatalf("create relay host: %v", err)
+		fatal("create relay host", err)
 	}
 	defer hostNode.Close()
 
@@ -201,7 +201,7 @@ func main() {
 
 	handler, limiter, err := buildHTTPHandler(mux, opts, metrics, hostNode)
 	if err != nil {
-		log.Fatalf("build http handler: %v", err)
+		fatal("build http handler", err)
 	}
 	httpServer := &http.Server{
 		Addr:              opts.HTTPAddr,
@@ -228,22 +228,28 @@ func main() {
 		_ = httpServer.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf(
-		"ben-relayd listening http=%s peer=%s listenAddrs=%v advertiseAddrs=%v identityKey=%s db=%s tls=%t rateLimitRPS=%.2f rateLimitBurst=%d maxBodyBytes=%d",
-		opts.HTTPAddr,
-		hostNode.ID().String(),
-		opts.listenAddrs(),
-		formatHostAddrs(hostNode),
-		opts.IdentityKeyPath,
-		opts.DBPath,
-		opts.TLSEnabled(),
-		opts.RateLimitRequestsPerSecond,
-		opts.RateLimitBurst,
-		opts.MaxBodyBytes,
+	slog.Info(
+		"ben-relayd listening",
+		slog.String("service", "relayd"),
+		slog.String("http_addr", opts.HTTPAddr),
+		slog.String("peer_id", hostNode.ID().String()),
+		slog.Any("listen_addrs", opts.listenAddrs()),
+		slog.Any("advertise_addrs", formatHostAddrs(hostNode)),
+		slog.String("identity_key_path", filepath.Base(opts.IdentityKeyPath)),
+		slog.String("db_path", filepath.Base(opts.DBPath)),
+		slog.Bool("tls", opts.TLSEnabled()),
+		slog.Float64("rate_limit_rps", opts.RateLimitRequestsPerSecond),
+		slog.Int("rate_limit_burst", opts.RateLimitBurst),
+		slog.Int64("max_body_bytes", opts.MaxBodyBytes),
 	)
 	if err := serveHTTP(httpServer, opts); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("serve http: %v", err)
+		fatal("serve http", err)
 	}
+}
+
+func fatal(message string, err error) {
+	slog.Error(message, slog.Any("error", err), slog.String("service", "relayd"))
+	os.Exit(1)
 }
 
 func parseOptions() (relaydOptions, error) {
@@ -645,7 +651,11 @@ func buildHTTPHandler(next http.Handler, opts relaydOptions, metrics *relaydMetr
 		if err != nil {
 			return nil, nil, err
 		}
-		log.Printf("ben-relayd websocket ingress forwarding upgrades to %s", target)
+		slog.Info(
+			"ben-relayd websocket ingress enabled",
+			slog.String("service", "relayd"),
+			slog.String("target", target),
+		)
 		handler = websocketIngressMiddleware(handler, proxy)
 	}
 	return handler, limiter, nil
@@ -1079,13 +1089,21 @@ func cleanupExpiredRegistryState(db *sql.DB, now time.Time, metrics *relaydMetri
 		if metrics != nil {
 			metrics.sqliteOperationFailures.WithLabelValues("cleanup_presence").Inc()
 		}
-		log.Printf("cleanup presence records: %v", err)
+		slog.Error(
+			"cleanup presence records",
+			slog.String("service", "relayd"),
+			slog.Any("error", err),
+		)
 	}
 	if _, err := db.Exec(`DELETE FROM member_auth_state WHERE cert_expires_at > 0 AND cert_expires_at < ?`, now.UTC().UnixNano()); err != nil {
 		if metrics != nil {
 			metrics.sqliteOperationFailures.WithLabelValues("cleanup_member_auth").Inc()
 		}
-		log.Printf("cleanup member auth state: %v", err)
+		slog.Error(
+			"cleanup member auth state",
+			slog.String("service", "relayd"),
+			slog.Any("error", err),
+		)
 	}
 }
 
@@ -1810,7 +1828,15 @@ func requestLogMiddleware(next http.Handler, metrics *relaydMetrics) http.Handle
 			metrics.httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, status).Inc()
 			metrics.httpRequestDuration.WithLabelValues(r.Method, r.URL.Path, status).Observe(duration.Seconds())
 		}
-		log.Printf("%s %s %d %s", r.Method, r.URL.Path, recorder.status, duration.Round(time.Millisecond))
+		slog.Info(
+			"http request",
+			slog.String("service", "relayd"),
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", recorder.status),
+			slog.Int64("duration_ms", duration.Milliseconds()),
+			slog.String("traceparent", r.Header.Get("traceparent")),
+		)
 	})
 }
 

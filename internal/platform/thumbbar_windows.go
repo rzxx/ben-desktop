@@ -5,7 +5,7 @@ package platform
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -79,7 +79,7 @@ func (s *thumbbarService) Start(hwnd win32.HWND) error {
 
 		icons, err := loadThumbbarIconSet()
 		if err != nil {
-			log.Printf("thumbnail toolbar custom icons unavailable, using defaults: %v", err)
+			slog.Warn("thumbnail toolbar custom icons unavailable", slog.Any("error", err), slog.String("service", "platform.thumbbar"))
 		}
 
 		var taskbar *win32.ITaskbarList3
@@ -129,7 +129,7 @@ func (s *thumbbarService) Start(hwnd win32.HWND) error {
 		s.mu.Unlock()
 
 		if err := s.addButtons(); err != nil {
-			log.Printf("thumbnail toolbar add buttons failed: %v", err)
+			slog.Warn("thumbnail toolbar add buttons failed", slog.Any("error", err), slog.String("service", "platform.thumbbar"))
 		}
 		if hasState {
 			s.applyState(state)
@@ -275,7 +275,7 @@ func (s *thumbbarService) updateButtons(snapshot playback.SessionSnapshot, force
 
 	hr := taskbar.ThumbBarUpdateButtons(hwnd, uint32(len(buttons)), &buttons[0])
 	if win32.FAILED(hr) {
-		log.Printf("thumbnail toolbar update failed: %s", win32.HRESULT_ToString(hr))
+		slog.Warn("thumbnail toolbar update failed", slog.String("hresult", win32.HRESULT_ToString(hr)), slog.String("service", "platform.thumbbar"))
 	}
 }
 
@@ -297,7 +297,7 @@ func (s *thumbbarService) handleWindowMessage(hwnd win32.HWND, msg uint32, wPara
 
 	if taskbarButtonCreatedMsg != 0 && msg == taskbarButtonCreatedMsg {
 		if err := s.addButtons(); err != nil {
-			log.Printf("thumbnail toolbar re-add buttons failed: %v", err)
+			slog.Warn("thumbnail toolbar re-add buttons failed", slog.Any("error", err), slog.String("service", "platform.thumbbar"))
 		}
 		if hasState {
 			s.applyState(state)
@@ -336,7 +336,7 @@ func (s *thumbbarService) handleThumbbarButton(buttonID uint32) {
 
 func (s *thumbbarService) runAction(name string, action func() error) {
 	if err := action(); err != nil {
-		log.Printf("thumbnail toolbar %s action failed: %v", name, err)
+		slog.Warn("thumbnail toolbar action failed", slog.String("action", name), slog.Any("error", err), slog.String("service", "platform.thumbbar"))
 	}
 }
 
@@ -359,7 +359,7 @@ func (s *thumbbarService) buttonIcons() (win32.HICON, win32.HICON, win32.HICON, 
 func (s *thumbbarService) refreshIconsForSystemTheme() {
 	icons, err := loadThumbbarIconSet()
 	if err != nil {
-		log.Printf("thumbnail toolbar theme icon reload failed: %v", err)
+		slog.Warn("thumbnail toolbar theme icon reload failed", slog.Any("error", err), slog.String("service", "platform.thumbbar"))
 		return
 	}
 
@@ -381,7 +381,7 @@ func (s *thumbbarService) refreshIconsForSystemTheme() {
 		return
 	}
 	if err := s.addButtons(); err != nil {
-		log.Printf("thumbnail toolbar add buttons failed after theme change: %v", err)
+		slog.Warn("thumbnail toolbar add buttons failed after theme change", slog.Any("error", err), slog.String("service", "platform.thumbbar"))
 	}
 }
 

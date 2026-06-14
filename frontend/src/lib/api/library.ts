@@ -1,57 +1,96 @@
 import { Dialogs } from "@wailsio/runtime";
 import * as LibraryFacade from "../../../bindings/ben/desktop/libraryfacade";
+import { traceWailsCall } from "@/lib/observability/trace";
 
 export async function getActiveLibrary() {
-  const [library, found] = await LibraryFacade.ActiveLibrary();
+  const [library, found] = await traceWailsCall(
+    "library",
+    "active_library",
+    undefined,
+    () => LibraryFacade.ActiveLibrary(),
+  );
   return { library, found };
 }
 
 export function listLibraries() {
-  return LibraryFacade.ListLibraries();
+  return traceWailsCall("library", "list_libraries", undefined, () =>
+    LibraryFacade.ListLibraries(),
+  );
 }
 
 export function createLibrary(name: string) {
-  return LibraryFacade.CreateLibrary(name);
+  return traceWailsCall("library", "create_library", { name }, () =>
+    LibraryFacade.CreateLibrary(name),
+  );
 }
 
 export function selectLibrary(libraryId: string) {
-  return LibraryFacade.SelectLibrary(libraryId);
+  return traceWailsCall("library", "select_library", { libraryId }, () =>
+    LibraryFacade.SelectLibrary(libraryId),
+  );
 }
 
 export function renameLibrary(libraryId: string, name: string) {
-  return LibraryFacade.RenameLibrary(libraryId, name);
+  return traceWailsCall("library", "rename_library", { libraryId, name }, () =>
+    LibraryFacade.RenameLibrary(libraryId, name),
+  );
 }
 
 export function leaveLibrary(libraryId: string) {
-  return LibraryFacade.LeaveLibrary(libraryId);
+  return traceWailsCall("library", "leave_library", { libraryId }, () =>
+    LibraryFacade.LeaveLibrary(libraryId),
+  );
 }
 
 export function deleteLibrary(libraryId: string) {
-  return LibraryFacade.DeleteLibrary(libraryId);
+  return traceWailsCall("library", "delete_library", { libraryId }, () =>
+    LibraryFacade.DeleteLibrary(libraryId),
+  );
 }
 
 export function listLibraryMembers() {
-  return LibraryFacade.ListLibraryMembers();
+  return traceWailsCall("library", "list_library_members", undefined, () =>
+    LibraryFacade.ListLibraryMembers(),
+  );
 }
 
 export function updateLibraryMemberRole(deviceId: string, role: string) {
-  return LibraryFacade.UpdateLibraryMemberRole(deviceId, role);
+  return traceWailsCall(
+    "library",
+    "update_library_member_role",
+    { deviceId, role },
+    () => LibraryFacade.UpdateLibraryMemberRole(deviceId, role),
+  );
 }
 
 export function removeLibraryMember(deviceId: string) {
-  return LibraryFacade.RemoveLibraryMember(deviceId);
+  return traceWailsCall("library", "remove_library_member", { deviceId }, () =>
+    LibraryFacade.RemoveLibraryMember(deviceId),
+  );
 }
 
 export function getScanRoots() {
-  return LibraryFacade.ScanRoots();
+  return traceWailsCall("library", "scan_roots", undefined, () =>
+    LibraryFacade.ScanRoots(),
+  );
 }
 
 export function addScanRoots(roots: string[]) {
-  return LibraryFacade.AddScanRoots(roots);
+  return traceWailsCall(
+    "library",
+    "add_scan_roots",
+    { count: roots.length },
+    () => LibraryFacade.AddScanRoots(roots),
+  );
 }
 
 export function removeScanRoots(roots: string[]) {
-  return LibraryFacade.RemoveScanRoots(roots);
+  return traceWailsCall(
+    "library",
+    "remove_scan_roots",
+    { count: roots.length },
+    () => LibraryFacade.RemoveScanRoots(roots),
+  );
 }
 
 export async function pickScanRoot(currentRoot = "") {
@@ -70,5 +109,7 @@ export async function pickScanRoot(currentRoot = "") {
 }
 
 export function startLibraryRepair() {
-  return LibraryFacade.StartRepairLibrary();
+  return traceWailsCall("library", "start_repair_library", undefined, () =>
+    LibraryFacade.StartRepairLibrary(),
+  );
 }
