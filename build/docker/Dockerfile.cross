@@ -186,10 +186,14 @@ APP=${APP_NAME:-$(basename $(pwd))}
 mkdir -p bin
 
 EXT=""
-LDFLAGS="-s -w"
+VERSION=${APP_VERSION:-0.1.0-dev}
+COMMIT=${BUILD_COMMIT:-unknown}
+BTIME=${BUILD_TIME:-unknown}
+APP_LDFLAGS="-X ben/desktop/internal/buildinfo.appVersion=${VERSION} -X ben/desktop/internal/buildinfo.buildCommit=${COMMIT} -X ben/desktop/internal/buildinfo.buildTime=${BTIME} -X ben/desktop/internal/buildinfo.githubRepository=rzxx/ben-desktop"
+LDFLAGS="-s -w ${APP_LDFLAGS}"
 if [ "$GOOS" = "windows" ]; then
     EXT=".exe"
-    LDFLAGS="-s -w -H windowsgui"
+    LDFLAGS="-s -w -H windowsgui ${APP_LDFLAGS}"
 fi
 
 TAGS="production"

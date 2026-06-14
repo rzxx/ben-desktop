@@ -8,3 +8,4 @@ build/deps/.work/
 build/tools/
 build/windows/runtime/*
 !build/windows/runtime/.gitkeep
+!build/windows/runtime/version.txt

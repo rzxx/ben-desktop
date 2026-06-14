@@ -2,12 +2,16 @@ package main
 
 import (
 	apitypes "ben/desktop/api/types"
+	"ben/desktop/internal/appupdate"
+	"ben/desktop/internal/buildinfo"
 	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/observability"
 	"ben/desktop/internal/playback"
+	"ben/desktop/internal/winruntimeupdater"
 	"embed"
 	"log/slog"
 	"os"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -34,9 +38,21 @@ func init() {
 // and starts a goroutine that emits a time-based event every second. It subsequently runs the application and
 // logs any error that might occur.
 func main() {
+	if winruntimeupdater.IsElevatedRuntimeUpdate(os.Args) {
+		if err := winruntimeupdater.RunElevated(); err != nil {
+			slog.Default().Error("runtime updater failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return
+	}
+
+	build := buildinfo.Current()
 	obsManager, logger, err := observability.Initialize(observability.Config{
-		AppName:  "ben-desktop",
-		LogLevel: initialObservabilityLogLevel(),
+		AppName:     "ben-desktop",
+		AppVersion:  build.AppVersion,
+		BuildCommit: build.BuildCommit,
+		BuildTime:   build.BuildTime,
+		LogLevel:    initialObservabilityLogLevel(),
 	})
 	if err != nil {
 		logger = slog.Default()
@@ -46,6 +62,7 @@ func main() {
 	host := newCoreHost()
 	playbackService := NewPlaybackServiceWithHost(host)
 	notificationsFacade := NewNotificationsFacade(host, playbackService)
+	updateFacade := NewAppUpdateFacade(build)
 	windowBackground := initialWindowBackgroundColour()
 	app := application.New(application.Options{
 		Name:        "ben-desktop",
@@ -68,6 +85,7 @@ func main() {
 			application.NewService(NewCacheFacade(host)),
 			application.NewService(playbackService),
 			application.NewService(notificationsFacade),
+			application.NewService(updateFacade),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -77,19 +95,34 @@ func main() {
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:     appWindowBaseTitle,
-		Frameless: true,
-		MinWidth:  1280,
-		MinHeight: 720,
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
-		},
-		BackgroundColour: windowBackground,
-		URL:              "/",
-	})
+	updateRunner, err := appupdate.Configure(app, logger)
+	if err != nil {
+		logger.Error("app updater configuration failed", slog.Any("error", err), slog.String("service", "appupdate"))
+	}
+	updateFacade.bindRunner(updateRunner)
+	installApplicationMenu(app, updateRunner)
+
+	var mainWindowOnce sync.Once
+	createMainWindow := func() {
+		mainWindowOnce.Do(func() {
+			app.Window.NewWithOptions(application.WebviewWindowOptions{
+				Title:     appWindowBaseTitle,
+				Frameless: true,
+				MinWidth:  1280,
+				MinHeight: 720,
+				Mac: application.MacWindow{
+					InvisibleTitleBarHeight: 50,
+					Backdrop:                application.MacBackdropTranslucent,
+					TitleBar:                application.MacTitleBarHiddenInset,
+				},
+				BackgroundColour: windowBackground,
+				URL:              "/",
+			})
+		})
+	}
+	if err := winruntimeupdater.RunIfNeeded(app, createMainWindow); err != nil {
+		logger.Error("runtime updater startup check failed", slog.Any("error", err), slog.String("service", "runtime-updater"))
+	}
 	err = app.Run()
 	if err != nil {
 		logger.Error("application run failed", slog.Any("error", err), slog.String("service", "app"))

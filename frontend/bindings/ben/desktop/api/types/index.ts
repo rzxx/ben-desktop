@@ -17,6 +17,8 @@ export {
     AlbumVariantItem,
     AlbumVariantListRequest,
     AppThemeMode,
+    AppUpdateCheckResult,
+    AppUpdateStatus,
     ArtistAlbumListRequest,
     ArtistListItem,
     ArtistListRequest,

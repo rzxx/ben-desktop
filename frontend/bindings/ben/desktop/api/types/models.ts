@@ -628,6 +628,65 @@ export enum AppThemeMode {
     AppThemeModeDark = "dark",
 };
 
+export class AppUpdateCheckResult {
+    "started": boolean;
+    "message"?: string;
+
+    /** Creates a new AppUpdateCheckResult instance. */
+    constructor($$source: Partial<AppUpdateCheckResult> = {}) {
+        if (!("started" in $$source)) {
+            this["started"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AppUpdateCheckResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AppUpdateCheckResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AppUpdateCheckResult($$parsedSource as Partial<AppUpdateCheckResult>);
+    }
+}
+
+export class AppUpdateStatus {
+    "appVersion": string;
+    "buildCommit": string;
+    "buildTime": string;
+    "githubRepository": string;
+    "running": boolean;
+
+    /** Creates a new AppUpdateStatus instance. */
+    constructor($$source: Partial<AppUpdateStatus> = {}) {
+        if (!("appVersion" in $$source)) {
+            this["appVersion"] = "";
+        }
+        if (!("buildCommit" in $$source)) {
+            this["buildCommit"] = "";
+        }
+        if (!("buildTime" in $$source)) {
+            this["buildTime"] = "";
+        }
+        if (!("githubRepository" in $$source)) {
+            this["githubRepository"] = "";
+        }
+        if (!("running" in $$source)) {
+            this["running"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AppUpdateStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AppUpdateStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AppUpdateStatus($$parsedSource as Partial<AppUpdateStatus>);
+    }
+}
+
 export class ArtistAlbumListRequest {
     "ArtistID": string;
     "Limit": number;

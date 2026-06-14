@@ -51,6 +51,7 @@ copy_file_if_present() {
 
 copy_tree_if_present "$RUNTIME/ffmpeg" "$BIN/runtime/ffmpeg"
 copy_tree_if_present "$RUNTIME/licenses" "$LICENSE_OUT/media-runtime"
+copy_file_if_present "$RUNTIME/version.txt" "$BIN/runtime/version.txt"
 
 if [ -d "$RUNTIME" ]; then
   for dll in "$RUNTIME"/*.dll; do
@@ -78,6 +79,7 @@ if [ "$REQUIRE_MEDIA_RUNTIME" = true ]; then
   for f in \
     "$BIN/runtime/ffmpeg/bin/ffmpeg.exe" \
     "$BIN/runtime/ffmpeg/bin/ffprobe.exe" \
+    "$BIN/runtime/version.txt" \
     "$BIN/libmpv.dll" \
     "$LICENSE_OUT/LICENSE" \
     "$LICENSE_OUT/THIRD_PARTY_NOTICES.md" \

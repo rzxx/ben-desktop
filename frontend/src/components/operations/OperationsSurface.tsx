@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import {
   Activity,
   CircleAlert,
   Clock3,
+  Download,
   FolderOpen,
   HardDrive,
   Minus,
@@ -16,6 +18,11 @@ import {
   startPublishCheckpoint,
   startSyncNow,
 } from "@/lib/api/network";
+import {
+  checkForUpdates,
+  getAppUpdateStatus,
+  type AppUpdateStatus,
+} from "@/lib/api/updates";
 import { startLibraryRepair } from "@/lib/api/library";
 import { formatCount, formatDateTime } from "@/lib/format";
 import { isNotificationActive } from "@/lib/notifications";
@@ -659,6 +666,8 @@ export function OperationsSurface() {
         </>
       )}
 
+      <AppUpdatePanel />
+
       <section className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -741,5 +750,118 @@ export function OperationsSurface() {
         </div>
       </section>
     </div>
+  );
+}
+
+function AppUpdatePanel() {
+  const [status, setStatus] = useState<AppUpdateStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    getAppUpdateStatus()
+      .then((nextStatus) => {
+        if (!cancelled) {
+          setStatus(nextStatus);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!status?.running) {
+      return;
+    }
+    let cancelled = false;
+    const interval = window.setInterval(() => {
+      getAppUpdateStatus()
+        .then((nextStatus) => {
+          if (!cancelled) {
+            setStatus(nextStatus);
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : String(err));
+          }
+        });
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [status?.running]);
+
+  async function runUpdateCheck() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await checkForUpdates();
+      setMessage(result.message || "Update check started");
+      const nextStatus = await getAppUpdateStatus();
+      setStatus(nextStatus);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
+            <Download className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
+              Application updates
+            </h2>
+            <p className="text-theme-600 text-sm dark:text-white/48">
+              {status
+                ? `${status.appVersion} - ${status.buildCommit}`
+                : "Version metadata unavailable"}
+            </p>
+          </div>
+        </div>
+        <button
+          className="border-theme-900 bg-theme-900 text-theme-50 hover:bg-theme-800 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+          disabled={busy || status?.running}
+          onClick={() => {
+            void runUpdateCheck();
+          }}
+          type="button"
+        >
+          <RefreshCw className="h-4 w-4" />
+          <span>{busy || status?.running ? "Checking" : "Check updates"}</span>
+        </button>
+      </div>
+
+      {(message || error) && (
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          {message && (
+            <div className="rounded-[1.1rem] border border-emerald-400/18 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-100">
+              {message}
+            </div>
+          )}
+          {error && (
+            <div className="rounded-[1.1rem] border border-rose-400/18 bg-rose-400/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-100">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
