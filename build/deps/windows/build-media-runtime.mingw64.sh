@@ -324,8 +324,18 @@ copy_mingw_dll_deps "$RUNTIME_DIR/libmpv.dll" "$RUNTIME_DIR"
 
 # Stage libmpv public headers so CGO-based tooling (e.g. wails3 generate bindings)
 # can find <mpv/client.h> without a system mpv development package.
+MPV_HEADER_DIR=""
+if [ -d "include/mpv" ]; then
+  MPV_HEADER_DIR="include/mpv"
+elif [ -d "libmpv" ]; then
+  MPV_HEADER_DIR="libmpv"
+fi
+if [ -z "$MPV_HEADER_DIR" ]; then
+  echo "libmpv public headers not found (tried include/mpv and libmpv)" >&2
+  exit 1
+fi
 mkdir -p "$WORK_DIR/mpv-include/mpv"
-cp -f libmpv/*.h "$WORK_DIR/mpv-include/mpv/"
+cp -f "$MPV_HEADER_DIR"/*.h "$WORK_DIR/mpv-include/mpv/"
 
 popd >/dev/null
 
