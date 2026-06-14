@@ -59,6 +59,8 @@ jobs:
             mingw-w64-x86_64-libwebp
             mingw-w64-x86_64-aom
             mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-libplacebo
+            mingw-w64-x86_64-libass
 
       - name: Install Wails CLI and NSIS
         shell: pwsh
@@ -127,6 +129,25 @@ jobs:
       - name: Install Wails CLI
         run: go install "github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}"
 
+      - name: Free disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          # Remove unused Xcode versions, keeping only the currently selected one.
+          current_xcode_app="$(xcode-select -p 2>/dev/null | cut -d/ -f3)"
+          for xcode in /Applications/Xcode_*.app; do
+            if [ -e "$xcode" ] && [ "$(basename "$xcode")" != "$current_xcode_app" ]; then
+              echo "Removing $xcode"
+              sudo rm -rf "$xcode"
+            fi
+          done
+          # Remove large SDKs and toolchains not needed for this build.
+          sudo rm -rf /Users/runner/Library/Android/sdk
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/local/share/dotnet
+          echo "Disk space after cleanup:"
+          df -h
+
       - name: Set build metadata
         run: |
           VERSION="${RELEASE_TAG#v}"
@@ -140,7 +161,12 @@ jobs:
           wails3 task darwin:package:universal APP_VERSION="${APP_VERSION}" BUILD_COMMIT="${BUILD_COMMIT}" BUILD_TIME="${BUILD_TIME}" EXTRA_TAGS=nompv
           mkdir -p dist
           ditto -c -k --keepParent bin/ben-desktop.app dist/ben-desktop-darwin-universal.zip
-          hdiutil create -volname "ben-desktop" -srcfolder bin/ben-desktop.app -ov -format UDZO dist/ben-desktop-darwin-universal.dmg
+          # Explicitly size the DMG image because hdiutil can underestimate the
+          # space required when copying the .app bundle, leading to "No space
+          # left on device" errors inside the mounted volume.
+          app_size_kb=$(du -sk bin/ben-desktop.app | awk '{print $1}')
+          image_size_mb=$((app_size_kb / 1024 + 512))
+          hdiutil create -volname "ben-desktop" -srcfolder bin/ben-desktop.app -ov -format UDZO -size "${image_size_mb}m" dist/ben-desktop-darwin-universal.dmg
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

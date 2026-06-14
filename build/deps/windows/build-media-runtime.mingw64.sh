@@ -41,7 +41,9 @@ pacman -S --needed --noconfirm \
   mingw-w64-x86_64-ntldd \
   mingw-w64-x86_64-libwebp \
   mingw-w64-x86_64-aom \
-  mingw-w64-x86_64-zlib
+  mingw-w64-x86_64-zlib \
+  mingw-w64-x86_64-libplacebo \
+  mingw-w64-x86_64-libass
 
 copy_mingw_dll_deps() {
   local binary="$1"
