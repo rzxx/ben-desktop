@@ -40,6 +40,42 @@ type SignedGitHubProvider struct {
 	inner            updater.Provider
 }
 
+// updaterAssetName returns the exact GitHub release asset name the built-in
+// updater should download for the running platform. Using explicit names
+// prevents the updater from accidentally selecting the installer or portable
+// archive when multiple Windows assets exist.
+func updaterAssetName(req updater.CheckRequest) string {
+	platform := strings.ToLower(req.Platform)
+	arch := strings.ToLower(req.Arch)
+
+	switch platform {
+	case "windows":
+		if arch == "amd64" {
+			return "ben-desktop-windows-amd64-app-update.exe"
+		}
+	case "darwin":
+		return "ben-desktop-darwin-universal.zip"
+	case "linux":
+		if arch == "amd64" {
+			return "ben-desktop-linux-amd64"
+		}
+	}
+	return ""
+}
+
+func updaterAssetMatcher(req updater.CheckRequest, assets []github.ReleaseAsset) int {
+	target := updaterAssetName(req)
+	if target == "" {
+		return -1
+	}
+	for i, a := range assets {
+		if a.Name == target {
+			return i
+		}
+	}
+	return -1
+}
+
 func NewSignedGitHubProvider(cfg SignedGitHubConfig) (*SignedGitHubProvider, error) {
 	repository := strings.TrimSpace(cfg.Repository)
 	if repository == "" {
@@ -60,6 +96,7 @@ func NewSignedGitHubProvider(cfg SignedGitHubConfig) (*SignedGitHubProvider, err
 		BaseURL:       baseURL,
 		ChecksumAsset: cfg.ChecksumAsset,
 		HTTPClient:    client,
+		AssetMatcher:  updaterAssetMatcher,
 	})
 	if err != nil {
 		return nil, err

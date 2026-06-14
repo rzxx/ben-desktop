@@ -46,13 +46,18 @@ Goal: the application can check, download, verify, and swap its own binary from 
 
 Use a CI matrix for Windows, macOS, and Linux.
 
-Produce Wails-updater-compatible assets:
+Produce Wails-updater-compatible assets, selected by an explicit `AssetMatcher` so the updater never confuses them with installer or portable packages:
 
 - macOS: `ben-desktop-darwin-universal.zip` containing the signed `.app` bundle.
-- Windows: `ben-desktop-windows-amd64.exe` single binary.
+- Windows: `ben-desktop-windows-amd64-app-update.exe` (single binary used only by the updater).
 - Linux: `ben-desktop-linux-amd64` single binary.
 
-Also keep building first-install packages (NSIS installer, AppImage, `.dmg`).
+Also keep building user-facing packages:
+
+- Windows NSIS installer: `ben-desktop-windows-amd64-setup.exe`.
+- Windows portable archive: `ben-desktop-windows-amd64-portable.zip` (extract-and-run folder containing the executable, runtime DLLs, and licenses).
+- macOS `.dmg`.
+- Linux AppImage.
 
 Attach `SHA256SUMS` and signature files to the GitHub Release.
 
