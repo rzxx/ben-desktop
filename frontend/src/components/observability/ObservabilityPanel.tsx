@@ -48,12 +48,20 @@ export function ObservabilityPanel() {
   }, []);
 
   useEffect(() => {
+    const refreshPanel = async () => {
+      try {
+        await refresh();
+        setError("");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    };
     const initialTimer = window.setTimeout(() => {
-      void refresh();
+      void refreshPanel();
     }, 0);
     const timer = window.setInterval(
       () => {
-        void refresh();
+        void refreshPanel();
       },
       active ? 2000 : 5000,
     );

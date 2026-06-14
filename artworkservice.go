@@ -77,7 +77,7 @@ func (s *ArtworkHTTPService) ServeHTTP(rw http.ResponseWriter, req *http.Request
 	}
 	if _, err := os.Stat(resolved.LocalPath); err != nil {
 		if os.IsNotExist(err) {
-			span.Event("artwork.file_missing", observability.String("path", resolved.LocalPath))
+			span.Event("artwork.file_missing", observability.String("file", filepath.Base(resolved.LocalPath)))
 			http.NotFound(rw, req)
 			return
 		}

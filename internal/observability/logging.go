@@ -35,7 +35,12 @@ func (h *handler) Handle(ctx context.Context, record slog.Record) error {
 	if h == nil || h.manager == nil {
 		return nil
 	}
-	attrs := make([]slog.Attr, 0, len(h.attrs)+record.NumAttrs()+4)
+	attrs := make([]slog.Attr, 0, len(h.groups)+len(h.attrs)+record.NumAttrs()+4)
+	for _, group := range h.groups {
+		if strings.TrimSpace(group) != "" {
+			attrs = append(attrs, slog.Group(group))
+		}
+	}
 	attrs = append(attrs, h.attrs...)
 	record.Attrs(func(attr slog.Attr) bool {
 		attrs = append(attrs, attr)

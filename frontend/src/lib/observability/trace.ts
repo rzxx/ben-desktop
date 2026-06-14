@@ -9,6 +9,7 @@ type TraceAttrs = Record<string, unknown>;
 let active = false;
 let pending: Types.TraceRecord[] = [];
 let flushTimer: number | undefined;
+let flushing = false;
 
 export function setFrontendTracingActive(nextActive: boolean) {
   active = nextActive;
@@ -47,17 +48,15 @@ export async function traceWailsCall<T>(
   const spanId = randomHex(8);
   const startUnixNano = nowUnixNano();
   const mark = `ben:${service}.${method}:${spanId}`;
+  const measure = `ben.${service}.${method}`;
   performance.mark(`${mark}:start`);
 
   try {
     const output = await call();
     const endUnixNano = nowUnixNano();
     performance.mark(`${mark}:end`);
-    performance.measure(
-      `ben.${service}.${method}`,
-      `${mark}:start`,
-      `${mark}:end`,
-    );
+    performance.measure(measure, `${mark}:start`, `${mark}:end`);
+    performance.clearMeasures(measure);
     enqueueRecord(
       new Types.TraceRecord({
         schemaVersion: 1,
@@ -114,6 +113,7 @@ export async function traceWailsCall<T>(
     );
     throw error;
   } finally {
+    performance.clearMeasures(measure);
     performance.clearMarks(`${mark}:start`);
     performance.clearMarks(`${mark}:end`);
   }
@@ -158,29 +158,51 @@ export function installObservabilityWindow() {
 }
 
 export async function flushFrontendTraceRecords() {
-  if (pending.length === 0) {
+  if (pending.length === 0 || flushing) {
     return;
   }
-  const records = pending;
-  pending = [];
-  flushTimer = undefined;
-  await ObservabilityFacade.RecordFrontendEvents(
-    createTraceCarrier(),
-    new Types.FrontendTraceBatch({ records }),
-  );
+  const records = pending.slice();
+  flushing = true;
+  try {
+    await ObservabilityFacade.RecordFrontendEvents(
+      createTraceCarrier(),
+      new Types.FrontendTraceBatch({ records }),
+    );
+    pending = pending.slice(records.length);
+    if (flushTimer !== undefined) {
+      window.clearTimeout(flushTimer);
+      flushTimer = undefined;
+    }
+    if (pending.length > 0) {
+      scheduleFlush();
+    }
+  } finally {
+    flushing = false;
+  }
 }
 
 function enqueueRecord(record: Types.TraceRecord) {
   pending.push(record);
   if (pending.length >= MAX_BATCH_SIZE) {
-    void flushFrontendTraceRecords();
+    void flushFrontendTraceRecords().catch(() => {
+      flushTimer = undefined;
+    });
     return;
   }
   if (flushTimer === undefined) {
-    flushTimer = window.setTimeout(() => {
-      void flushFrontendTraceRecords();
-    }, FLUSH_DELAY_MS);
+    scheduleFlush();
   }
+}
+
+function scheduleFlush() {
+  if (flushTimer !== undefined) {
+    return;
+  }
+  flushTimer = window.setTimeout(() => {
+    void flushFrontendTraceRecords().catch(() => {
+      flushTimer = undefined;
+    });
+  }, FLUSH_DELAY_MS);
 }
 
 function summarizeOutput(output: unknown): Types.TraceSummary {

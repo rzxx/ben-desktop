@@ -1716,7 +1716,7 @@ func (s *Session) SeekTo(ctx context.Context, positionMS int64) (SessionSnapshot
 	if loaded {
 		reason = "loaded"
 	}
-	recordPlaybackSessionEvent("playback.session.seek.called", stateBefore,
+	recordPlaybackSessionEvent(ctx, "playback.session.seek.called", stateBefore,
 		observability.Int64("target_position_ms", positionMS),
 		observability.String("reason", reason),
 	)
@@ -1725,7 +1725,7 @@ func (s *Session) SeekTo(ctx context.Context, positionMS int64) (SessionSnapshot
 		if err := backend.SeekTo(ctx, positionMS); err != nil {
 			return s.failPlayback(err)
 		}
-		recordPlaybackSessionEvent("playback.session.seek.backend_complete", stateBefore,
+		recordPlaybackSessionEvent(ctx, "playback.session.seek.backend_complete", stateBefore,
 			observability.Int64("target_position_ms", positionMS),
 		)
 		s.refreshPositionAfterSeek(ctx, positionMS)
@@ -2680,7 +2680,7 @@ func (s *Session) refreshPosition(reason string) (SessionSnapshot, bool) {
 	} else {
 		attrs = append(attrs, observability.String("error", positionErr.Error()))
 	}
-	recordPlaybackSessionEvent("playback.session.refresh_position", state, attrs...)
+	recordPlaybackSessionEvent(context.Background(), "playback.session.refresh_position", state, attrs...)
 	return state, true
 }
 
@@ -2763,7 +2763,7 @@ func (s *Session) refreshPositionAfterSeek(ctx context.Context, targetPositionMS
 			)))
 		}
 	}
-	recordPlaybackSessionEvent("playback.session.refresh_position", state, attrs...)
+	recordPlaybackSessionEvent(ctx, "playback.session.refresh_position", state, attrs...)
 }
 
 func (s *Session) preloadNext(ctx context.Context) {
@@ -5535,7 +5535,10 @@ func (s *Session) markQueueDirtyLocked() {
 	s.invalidateNextActionPlanLocked("queue dirty")
 }
 
-func recordPlaybackSessionEvent(name string, snapshot SessionSnapshot, attrs ...observability.Attr) {
+func recordPlaybackSessionEvent(ctx context.Context, name string, snapshot SessionSnapshot, attrs ...observability.Attr) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	eventAttrs := []observability.Attr{
 		observability.String("service", "playback"),
 		observability.String("component", "session"),
@@ -5556,7 +5559,7 @@ func recordPlaybackSessionEvent(name string, snapshot SessionSnapshot, attrs ...
 		eventAttrs = append(eventAttrs, observability.String("loading_entry_id", snapshot.LoadingEntry.EntryID))
 	}
 	eventAttrs = append(eventAttrs, attrs...)
-	observability.Default().Event(context.Background(), name, eventAttrs...)
+	observability.Default().Event(ctx, name, eventAttrs...)
 }
 
 func (s *Session) logErrorf(format string, args ...any) {

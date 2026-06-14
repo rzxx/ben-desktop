@@ -125,6 +125,10 @@ func (s *activeSpan) Event(name string, attrs ...Attr) {
 		return
 	}
 	s.mu.Lock()
+	if s.ended {
+		s.mu.Unlock()
+		return
+	}
 	record := s.record
 	s.mu.Unlock()
 	event := apitypes.TraceRecord{
@@ -147,6 +151,9 @@ func (s *activeSpan) SetInput(summary apitypes.TraceSummary) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.ended {
+		return
+	}
 	s.record.Input = &summary
 }
 
@@ -156,6 +163,9 @@ func (s *activeSpan) SetOutput(summary apitypes.TraceSummary) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.ended {
+		return
+	}
 	s.record.Output = &summary
 }
 
@@ -165,6 +175,10 @@ func (s *activeSpan) RecordError(err error, attrs ...Attr) {
 	}
 	fields := attrsToMap(attrs)
 	s.mu.Lock()
+	if s.ended {
+		s.mu.Unlock()
+		return
+	}
 	s.record.Status = "error"
 	s.record.Error = &apitypes.TraceError{
 		Type:    reflect.TypeOf(err).String(),

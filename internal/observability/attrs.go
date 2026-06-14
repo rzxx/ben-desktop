@@ -57,8 +57,16 @@ func attrsToMap(attrs []Attr) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(attrs))
+	current := out
 	for _, attr := range attrs {
-		appendAttr(out, attr)
+		value := attr.Value.Resolve()
+		if value.Kind() == slog.KindGroup && len(value.Group()) == 0 {
+			group := make(map[string]any)
+			current[attr.Key] = group
+			current = group
+			continue
+		}
+		appendAttr(current, attr)
 	}
 	return sanitizeFields(out)
 }

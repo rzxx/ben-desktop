@@ -9,9 +9,9 @@ import {
 export function ObservabilityRuntime() {
   useEffect(() => {
     installObservabilityWindow();
-    void getObservabilityStatus();
+    void getObservabilityStatus().catch(() => {});
     const timer = window.setInterval(() => {
-      void getObservabilityStatus();
+      void getObservabilityStatus().catch(() => {});
     }, 10_000);
     return () => window.clearInterval(timer);
   }, []);

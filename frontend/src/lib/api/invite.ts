@@ -70,7 +70,7 @@ export function rejectJoinRequest(requestId: string, reason: string) {
   return traceWailsCall(
     "invite",
     "reject_join_request",
-    { requestId, reason },
+    { requestId, hasReason: Boolean(reason), reasonLength: reason.length },
     () => InviteFacade.RejectJoinRequest(requestId, reason),
   );
 }

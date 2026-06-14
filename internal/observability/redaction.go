@@ -58,6 +58,12 @@ func sanitizeValue(key string, value any) any {
 			out = append(out, sanitizeString(key, item))
 		}
 		return out
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, sanitizeValue(key, item))
+		}
+		return out
 	case map[string]any:
 		return sanitizeFields(typed)
 	default:

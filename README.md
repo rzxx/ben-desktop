@@ -178,13 +178,10 @@ $env:PATH = "$(Resolve-Path bin);$env:PATH"
 go test ./...
 ```
 
-For race tests on Windows you also need a MinGW gcc compiler on `PATH`:
+For race tests on Windows, use an MSYS2 MINGW64 terminal with MSYS2 MINGW64's `bin` on `PATH` and `libmpv` installed. The canonical command is:
 
-```powershell
-$env:PATH = "$(Resolve-Path bin);C:\msys64\mingw64\bin;$env:PATH"
-$env:CC = "gcc"
-$env:CGO_ENABLED = "1"
-go test -race ./...
+```sh
+CGO_ENABLED=1 CC=gcc go test -race ./...
 ```
 
 ## Server mode

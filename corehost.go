@@ -50,12 +50,12 @@ func (h *coreHost) Start(ctx context.Context) error {
 
 	coreSettings := loadCoreRuntimeSettings()
 	span.SetInput(observability.RedactedSummary("core runtime settings", map[string]any{
-		"db_path":             coreSettings.DBPath,
-		"blob_root":           coreSettings.BlobRoot,
-		"identity_key_path":   coreSettings.IdentityKeyPath,
+		"db_path_set":         coreSettings.DBPath != "",
+		"blob_root_set":       coreSettings.BlobRoot != "",
+		"identity_key_set":    coreSettings.IdentityKeyPath != "",
 		"transcode_profile":   coreSettings.TranscodeProfile,
 		"relay_bootstrap":     len(coreSettings.RelayBootstrap),
-		"registry_url":        coreSettings.RegistryURL,
+		"registry_url_set":    coreSettings.RegistryURL != "",
 		"lan_discovery_set":   coreSettings.EnableLANDiscovery != nil,
 		"direct_transfer_set": coreSettings.RequireDirectForLargeTransfers != nil,
 	}))

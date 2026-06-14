@@ -54,6 +54,9 @@ func (w *jsonlWriter) WriteJSON(value any) (int, error) {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.file == nil {
+		return 0, fmt.Errorf("jsonl writer closed")
+	}
 	if w.maxBytes > 0 && w.written+int64(len(payload)) > w.maxBytes {
 		return 0, fmt.Errorf("jsonl writer limit exceeded")
 	}
@@ -132,6 +135,9 @@ func (w *rotatingJSONLWriter) WriteJSON(value any) (int, error) {
 		return 0, err
 	}
 	payload = append(payload, jsonlNewline...)
+	if int64(len(payload)) > w.maxBytes {
+		return 0, fmt.Errorf("record too large: %d > %d", len(payload), w.maxBytes)
+	}
 
 	w.mu.Lock()
 	defer w.mu.Unlock()

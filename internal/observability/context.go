@@ -81,16 +81,20 @@ func parseTraceparent(value string) (spanContext, bool) {
 	case "01":
 		sampled = true
 	default:
-		if parsed := parseHexByte(flags); parsed&1 == 1 {
+		parsed, ok := parseHexByte(flags)
+		if !ok {
+			return spanContext{}, false
+		}
+		if parsed&1 == 1 {
 			sampled = true
 		}
 	}
 	return spanContext{traceID: traceID, spanID: spanID, sampled: sampled, remote: true}, true
 }
 
-func parseHexByte(value string) byte {
+func parseHexByte(value string) (byte, bool) {
 	if len(value) != 2 {
-		return 0
+		return 0, false
 	}
 	var out byte
 	for _, r := range value {
@@ -103,8 +107,8 @@ func parseHexByte(value string) byte {
 		case r >= 'A' && r <= 'F':
 			out |= byte(r-'A') + 10
 		default:
-			return 0
+			return 0, false
 		}
 	}
-	return out
+	return out, true
 }
