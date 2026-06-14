@@ -129,6 +129,7 @@ jobs:
           $env:CGO_ENABLED = '0'
           wails3 task windows:build ARCH=amd64 CGO_ENABLED=0 APP_VERSION=${env:APP_VERSION} BUILD_COMMIT=${env:BUILD_COMMIT} BUILD_TIME=${env:BUILD_TIME}
           wails3 task windows:create:nsis:installer ARCH=amd64 CGO_ENABLED=0 APP_VERSION=${env:APP_VERSION} BUILD_COMMIT=${env:BUILD_COMMIT} BUILD_TIME=${env:BUILD_TIME}
+          ./build/windows/validate-runtime.ps1 -BinDir bin
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item bin/ben-desktop.exe dist/ben-desktop-windows-amd64-app-update.exe
           $installer = "bin/ben-desktop-amd64-installer.exe"
@@ -140,9 +141,14 @@ jobs:
           Get-ChildItem -Path "bin" -Force |
             Where-Object { $_.Name -notlike "*-installer.exe" -and $_.Name -notlike "*.msix" } |
             Copy-Item -Destination $portableDir -Recurse -Force
+          ./build/windows/validate-runtime.ps1 -BinDir (Resolve-Path $portableDir).Path
           Compress-Archive -Path $portableDir -DestinationPath "dist/ben-desktop-windows-amd64-portable.zip" -Force
           Remove-Item -LiteralPath $portableDir -Recurse -Force
           go run ./cmd/benreleasetool runtime-bundle --source build/windows/runtime --version-file build/windows/runtime/version.txt --out-dir dist --require
+          $runtimeBundleDir = Join-Path $env:RUNNER_TEMP "ben-desktop-runtime-bundle"
+          Remove-Item -LiteralPath $runtimeBundleDir -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath "dist/ben-desktop-runtime-windows-amd64.zip" -DestinationPath $runtimeBundleDir -Force
+          ./build/windows/validate-runtime.ps1 -BinDir $runtimeBundleDir
           Copy-Item build/windows/runtime/licenses/media-runtime-source-record.json dist/ben-desktop-media-runtime-source-record-windows-amd64.json
           Copy-Item build/windows/runtime/licenses/ffmpeg-local-changes.diff dist/ben-desktop-ffmpeg-local-changes.diff
           Copy-Item build/windows/runtime/licenses/mpv-local-changes.diff dist/ben-desktop-mpv-local-changes.diff

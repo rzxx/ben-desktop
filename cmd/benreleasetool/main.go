@@ -106,6 +106,11 @@ func runRuntimeBundle(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *require {
+		if err := validateRuntimeLoadable(*source); err != nil {
+			return fmt.Errorf("runtime load validation failed: %w", err)
+		}
+	}
 	if len(entries) == 0 {
 		return errors.New("runtime bundle has no files")
 	}

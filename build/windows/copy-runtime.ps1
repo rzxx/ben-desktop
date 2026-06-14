@@ -6,7 +6,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
-$bin = Join-Path $root $BinDir
+if ([System.IO.Path]::IsPathRooted($BinDir)) {
+    $bin = $BinDir
+} else {
+    $bin = Join-Path $root $BinDir
+}
 $runtime = Join-Path $root "build\windows\runtime"
 $licenseOut = Join-Path $bin "licenses"
 
@@ -80,4 +84,6 @@ if ($RequireMediaRuntime) {
     if ($missing.Count -gt 0) {
         throw "Release media runtime is incomplete. Missing: $($missing -join ', ')"
     }
+
+    & (Join-Path $PSScriptRoot "validate-runtime.ps1") -BinDir $bin
 }
