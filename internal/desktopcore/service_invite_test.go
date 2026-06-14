@@ -25,8 +25,10 @@ type inviteTestInfra struct {
 }
 
 type inviteTestRegistry struct {
-	mu      sync.Mutex
-	records map[string]registryauth.PresenceRecord
+	mu          sync.Mutex
+	records     map[string]registryauth.PresenceRecord
+	relayPeerID string
+	relayAddrs  []string
 }
 
 func openInviteTestInfra(t *testing.T) *inviteTestInfra {
@@ -44,16 +46,19 @@ func openInviteTestInfra(t *testing.T) *inviteTestInfra {
 		_ = relayHost.Close()
 	})
 
-	registry := &inviteTestRegistry{
-		records: make(map[string]registryauth.PresenceRecord),
-	}
-	server := httptest.NewServer(http.HandlerFunc(registry.serveHTTP))
-	t.Cleanup(server.Close)
-
 	addrs := make([]string, 0, len(relayHost.Addrs()))
 	for _, addr := range relayHost.Addrs() {
 		addrs = append(addrs, fmt.Sprintf("%s/p2p/%s", addr.String(), relayHost.ID().String()))
 	}
+
+	registry := &inviteTestRegistry{
+		records:     make(map[string]registryauth.PresenceRecord),
+		relayPeerID: relayHost.ID().String(),
+		relayAddrs:  compactNonEmptyStrings(addrs),
+	}
+	server := httptest.NewServer(http.HandlerFunc(registry.serveHTTP))
+	t.Cleanup(server.Close)
+
 	return &inviteTestInfra{
 		registryURL:         server.URL,
 		relayBootstrapAddrs: compactNonEmptyStrings(addrs),
@@ -82,9 +87,22 @@ func (r *inviteTestRegistry) serveHTTP(w http.ResponseWriter, req *http.Request)
 		w.WriteHeader(http.StatusOK)
 	case "/v1/invites/owner":
 		r.handleInviteOwner(w, req)
+	case "/healthz":
+		r.handleHealthz(w, req)
 	default:
 		http.NotFound(w, req)
 	}
+}
+
+func (r *inviteTestRegistry) handleHealthz(w http.ResponseWriter, req *http.Request) {
+	r.mu.Lock()
+	addrs := make([]string, len(r.relayAddrs))
+	copy(addrs, r.relayAddrs)
+	peerID := r.relayPeerID
+	r.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(relayHealthResponse{Addrs: addrs, PeerID: peerID})
 }
 
 func (r *inviteTestRegistry) handlePresenceAnnounce(w http.ResponseWriter, req *http.Request) {
@@ -243,6 +261,40 @@ func TestInviteIssueListRevokeFlow(t *testing.T) {
 	}
 	if len(revoked) != 0 {
 		t.Fatalf("revoked invites = %+v", revoked)
+	}
+}
+
+func TestInviteCreationUsesRegistryDiscoveredRelay(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	infra := openInviteTestInfra(t)
+	app := openCacheTestApp(t, 1024)
+	app.cfg.RegistryURL = strings.TrimSpace(infra.registryURL)
+	app.cfg.RelayBootstrapAddrs = nil
+	app.cfg.EnableLANDiscovery = false
+	app.cfg.enableLANDiscoverySet = true
+
+	if _, err := app.CreateLibrary(ctx, "invite-discovered-relay"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	code, err := app.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleGuest, Uses: 1})
+	if err != nil {
+		t.Fatalf("create invite code: %v", err)
+	}
+	if !strings.HasPrefix(code.InviteCode, "ben-invite-v3.") {
+		t.Fatalf("invite code = %q", code.InviteCode)
+	}
+	payload, err := decodeInviteCode(code.InviteCode)
+	if err != nil {
+		t.Fatalf("decode invite code: %v", err)
+	}
+	if payload.InviteAuth == nil {
+		t.Fatal("expected invite registry auth")
+	}
+	if err := registryauth.VerifyInviteAttestation(*payload.InviteAuth, time.Now().UTC()); err != nil {
+		t.Fatalf("verify invite registry auth: %v", err)
 	}
 }
 

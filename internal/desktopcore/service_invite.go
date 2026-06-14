@@ -1276,7 +1276,7 @@ func (s *InviteService) ensureInviteReachability(ctx context.Context, libraryID 
 	if strings.TrimSpace(s.app.cfg.RegistryURL) == "" {
 		return "", fmt.Errorf("invite reachability requires a registry url")
 	}
-	if len(compactNonEmptyStrings(s.app.cfg.RelayBootstrapAddrs)) == 0 {
+	if len(s.app.relayBootstrapAddrsForHost(nil)) == 0 {
 		return "", fmt.Errorf("invite reachability requires relay bootstrap addresses")
 	}
 	if err := s.app.syncActiveRuntimeServices(ctx); err != nil {
