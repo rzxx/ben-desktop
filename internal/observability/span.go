@@ -33,6 +33,9 @@ type noopSpan struct{}
 func Start(ctx context.Context, name string, attrs ...Attr) (context.Context, Span) {
 	manager := Default()
 	if manager == nil {
+		if ctx == nil {
+			ctx = context.Background()
+		}
 		return ctx, noopSpan{}
 	}
 	return manager.Start(ctx, name, attrs...)

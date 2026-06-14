@@ -1593,7 +1593,7 @@ func (s *Session) Play(ctx context.Context) (SessionSnapshot, error) {
 			if err := backend.Play(ctx); err != nil {
 				return s.failPlayback(err)
 			}
-			s.refreshPosition("play_resume")
+			s.refreshPosition(ctx, "play_resume")
 		}
 
 		s.mu.Lock()
@@ -1629,7 +1629,7 @@ func (s *Session) Pause(ctx context.Context) (SessionSnapshot, error) {
 		if err := backend.Pause(ctx); err != nil {
 			return s.failPlayback(err)
 		}
-		s.refreshPosition("pause")
+		s.refreshPosition(ctx, "pause")
 	}
 
 	s.mu.Lock()
@@ -2644,7 +2644,7 @@ func (s *Session) clearAuthoritativePositionLocked() {
 	s.snapshot.PositionCapturedAtMS = 0
 }
 
-func (s *Session) refreshPosition(reason string) (SessionSnapshot, bool) {
+func (s *Session) refreshPosition(ctx context.Context, reason string) (SessionSnapshot, bool) {
 	s.mu.Lock()
 	backend := s.backend
 	s.mu.Unlock()
@@ -2680,7 +2680,7 @@ func (s *Session) refreshPosition(reason string) (SessionSnapshot, bool) {
 	} else {
 		attrs = append(attrs, observability.String("error", positionErr.Error()))
 	}
-	recordPlaybackSessionEvent(context.Background(), "playback.session.refresh_position", state, attrs...)
+	recordPlaybackSessionEvent(ctx, "playback.session.refresh_position", state, attrs...)
 	return state, true
 }
 
@@ -3513,7 +3513,7 @@ func (s *Session) runTicker(stop <-chan struct{}) {
 			if !playing {
 				continue
 			}
-			snapshot, ok := s.refreshPosition("ticker")
+			snapshot, ok := s.refreshPosition(context.Background(), "ticker")
 			if s.shouldRunTickerPreload(time.Now()) {
 				s.preloadNext(context.Background())
 			}
@@ -4206,7 +4206,7 @@ func (s *Session) completePendingPlayback(ctx context.Context, entry SessionEntr
 	s.touchLocked()
 	s.mu.Unlock()
 
-	s.refreshPosition("transport_ready")
+	s.refreshPosition(ctx, "transport_ready")
 	s.publishSnapshot(s.Snapshot())
 	return nil
 }
@@ -4304,7 +4304,7 @@ func (s *Session) persistFinalSnapshot() {
 	s.mu.Unlock()
 
 	if backend != nil && hasCurrent {
-		s.refreshPosition("persist_final")
+		s.refreshPosition(context.Background(), "persist_final")
 	}
 
 	snapshot := s.Snapshot()

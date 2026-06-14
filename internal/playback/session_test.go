@@ -1010,7 +1010,7 @@ func TestSessionSeekToLoadedEntryDoesNotInventAuthoritativeTargetOnTimeout(t *te
 	}
 
 	backend.setPosition(98000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	before := session.Snapshot()
 	if before.PositionMS != 98000 {
 		t.Fatalf("pre-seek position = %d, want 98000", before.PositionMS)
@@ -1223,7 +1223,7 @@ func TestSessionQueueOnlyChangesDoNotRewritePositionCaptureTimestamp(t *testing.
 	}
 
 	backend.setPosition(3200)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	before := session.Snapshot().PositionCapturedAtMS
 	time.Sleep(2 * time.Millisecond)
 
@@ -1271,7 +1271,7 @@ func TestSessionRefreshPositionUpdatesAuthoritativeCaptureTimestamp(t *testing.T
 	before := session.Snapshot().PositionCapturedAtMS
 	time.Sleep(2 * time.Millisecond)
 	backend.setPosition(6400)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 
 	snapshot := session.Snapshot()
 	if snapshot.PositionMS != 6400 {
@@ -1737,7 +1737,7 @@ func TestSessionPreloadScansPastSparseUnavailableSourceBackedTracks(t *testing.T
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 
 	if backend.preloaded() != bridge.results[targetID].PlayableURI {
@@ -2515,7 +2515,7 @@ func TestSessionSetShuffleClearsAndRebuildsPreloadWithoutChangingCurrent(t *test
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if backend.preloaded() != "file:///tmp/two.mp3" {
 		t.Fatalf("expected linear preload for rec-2, got %q", backend.preloaded())
@@ -2803,7 +2803,7 @@ func TestSessionSetRepeatModeClearsStalePreload(t *testing.T) {
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if backend.preloaded() != "file:///tmp/two.mp3" {
 		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloaded())
@@ -2859,13 +2859,13 @@ func TestSessionEOFUsesPreloadedTrack(t *testing.T) {
 		t.Fatalf("expected no preload transport before the gapless window, got %q", backend.preloaded())
 	}
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if backend.preloaded() != "file:///tmp/two.mp3" {
 		t.Fatalf("expected preloaded URI file:///tmp/two.mp3, got %q", backend.preloaded())
 	}
 	backend.setPosition(duration - 1000)
-	session.refreshPosition("natural_eof")
+	session.refreshPosition(context.Background(), "natural_eof")
 
 	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
 
@@ -2922,7 +2922,7 @@ func TestSessionNextUsesEventDrivenPreloadedActivation(t *testing.T) {
 		t.Fatalf("expected one prepare call for rec-2 preload, got %d", bridge.prepareCalls["rec-2"])
 	}
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if backend.preloaded() != "file:///tmp/two.mp3" {
 		t.Fatalf("expected rec-2 preloaded in the gapless window, got %q", backend.preloaded())
@@ -3010,7 +3010,7 @@ func TestSessionNextCompletesPreloadedActivationDespiteFileLoadedWarning(t *test
 		t.Fatalf("play: %v", err)
 	}
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 
 	if _, err := session.Next(context.Background()); err != nil {
@@ -3076,7 +3076,7 @@ func TestSessionNextFallsBackToRegularLoadWhenPreloadedActivationFails(t *testin
 		t.Fatalf("play: %v", err)
 	}
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 
 	loadCallsBeforeNext := backend.loadCallCount()
@@ -3134,7 +3134,7 @@ func TestSessionNextSupersedesPendingActivationFromPendingTarget(t *testing.T) {
 		t.Fatalf("play: %v", err)
 	}
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 
 	if _, err := session.Next(context.Background()); err != nil {
@@ -3291,7 +3291,7 @@ func TestSessionStaleFileLoadedEventDoesNotApplyAfterFutureOrderInvalidation(t *
 		t.Fatalf("play: %v", err)
 	}
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if _, err := session.Next(context.Background()); err != nil {
 		t.Fatalf("next: %v", err)
@@ -3345,7 +3345,7 @@ func TestSessionNextRetriesDirectLoadWhenPreloadedActivationDoesNotComplete(t *t
 		t.Fatalf("play: %v", err)
 	}
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 
 	if _, err := session.Next(context.Background()); err != nil {
@@ -3456,7 +3456,7 @@ func TestSessionQueueMutationClearsStalePreload(t *testing.T) {
 	}
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if backend.preloaded() != "file:///tmp/two.mp3" {
 		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloaded())
@@ -3502,7 +3502,7 @@ func TestSessionClearQueueClearsStalePreload(t *testing.T) {
 	}
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if backend.preloaded() != "file:///tmp/two.mp3" {
 		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloaded())
@@ -3548,7 +3548,7 @@ func TestSessionClearQueueClearsStalePreloadWhenSessionCacheIsLost(t *testing.T)
 	}
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if backend.preloaded() != "file:///tmp/two.mp3" {
 		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloaded())
@@ -3778,7 +3778,7 @@ func TestSessionEOFPendingNextStopsStalePreloadedPlayback(t *testing.T) {
 	}
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if backend.preloaded() != "file:///tmp/two.mp3" {
 		t.Fatalf("expected rec-2 preloaded, got %q", backend.preloaded())
@@ -3789,7 +3789,7 @@ func TestSessionEOFPendingNextStopsStalePreloadedPlayback(t *testing.T) {
 	}
 	backend.setPreloadedURI("file:///tmp/two.mp3")
 	backend.setPosition(duration - 1000)
-	session.refreshPosition("natural_eof_pending_next")
+	session.refreshPosition(context.Background(), "natural_eof_pending_next")
 
 	backend.events <- BackendEvent{Type: BackendEventTrackEnd, Reason: TrackEndReasonEOF}
 
@@ -3860,7 +3860,7 @@ func TestSessionPreloadNextBacksOffUnavailablePreparation(t *testing.T) {
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 
 	session.preloadNext(context.Background())
 	if bridge.prepareCalls["rec-2"] != 1 {
@@ -3928,7 +3928,7 @@ func TestSessionPreloadNextSkipsUnavailableStructuralNext(t *testing.T) {
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 
 	if backend.preloaded() != "file:///tmp/three.mp3" {
@@ -3997,7 +3997,7 @@ func TestSessionPreloadNextSkipsUnavailableUsingShuffledUpcomingOrder(t *testing
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 
 	expectedResult, ok := bridge.results[expected.Item.RecordingID]
@@ -4124,7 +4124,7 @@ func TestSessionPreloadNextDoesNotRepeatReadyBackendPreload(t *testing.T) {
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 
 	session.preloadNext(context.Background())
 	session.preloadNext(context.Background())
@@ -4168,7 +4168,7 @@ func TestSessionNextActionPlanStaysCachedAcrossLargeQueueSteadyState(t *testing.
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 
 	session.mu.Lock()
@@ -4183,7 +4183,7 @@ func TestSessionNextActionPlanStaysCachedAcrossLargeQueueSteadyState(t *testing.
 
 	for tick := 0; tick < 8; tick++ {
 		backend.setPosition(60000 + int64(tick*250))
-		session.refreshPosition("test")
+		session.refreshPosition(context.Background(), "test")
 		session.preloadNext(context.Background())
 	}
 
@@ -4347,7 +4347,7 @@ func TestSessionPreloadNextSuppressesRepeatedTransportFailureForSameCandidate(t 
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 
 	session.preloadNext(context.Background())
 	session.preloadNext(context.Background())
@@ -4393,7 +4393,7 @@ func TestSessionPreloadNextSkipsCurrentEntryWhenSingleTrackRepeatsAll(t *testing
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 
 	if backend.preloadCallCount() != 0 {
@@ -4442,7 +4442,7 @@ func TestSessionPreloadNextSkipsCurrentEntryWhenSingleTrackRepeatsOne(t *testing
 
 	backend.setDuration(&duration)
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 
 	if backend.preloadCallCount() != 0 {
@@ -5301,7 +5301,7 @@ func TestSessionUnrelatedQueuedEditDoesNotCancelPendingTransport(t *testing.T) {
 	}
 	queued := session.Snapshot().UserQueue
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if _, err := session.Next(context.Background()); err != nil {
 		t.Fatalf("next: %v", err)
@@ -5358,7 +5358,7 @@ func TestSessionRemovingPendingQueuedTargetCancelsTransport(t *testing.T) {
 	}
 	targetEntryID := session.Snapshot().UserQueue[0].EntryID
 	backend.setPosition(60000)
-	session.refreshPosition("test")
+	session.refreshPosition(context.Background(), "test")
 	session.preloadNext(context.Background())
 	if _, err := session.Next(context.Background()); err != nil {
 		t.Fatalf("next: %v", err)
@@ -6933,7 +6933,7 @@ func TestSessionMidTrackEOFDoesNotAdvancePreloadedNext(t *testing.T) {
 	}
 
 	backend.setPosition(60000)
-	session.refreshPosition("midtrack_eof")
+	session.refreshPosition(context.Background(), "midtrack_eof")
 	session.preloadNext(context.Background())
 	if backend.preloaded() != "file:///tmp/two.mp3" {
 		t.Fatalf("expected rec-2 preloaded before eof, got %q", backend.preloaded())
@@ -7045,7 +7045,7 @@ func TestSessionTrackEndErrorPreservesPositionAndReloadsOnPlay(t *testing.T) {
 	}
 
 	backend.setPosition(5000)
-	session.refreshPosition("track_end_error")
+	session.refreshPosition(context.Background(), "track_end_error")
 	loadCallsBeforeError := backend.loadCallCount()
 	backend.events <- BackendEvent{
 		Type:   BackendEventTrackEnd,
