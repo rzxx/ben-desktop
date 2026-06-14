@@ -1,61 +1,62 @@
 import * as NetworkFacade from "../../../bindings/ben/desktop/networkfacade";
+import { traceWailsCall } from "@/lib/observability/trace";
 
 export function getLocalContext() {
-  return NetworkFacade.EnsureLocalContext();
+  return traceWailsCall("network", "ensure_local_context", undefined, () =>
+    NetworkFacade.EnsureLocalContext(),
+  );
 }
 
 export function getActivityStatus() {
-  return NetworkFacade.ActivityStatus();
+  return traceWailsCall("network", "activity_status", undefined, () =>
+    NetworkFacade.ActivityStatus(),
+  );
 }
 
 export function getNetworkStatus() {
-  return NetworkFacade.NetworkStatus();
-}
-
-export function getNetworkDebugDump() {
-  return NetworkFacade.GetNetworkDebugDump();
-}
-
-export function getNetworkTraceEnabled() {
-  return NetworkFacade.GetNetworkTraceEnabled();
+  return traceWailsCall("network", "network_status", undefined, () =>
+    NetworkFacade.NetworkStatus(),
+  );
 }
 
 export function getCheckpointStatus() {
-  return NetworkFacade.CheckpointStatus();
+  return traceWailsCall("network", "checkpoint_status", undefined, () =>
+    NetworkFacade.CheckpointStatus(),
+  );
 }
 
 export function getInspectSummary() {
-  return NetworkFacade.Inspect();
+  return traceWailsCall("network", "inspect", undefined, () =>
+    NetworkFacade.Inspect(),
+  );
 }
 
 export function getLibraryOplogDiagnostics(libraryId = "") {
-  return NetworkFacade.InspectLibraryOplog(libraryId);
+  return traceWailsCall("network", "inspect_library_oplog", { libraryId }, () =>
+    NetworkFacade.InspectLibraryOplog(libraryId),
+  );
 }
 
 export function startConnectPeer(peerAddr: string) {
-  return NetworkFacade.StartConnectPeer(peerAddr);
-}
-
-export function getNetworkDebugTrace() {
-  return NetworkFacade.GetNetworkDebugTrace();
-}
-
-export function clearNetworkDebugTrace() {
-  return NetworkFacade.ClearNetworkDebugTrace();
-}
-
-export function setNetworkTraceEnabled(enabled: boolean) {
-  return NetworkFacade.SetNetworkTraceEnabled(enabled);
+  return traceWailsCall("network", "start_connect_peer", { peerAddr }, () =>
+    NetworkFacade.StartConnectPeer(peerAddr),
+  );
 }
 
 export function startPublishCheckpoint() {
-  return NetworkFacade.StartPublishCheckpoint();
+  return traceWailsCall("network", "start_publish_checkpoint", undefined, () =>
+    NetworkFacade.StartPublishCheckpoint(),
+  );
 }
 
 export function startCompactCheckpoint(force = false) {
-  return NetworkFacade.StartCompactCheckpoint(force);
+  return traceWailsCall("network", "start_compact_checkpoint", { force }, () =>
+    NetworkFacade.StartCompactCheckpoint(force),
+  );
 }
 
 export function startSyncNow() {
-  return NetworkFacade.StartSyncNow();
+  return traceWailsCall("network", "start_sync_now", undefined, () =>
+    NetworkFacade.StartSyncNow(),
+  );
 }

@@ -8,23 +8,36 @@ import {
   type RecordingPlaybackAvailability,
   type SessionSnapshot,
 } from "./models";
+import { traceWailsCall } from "@/lib/observability/trace";
 
 export const PLAYBACK_TRANSPORT_EVENT_NAME = "playback:transport";
 export const PLAYBACK_QUEUE_EVENT_NAME = "playback:queue";
 
 export function resolveThumbnailURL(thumb: ArtworkRef) {
-  return PlaybackFacade.ResolveThumbnailURL(thumb);
+  return traceWailsCall("playback", "resolve_thumbnail_url", {}, () =>
+    PlaybackFacade.ResolveThumbnailURL(thumb),
+  );
 }
 
 export function resolveAlbumArtworkURL(albumId: string, variant: string) {
-  return PlaybackFacade.ResolveAlbumArtworkURL(albumId, variant);
+  return traceWailsCall(
+    "playback",
+    "resolve_album_artwork_url",
+    { albumId, variant },
+    () => PlaybackFacade.ResolveAlbumArtworkURL(albumId, variant),
+  );
 }
 
 export function resolveRecordingArtworkURL(
   recordingId: string,
   variant: string,
 ) {
-  return PlaybackFacade.ResolveRecordingArtworkURL(recordingId, variant);
+  return traceWailsCall(
+    "playback",
+    "resolve_recording_artwork_url",
+    { recordingId, variant },
+    () => PlaybackFacade.ResolveRecordingArtworkURL(recordingId, variant),
+  );
 }
 
 export function startPreparePlaybackRecording(
@@ -32,10 +45,16 @@ export function startPreparePlaybackRecording(
   preferredProfile = "",
   purpose = Types.PlaybackPreparationPurpose.PlaybackPreparationPlayNow,
 ) {
-  return PlaybackFacade.StartPreparePlaybackRecording(
-    recordingId,
-    preferredProfile,
-    purpose,
+  return traceWailsCall(
+    "playback",
+    "start_prepare_playback_recording",
+    { recordingId, preferredProfile, purpose },
+    () =>
+      PlaybackFacade.StartPreparePlaybackRecording(
+        recordingId,
+        preferredProfile,
+        purpose,
+      ),
   );
 }
 
@@ -43,9 +62,15 @@ export function startEnsureRecordingEncoding(
   recordingId: string,
   preferredProfile = "",
 ) {
-  return PlaybackFacade.StartEnsureRecordingEncoding(
-    recordingId,
-    preferredProfile,
+  return traceWailsCall(
+    "playback",
+    "start_ensure_recording_encoding",
+    { recordingId, preferredProfile },
+    () =>
+      PlaybackFacade.StartEnsureRecordingEncoding(
+        recordingId,
+        preferredProfile,
+      ),
   );
 }
 
@@ -53,16 +78,24 @@ export function startEnsureAlbumEncodings(
   albumId: string,
   preferredProfile = "",
 ) {
-  return PlaybackFacade.StartEnsureAlbumEncodings(albumId, preferredProfile);
+  return traceWailsCall(
+    "playback",
+    "start_ensure_album_encodings",
+    { albumId, preferredProfile },
+    () => PlaybackFacade.StartEnsureAlbumEncodings(albumId, preferredProfile),
+  );
 }
 
 export function startEnsurePlaylistEncodings(
   playlistId: string,
   preferredProfile = "",
 ) {
-  return PlaybackFacade.StartEnsurePlaylistEncodings(
-    playlistId,
-    preferredProfile,
+  return traceWailsCall(
+    "playback",
+    "start_ensure_playlist_encodings",
+    { playlistId, preferredProfile },
+    () =>
+      PlaybackFacade.StartEnsurePlaylistEncodings(playlistId, preferredProfile),
   );
 }
 
@@ -70,11 +103,17 @@ export function listRecordingPlaybackAvailability(
   recordingIds: string[],
   preferredProfile = "",
 ): Promise<RecordingPlaybackAvailability[]> {
-  return PlaybackFacade.ListRecordingPlaybackAvailability(
-    new Types.RecordingPlaybackAvailabilityListRequest({
-      PreferredProfile: preferredProfile,
-      RecordingIDs: recordingIds,
-    }),
+  return traceWailsCall(
+    "playback",
+    "list_recording_playback_availability",
+    { count: recordingIds.length, preferredProfile },
+    () =>
+      PlaybackFacade.ListRecordingPlaybackAvailability(
+        new Types.RecordingPlaybackAvailabilityListRequest({
+          PreferredProfile: preferredProfile,
+          RecordingIDs: recordingIds,
+        }),
+      ),
   );
 }
 
@@ -82,136 +121,192 @@ export function listAlbumAvailabilitySummaries(
   albumIds: string[],
   preferredProfile = "",
 ): Promise<AlbumAvailabilitySummaryItem[]> {
-  return PlaybackFacade.ListAlbumAvailabilitySummaries(
-    new Types.AlbumAvailabilitySummaryListRequest({
-      AlbumIDs: albumIds,
-      PreferredProfile: preferredProfile,
-    }),
+  return traceWailsCall(
+    "playback",
+    "list_album_availability_summaries",
+    { count: albumIds.length, preferredProfile },
+    () =>
+      PlaybackFacade.ListAlbumAvailabilitySummaries(
+        new Types.AlbumAvailabilitySummaryListRequest({
+          AlbumIDs: albumIds,
+          PreferredProfile: preferredProfile,
+        }),
+      ),
   );
 }
 
 export function getPlaybackSnapshot(): Promise<SessionSnapshot> {
-  return PlaybackService.GetPlaybackSnapshot();
-}
-
-export function getPlaybackDebugDump(): Promise<string> {
-  return PlaybackService.GetPlaybackDebugDump();
-}
-
-export function getPlaybackTraceEnabled(): Promise<boolean> {
-  return PlaybackService.GetPlaybackTraceEnabled();
-}
-
-export function setPlaybackTraceEnabled(enabled: boolean): Promise<void> {
-  return PlaybackService.SetPlaybackTraceEnabled(enabled);
-}
-
-export function clearPlaybackDebugTrace(): Promise<void> {
-  return PlaybackService.ClearPlaybackDebugTrace();
+  return traceWailsCall("playback", "get_playback_snapshot", undefined, () =>
+    PlaybackService.GetPlaybackSnapshot(),
+  );
 }
 
 export function togglePlayback() {
-  return PlaybackService.TogglePlayback();
+  return traceWailsCall("playback", "toggle_playback", undefined, () =>
+    PlaybackService.TogglePlayback(),
+  );
 }
 
 export function nextTrack() {
-  return PlaybackService.Next();
+  return traceWailsCall("playback", "next", undefined, () =>
+    PlaybackService.Next(),
+  );
 }
 
 export function previousTrack() {
-  return PlaybackService.Previous();
+  return traceWailsCall("playback", "previous", undefined, () =>
+    PlaybackService.Previous(),
+  );
 }
 
 export function seekTo(positionMs: number) {
-  return PlaybackService.SeekTo(positionMs);
+  return traceWailsCall("playback", "seek_to", { positionMs }, () =>
+    PlaybackService.SeekTo(positionMs),
+  );
 }
 
 export function setVolume(volume: number) {
-  return PlaybackService.SetVolume(volume);
+  return traceWailsCall("playback", "set_volume", { volume }, () =>
+    PlaybackService.SetVolume(volume),
+  );
 }
 
 export function setShuffle(enabled: boolean) {
-  return PlaybackService.SetShuffle(enabled);
+  return traceWailsCall("playback", "set_shuffle", { enabled }, () =>
+    PlaybackService.SetShuffle(enabled),
+  );
 }
 
 export function setRepeatMode(mode: string) {
-  return PlaybackService.SetRepeatMode(mode);
+  return traceWailsCall("playback", "set_repeat_mode", { mode }, () =>
+    PlaybackService.SetRepeatMode(mode),
+  );
 }
 
 export function playAlbum(albumId: string) {
-  return PlaybackService.PlayAlbum(albumId);
+  return traceWailsCall("playback", "play_album", { albumId }, () =>
+    PlaybackService.PlayAlbum(albumId),
+  );
 }
 
 export function playAlbumTrack(albumId: string, recordingId: string) {
-  return PlaybackService.PlayAlbumTrack(albumId, recordingId);
+  return traceWailsCall(
+    "playback",
+    "play_album_track",
+    { albumId, recordingId },
+    () => PlaybackService.PlayAlbumTrack(albumId, recordingId),
+  );
 }
 
 export function playPlaylist(playlistId: string) {
-  return PlaybackService.PlayPlaylist(playlistId);
+  return traceWailsCall("playback", "play_playlist", { playlistId }, () =>
+    PlaybackService.PlayPlaylist(playlistId),
+  );
 }
 
 export function playPlaylistTrack(playlistId: string, itemId: string) {
-  return PlaybackService.PlayPlaylistTrack(playlistId, itemId);
+  return traceWailsCall(
+    "playback",
+    "play_playlist_track",
+    { playlistId, itemId },
+    () => PlaybackService.PlayPlaylistTrack(playlistId, itemId),
+  );
 }
 
 export function queuePlaylistTrack(playlistId: string, itemId: string) {
-  return PlaybackService.QueuePlaylistTrack(playlistId, itemId);
+  return traceWailsCall(
+    "playback",
+    "queue_playlist_track",
+    { playlistId, itemId },
+    () => PlaybackService.QueuePlaylistTrack(playlistId, itemId),
+  );
 }
 
 export function playRecording(recordingId: string) {
-  return PlaybackService.PlayRecording(recordingId);
+  return traceWailsCall("playback", "play_recording", { recordingId }, () =>
+    PlaybackService.PlayRecording(recordingId),
+  );
 }
 
 export function queueRecording(recordingId: string) {
-  return PlaybackService.QueueRecording(recordingId);
+  return traceWailsCall("playback", "queue_recording", { recordingId }, () =>
+    PlaybackService.QueueRecording(recordingId),
+  );
 }
 
 export function playLiked() {
-  return PlaybackService.PlayLiked();
+  return traceWailsCall("playback", "play_liked", undefined, () =>
+    PlaybackService.PlayLiked(),
+  );
 }
 
 export function playLikedTrack(recordingId: string) {
-  return PlaybackService.PlayLikedTrack(recordingId);
+  return traceWailsCall("playback", "play_liked_track", { recordingId }, () =>
+    PlaybackService.PlayLikedTrack(recordingId),
+  );
 }
 
 export function playOffline() {
-  return PlaybackService.PlayOffline();
+  return traceWailsCall("playback", "play_offline", undefined, () =>
+    PlaybackService.PlayOffline(),
+  );
 }
 
 export function playOfflineTrack(recordingId: string) {
-  return PlaybackService.PlayOfflineTrack(recordingId);
+  return traceWailsCall("playback", "play_offline_track", { recordingId }, () =>
+    PlaybackService.PlayOfflineTrack(recordingId),
+  );
 }
 
 export function queueLikedTrack(recordingId: string) {
-  return PlaybackService.QueueLikedTrack(recordingId);
+  return traceWailsCall("playback", "queue_liked_track", { recordingId }, () =>
+    PlaybackService.QueueLikedTrack(recordingId),
+  );
 }
 
 export function queueOfflineTrack(recordingId: string) {
-  return PlaybackService.QueueOfflineTrack(recordingId);
+  return traceWailsCall(
+    "playback",
+    "queue_offline_track",
+    { recordingId },
+    () => PlaybackService.QueueOfflineTrack(recordingId),
+  );
 }
 
 export function playTracks() {
-  return PlaybackService.PlayTracks();
+  return traceWailsCall("playback", "play_tracks", undefined, () =>
+    PlaybackService.PlayTracks(),
+  );
 }
 
 export function shuffleTracks() {
-  return PlaybackService.ShuffleTracks();
+  return traceWailsCall("playback", "shuffle_tracks", undefined, () =>
+    PlaybackService.ShuffleTracks(),
+  );
 }
 
 export function playTracksFrom(recordingId: string) {
-  return PlaybackService.PlayTracksFrom(recordingId);
+  return traceWailsCall("playback", "play_tracks_from", { recordingId }, () =>
+    PlaybackService.PlayTracksFrom(recordingId),
+  );
 }
 
 export function selectQueueEntry(entryId: string) {
-  return PlaybackService.SelectEntry(entryId);
+  return traceWailsCall("playback", "select_entry", { entryId }, () =>
+    PlaybackService.SelectEntry(entryId),
+  );
 }
 
 export function removeQueuedEntry(entryId: string) {
-  return PlaybackService.RemoveQueuedEntry(entryId);
+  return traceWailsCall("playback", "remove_queued_entry", { entryId }, () =>
+    PlaybackService.RemoveQueuedEntry(entryId),
+  );
 }
 
 export function clearQueue() {
-  return PlaybackService.ClearQueue();
+  return traceWailsCall("playback", "clear_queue", undefined, () =>
+    PlaybackService.ClearQueue(),
+  );
 }
 
 export type { PlaybackPreparationStatus };

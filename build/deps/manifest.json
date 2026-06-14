@@ -32,7 +32,7 @@
         "demuxers": ["aac", "flac", "mov", "mp3", "ogg", "wav", "image2", "webp_pipe"],
         "muxers": ["ipod", "mp4", "mov", "image2", "webp", "avif", "null"],
         "encoders": ["aac", "mjpeg", "libwebp", "libaom_av1"],
-        "filters": ["scale", "crop"]
+        "filters": ["scale", "crop", "aresample"]
       }
     },
     {

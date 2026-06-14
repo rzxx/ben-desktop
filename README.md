@@ -59,7 +59,7 @@ At a high level, the app follows this flow:
 - `fsnotify` for scan watching
 - `libp2p` for peer transport and sync
 - `ffmpeg` for transcodes and artwork extraction/rendering
-- optional `libmpv` playback backend
+- optional `libmpv` playback backend (Windows builds ship a custom `libmpv.dll` in `bin/` and `build/windows/runtime/`)
 
 ### Frontend
 
@@ -107,16 +107,17 @@ To work on this project locally you will typically want:
 - Go `1.25+`
 - Bun
 - Wails CLI for v3 projects
-- `ffmpeg` available on `PATH` or configured through settings
+- `ffmpeg` available on `PATH` or configured through settings (Windows builds ship `ffmpeg`/`ffprobe` in `bin/runtime/ffmpeg/bin/`)
 - `task` for the Taskfile-driven workflow
 
 For full playback support:
 
-- `libmpv`
+- `libmpv` (on Linux/macOS install via your package manager; on Windows the project ships its own build)
 
-Windows note:
+Windows notes:
 
-- place `libmpv.dll` at `build/windows/runtime/libmpv.dll` before packaging if you want Windows builds to include mpv support
+- a custom `libmpv.dll` and its dependencies are already committed under `build/windows/runtime/` and staged into `bin/` by the build scripts; you do not need to download or place `libmpv.dll` yourself
+- `task build` / `task package` run `build/windows/copy-runtime.ps1` (or `.sh`) to copy the media runtime next to the executable
 - if you intentionally want to build without mpv, use the `nompv` build tag
 
 ## Getting started
@@ -168,6 +169,19 @@ Run from the repository root:
 
 ```bash
 go test ./...
+```
+
+On Windows, `go test` needs `libmpv.dll` (and its dependency DLLs) on `PATH`. The simplest way is to prepend the project's own `bin/` directory:
+
+```powershell
+$env:PATH = "$(Resolve-Path bin);$env:PATH"
+go test ./...
+```
+
+For race tests on Windows, use an MSYS2 MINGW64 terminal with MSYS2 MINGW64's `bin` on `PATH` and `libmpv` installed. The canonical command is:
+
+```sh
+CGO_ENABLED=1 CC=gcc go test -race ./...
 ```
 
 ## Server mode

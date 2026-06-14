@@ -32,11 +32,14 @@ import {
   togglePlayback,
 } from "@/lib/api/playback";
 import { PlaybackModels, Types, type SessionSnapshot } from "@/lib/api/models";
-import {
-  recordPlaybackDebugTrace,
-  syncPlaybackTraceEnabled,
-  updatePlaybackDebugLiveState,
-} from "@/lib/playback/debugTrace";
+import { recordFrontendEvent } from "@/lib/observability/trace";
+
+function recordPlaybackStoreEvent(
+  payload: { kind: string } & Record<string, unknown>,
+) {
+  const { kind, ...attrs } = payload;
+  recordFrontendEvent(`playback.store.${kind}`, attrs, "playback");
+}
 
 type PlaybackTransportState = {
   currentEntry: PlaybackModels.SessionEntry | null;
@@ -425,13 +428,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
         ? state.transportStateSequence
         : state.transportStateSequence + 1,
     });
-    updatePlaybackDebugLiveState({
-      currentEntryId: resolvedTransport.currentEntry?.entryId ?? "",
-      status: resolvedTransport.status ?? "",
-      transportPositionMs: resolvedTransport.positionMs,
-      transportCapturedAtMs: resolvedTransport.positionCapturedAtMs,
-    });
-    recordPlaybackDebugTrace({
+    recordPlaybackStoreEvent({
       kind: "store:bootstrapFromSnapshot",
       currentEntryId: resolvedTransport.currentEntry?.entryId ?? "",
       status: resolvedTransport.status ?? "",
@@ -451,13 +448,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       error: transport.lastError,
       transportStateSequence: nextTransportStateSequence,
     });
-    updatePlaybackDebugLiveState({
-      currentEntryId: transport.currentEntry?.entryId ?? "",
-      status: transport.status ?? "",
-      transportPositionMs: transport.positionMs,
-      transportCapturedAtMs: transport.positionCapturedAtMs,
-    });
-    recordPlaybackDebugTrace({
+    recordPlaybackStoreEvent({
       kind: "store:transportEvent",
       currentEntryId: transport.currentEntry?.entryId ?? "",
       status: transport.status ?? "",
@@ -481,7 +472,6 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
     }
     const generation = get().generation + 1;
     set({ started: true, generation });
-    void syncPlaybackTraceEnabled();
     const shouldApply = () => {
       const state = get();
       return state.started && state.generation === generation;
@@ -573,7 +563,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       expectedEntryId &&
       get().transport?.currentEntry?.entryId !== expectedEntryId
     ) {
-      recordPlaybackDebugTrace({
+      recordPlaybackStoreEvent({
         kind: "store:seekTo:blocked",
         seekRequestId: debugRequestId,
         currentEntryId: get().transport?.currentEntry?.entryId ?? "",
@@ -582,7 +572,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       });
       return null;
     }
-    recordPlaybackDebugTrace({
+    recordPlaybackStoreEvent({
       kind: "store:seekTo:start",
       seekRequestId: debugRequestId,
       currentEntryId: get().transport?.currentEntry?.entryId ?? "",
@@ -594,7 +584,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
         return null;
       }
       set({ error: "" });
-      recordPlaybackDebugTrace({
+      recordPlaybackStoreEvent({
         kind: "store:seekTo:resolved",
         seekRequestId: debugRequestId,
         currentEntryId: snapshot.currentEntry?.entryId ?? "",
@@ -616,7 +606,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
 
       if (isPendingPlaybackSnapshot(recoveredSnapshot)) {
         set({ error: "" });
-        recordPlaybackDebugTrace({
+        recordPlaybackStoreEvent({
           kind: "store:seekTo:recovered_pending",
           seekRequestId: debugRequestId,
           message: errorMessage(error),
@@ -626,7 +616,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       }
 
       set({ error: errorMessage(error) });
-      recordPlaybackDebugTrace({
+      recordPlaybackStoreEvent({
         kind: "store:seekTo:rejected",
         seekRequestId: debugRequestId,
         message: errorMessage(error),

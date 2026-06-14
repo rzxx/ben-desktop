@@ -67,7 +67,7 @@ type NetworkStatus struct {
 	NetworkSyncState
 }
 
-type NetworkDebugTraceEntry struct {
+type NetworkTraceEvent struct {
 	TimestampMS        int64
 	Level              string
 	Kind               string

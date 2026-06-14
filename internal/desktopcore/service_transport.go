@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -1598,7 +1598,7 @@ func networkStatusNotificationWorker() {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("panic in network status subscriber: %v", r)
+					slog.Error("panic in network status subscriber", slog.Any("panic", r), slog.String("service", "desktopcore.transport"))
 				}
 			}()
 			n.subscriber(n.status)
@@ -1723,7 +1723,7 @@ func (s *TransportService) announceRuntimePresence(runtime *activeTransportRunti
 		RootPublicKey: auth.RootPublicKey,
 		Auth:          auth.Auth,
 	}); err != nil {
-		s.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+		s.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 			Level:          "warn",
 			Kind:           "registry.announce.failed",
 			Message:        "Registry presence announce failed",
@@ -1738,7 +1738,7 @@ func (s *TransportService) announceRuntimePresence(runtime *activeTransportRunti
 	if reporter, ok := runtime.transport.(*libp2pSyncTransport); ok {
 		reporter.setLastRegistryAnnounceAt(now)
 	}
-	s.app.recordNetworkDebug(apitypes.NetworkDebugTraceEntry{
+	s.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
 		Level:     "info",
 		Kind:      "registry.announce.succeeded",
 		Message:   "Registry presence announce succeeded",

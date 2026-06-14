@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -920,76 +919,6 @@ func TestPlaybackServicePlayLikedTrackPreservesShuffle(t *testing.T) {
 	entry := selectedPlaybackEntry(snapshot)
 	if entry == nil || entry.Item.RecordingID != "cluster-2" {
 		t.Fatalf("selected liked entry = %+v, want cluster-2", entry)
-	}
-}
-
-func TestLoadPlaybackTraceEnabledSetting(t *testing.T) {
-	originalLoader := loadPlaybackSettingsState
-	loadPlaybackSettingsState = func() (settings.State, error) {
-		return settings.State{
-			PlaybackTrace: settings.PlaybackTraceSettings{Enabled: true},
-		}, nil
-	}
-	t.Cleanup(func() {
-		loadPlaybackSettingsState = originalLoader
-	})
-
-	enabled, err := loadPlaybackTraceEnabledSetting()
-	if err != nil {
-		t.Fatalf("load playback trace enabled setting: %v", err)
-	}
-	if !enabled {
-		t.Fatal("expected playback trace to load as enabled")
-	}
-}
-
-func TestLoadPlaybackTraceEnabledSettingReturnsError(t *testing.T) {
-	originalLoader := loadPlaybackSettingsState
-	loadPlaybackSettingsState = func() (settings.State, error) {
-		return settings.State{}, errors.New("boom")
-	}
-	t.Cleanup(func() {
-		loadPlaybackSettingsState = originalLoader
-	})
-
-	if _, err := loadPlaybackTraceEnabledSetting(); err == nil {
-		t.Fatal("expected load playback trace enabled setting to fail")
-	}
-}
-
-func TestPlaybackServiceSetPlaybackTraceEnabledPersistsAndUpdatesRuntime(t *testing.T) {
-	originalLoader := loadPlaybackSettingsState
-	originalSaver := savePlaybackSettingsState
-	playback.SetDebugTraceEnabled(false)
-
-	var saved settings.State
-	loadPlaybackSettingsState = func() (settings.State, error) {
-		return settings.State{
-			Notifications: settings.NotificationUISettings{Verbosity: "everything"},
-		}, nil
-	}
-	savePlaybackSettingsState = func(state settings.State) error {
-		saved = state
-		return nil
-	}
-	t.Cleanup(func() {
-		loadPlaybackSettingsState = originalLoader
-		savePlaybackSettingsState = originalSaver
-		playback.SetDebugTraceEnabled(false)
-	})
-
-	service := &PlaybackService{}
-	if err := service.SetPlaybackTraceEnabled(true); err != nil {
-		t.Fatalf("set playback trace enabled: %v", err)
-	}
-	if !saved.PlaybackTrace.Enabled {
-		t.Fatalf("saved state = %+v, want playback trace enabled", saved)
-	}
-	if saved.Notifications.Verbosity != "everything" {
-		t.Fatalf("expected unrelated settings to be preserved, got %+v", saved)
-	}
-	if !playback.DebugTraceEnabled() {
-		t.Fatal("expected runtime playback trace toggle to be enabled")
 	}
 }
 

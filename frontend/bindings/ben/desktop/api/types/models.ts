@@ -1281,6 +1281,28 @@ export class CheckpointDeviceCoverage {
     }
 }
 
+export class FrontendTraceBatch {
+    "records"?: TraceRecord[];
+
+    /** Creates a new FrontendTraceBatch instance. */
+    constructor($$source: Partial<FrontendTraceBatch> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FrontendTraceBatch instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FrontendTraceBatch {
+        const $$createField0_0 = $$createType21;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("records" in $$parsedSource) {
+            $$parsedSource["records"] = $$createField0_0($$parsedSource["records"]);
+        }
+        return new FrontendTraceBatch($$parsedSource as Partial<FrontendTraceBatch>);
+    }
+}
+
 export class InspectSummary {
     "Libraries": number;
     "Devices": number;
@@ -1679,7 +1701,7 @@ export class LibraryCheckpointStatus {
      * Creates a new LibraryCheckpointStatus instance from a string or object.
      */
     static createFrom($$source: any = {}): LibraryCheckpointStatus {
-        const $$createField9_0 = $$createType21;
+        const $$createField9_0 = $$createType23;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Devices" in $$parsedSource) {
             $$parsedSource["Devices"] = $$createField9_0($$parsedSource["Devices"]);
@@ -1859,11 +1881,11 @@ export class LibraryOplogDiagnostics {
      */
     static createFrom($$source: any = {}): LibraryOplogDiagnostics {
         const $$createField2_0 = $$createType1;
-        const $$createField3_0 = $$createType23;
-        const $$createField4_0 = $$createType23;
-        const $$createField5_0 = $$createType25;
-        const $$createField6_0 = $$createType26;
-        const $$createField7_0 = $$createType27;
+        const $$createField3_0 = $$createType25;
+        const $$createField4_0 = $$createType25;
+        const $$createField5_0 = $$createType27;
+        const $$createField6_0 = $$createType28;
+        const $$createField7_0 = $$createType29;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Maintenance" in $$parsedSource) {
             $$parsedSource["Maintenance"] = $$createField2_0($$parsedSource["Maintenance"]);
@@ -2032,71 +2054,6 @@ export class LocalContext {
     static createFrom($$source: any = {}): LocalContext {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new LocalContext($$parsedSource as Partial<LocalContext>);
-    }
-}
-
-export class NetworkDebugTraceEntry {
-    "TimestampMS": number;
-    "Level": string;
-    "Kind": string;
-    "Message": string;
-    "LibraryID": string;
-    "DeviceID": string;
-    "PeerID": string;
-    "Address": string;
-    "ConnectionKind": string;
-    "DirectUpgradeState": string;
-    "Reason": string;
-    "Error": string;
-
-    /** Creates a new NetworkDebugTraceEntry instance. */
-    constructor($$source: Partial<NetworkDebugTraceEntry> = {}) {
-        if (!("TimestampMS" in $$source)) {
-            this["TimestampMS"] = 0;
-        }
-        if (!("Level" in $$source)) {
-            this["Level"] = "";
-        }
-        if (!("Kind" in $$source)) {
-            this["Kind"] = "";
-        }
-        if (!("Message" in $$source)) {
-            this["Message"] = "";
-        }
-        if (!("LibraryID" in $$source)) {
-            this["LibraryID"] = "";
-        }
-        if (!("DeviceID" in $$source)) {
-            this["DeviceID"] = "";
-        }
-        if (!("PeerID" in $$source)) {
-            this["PeerID"] = "";
-        }
-        if (!("Address" in $$source)) {
-            this["Address"] = "";
-        }
-        if (!("ConnectionKind" in $$source)) {
-            this["ConnectionKind"] = "";
-        }
-        if (!("DirectUpgradeState" in $$source)) {
-            this["DirectUpgradeState"] = "";
-        }
-        if (!("Reason" in $$source)) {
-            this["Reason"] = "";
-        }
-        if (!("Error" in $$source)) {
-            this["Error"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new NetworkDebugTraceEntry instance from a string or object.
-     */
-    static createFrom($$source: any = {}): NetworkDebugTraceEntry {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new NetworkDebugTraceEntry($$parsedSource as Partial<NetworkDebugTraceEntry>);
     }
 }
 
@@ -2378,7 +2335,7 @@ export class NotificationSnapshot {
      * Creates a new NotificationSnapshot instance from a string or object.
      */
     static createFrom($$source: any = {}): NotificationSnapshot {
-        const $$createField13_0 = $$createType29;
+        const $$createField13_0 = $$createType31;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("subject" in $$parsedSource) {
             $$parsedSource["subject"] = $$createField13_0($$parsedSource["subject"]);
@@ -2418,6 +2375,51 @@ export enum NotificationVerbosity {
     NotificationVerbosityUserActivity = "user_activity",
     NotificationVerbosityEverything = "everything",
 };
+
+export class ObservabilityStatus {
+    "logLevel": string;
+    "logDirectory": string;
+    "traceRoot": string;
+    "supportRoot": string;
+    "traceSession": TraceSessionStatus;
+    "recentRecords": number;
+
+    /** Creates a new ObservabilityStatus instance. */
+    constructor($$source: Partial<ObservabilityStatus> = {}) {
+        if (!("logLevel" in $$source)) {
+            this["logLevel"] = "";
+        }
+        if (!("logDirectory" in $$source)) {
+            this["logDirectory"] = "";
+        }
+        if (!("traceRoot" in $$source)) {
+            this["traceRoot"] = "";
+        }
+        if (!("supportRoot" in $$source)) {
+            this["supportRoot"] = "";
+        }
+        if (!("traceSession" in $$source)) {
+            this["traceSession"] = (new TraceSessionStatus());
+        }
+        if (!("recentRecords" in $$source)) {
+            this["recentRecords"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ObservabilityStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ObservabilityStatus {
+        const $$createField4_0 = $$createType32;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("traceSession" in $$parsedSource) {
+            $$parsedSource["traceSession"] = $$createField4_0($$parsedSource["traceSession"]);
+        }
+        return new ObservabilityStatus($$parsedSource as Partial<ObservabilityStatus>);
+    }
+}
 
 export class OfflineRecordingItem {
     "LibraryRecordingID": string;
@@ -2573,8 +2575,8 @@ export class Page<T> {
      * of the generic class Page.
      */
     static createFrom<T = any>($$createParamT: (source: any) => T): ($$source?: any) => Page<T> {
-        const $$createField0_0 = $$createType30($$createParamT);
-        const $$createField1_0 = $$createType31;
+        const $$createField0_0 = $$createType33($$createParamT);
+        const $$createField1_0 = $$createType34;
         return ($$source: any = {}) => {
             let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
             if ("Items" in $$parsedSource) {
@@ -2653,7 +2655,7 @@ export class PinChangeEvent {
      * Creates a new PinChangeEvent instance from a string or object.
      */
     static createFrom($$source: any = {}): PinChangeEvent {
-        const $$createField1_0 = $$createType33;
+        const $$createField1_0 = $$createType36;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Subjects" in $$parsedSource) {
             $$parsedSource["Subjects"] = $$createField1_0($$parsedSource["Subjects"]);
@@ -2682,7 +2684,7 @@ export class PinIntentRequest {
      * Creates a new PinIntentRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): PinIntentRequest {
-        const $$createField0_0 = $$createType32;
+        const $$createField0_0 = $$createType35;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Subject" in $$parsedSource) {
             $$parsedSource["Subject"] = $$createField0_0($$parsedSource["Subject"]);
@@ -2715,7 +2717,7 @@ export class PinSourceRef {
      * Creates a new PinSourceRef instance from a string or object.
      */
     static createFrom($$source: any = {}): PinSourceRef {
-        const $$createField0_0 = $$createType32;
+        const $$createField0_0 = $$createType35;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Subject" in $$parsedSource) {
             $$parsedSource["Subject"] = $$createField0_0($$parsedSource["Subject"]);
@@ -2760,8 +2762,8 @@ export class PinState {
      * Creates a new PinState instance from a string or object.
      */
     static createFrom($$source: any = {}): PinState {
-        const $$createField0_0 = $$createType32;
-        const $$createField5_0 = $$createType35;
+        const $$createField0_0 = $$createType35;
+        const $$createField5_0 = $$createType38;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Subject" in $$parsedSource) {
             $$parsedSource["Subject"] = $$createField0_0($$parsedSource["Subject"]);
@@ -2793,7 +2795,7 @@ export class PinStateListRequest {
      * Creates a new PinStateListRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): PinStateListRequest {
-        const $$createField0_0 = $$createType33;
+        const $$createField0_0 = $$createType36;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Subjects" in $$parsedSource) {
             $$parsedSource["Subjects"] = $$createField0_0($$parsedSource["Subjects"]);
@@ -2822,7 +2824,7 @@ export class PinStateRequest {
      * Creates a new PinStateRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): PinStateRequest {
-        const $$createField0_0 = $$createType32;
+        const $$createField0_0 = $$createType35;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Subject" in $$parsedSource) {
             $$parsedSource["Subject"] = $$createField0_0($$parsedSource["Subject"]);
@@ -3172,7 +3174,7 @@ export class PlaylistCoverRecord {
      */
     static createFrom($$source: any = {}): PlaylistCoverRecord {
         const $$createField2_0 = $$createType11;
-        const $$createField4_0 = $$createType37;
+        const $$createField4_0 = $$createType40;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Thumb" in $$parsedSource) {
             $$parsedSource["Thumb"] = $$createField2_0($$parsedSource["Thumb"]);
@@ -3572,6 +3574,26 @@ export class PlaylistTrackListRequest {
     }
 }
 
+export class RecentTraceFilter {
+    "signal"?: string;
+    "service"?: string;
+    "limit"?: number;
+
+    /** Creates a new RecentTraceFilter instance. */
+    constructor($$source: Partial<RecentTraceFilter> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecentTraceFilter instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecentTraceFilter {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecentTraceFilter($$parsedSource as Partial<RecentTraceFilter>);
+    }
+}
+
 export class RecordingAvailabilityItem {
     "DeviceID": string;
     "Role": string;
@@ -3665,10 +3687,10 @@ export class RecordingAvailabilityOverview {
      * Creates a new RecordingAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingAvailabilityOverview {
-        const $$createField4_0 = $$createType38;
-        const $$createField5_0 = $$createType39;
-        const $$createField6_0 = $$createType41;
-        const $$createField7_0 = $$createType43;
+        const $$createField4_0 = $$createType41;
+        const $$createField5_0 = $$createType42;
+        const $$createField6_0 = $$createType44;
+        const $$createField7_0 = $$createType46;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Playback" in $$parsedSource) {
             $$parsedSource["Playback"] = $$createField4_0($$parsedSource["Playback"]);
@@ -3890,8 +3912,8 @@ export class RecordingVariantAvailabilityOverview {
      * Creates a new RecordingVariantAvailabilityOverview instance from a string or object.
      */
     static createFrom($$source: any = {}): RecordingVariantAvailabilityOverview {
-        const $$createField0_0 = $$createType44;
-        const $$createField1_0 = $$createType41;
+        const $$createField0_0 = $$createType47;
+        const $$createField1_0 = $$createType44;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Variant" in $$parsedSource) {
             $$parsedSource["Variant"] = $$createField0_0($$parsedSource["Variant"]);
@@ -4186,6 +4208,360 @@ export class ThemePreferences {
     }
 }
 
+export class TraceCarrier {
+    "traceparent"?: string;
+    "tracestate"?: string;
+    "baggage"?: { [_ in string]?: string };
+
+    /** Creates a new TraceCarrier instance. */
+    constructor($$source: Partial<TraceCarrier> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceCarrier instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceCarrier {
+        const $$createField2_0 = $$createType48;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("baggage" in $$parsedSource) {
+            $$parsedSource["baggage"] = $$createField2_0($$parsedSource["baggage"]);
+        }
+        return new TraceCarrier($$parsedSource as Partial<TraceCarrier>);
+    }
+}
+
+export class TraceError {
+    "type"?: string;
+    "message"?: string;
+    "attrs"?: { [_ in string]?: any };
+
+    /** Creates a new TraceError instance. */
+    constructor($$source: Partial<TraceError> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceError instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceError {
+        const $$createField2_0 = $$createType49;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("attrs" in $$parsedSource) {
+            $$parsedSource["attrs"] = $$createField2_0($$parsedSource["attrs"]);
+        }
+        return new TraceError($$parsedSource as Partial<TraceError>);
+    }
+}
+
+export class TraceExportOptions {
+    "includeLogs": boolean;
+
+    /** Creates a new TraceExportOptions instance. */
+    constructor($$source: Partial<TraceExportOptions> = {}) {
+        if (!("includeLogs" in $$source)) {
+            this["includeLogs"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceExportOptions instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceExportOptions {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TraceExportOptions($$parsedSource as Partial<TraceExportOptions>);
+    }
+}
+
+export class TraceExportResult {
+    "sessionId": string;
+    "path": string;
+    "bytes": number;
+
+    /** Creates a new TraceExportResult instance. */
+    constructor($$source: Partial<TraceExportResult> = {}) {
+        if (!("sessionId" in $$source)) {
+            this["sessionId"] = "";
+        }
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("bytes" in $$source)) {
+            this["bytes"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceExportResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceExportResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TraceExportResult($$parsedSource as Partial<TraceExportResult>);
+    }
+}
+
+export class TraceLink {
+    "traceId"?: string;
+    "spanId"?: string;
+    "attrs"?: { [_ in string]?: any };
+
+    /** Creates a new TraceLink instance. */
+    constructor($$source: Partial<TraceLink> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceLink instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceLink {
+        const $$createField2_0 = $$createType49;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("attrs" in $$parsedSource) {
+            $$parsedSource["attrs"] = $$createField2_0($$parsedSource["attrs"]);
+        }
+        return new TraceLink($$parsedSource as Partial<TraceLink>);
+    }
+}
+
+export class TraceRecord {
+    "schemaVersion": number;
+    "signal": string;
+    "timeUnixNano"?: number;
+    "traceId"?: string;
+    "spanId"?: string;
+    "parentSpanId"?: string;
+    "name"?: string;
+    "service"?: string;
+    "component"?: string;
+    "kind"?: string;
+    "severity"?: string;
+    "message"?: string;
+    "startUnixNano"?: number;
+    "endUnixNano"?: number;
+    "durationMs"?: number;
+    "status"?: string;
+    "attrs"?: { [_ in string]?: any };
+    "input"?: TraceSummary | null;
+    "output"?: TraceSummary | null;
+    "links"?: TraceLink[];
+    "error"?: TraceError | null;
+
+    /** Creates a new TraceRecord instance. */
+    constructor($$source: Partial<TraceRecord> = {}) {
+        if (!("schemaVersion" in $$source)) {
+            this["schemaVersion"] = 0;
+        }
+        if (!("signal" in $$source)) {
+            this["signal"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceRecord instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceRecord {
+        const $$createField16_0 = $$createType49;
+        const $$createField17_0 = $$createType51;
+        const $$createField18_0 = $$createType51;
+        const $$createField19_0 = $$createType53;
+        const $$createField20_0 = $$createType55;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("attrs" in $$parsedSource) {
+            $$parsedSource["attrs"] = $$createField16_0($$parsedSource["attrs"]);
+        }
+        if ("input" in $$parsedSource) {
+            $$parsedSource["input"] = $$createField17_0($$parsedSource["input"]);
+        }
+        if ("output" in $$parsedSource) {
+            $$parsedSource["output"] = $$createField18_0($$parsedSource["output"]);
+        }
+        if ("links" in $$parsedSource) {
+            $$parsedSource["links"] = $$createField19_0($$parsedSource["links"]);
+        }
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField20_0($$parsedSource["error"]);
+        }
+        return new TraceRecord($$parsedSource as Partial<TraceRecord>);
+    }
+}
+
+export class TraceSessionConfig {
+    "mode"?: string;
+    "services"?: string[];
+    "includeFrontend": boolean;
+    "includeRuntime": boolean;
+    "includeProfiles": boolean;
+    "includeLogs": boolean;
+    "redactionLevel"?: string;
+    "maxDurationSec"?: number;
+    "maxBytes"?: number;
+    "maxEventBytes"?: number;
+    "trigger"?: string;
+
+    /** Creates a new TraceSessionConfig instance. */
+    constructor($$source: Partial<TraceSessionConfig> = {}) {
+        if (!("includeFrontend" in $$source)) {
+            this["includeFrontend"] = false;
+        }
+        if (!("includeRuntime" in $$source)) {
+            this["includeRuntime"] = false;
+        }
+        if (!("includeProfiles" in $$source)) {
+            this["includeProfiles"] = false;
+        }
+        if (!("includeLogs" in $$source)) {
+            this["includeLogs"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceSessionConfig instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceSessionConfig {
+        const $$createField1_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("services" in $$parsedSource) {
+            $$parsedSource["services"] = $$createField1_0($$parsedSource["services"]);
+        }
+        return new TraceSessionConfig($$parsedSource as Partial<TraceSessionConfig>);
+    }
+}
+
+export class TraceSessionQuery {
+    "limit"?: number;
+
+    /** Creates a new TraceSessionQuery instance. */
+    constructor($$source: Partial<TraceSessionQuery> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceSessionQuery instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceSessionQuery {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TraceSessionQuery($$parsedSource as Partial<TraceSessionQuery>);
+    }
+}
+
+export class TraceSessionStatus {
+    "active": boolean;
+    "sessionId"?: string;
+    "mode"?: string;
+    "startedAt"?: time$0.Time | null;
+    "stoppedAt"?: time$0.Time | null;
+    "directory"?: string;
+    "config": TraceSessionConfig;
+    "bytesWritten"?: number;
+    "recordsWritten"?: number;
+    "droppedRecords"?: number;
+    "droppedByReason"?: { [_ in string]?: number };
+
+    /** Creates a new TraceSessionStatus instance. */
+    constructor($$source: Partial<TraceSessionStatus> = {}) {
+        if (!("active" in $$source)) {
+            this["active"] = false;
+        }
+        if (!("config" in $$source)) {
+            this["config"] = (new TraceSessionConfig());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceSessionStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceSessionStatus {
+        const $$createField6_0 = $$createType56;
+        const $$createField10_0 = $$createType57;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("config" in $$parsedSource) {
+            $$parsedSource["config"] = $$createField6_0($$parsedSource["config"]);
+        }
+        if ("droppedByReason" in $$parsedSource) {
+            $$parsedSource["droppedByReason"] = $$createField10_0($$parsedSource["droppedByReason"]);
+        }
+        return new TraceSessionStatus($$parsedSource as Partial<TraceSessionStatus>);
+    }
+}
+
+export class TraceSessionSummary {
+    "sessionId": string;
+    "mode"?: string;
+    "startedAt": time$0.Time;
+    "stoppedAt"?: time$0.Time | null;
+    "directory"?: string;
+    "config": TraceSessionConfig;
+    "bytesWritten"?: number;
+    "recordsWritten"?: number;
+    "droppedRecords"?: number;
+
+    /** Creates a new TraceSessionSummary instance. */
+    constructor($$source: Partial<TraceSessionSummary> = {}) {
+        if (!("sessionId" in $$source)) {
+            this["sessionId"] = "";
+        }
+        if (!("startedAt" in $$source)) {
+            this["startedAt"] = null;
+        }
+        if (!("config" in $$source)) {
+            this["config"] = (new TraceSessionConfig());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceSessionSummary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceSessionSummary {
+        const $$createField5_0 = $$createType56;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("config" in $$parsedSource) {
+            $$parsedSource["config"] = $$createField5_0($$parsedSource["config"]);
+        }
+        return new TraceSessionSummary($$parsedSource as Partial<TraceSessionSummary>);
+    }
+}
+
+export class TraceSummary {
+    "summary"?: string;
+    "fields"?: { [_ in string]?: any };
+    "redacted"?: boolean;
+    "dropped"?: number;
+
+    /** Creates a new TraceSummary instance. */
+    constructor($$source: Partial<TraceSummary> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TraceSummary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TraceSummary {
+        const $$createField1_0 = $$createType49;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("fields" in $$parsedSource) {
+            $$parsedSource["fields"] = $$createField1_0($$parsedSource["fields"]);
+        }
+        return new TraceSummary($$parsedSource as Partial<TraceSummary>);
+    }
+}
+
 export class TrackAvailabilitySummary {
     "State": RecordingAvailabilityState;
     "SourceKind": PlaybackSourceKind;
@@ -4354,28 +4730,41 @@ const $$createType16 = CacheUsageBreakdown.createFrom;
 const $$createType17 = $Create.Array($$createType16);
 const $$createType18 = CachePinScopeSummary.createFrom;
 const $$createType19 = $Create.Array($$createType18);
-const $$createType20 = CheckpointDeviceCoverage.createFrom;
+const $$createType20 = TraceRecord.createFrom;
 const $$createType21 = $Create.Array($$createType20);
-const $$createType22 = OplogDiagnosticsGroup.createFrom;
+const $$createType22 = CheckpointDeviceCoverage.createFrom;
 const $$createType23 = $Create.Array($$createType22);
-const $$createType24 = OplogRecencyBucket.createFrom;
+const $$createType24 = OplogDiagnosticsGroup.createFrom;
 const $$createType25 = $Create.Array($$createType24);
-const $$createType26 = LibraryMaterializedCounts.createFrom;
-const $$createType27 = TranscodeOplogDiagnostics.createFrom;
-const $$createType28 = NotificationSubject.createFrom;
-const $$createType29 = $Create.Nullable($$createType28);
-const $$createType30 = ($$createParamT: any) => $Create.Array($$createParamT);
-const $$createType31 = PageInfo.createFrom;
-const $$createType32 = PinSubjectRef.createFrom;
-const $$createType33 = $Create.Array($$createType32);
-const $$createType34 = PinSourceRef.createFrom;
-const $$createType35 = $Create.Array($$createType34);
-const $$createType36 = PlaylistCoverVariant.createFrom;
-const $$createType37 = $Create.Array($$createType36);
-const $$createType38 = RecordingPlaybackAvailability.createFrom;
-const $$createType39 = TrackAvailabilitySummary.createFrom;
-const $$createType40 = RecordingAvailabilityItem.createFrom;
-const $$createType41 = $Create.Array($$createType40);
-const $$createType42 = RecordingVariantAvailabilityOverview.createFrom;
-const $$createType43 = $Create.Array($$createType42);
-const $$createType44 = RecordingVariantItem.createFrom;
+const $$createType26 = OplogRecencyBucket.createFrom;
+const $$createType27 = $Create.Array($$createType26);
+const $$createType28 = LibraryMaterializedCounts.createFrom;
+const $$createType29 = TranscodeOplogDiagnostics.createFrom;
+const $$createType30 = NotificationSubject.createFrom;
+const $$createType31 = $Create.Nullable($$createType30);
+const $$createType32 = TraceSessionStatus.createFrom;
+const $$createType33 = ($$createParamT: any) => $Create.Array($$createParamT);
+const $$createType34 = PageInfo.createFrom;
+const $$createType35 = PinSubjectRef.createFrom;
+const $$createType36 = $Create.Array($$createType35);
+const $$createType37 = PinSourceRef.createFrom;
+const $$createType38 = $Create.Array($$createType37);
+const $$createType39 = PlaylistCoverVariant.createFrom;
+const $$createType40 = $Create.Array($$createType39);
+const $$createType41 = RecordingPlaybackAvailability.createFrom;
+const $$createType42 = TrackAvailabilitySummary.createFrom;
+const $$createType43 = RecordingAvailabilityItem.createFrom;
+const $$createType44 = $Create.Array($$createType43);
+const $$createType45 = RecordingVariantAvailabilityOverview.createFrom;
+const $$createType46 = $Create.Array($$createType45);
+const $$createType47 = RecordingVariantItem.createFrom;
+const $$createType48 = $Create.Map($Create.Any, $Create.Any);
+const $$createType49 = $Create.Map($Create.Any, $Create.Any);
+const $$createType50 = TraceSummary.createFrom;
+const $$createType51 = $Create.Nullable($$createType50);
+const $$createType52 = TraceLink.createFrom;
+const $$createType53 = $Create.Array($$createType52);
+const $$createType54 = TraceError.createFrom;
+const $$createType55 = $Create.Nullable($$createType54);
+const $$createType56 = TraceSessionConfig.createFrom;
+const $$createType57 = $Create.Map($Create.Any, $Create.Any);

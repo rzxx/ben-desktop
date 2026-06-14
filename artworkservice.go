@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	apitypes "ben/desktop/api/types"
+	"ben/desktop/internal/observability"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -34,11 +35,18 @@ func (s *ArtworkHTTPService) ServiceStartup(ctx context.Context, _ application.S
 }
 
 func (s *ArtworkHTTPService) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	ctx, span := startFacadeSpan(req.Context(), "artwork", "serve_http", map[string]any{
+		"method": req.Method,
+		"path":   req.URL.Path,
+	})
+	defer span.End()
 	if s.host == nil {
+		span.RecordError(context.Canceled, observability.String("reason", "host unavailable"))
 		http.Error(rw, "artwork service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		span.Event("artwork.method_not_allowed", observability.String("method", req.Method))
 		rw.Header().Set("Allow", http.MethodGet+", "+http.MethodHead)
 		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -51,24 +59,29 @@ func (s *ArtworkHTTPService) ServeHTTP(rw http.ResponseWriter, req *http.Request
 		Variant: strings.TrimSpace(req.URL.Query().Get("variant")),
 	}
 	if strings.TrimSpace(artwork.BlobID) == "" {
+		span.Event("artwork.missing_blob")
 		http.NotFound(rw, req)
 		return
 	}
 
-	resolved, err := s.host.PlaybackRuntime().ResolveArtworkRef(req.Context(), artwork)
+	resolved, err := s.host.PlaybackRuntime().ResolveArtworkRef(ctx, artwork)
 	if err != nil {
+		span.RecordError(err)
 		http.Error(rw, "failed to resolve artwork", http.StatusInternalServerError)
 		return
 	}
 	if !resolved.Available || strings.TrimSpace(resolved.LocalPath) == "" {
+		span.Event("artwork.unavailable", observability.String("blob_id", artwork.BlobID))
 		http.NotFound(rw, req)
 		return
 	}
 	if _, err := os.Stat(resolved.LocalPath); err != nil {
 		if os.IsNotExist(err) {
+			span.Event("artwork.file_missing", observability.String("file", filepath.Base(resolved.LocalPath)))
 			http.NotFound(rw, req)
 			return
 		}
+		span.RecordError(err)
 		http.Error(rw, "failed to read artwork", http.StatusInternalServerError)
 		return
 	}
@@ -81,6 +94,7 @@ func (s *ArtworkHTTPService) ServeHTTP(rw http.ResponseWriter, req *http.Request
 		rw.Header().Set("Content-Type", contentType)
 	}
 	rw.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	span.SetOutput(apitypes.TraceSummary{Summary: "artwork served", Fields: map[string]any{"content_type": contentType, "variant": resolved.Artwork.Variant}})
 	http.ServeFile(rw, req, resolved.LocalPath)
 }
 

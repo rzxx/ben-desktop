@@ -10,11 +10,10 @@ import (
 )
 
 type State struct {
-	Core          CoreRuntimeSettings    `json:"core,omitempty"`
-	NetworkTrace  NetworkTraceSettings   `json:"networkTrace,omitempty"`
-	Notifications NotificationUISettings `json:"notifications,omitempty"`
-	PlaybackTrace PlaybackTraceSettings  `json:"playbackTrace,omitempty"`
-	Theme         ThemeUISettings        `json:"theme,omitempty"`
+	Core          CoreRuntimeSettings     `json:"core,omitempty"`
+	Notifications NotificationUISettings  `json:"notifications,omitempty"`
+	Observability ObservabilityUISettings `json:"observability,omitempty"`
+	Theme         ThemeUISettings         `json:"theme,omitempty"`
 }
 
 type CoreRuntimeSettings struct {
@@ -33,12 +32,8 @@ type NotificationUISettings struct {
 	Verbosity string `json:"verbosity,omitempty"`
 }
 
-type NetworkTraceSettings struct {
-	Enabled bool `json:"enabled,omitempty"`
-}
-
-type PlaybackTraceSettings struct {
-	Enabled bool `json:"enabled,omitempty"`
+type ObservabilityUISettings struct {
+	LogLevel string `json:"logLevel,omitempty"`
 }
 
 type ThemeUISettings struct {
@@ -130,9 +125,8 @@ func (s *Store) Close() error {
 
 func normalizeState(state State) State {
 	state.Core = normalizeCoreRuntimeSettings(state.Core)
-	state.NetworkTrace = normalizeNetworkTraceSettings(state.NetworkTrace)
 	state.Notifications = normalizeNotificationUISettings(state.Notifications)
-	state.PlaybackTrace = normalizePlaybackTraceSettings(state.PlaybackTrace)
+	state.Observability = normalizeObservabilityUISettings(state.Observability)
 	state.Theme = normalizeThemeUISettings(state.Theme)
 	return state
 }
@@ -176,11 +170,8 @@ func normalizeNotificationUISettings(settings NotificationUISettings) Notificati
 	return settings
 }
 
-func normalizeNetworkTraceSettings(settings NetworkTraceSettings) NetworkTraceSettings {
-	return settings
-}
-
-func normalizePlaybackTraceSettings(settings PlaybackTraceSettings) PlaybackTraceSettings {
+func normalizeObservabilityUISettings(settings ObservabilityUISettings) ObservabilityUISettings {
+	settings.LogLevel = NormalizeObservabilityLogLevel(settings.LogLevel)
 	return settings
 }
 
@@ -213,6 +204,19 @@ func NormalizeNotificationVerbosity(value string) string {
 		return "everything"
 	default:
 		return "user_activity"
+	}
+}
+
+func NormalizeObservabilityLogLevel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "debug":
+		return "debug"
+	case "warn", "warning":
+		return "warn"
+	case "error":
+		return "error"
+	default:
+		return "info"
 	}
 }
 
