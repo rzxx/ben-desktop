@@ -196,7 +196,13 @@ func collectRuntimeEntries(source string, version string, require bool) ([]bundl
 			return nil
 		}
 		target = filepath.ToSlash(target)
-		if _, exists := entries[target]; exists {
+		if existing, exists := entries[target]; exists {
+			// The same source file may legitimately be added twice (e.g. an
+			// explicit required entry that is also discovered by addTree).
+			// Treat that as idempotent rather than a duplicate.
+			if existing.source == sourcePath {
+				return nil
+			}
 			return fmt.Errorf("duplicate runtime bundle target %q", target)
 		}
 		entries[target] = bundleEntry{target: target, source: sourcePath}

@@ -321,6 +321,12 @@ if [ -z "$LIBMPV_DLL" ]; then
 fi
 cp -f "$LIBMPV_DLL" "$RUNTIME_DIR/libmpv.dll"
 copy_mingw_dll_deps "$RUNTIME_DIR/libmpv.dll" "$RUNTIME_DIR"
+
+# Stage libmpv public headers so CGO-based tooling (e.g. wails3 generate bindings)
+# can find <mpv/client.h> without a system mpv development package.
+mkdir -p "$WORK_DIR/mpv-include/mpv"
+cp -f libmpv/*.h "$WORK_DIR/mpv-include/mpv/"
+
 popd >/dev/null
 
 cat > "$RUNTIME_DIR/licenses/media-runtime-build.txt" <<EOF

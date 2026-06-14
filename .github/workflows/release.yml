@@ -65,8 +65,49 @@ jobs:
       - name: Install Wails CLI and NSIS
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           go install "github.com/wailsapp/wails/v3/cmd/wails3@${env:WAILS_VERSION}"
           choco install nsis -y
+          # Chocolatey installs NSIS but does not add it to PATH for the current
+          # session. The Wails NSIS task invokes makensis, so discover the
+          # install directory from the registry and fall back to common paths.
+          $nsisDir = $null
+          $regPaths = @(
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          )
+          foreach ($regPath in $regPaths) {
+            $entry = Get-ItemProperty $regPath -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -like 'Nullsoft*' -or $_.DisplayName -eq 'NSIS' } |
+              Select-Object -First 1
+            if ($entry -and $entry.InstallLocation) {
+              $nsisDir = $entry.InstallLocation
+              break
+            }
+          }
+          if (-not $nsisDir) {
+            foreach ($candidate in @(
+              'C:\Program Files (x86)\NSIS',
+              'C:\Program Files\NSIS',
+              'C:\ProgramData\chocolatey\lib\nsis\tools\NSIS'
+            )) {
+              if (Test-Path (Join-Path $candidate 'makensis.exe')) {
+                $nsisDir = $candidate
+                break
+              }
+            }
+          }
+          if (-not $nsisDir) {
+            throw 'Could not find NSIS installation directory'
+          }
+          echo $nsisDir >> $env:GITHUB_PATH
+          $env:PATH = "$nsisDir;$env:PATH"
+          # Pre-install frontend dependencies so the build task does not run
+          # bun install concurrently with go mod tidy, which can race on Windows.
+          # --frozen-lockfile keeps releases reproducible.
+          Push-Location "$env:GITHUB_WORKSPACE\frontend"
+          bun install --frozen-lockfile
+          Pop-Location
 
       - name: Set build metadata
         shell: pwsh
@@ -84,6 +125,12 @@ jobs:
       - name: Build Windows executable and installer
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          # The media runtime script stages libmpv public headers under
+          # .work/windows/mpv-include. Point CGO at them so wails3 generate
+          # bindings can compile the cgo variant of go-mpv.
+          $includeDir = ($env:GITHUB_WORKSPACE -replace '\\', '/') + '/build/deps/.work/windows/mpv-include'
+          $env:CGO_CFLAGS = "-I$includeDir"
           wails3 task windows:build ARCH=amd64 APP_VERSION=${env:APP_VERSION} BUILD_COMMIT=${env:BUILD_COMMIT} BUILD_TIME=${env:BUILD_TIME}
           wails3 task windows:create:nsis:installer ARCH=amd64 APP_VERSION=${env:APP_VERSION} BUILD_COMMIT=${env:BUILD_COMMIT} BUILD_TIME=${env:BUILD_TIME}
           New-Item -ItemType Directory -Force -Path dist | Out-Null
