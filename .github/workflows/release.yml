@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   GO_VERSION: "1.25.7"
@@ -25,18 +25,19 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
 
-      - uses: msys2/setup-msys2@v2
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
         with:
           msystem: MINGW64
           update: true
@@ -69,8 +70,9 @@ jobs:
         shell: pwsh
         run: |
           $version = "${env:RELEASE_TAG}".TrimStart("v")
+          $commit = git -C $env:GITHUB_WORKSPACE rev-parse HEAD
           "APP_VERSION=$version" >> $env:GITHUB_ENV
-          "BUILD_COMMIT=${{ github.sha }}" >> $env:GITHUB_ENV
+          "BUILD_COMMIT=$commit" >> $env:GITHUB_ENV
           "BUILD_TIME=$((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"))" >> $env:GITHUB_ENV
 
       - name: Build Windows media runtime
@@ -105,16 +107,17 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
 
       - name: Install Wails CLI
         run: go install "github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}"
@@ -122,8 +125,9 @@ jobs:
       - name: Set build metadata
         run: |
           VERSION="${RELEASE_TAG#v}"
+          COMMIT="$(git rev-parse HEAD)"
           echo "APP_VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "BUILD_COMMIT=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "BUILD_COMMIT=${COMMIT}" >> "$GITHUB_ENV"
           echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Build universal app bundle
@@ -144,16 +148,17 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
 
       - name: Install system dependencies and Wails CLI
         run: |
@@ -164,8 +169,9 @@ jobs:
       - name: Set build metadata
         run: |
           VERSION="${RELEASE_TAG#v}"
+          COMMIT="$(git rev-parse HEAD)"
           echo "APP_VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "BUILD_COMMIT=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "BUILD_COMMIT=${COMMIT}" >> "$GITHUB_ENV"
           echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Build Linux binary and AppImage
@@ -188,15 +194,18 @@ jobs:
       - build-windows
       - build-macos
       - build-linux
+    permissions:
+      contents: write
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
       UPDATER_PRIVATE_KEY_PEM: ${{ secrets.UPDATER_PRIVATE_KEY_PEM }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true

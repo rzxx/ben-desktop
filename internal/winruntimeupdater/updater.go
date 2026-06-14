@@ -564,7 +564,7 @@ func installDirWritable(dir string) (bool, error) {
 		if errors.Is(err, os.ErrPermission) {
 			return false, nil
 		}
-		return false, nil
+		return false, err
 	}
 	name := probe.Name()
 	closeErr := probe.Close()
@@ -686,10 +686,7 @@ func compareRuntimeVersion(remote string, local string) int {
 			return -1
 		}
 	}
-	if remote > local {
-		return 1
-	}
-	return -1
+	return 0
 }
 
 func versionParts(version string) []int {

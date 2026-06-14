@@ -217,10 +217,13 @@ func decodeSignature(body []byte) ([]byte, error) {
 		return decoded, nil
 	}
 	if decoded, err := hex.DecodeString(raw); err == nil {
+		if len(decoded) != 64 {
+			return nil, errors.New("hex signature is not 64 bytes")
+		}
 		return decoded, nil
 	}
-	if len(body) == 64 {
-		return body, nil
+	if len(raw) == 64 {
+		return []byte(raw), nil
 	}
 	return nil, errors.New("signature is not base64, hex, or raw Ed25519 bytes")
 }

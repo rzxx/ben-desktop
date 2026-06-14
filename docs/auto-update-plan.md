@@ -104,7 +104,7 @@ There is no separate helper executable. The same binary runs in a special mode o
 - CI produces two extra assets:
   - `ben-desktop-runtime-windows-amd64.zip` containing the runtime tree.
   - `runtime-manifest.json` listing every file, relative path, and SHA-256 hash.
-- Sign both assets with the updater key or a dedicated runtime key.
+- Sign both assets with the updater key.
 
 ### 2. Create the Windows-only package
 

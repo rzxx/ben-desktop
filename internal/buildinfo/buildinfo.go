@@ -35,11 +35,7 @@ func Version() string {
 }
 
 func ReleaseTag() string {
-	version := Version()
-	if strings.HasPrefix(version, "v") {
-		return version
-	}
-	return "v" + version
+	return "v" + Version()
 }
 
 func Repository() string {

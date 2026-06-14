@@ -765,6 +765,7 @@ function AppUpdatePanel() {
       .then((nextStatus) => {
         if (!cancelled) {
           setStatus(nextStatus);
+          setError("");
         }
       })
       .catch((err) => {
@@ -787,6 +788,7 @@ function AppUpdatePanel() {
         .then((nextStatus) => {
           if (!cancelled) {
             setStatus(nextStatus);
+            setError("");
           }
         })
         .catch((err) => {

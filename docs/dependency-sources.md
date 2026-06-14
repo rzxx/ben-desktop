@@ -76,8 +76,6 @@ The Windows libmpv dependency closure currently includes additional MSYS2 MINGW6
 Before publishing a binary release:
 
 1. Attach the app source archive for the exact tag.
-2. Attach the exact FFmpeg and mpv source archives used by the release build.
-3. Attach the generated `ben-desktop-media-runtime-source-record-windows-amd64.json`.
-4. Attach local patch diffs, even when they are empty.
-5. Confirm the generated record contains source archive SHA-256 values, produced binary SHA-256 values, sanitized FFmpeg `-buildconf` output paths, and sanitized mpv Meson configuration output paths.
-6. Confirm the installer and runtime update ZIP include `LICENSE`, `THIRD_PARTY_NOTICES.md`, this file, `build/deps/manifest.json`, and the generated media runtime source record.
+2. Attach the exact FFmpeg and mpv source archives used by the release build, the generated `ben-desktop-media-runtime-source-record-windows-amd64.json`, and local patch diffs (even when they are empty).
+3. Confirm the generated record contains source archive SHA-256 values, produced binary SHA-256 values, sanitized FFmpeg `-buildconf` output paths, and sanitized mpv Meson configuration output paths.
+4. Confirm the installer and runtime update ZIP include `LICENSE`, `THIRD_PARTY_NOTICES.md`, this file, `build/deps/manifest.json`, and the generated media runtime source record.

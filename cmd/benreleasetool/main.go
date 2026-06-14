@@ -196,6 +196,9 @@ func collectRuntimeEntries(source string, version string, require bool) ([]bundl
 			return nil
 		}
 		target = filepath.ToSlash(target)
+		if _, exists := entries[target]; exists {
+			return fmt.Errorf("duplicate runtime bundle target %q", target)
+		}
 		entries[target] = bundleEntry{target: target, source: sourcePath}
 		return nil
 	}
@@ -384,17 +387,26 @@ func parsePrivateKey(body []byte) (ed25519.PrivateKey, error) {
 }
 
 func signFile(privateKey ed25519.PrivateKey, path string) (string, error) {
-	body, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(body)
-	signature := ed25519.Sign(privateKey, sum[:])
+	hash := sha256.New()
+	_, copyErr := io.Copy(hash, file)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return "", copyErr
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	sum := hash.Sum(nil)
+	signature := ed25519.Sign(privateKey, sum)
 	sigPath := path + ".sig"
 	if err := os.WriteFile(sigPath, []byte(base64.StdEncoding.EncodeToString(signature)+"\n"), 0o644); err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(sum[:]), nil
+	return hex.EncodeToString(sum), nil
 }
 
 func fileSHA256(path string) (string, error) {
