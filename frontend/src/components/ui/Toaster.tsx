@@ -65,6 +65,7 @@ function ToastList() {
           "h-[var(--height)] data-[expanded]:h-[var(--toast-height)]",
           "z-[calc(1000-var(--toast-index))]",
           "[transition:transform_0.4s_cubic-bezier(0.22,1,0.36,1),opacity_0.35s_ease-out,height_0.2s_ease-out]",
+          "data-[ending-style]:[transition:transform_0.18s_ease-out,opacity_0.12s_ease-out,height_0.2s_ease-out]",
         ].join(" ")}
       >
         <Toast.Content className="h-full overflow-hidden p-3 transition-opacity duration-200 data-[behind]:opacity-0 data-[expanded]:opacity-100">
