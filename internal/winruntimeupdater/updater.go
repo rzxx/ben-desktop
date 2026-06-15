@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,10 +22,10 @@ import (
 
 	"ben/desktop/internal/appupdate"
 	"ben/desktop/internal/buildinfo"
+	"ben/desktop/internal/winutils"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"golang.org/x/sys/windows"
 )
 
 const (
@@ -165,7 +164,7 @@ func runNormalUpdate(app *application.App, plan *runtimePlan, continueStartup fu
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	writable, err := installDirWritable(plan.installDir)
+	writable, err := winutils.IsWritableDir(plan.installDir)
 	if err != nil {
 		splash.Error("Media component update failed", err.Error(), true)
 		_, _ = splash.WaitForAction(ctx)
@@ -229,6 +228,8 @@ func checkForUpdate(ctx context.Context) (*runtimePlan, error) {
 	if err != nil {
 		return nil, err
 	}
+	_ = cleanupStaleUpdateArtifacts(installDir)
+
 	localVersion := readLocalRuntimeVersion(installDir)
 	body, err := fetchBytes(ctx, manifestURL(), true)
 	if err != nil {
@@ -249,9 +250,48 @@ func checkForUpdate(ctx context.Context) (*runtimePlan, error) {
 		return nil, errors.New("winruntimeupdater: runtime manifest has no files")
 	}
 	localComplete := localRuntimeMatchesManifest(installDir, manifest)
-	if compareRuntimeVersion(remoteVersion, localVersion) <= 0 && localComplete {
+
+	logger := slog.Default()
+	logger.Debug("runtime update check",
+		slog.String("localVersion", localVersion),
+		slog.String("remoteVersion", remoteVersion),
+		slog.Bool("localComplete", localComplete),
+		slog.String("service", "runtime-updater"),
+	)
+
+	// Never downgrade. If the version is unchanged, do not force a full runtime
+	// re-download just because peripheral manifest entries (licenses, notices,
+	// etc.) changed. This prevents the runtime updater from firing during
+	// binary-only app updates.
+	if compareRuntimeVersion(remoteVersion, localVersion) < 0 {
+		logger.Debug("runtime update skipped: remote version is older than local",
+			slog.String("localVersion", localVersion),
+			slog.String("remoteVersion", remoteVersion),
+			slog.String("service", "runtime-updater"),
+		)
 		return nil, nil
 	}
+	if remoteVersion == localVersion {
+		if localComplete {
+			logger.Debug("runtime update skipped: already up to date",
+				slog.String("version", localVersion),
+				slog.String("service", "runtime-updater"),
+			)
+			return nil, nil
+		}
+		logger.Info("runtime update skipped: local files differ but version is unchanged",
+			slog.String("version", localVersion),
+			slog.String("reason", "treating as binary-only app update; bump runtime version if runtime actually changed"),
+			slog.String("service", "runtime-updater"),
+		)
+		return nil, nil
+	}
+
+	logger.Info("runtime update available",
+		slog.String("localVersion", localVersion),
+		slog.String("remoteVersion", remoteVersion),
+		slog.String("service", "runtime-updater"),
+	)
 	if strings.TrimSpace(manifest.Asset) == "" {
 		manifest.Asset = runtimeZipName
 	}
@@ -499,7 +539,13 @@ func replaceFile(src string, dst string) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	_ = os.Remove(backup)
+	if err := os.Remove(backup); err != nil {
+		slog.Default().Warn("runtime updater left stale backup",
+			slog.String("path", backup),
+			slog.Any("error", err),
+			slog.String("service", "runtime-updater"),
+		)
+	}
 	return nil
 }
 
@@ -559,29 +605,6 @@ func cleanManifestPath(path string) (string, error) {
 	return clean, nil
 }
 
-func installDirWritable(dir string) (bool, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return false, err
-	}
-	probe, err := os.CreateTemp(dir, ".ben-runtime-write-test-*")
-	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			return false, nil
-		}
-		return false, err
-	}
-	name := probe.Name()
-	closeErr := probe.Close()
-	removeErr := os.Remove(name)
-	if closeErr != nil {
-		return false, closeErr
-	}
-	if removeErr != nil {
-		return false, removeErr
-	}
-	return true, nil
-}
-
 func readLocalRuntimeVersion(installDir string) string {
 	body, err := os.ReadFile(filepath.Join(installDir, "runtime", "version.txt"))
 	if err != nil {
@@ -613,6 +636,22 @@ func localRuntimeMatchesManifest(installDir string, manifest runtimeManifest) bo
 		}
 	}
 	return true
+}
+
+func cleanupStaleUpdateArtifacts(root string) error {
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".ben-update-") && (strings.HasSuffix(name, ".old") || strings.HasSuffix(name, ".tmp")) {
+			_ = os.Remove(path)
+		}
+		return nil
+	})
 }
 
 func currentInstallDir() (string, error) {
@@ -738,7 +777,7 @@ func launchElevated() error {
 	if err != nil {
 		return err
 	}
-	return shellExecute("runas", exe, elevatedFlag)
+	return winutils.ShellExecute("runas", exe, elevatedFlag)
 }
 
 func relaunchNormal() error {
@@ -746,33 +785,7 @@ func relaunchNormal() error {
 	if err != nil {
 		return err
 	}
-	if err := exec.Command("explorer.exe", exe).Start(); err == nil {
-		return nil
-	}
-	return shellExecute("open", exe, "")
-}
-
-func shellExecute(verb string, exe string, params string) error {
-	verbPtr, err := windows.UTF16PtrFromString(verb)
-	if err != nil {
-		return err
-	}
-	exePtr, err := windows.UTF16PtrFromString(exe)
-	if err != nil {
-		return err
-	}
-	var paramsPtr *uint16
-	if strings.TrimSpace(params) != "" {
-		paramsPtr, err = windows.UTF16PtrFromString(params)
-		if err != nil {
-			return err
-		}
-	}
-	err = windows.ShellExecute(0, verbPtr, exePtr, paramsPtr, nil, windows.SW_SHOWNORMAL)
-	if err != nil {
-		return err
-	}
-	return nil
+	return winutils.RelaunchNormally(exe)
 }
 
 func (m runtimeManifest) runtimeVersion() string {

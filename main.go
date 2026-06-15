@@ -7,6 +7,7 @@ import (
 	"ben/desktop/internal/desktopcore"
 	"ben/desktop/internal/observability"
 	"ben/desktop/internal/playback"
+	"ben/desktop/internal/winappupdater"
 	"ben/desktop/internal/winruntimeupdater"
 	"embed"
 	"log/slog"
@@ -45,6 +46,11 @@ func main() {
 		}
 		return
 	}
+
+	// Intercept the Wails updater helper before building the full application.
+	// On Windows this handles protected install directories (e.g. Program Files)
+	// by requesting elevation and performing the swap from an elevated helper.
+	winappupdater.MaybeHandle(nil)
 
 	build := buildinfo.Current()
 	obsManager, logger, err := observability.Initialize(observability.Config{
