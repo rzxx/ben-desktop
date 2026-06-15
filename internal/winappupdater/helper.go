@@ -44,10 +44,9 @@ func MaybeHandle(logger *slog.Logger) {
 		logger = slog.Default()
 	}
 
-	target := os.Getenv(envHelperTarget)
-	newPath := os.Getenv(envHelperNew)
-	if target == "" || newPath == "" {
-		logger.Error("app update helper missing target or new path")
+	target, newPath, err := validateHelperPaths(os.Getenv(envHelperTarget), os.Getenv(envHelperNew))
+	if err != nil {
+		logger.Error("app update helper path validation failed", slog.Any("error", err))
 		os.Exit(2)
 	}
 
@@ -216,6 +215,35 @@ func clearHelperEnv() {
 	for _, k := range []string{envHelperMode, envHelperTarget, envHelperNew, envHelperPID, envHelperLog} {
 		_ = os.Unsetenv(k)
 	}
+}
+
+func validateHelperPaths(target, newPath string) (string, string, error) {
+	if target == "" || newPath == "" {
+		return "", "", fmt.Errorf("target and new path are required")
+	}
+
+	targetAbs, err := filepath.Abs(filepath.Clean(target))
+	if err != nil {
+		return "", "", fmt.Errorf("invalid target path %q: %w", target, err)
+	}
+	newAbs, err := filepath.Abs(filepath.Clean(newPath))
+	if err != nil {
+		return "", "", fmt.Errorf("invalid new path %q: %w", newPath, err)
+	}
+
+	if strings.EqualFold(targetAbs, newAbs) {
+		return "", "", fmt.Errorf("target and new path are the same file: %s", targetAbs)
+	}
+	if filepath.Ext(targetAbs) != ".exe" {
+		return "", "", fmt.Errorf("target %q is not an executable", targetAbs)
+	}
+
+	stagingDir := filepath.Dir(newAbs)
+	if !strings.HasPrefix(filepath.Base(stagingDir), "wails-update-") {
+		return "", "", fmt.Errorf("new path staging directory %q does not have wails-update- prefix", stagingDir)
+	}
+
+	return targetAbs, newAbs, nil
 }
 
 func waitForPID(pid int, timeout time.Duration) error {

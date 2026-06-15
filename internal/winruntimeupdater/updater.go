@@ -228,6 +228,8 @@ func checkForUpdate(ctx context.Context) (*runtimePlan, error) {
 	if err != nil {
 		return nil, err
 	}
+	_ = cleanupStaleUpdateArtifacts(installDir)
+
 	localVersion := readLocalRuntimeVersion(installDir)
 	body, err := fetchBytes(ctx, manifestURL(), true)
 	if err != nil {
@@ -248,9 +250,48 @@ func checkForUpdate(ctx context.Context) (*runtimePlan, error) {
 		return nil, errors.New("winruntimeupdater: runtime manifest has no files")
 	}
 	localComplete := localRuntimeMatchesManifest(installDir, manifest)
-	if compareRuntimeVersion(remoteVersion, localVersion) <= 0 && localComplete {
+
+	logger := slog.Default()
+	logger.Debug("runtime update check",
+		slog.String("localVersion", localVersion),
+		slog.String("remoteVersion", remoteVersion),
+		slog.Bool("localComplete", localComplete),
+		slog.String("service", "runtime-updater"),
+	)
+
+	// Never downgrade. If the version is unchanged, do not force a full runtime
+	// re-download just because peripheral manifest entries (licenses, notices,
+	// etc.) changed. This prevents the runtime updater from firing during
+	// binary-only app updates.
+	if compareRuntimeVersion(remoteVersion, localVersion) < 0 {
+		logger.Debug("runtime update skipped: remote version is older than local",
+			slog.String("localVersion", localVersion),
+			slog.String("remoteVersion", remoteVersion),
+			slog.String("service", "runtime-updater"),
+		)
 		return nil, nil
 	}
+	if remoteVersion == localVersion {
+		if localComplete {
+			logger.Debug("runtime update skipped: already up to date",
+				slog.String("version", localVersion),
+				slog.String("service", "runtime-updater"),
+			)
+			return nil, nil
+		}
+		logger.Info("runtime update skipped: local files differ but version is unchanged",
+			slog.String("version", localVersion),
+			slog.String("reason", "treating as binary-only app update; bump runtime version if runtime actually changed"),
+			slog.String("service", "runtime-updater"),
+		)
+		return nil, nil
+	}
+
+	logger.Info("runtime update available",
+		slog.String("localVersion", localVersion),
+		slog.String("remoteVersion", remoteVersion),
+		slog.String("service", "runtime-updater"),
+	)
 	if strings.TrimSpace(manifest.Asset) == "" {
 		manifest.Asset = runtimeZipName
 	}
@@ -498,7 +539,13 @@ func replaceFile(src string, dst string) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	_ = os.Remove(backup)
+	if err := os.Remove(backup); err != nil {
+		slog.Default().Warn("runtime updater left stale backup",
+			slog.String("path", backup),
+			slog.Any("error", err),
+			slog.String("service", "runtime-updater"),
+		)
+	}
 	return nil
 }
 
@@ -589,6 +636,22 @@ func localRuntimeMatchesManifest(installDir string, manifest runtimeManifest) bo
 		}
 	}
 	return true
+}
+
+func cleanupStaleUpdateArtifacts(root string) error {
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".ben-update-") && (strings.HasSuffix(name, ".old") || strings.HasSuffix(name, ".tmp")) {
+			_ = os.Remove(path)
+		}
+		return nil
+	})
 }
 
 func currentInstallDir() (string, error) {

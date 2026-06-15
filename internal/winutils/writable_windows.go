@@ -8,6 +8,9 @@ import "os"
 // file inside dir. It creates the directory if it does not exist.
 func IsWritableDir(dir string) (bool, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		if os.IsPermission(err) {
+			return false, nil
+		}
 		return false, err
 	}
 	probe, err := os.CreateTemp(dir, ".ben-write-test-*")
