@@ -12,7 +12,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { LibraryCheckpointStatus } from "@/lib/api/models";
-import { NotificationCard } from "@/components/notifications/NotificationCard";
+import { NotificationItem } from "@/components/notifications/NotificationItem";
 import {
   startCompactCheckpoint,
   startPublishCheckpoint,
@@ -714,7 +714,7 @@ export function OperationsSurface() {
             ) : (
               <div className="space-y-3">
                 {activeNotifications.map((notification) => (
-                  <NotificationCard
+                  <NotificationItem
                     key={notification.id}
                     notification={notification}
                   />
@@ -739,7 +739,7 @@ export function OperationsSurface() {
             ) : (
               <div className="space-y-3">
                 {recentNotifications.map((notification) => (
-                  <NotificationCard
+                  <NotificationItem
                     key={notification.id}
                     notification={notification}
                   />
