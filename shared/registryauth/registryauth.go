@@ -318,10 +318,7 @@ func VerifyInviteAttestation(attestation InviteAttestation, now time.Time) error
 	if attestation.LibraryID == "" || attestation.TokenID == "" || attestation.OwnerPeerID == "" || attestation.RootPublicKey == "" {
 		return fmt.Errorf("invite attestation is incomplete")
 	}
-	if attestation.ExpiresAt <= 0 {
-		return fmt.Errorf("invite attestation expiry is required")
-	}
-	if now.UTC().Unix() > attestation.ExpiresAt {
+	if attestation.ExpiresAt > 0 && now.UTC().Unix() > attestation.ExpiresAt {
 		return fmt.Errorf("invite attestation expired")
 	}
 	publicKey, err := DecodeEd25519PublicKey(attestation.RootPublicKey)

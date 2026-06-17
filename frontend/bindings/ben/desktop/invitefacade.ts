@@ -8,16 +8,13 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as apitypes$0 from "./api/types/models.js";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
-import * as desktopcore$0 from "./internal/desktopcore/models.js";
 
-export function ApproveJoinRequest(requestID: string, role: string): $CancellablePromise<void> {
-    return $Call.ByID(2154804979, requestID, role);
+export function ApproveJoinRequest(requestID: string): $CancellablePromise<void> {
+    return $Call.ByID(2154804979, requestID);
 }
 
-export function CancelJoinSession(sessionID: string): $CancellablePromise<void> {
-    return $Call.ByID(567196285, sessionID);
+export function CancelJoinAttempt(attemptID: string): $CancellablePromise<void> {
+    return $Call.ByID(619997408, attemptID);
 }
 
 export function CreateInvite(req: apitypes$0.InviteCreateRequest): $CancellablePromise<apitypes$0.InviteRecord> {
@@ -30,8 +27,8 @@ export function DeleteInvite(inviteID: string): $CancellablePromise<void> {
     return $Call.ByID(1402632995, inviteID);
 }
 
-export function GetJoinSession(sessionID: string): $CancellablePromise<apitypes$0.JoinSession> {
-    return $Call.ByID(3812262537, sessionID).then(($result: any) => {
+export function GetJoinAttempt(attemptID: string): $CancellablePromise<apitypes$0.JoinAttempt> {
+    return $Call.ByID(2092108876, attemptID).then(($result: any) => {
         return $$createType1($result);
     });
 }
@@ -42,23 +39,17 @@ export function ListActiveInvites(): $CancellablePromise<apitypes$0.InviteRecord
     });
 }
 
-export function ListJoinRequests(status: string): $CancellablePromise<apitypes$0.InviteJoinRequestRecord[]> {
-    return $Call.ByID(2833420939, status).then(($result: any) => {
+export function ListJoinRequests(): $CancellablePromise<apitypes$0.InviteJoinRequestRecord[]> {
+    return $Call.ByID(2833420939).then(($result: any) => {
         return $$createType4($result);
     });
 }
 
-export function RejectJoinRequest(requestID: string, reason: string): $CancellablePromise<void> {
-    return $Call.ByID(1240171767, requestID, reason);
+export function RejectJoinRequest(requestID: string): $CancellablePromise<void> {
+    return $Call.ByID(1240171767, requestID);
 }
 
-export function StartFinalizeJoinSession(sessionID: string): $CancellablePromise<desktopcore$0.JobSnapshot> {
-    return $Call.ByID(2247074811, sessionID).then(($result: any) => {
-        return $$createType5($result);
-    });
-}
-
-export function StartJoinFromInvite(req: apitypes$0.JoinFromInviteInput): $CancellablePromise<apitypes$0.JoinSession> {
+export function StartJoinFromInvite(req: apitypes$0.JoinFromInviteInput): $CancellablePromise<apitypes$0.JoinAttempt> {
     return $Call.ByID(759325766, req).then(($result: any) => {
         return $$createType1($result);
     });
@@ -66,8 +57,7 @@ export function StartJoinFromInvite(req: apitypes$0.JoinFromInviteInput): $Cance
 
 // Private type creation functions
 const $$createType0 = apitypes$0.InviteRecord.createFrom;
-const $$createType1 = apitypes$0.JoinSession.createFrom;
+const $$createType1 = apitypes$0.JoinAttempt.createFrom;
 const $$createType2 = $Create.Array($$createType0);
 const $$createType3 = apitypes$0.InviteJoinRequestRecord.createFrom;
 const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = desktopcore$0.JobSnapshot.createFrom;

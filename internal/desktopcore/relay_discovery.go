@@ -23,7 +23,14 @@ func (a *App) discoverRelayBootstrapAddrsFromRegistry() []string {
 	if a == nil {
 		return nil
 	}
-	registryURL := strings.TrimSpace(a.cfg.RegistryURL)
+	return a.discoverRelayBootstrapAddrsFromRegistryURL(a.cfg.RegistryURL)
+}
+
+func (a *App) discoverRelayBootstrapAddrsFromRegistryURL(registryURL string) []string {
+	if a == nil {
+		return nil
+	}
+	registryURL = strings.TrimSpace(registryURL)
 	if registryURL == "" {
 		return nil
 	}

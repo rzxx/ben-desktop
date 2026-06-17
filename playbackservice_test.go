@@ -43,6 +43,8 @@ type passthroughRuntimeStub struct {
 	listLibraryMembersFn        func(context.Context) ([]apitypes.LibraryMemberStatus, error)
 	updateLibraryMemberRoleFn   func(context.Context, string, string) error
 	removeLibraryMemberFn       func(context.Context, string) error
+	getLibraryRelayConfigFn     func(context.Context, string) (apitypes.LibraryRelayConfig, error)
+	updateLibraryRelayConfigFn  func(context.Context, apitypes.UpdateLibraryRelayConfigRequest) (apitypes.LibraryRelayConfig, error)
 	setScanRootsFn              func(context.Context, []string) error
 	addScanRootsFn              func(context.Context, []string) ([]string, error)
 	removeScanRootsFn           func(context.Context, []string) ([]string, error)
@@ -81,14 +83,12 @@ type passthroughRuntimeStub struct {
 	createInviteFn              func(context.Context, apitypes.InviteCreateRequest) (apitypes.InviteRecord, error)
 	listActiveInvitesFn         func(context.Context) ([]apitypes.InviteRecord, error)
 	deleteInviteFn              func(context.Context, string) error
-	startJoinFromInviteFn       func(context.Context, apitypes.JoinFromInviteInput) (apitypes.JoinSession, error)
-	getJoinSessionFn            func(context.Context, string) (apitypes.JoinSession, error)
-	finalizeJoinSessionFn       func(context.Context, string) (apitypes.JoinLibraryResult, error)
-	startFinalizeJoinSessionFn  func(context.Context, string) (desktopcore.JobSnapshot, error)
-	cancelJoinSessionFn         func(context.Context, string) error
-	listJoinRequestsFn          func(context.Context, string) ([]apitypes.InviteJoinRequestRecord, error)
-	approveJoinRequestFn        func(context.Context, string, string) error
-	rejectJoinRequestFn         func(context.Context, string, string) error
+	startJoinFromInviteFn       func(context.Context, apitypes.JoinFromInviteInput) (apitypes.JoinAttempt, error)
+	getJoinAttemptFn            func(context.Context, string) (apitypes.JoinAttempt, error)
+	cancelJoinAttemptFn         func(context.Context, string) error
+	listJoinRequestsFn          func(context.Context) ([]apitypes.InviteJoinRequestRecord, error)
+	approveJoinRequestFn        func(context.Context, string) error
+	rejectJoinRequestFn         func(context.Context, string) error
 	getCacheOverviewFn          func(context.Context) (apitypes.CacheOverview, error)
 	listCacheEntriesFn          func(context.Context, apitypes.CacheEntryListRequest) (apitypes.Page[apitypes.CacheEntryItem], error)
 	cleanupCacheFn              func(context.Context, apitypes.CacheCleanupRequest) (apitypes.CacheCleanupResult, error)
@@ -219,6 +219,20 @@ func (b *passthroughBridgeStub) UpdateLibraryMemberRole(ctx context.Context, dev
 
 func (b *passthroughBridgeStub) RemoveLibraryMember(ctx context.Context, deviceID string) error {
 	return b.removeLibraryMemberFn(ctx, deviceID)
+}
+
+func (b *passthroughBridgeStub) GetLibraryRelayConfig(ctx context.Context, libraryID string) (apitypes.LibraryRelayConfig, error) {
+	if b.getLibraryRelayConfigFn != nil {
+		return b.getLibraryRelayConfigFn(ctx, libraryID)
+	}
+	return apitypes.LibraryRelayConfig{}, nil
+}
+
+func (b *passthroughBridgeStub) UpdateLibraryRelayConfig(ctx context.Context, req apitypes.UpdateLibraryRelayConfigRequest) (apitypes.LibraryRelayConfig, error) {
+	if b.updateLibraryRelayConfigFn != nil {
+		return b.updateLibraryRelayConfigFn(ctx, req)
+	}
+	return apitypes.LibraryRelayConfig{}, nil
 }
 
 func (b *passthroughBridgeStub) SetScanRoots(ctx context.Context, roots []string) error {
@@ -457,36 +471,28 @@ func (b *passthroughBridgeStub) DeleteInvite(ctx context.Context, inviteID strin
 	return nil
 }
 
-func (b *passthroughBridgeStub) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
+func (b *passthroughBridgeStub) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinAttempt, error) {
 	return b.startJoinFromInviteFn(ctx, req)
 }
 
-func (b *passthroughBridgeStub) GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error) {
-	return b.getJoinSessionFn(ctx, sessionID)
+func (b *passthroughBridgeStub) GetJoinAttempt(ctx context.Context, attemptID string) (apitypes.JoinAttempt, error) {
+	return b.getJoinAttemptFn(ctx, attemptID)
 }
 
-func (b *passthroughBridgeStub) FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
-	return b.finalizeJoinSessionFn(ctx, sessionID)
+func (b *passthroughBridgeStub) CancelJoinAttempt(ctx context.Context, attemptID string) error {
+	return b.cancelJoinAttemptFn(ctx, attemptID)
 }
 
-func (b *passthroughBridgeStub) StartFinalizeJoinSession(ctx context.Context, sessionID string) (desktopcore.JobSnapshot, error) {
-	return b.startFinalizeJoinSessionFn(ctx, sessionID)
+func (b *passthroughBridgeStub) ListJoinRequests(ctx context.Context) ([]apitypes.InviteJoinRequestRecord, error) {
+	return b.listJoinRequestsFn(ctx)
 }
 
-func (b *passthroughBridgeStub) CancelJoinSession(ctx context.Context, sessionID string) error {
-	return b.cancelJoinSessionFn(ctx, sessionID)
+func (b *passthroughBridgeStub) ApproveJoinRequest(ctx context.Context, requestID string) error {
+	return b.approveJoinRequestFn(ctx, requestID)
 }
 
-func (b *passthroughBridgeStub) ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
-	return b.listJoinRequestsFn(ctx, status)
-}
-
-func (b *passthroughBridgeStub) ApproveJoinRequest(ctx context.Context, requestID, role string) error {
-	return b.approveJoinRequestFn(ctx, requestID, role)
-}
-
-func (b *passthroughBridgeStub) RejectJoinRequest(ctx context.Context, requestID, reason string) error {
-	return b.rejectJoinRequestFn(ctx, requestID, reason)
+func (b *passthroughBridgeStub) RejectJoinRequest(ctx context.Context, requestID string) error {
+	return b.rejectJoinRequestFn(ctx, requestID)
 }
 
 func (b *passthroughBridgeStub) GetCacheOverview(ctx context.Context) (apitypes.CacheOverview, error) {

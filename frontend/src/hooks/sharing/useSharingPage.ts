@@ -1,50 +1,56 @@
-import { Events } from "@wailsio/runtime";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   InviteJoinRequestRecord,
   InviteRecord,
-  JoinSession,
-  JobSnapshot,
+  JoinAttempt,
+  LibraryRelayConfig,
   LibrarySummary,
   LocalContext,
   NetworkStatus,
 } from "@/lib/api/models";
-import { DesktopCoreModels } from "@/lib/api/models";
+import { getLocalContext, getNetworkStatus } from "@/lib/api/network";
 import {
-  getLocalContext,
-  getNetworkStatus,
-  startConnectPeer,
-} from "@/lib/api/network";
-import { getActiveLibrary } from "@/lib/api/library";
+  getActiveLibrary,
+  getLibraryRelayConfig,
+  updateLibraryRelayConfig,
+} from "@/lib/api/library";
 import {
-  getJoinSession,
+  approveJoinRequest,
+  cancelJoinAttempt,
+  createInvite,
+  deleteInvite,
+  getJoinAttempt,
   listActiveInvites,
   listJoinRequests,
+  rejectJoinRequest,
+  startJoinFromInvite,
 } from "@/lib/api/invite";
-import { subscribeJobEvents } from "@/lib/api/jobs";
+import { Types } from "@/lib/api/models";
 
 type SharingState = {
   loading: boolean;
   library: LibrarySummary | null;
   local: LocalContext | null;
   network: NetworkStatus | null;
+  relay: LibraryRelayConfig | null;
   invites: InviteRecord[];
   requests: InviteJoinRequestRecord[];
-  trackedSession: JoinSession | null;
+  joinAttempt: JoinAttempt | null;
   error: string;
 };
 
-const localStorageSessionKey = "ben.desktop.sharing.joinSessionId";
 const sharingRefreshIntervalMs = 2000;
+type InviteRole = "guest" | "member" | "admin";
 
 const initialState: SharingState = {
   loading: true,
   library: null,
   local: null,
   network: null,
+  relay: null,
   invites: [],
   requests: [],
-  trackedSession: null,
+  joinAttempt: null,
   error: "",
 };
 
@@ -61,44 +67,30 @@ function canManageLibrary(role: string) {
   return normalized === "owner" || normalized === "admin";
 }
 
+function parseRelayBootstrapAddrs(value: string) {
+  return value
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function stringifyRelayBootstrapAddrs(value: string[] | undefined) {
+  return (value ?? []).join("\n");
+}
+
 export function useSharingPage() {
-  const connectJobIdRef = useRef("");
   const [state, setState] = useState<SharingState>(initialState);
   const [pendingAction, setPendingAction] = useState("");
   const [feedback, setFeedback] = useState("");
   const [actionError, setActionError] = useState("");
-  const [peerAddress, setPeerAddress] = useState("");
-  const [connectJob, setConnectJob] = useState<JobSnapshot | null>(null);
-  const [inviteRole, setInviteRole] = useState<"guest" | "member" | "admin">(
-    "member",
-  );
-  const [inviteUses, setInviteUses] = useState("1");
-  const [inviteExpiryHours, setInviteExpiryHours] = useState("24");
-  const [latestInvite, setLatestInvite] = useState<InviteRecord | null>(null);
+  const [inviteRole, setInviteRole] = useState<InviteRole>("member");
+  const [inviteReusable, setInviteReusable] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const [joinDeviceName, setJoinDeviceName] = useState("");
-  const [trackedSessionId, setTrackedSessionId] = useState("");
-  const [approvalRoles, setApprovalRoles] = useState<Record<string, string>>(
-    {},
-  );
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem(localStorageSessionKey) ?? "";
-    if (stored.trim()) {
-      setTrackedSessionId(stored.trim());
-    }
-  }, []);
-
-  useEffect(() => {
-    if (trackedSessionId.trim()) {
-      window.localStorage.setItem(
-        localStorageSessionKey,
-        trackedSessionId.trim(),
-      );
-      return;
-    }
-    window.localStorage.removeItem(localStorageSessionKey);
-  }, [trackedSessionId]);
+  const [joinAttemptId, setJoinAttemptId] = useState("");
+  const [relayOpen, setRelayOpen] = useState(false);
+  const [relayRegistryURL, setRelayRegistryURL] = useState("");
+  const [relayBootstrapText, setRelayBootstrapText] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -108,38 +100,28 @@ export function useSharingPage() {
         getNetworkStatus().catch(() => null),
       ]);
 
-      const requests =
-        found && library.LibraryID ? listJoinRequests("") : Promise.resolve([]);
-      const invites =
-        found && library.LibraryID ? listActiveInvites() : Promise.resolve([]);
-      const session = trackedSessionId.trim()
-        ? getJoinSession(trackedSessionId.trim()).catch(() => null)
-        : Promise.resolve(null);
-
-      const [inviteRows, requestRows, trackedSession] = await Promise.all([
-        invites,
-        requests,
-        session,
+      const hasLibrary = found && Boolean(library.LibraryID);
+      const [invites, requests, relay, joinAttempt] = await Promise.all([
+        hasLibrary ? listActiveInvites() : Promise.resolve([]),
+        hasLibrary ? listJoinRequests() : Promise.resolve([]),
+        hasLibrary
+          ? getLibraryRelayConfig(library.LibraryID).catch(() => null)
+          : Promise.resolve(null),
+        joinAttemptId.trim()
+          ? getJoinAttempt(joinAttemptId.trim()).catch(() => null)
+          : Promise.resolve(null),
       ]);
 
       setState({
         loading: false,
-        library: found ? library : null,
+        library: hasLibrary ? library : null,
         local,
         network,
-        invites: inviteRows,
-        requests: requestRows,
-        trackedSession,
+        relay,
+        invites,
+        requests,
+        joinAttempt,
         error: "",
-      });
-      setApprovalRoles((current) => {
-        const next = { ...current };
-        for (const request of requestRows) {
-          if (!next[request.RequestID]) {
-            next[request.RequestID] = request.RequestedRole || "member";
-          }
-        }
-        return next;
       });
     } catch (error) {
       setState((current) => ({
@@ -148,46 +130,41 @@ export function useSharingPage() {
         error: describeError(error),
       }));
     }
-  }, [trackedSessionId]);
+  }, [joinAttemptId]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
-    let disposed = false;
-    let stopListening: (() => void) | undefined;
+    if (!state.relay || relayOpen) {
+      return;
+    }
+    setRelayRegistryURL(state.relay.RegistryURL);
+    setRelayBootstrapText(
+      stringifyRelayBootstrapAddrs(state.relay.RelayBootstrapAddrs),
+    );
+  }, [relayOpen, state.relay]);
 
-    void subscribeJobEvents()
-      .then((eventName) => {
-        if (disposed) {
-          return;
-        }
-        stopListening = Events.On(eventName, (event) => {
-          const snapshot = DesktopCoreModels.JobSnapshot.createFrom(event.data);
-          if (
-            snapshot.kind !== "connect-peer" ||
-            snapshot.jobId !== connectJobIdRef.current
-          ) {
-            return;
-          }
-          setConnectJob(snapshot);
-        });
-      })
-      .catch((error) => {
-        if (!disposed) {
-          setActionError(describeError(error));
-        }
-      });
+  const pendingRequests = useMemo(() => state.requests, [state.requests]);
+  const manageLibrary = canManageLibrary(state.local?.Role ?? "");
+  const shouldPoll =
+    pendingRequests.length > 0 || Boolean(state.joinAttempt?.Pending);
 
+  useEffect(() => {
+    if (!shouldPoll) {
+      return;
+    }
+    const handle = window.setInterval(() => {
+      void refresh();
+    }, sharingRefreshIntervalMs);
     return () => {
-      disposed = true;
-      stopListening?.();
+      window.clearInterval(handle);
     };
-  }, []);
+  }, [refresh, shouldPoll]);
 
   const runAction = useCallback(
-    async (key: string, action: () => Promise<void | JoinSession>) => {
+    async (key: string, action: () => Promise<void>) => {
       setPendingAction(key);
       setActionError("");
       setFeedback("");
@@ -203,73 +180,104 @@ export function useSharingPage() {
     [refresh],
   );
 
-  const queueConnectPeer = useCallback(async () => {
-    const job = await startConnectPeer(peerAddress.trim());
-    connectJobIdRef.current = job.jobId;
-    setConnectJob(job);
-    setFeedback(`Queued connect-peer job ${job.jobId}`);
-  }, [peerAddress]);
+  const createInviteAction = useCallback(async () => {
+    const invite = await createInvite(
+      new Types.InviteCreateRequest({
+        Role: inviteRole,
+        Reusable: inviteReusable,
+      }),
+    );
+    setFeedback(`Created ${inviteReusable ? "reusable" : "single-use"} invite`);
+    await navigator.clipboard?.writeText?.(invite.InviteCode);
+  }, [inviteReusable, inviteRole]);
 
-  const manageLibrary = canManageLibrary(state.local?.Role ?? "");
-  const pendingRequests = useMemo(
-    () =>
-      state.requests.filter(
-        (request) => normalizeRole(request.Status) === "pending",
-      ),
-    [state.requests],
-  );
+  const startJoinAction = useCallback(async () => {
+    const attempt = await startJoinFromInvite(
+      new Types.JoinFromInviteInput({
+        InviteCode: inviteCode.trim(),
+        DeviceName: joinDeviceName.trim(),
+      }),
+    );
+    setJoinAttemptId(attempt.AttemptID);
+    setFeedback(attempt.Message || "Join request sent");
+  }, [inviteCode, joinDeviceName]);
 
-  useEffect(() => {
-    const trackedStatus = normalizeRole(state.trackedSession?.Status ?? "");
-    const shouldPoll =
-      pendingRequests.length > 0 ||
-      (trackedStatus !== "" &&
-        trackedStatus !== "completed" &&
-        trackedStatus !== "rejected" &&
-        trackedStatus !== "expired" &&
-        trackedStatus !== "failed");
-    if (!shouldPoll) {
+  const cancelJoinAction = useCallback(async () => {
+    const attemptID = state.joinAttempt?.AttemptID || joinAttemptId;
+    if (!attemptID.trim()) {
       return;
     }
+    await cancelJoinAttempt(attemptID);
+    setJoinAttemptId("");
+    setFeedback("Join attempt cancelled");
+  }, [joinAttemptId, state.joinAttempt?.AttemptID]);
 
-    const handle = window.setInterval(() => {
-      void refresh();
-    }, sharingRefreshIntervalMs);
-    return () => {
-      window.clearInterval(handle);
-    };
-  }, [pendingRequests.length, refresh, state.trackedSession?.Status]);
+  const approveRequestAction = useCallback(async (requestID: string) => {
+    await approveJoinRequest(requestID);
+    setFeedback("Approved join request");
+  }, []);
+
+  const rejectRequestAction = useCallback(async (requestID: string) => {
+    await rejectJoinRequest(requestID);
+    setFeedback("Rejected join request");
+  }, []);
+
+  const revokeInviteAction = useCallback(async (inviteID: string) => {
+    await deleteInvite(inviteID);
+    setFeedback("Revoked invite");
+  }, []);
+
+  const saveRelayAction = useCallback(async () => {
+    const libraryID = state.library?.LibraryID ?? "";
+    if (!libraryID) {
+      return;
+    }
+    const relay = await updateLibraryRelayConfig(
+      new Types.UpdateLibraryRelayConfigRequest({
+        LibraryID: libraryID,
+        RegistryURL: relayRegistryURL.trim(),
+        RelayBootstrapAddrs: parseRelayBootstrapAddrs(relayBootstrapText),
+      }),
+    );
+    setRelayOpen(false);
+    setRelayRegistryURL(relay.RegistryURL);
+    setRelayBootstrapText(
+      stringifyRelayBootstrapAddrs(relay.RelayBootstrapAddrs),
+    );
+    setFeedback("Updated relay settings");
+  }, [relayBootstrapText, relayRegistryURL, state.library?.LibraryID]);
 
   return {
     actionError,
-    approvalRoles,
-    connectJob,
-    feedback,
+    createInviteAction,
     inviteCode,
-    inviteExpiryHours,
+    inviteReusable,
     inviteRole,
-    inviteUses,
     joinDeviceName,
-    latestInvite,
     manageLibrary,
-    peerAddress,
     pendingAction,
     pendingRequests,
-    queueConnectPeer,
+    relayBootstrapText,
+    relayOpen,
+    relayRegistryURL,
     refresh,
     runAction,
     setActionError,
-    setApprovalRoles,
     setFeedback,
     setInviteCode,
-    setInviteExpiryHours,
+    setInviteReusable,
     setInviteRole,
-    setInviteUses,
     setJoinDeviceName,
-    setLatestInvite,
-    setPeerAddress,
-    setTrackedSessionId,
+    setRelayBootstrapText,
+    setRelayOpen,
+    setRelayRegistryURL,
     state,
-    trackedSessionId,
+    feedback,
+    startJoinAction,
+    cancelJoinAction,
+    approveRequestAction,
+    rejectRequestAction,
+    revokeInviteAction,
+    saveRelayAction,
   };
 }

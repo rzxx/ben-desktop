@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +21,7 @@ import (
 type inviteTestInfra struct {
 	registryURL         string
 	relayBootstrapAddrs []string
+	registry            *inviteTestRegistry
 }
 
 type inviteTestRegistry struct {
@@ -62,6 +62,7 @@ func openInviteTestInfra(t *testing.T) *inviteTestInfra {
 	return &inviteTestInfra{
 		registryURL:         server.URL,
 		relayBootstrapAddrs: compactNonEmptyStrings(addrs),
+		registry:            registry,
 	}
 }
 
@@ -94,15 +95,12 @@ func (r *inviteTestRegistry) serveHTTP(w http.ResponseWriter, req *http.Request)
 	}
 }
 
-func (r *inviteTestRegistry) handleHealthz(w http.ResponseWriter, req *http.Request) {
+func (r *inviteTestRegistry) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	r.mu.Lock()
-	addrs := make([]string, len(r.relayAddrs))
-	copy(addrs, r.relayAddrs)
+	addrs := append([]string(nil), r.relayAddrs...)
 	peerID := r.relayPeerID
 	r.mu.Unlock()
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(relayHealthResponse{Addrs: addrs, PeerID: peerID})
+	writeInviteRegistryJSON(w, relayHealthResponse{Addrs: addrs, PeerID: peerID})
 }
 
 func (r *inviteTestRegistry) handlePresenceAnnounce(w http.ResponseWriter, req *http.Request) {
@@ -204,6 +202,12 @@ func (r *inviteTestRegistry) lookup(libraryID, peerID string) (registryauth.Pres
 	return record, true
 }
 
+func (r *inviteTestRegistry) clearPresence() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records = make(map[string]registryauth.PresenceRecord)
+}
+
 func inviteRegistryKey(libraryID, peerID string) string {
 	return strings.TrimSpace(libraryID) + ":" + strings.TrimSpace(peerID)
 }
@@ -214,93 +218,57 @@ func writeInviteRegistryJSON(w http.ResponseWriter, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func TestInviteIssueListRevokeFlow(t *testing.T) {
-	t.Parallel()
-
+func TestInviteCreateListRevokeActiveState(t *testing.T) {
 	ctx := context.Background()
 	infra := openInviteTestInfra(t)
 	app := openCacheTestApp(t, 1024)
 	configureInviteTestApp(app, infra)
-	if _, err := app.CreateLibrary(ctx, "invite-issue"); err != nil {
+	library, err := app.CreateLibrary(ctx, "invite-active")
+	if err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 
-	code, err := app.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleGuest, Uses: 2})
+	invite, err := app.CreateInvite(ctx, apitypes.InviteCreateRequest{})
 	if err != nil {
-		t.Fatalf("create invite code: %v", err)
+		t.Fatalf("create invite: %v", err)
 	}
-	if !strings.HasPrefix(code.InviteCode, "ben-invite-v3.") {
-		t.Fatalf("invite code = %q", code.InviteCode)
+	if invite.LibraryID != library.LibraryID || invite.Role != roleMember || invite.Reusable {
+		t.Fatalf("invite defaults = %+v", invite)
 	}
-	payload, err := decodeInviteCode(code.InviteCode)
+	if !strings.HasPrefix(invite.InviteCode, "ben-invite-v4.") {
+		t.Fatalf("invite code prefix = %q", invite.InviteCode)
+	}
+	if invite.ExpiresAt.Before(invite.CreatedAt.Add(23*time.Hour)) || invite.ExpiresAt.After(invite.CreatedAt.Add(25*time.Hour)) {
+		t.Fatalf("single-use expiry = %v, created = %v", invite.ExpiresAt, invite.CreatedAt)
+	}
+	payload, err := decodeInviteCode(invite.InviteCode)
 	if err != nil {
-		t.Fatalf("decode invite code: %v", err)
+		t.Fatalf("decode invite: %v", err)
 	}
-	if payload.InviteAuth == nil {
-		t.Fatal("expected invite registry auth")
-	}
-	if err := registryauth.VerifyInviteAttestation(*payload.InviteAuth, time.Now().UTC()); err != nil {
-		t.Fatalf("verify invite registry auth: %v", err)
+	if payload.RegistryURL != infra.registryURL || len(payload.RelayBootstrapAddrs) == 0 || payload.InviteAuth == nil {
+		t.Fatalf("invite payload relay/auth = %+v", payload)
 	}
 
 	active, err := app.ListActiveInvites(ctx)
 	if err != nil {
 		t.Fatalf("list active invites: %v", err)
 	}
-	if len(active) != 1 || active[0].InviteCode != code.InviteCode {
+	if len(active) != 1 || active[0].InviteID != invite.InviteID {
 		t.Fatalf("active invites = %+v", active)
 	}
-
-	if err := app.DeleteInvite(ctx, active[0].InviteID); err != nil {
+	if err := app.DeleteInvite(ctx, invite.InviteID); err != nil {
 		t.Fatalf("delete invite: %v", err)
 	}
-
-	revoked, err := app.ListActiveInvites(ctx)
+	active, err = app.ListActiveInvites(ctx)
 	if err != nil {
-		t.Fatalf("list revoked invites: %v", err)
+		t.Fatalf("list active after delete: %v", err)
 	}
-	if len(revoked) != 0 {
-		t.Fatalf("revoked invites = %+v", revoked)
+	if len(active) != 0 {
+		t.Fatalf("active after delete = %+v", active)
 	}
 }
 
-func TestInviteCreationUsesRegistryDiscoveredRelay(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	infra := openInviteTestInfra(t)
-	app := openCacheTestApp(t, 1024)
-	app.cfg.RegistryURL = strings.TrimSpace(infra.registryURL)
-	app.cfg.RelayBootstrapAddrs = nil
-	app.cfg.EnableLANDiscovery = false
-	app.cfg.enableLANDiscoverySet = true
-
-	if _, err := app.CreateLibrary(ctx, "invite-discovered-relay"); err != nil {
-		t.Fatalf("create library: %v", err)
-	}
-
-	code, err := app.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleGuest, Uses: 1})
-	if err != nil {
-		t.Fatalf("create invite code: %v", err)
-	}
-	if !strings.HasPrefix(code.InviteCode, "ben-invite-v3.") {
-		t.Fatalf("invite code = %q", code.InviteCode)
-	}
-	payload, err := decodeInviteCode(code.InviteCode)
-	if err != nil {
-		t.Fatalf("decode invite code: %v", err)
-	}
-	if payload.InviteAuth == nil {
-		t.Fatal("expected invite registry auth")
-	}
-	if err := registryauth.VerifyInviteAttestation(*payload.InviteAuth, time.Now().UTC()); err != nil {
-		t.Fatalf("verify invite registry auth: %v", err)
-	}
-}
-
-func TestJoinApprovalFinalizeFlow(t *testing.T) {
-	t.Parallel()
-
+func TestSingleUseInviteAutoFinalizesAndDisappearsAfterApproval(t *testing.T) {
 	ctx := context.Background()
 	infra := openInviteTestInfra(t)
 	owner := openCacheTestApp(t, 1024)
@@ -308,89 +276,117 @@ func TestJoinApprovalFinalizeFlow(t *testing.T) {
 	joiner := openCacheTestApp(t, 1024)
 	configureInviteTestApp(joiner, infra)
 
-	library, err := owner.CreateLibrary(ctx, "invite-join")
+	library, err := owner.CreateLibrary(ctx, "invite-single-use")
 	if err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	code, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
+	invite, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{})
 	if err != nil {
-		t.Fatalf("create invite code: %v", err)
+		t.Fatalf("create invite: %v", err)
 	}
-
 	joinerDevice, err := joiner.ensureCurrentDevice(ctx)
 	if err != nil {
-		t.Fatalf("joiner current device: %v", err)
+		t.Fatalf("joiner device: %v", err)
 	}
-	session, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{
-		InviteCode: code.InviteCode,
+
+	attempt, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{
+		InviteCode: invite.InviteCode,
 		DeviceName: "Joiner",
 	})
 	if err != nil {
-		t.Fatalf("start join from invite: %v", err)
+		t.Fatalf("start join: %v", err)
 	}
-	if !session.Pending || session.RequestID == "" {
-		t.Fatalf("join session = %+v", session)
-	}
-
-	request := waitForJoinRequestStatus(t, ctx, owner, session.RequestID, inviteJoinStatusPending)
-	if request.DeviceID != joinerDevice.DeviceID {
-		t.Fatalf("join request device id = %q, want %q", request.DeviceID, joinerDevice.DeviceID)
+	request := waitForPendingJoinRequest(t, ctx, owner, attempt.RequestID)
+	if request.DeviceID != joinerDevice.DeviceID || request.Role != roleMember {
+		t.Fatalf("pending request = %+v", request)
 	}
 
-	job, ok, err := joiner.GetJob(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("get pending join job: %v", err)
-	}
-	if !ok || job.Kind != jobKindJoinSession || job.Phase != JobPhaseRunning {
-		t.Fatalf("pending join job = %+v ok=%v", job, ok)
-	}
-
-	if err := owner.ApproveJoinRequest(ctx, session.RequestID, roleGuest); err != nil {
+	if err := owner.ApproveJoinRequest(ctx, attempt.RequestID); err != nil {
 		t.Fatalf("approve join request: %v", err)
 	}
-
-	session = waitForJoinSessionStatus(t, ctx, joiner, session.SessionID, joinSessionStatusApproved)
-	if session.Role != roleGuest {
-		t.Fatalf("approved session role = %q, want %q", session.Role, roleGuest)
+	if requests, err := owner.ListJoinRequests(ctx); err != nil || len(requests) != 0 {
+		t.Fatalf("visible requests after approval = %+v err=%v", requests, err)
 	}
-	job, ok, err = joiner.GetJob(ctx, session.SessionID)
+	completed := waitForJoinAttemptStatus(t, ctx, joiner, attempt.AttemptID, inviteJoinStatusCompleted)
+	if completed.Role != roleMember || completed.LibraryID != library.LibraryID {
+		t.Fatalf("completed attempt = %+v", completed)
+	}
+	active, err := owner.ListActiveInvites(ctx)
 	if err != nil {
-		t.Fatalf("get approved join job: %v", err)
+		t.Fatalf("list active invites: %v", err)
 	}
-	if !ok || job.Phase != JobPhaseRunning || !strings.Contains(job.Message, "approved") {
-		t.Fatalf("approved join job = %+v ok=%v", job, ok)
+	if len(active) != 0 {
+		t.Fatalf("single-use invite still active = %+v", active)
 	}
 
-	result, err := joiner.FinalizeJoinSession(ctx, session.SessionID)
+	local, err := joiner.EnsureLocalContext(ctx)
 	if err != nil {
-		t.Fatalf("finalize join session: %v", err)
+		t.Fatalf("joiner local context: %v", err)
 	}
-	if result.LibraryID != library.LibraryID || result.DeviceID != joinerDevice.DeviceID || result.Role != roleGuest {
-		t.Fatalf("join result = %+v", result)
+	if local.LibraryID != library.LibraryID {
+		t.Fatalf("active library = %q, want %q", local.LibraryID, library.LibraryID)
 	}
-
-	job, ok, err = joiner.GetJob(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("get completed join job: %v", err)
-	}
-	if !ok || job.Phase != JobPhaseCompleted {
-		t.Fatalf("completed join job = %+v ok=%v", job, ok)
-	}
-
 	var membership Membership
 	if err := joiner.db.WithContext(ctx).
 		Where("library_id = ? AND device_id = ?", library.LibraryID, joinerDevice.DeviceID).
 		Take(&membership).Error; err != nil {
 		t.Fatalf("load joined membership: %v", err)
 	}
-	if membership.Role != roleGuest {
-		t.Fatalf("membership role = %q, want %q", membership.Role, roleGuest)
+	if membership.Role != roleMember {
+		t.Fatalf("membership role = %q, want %q", membership.Role, roleMember)
 	}
 }
 
-func TestStartFinalizeJoinSessionAsync(t *testing.T) {
-	t.Parallel()
+func TestReusableInviteSurvivesApprovalsUntilRevoked(t *testing.T) {
+	ctx := context.Background()
+	infra := openInviteTestInfra(t)
+	owner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(owner, infra)
+	firstJoiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(firstJoiner, infra)
+	secondJoiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(secondJoiner, infra)
 
+	if _, err := owner.CreateLibrary(ctx, "invite-reusable"); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	invite, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleGuest, Reusable: true})
+	if err != nil {
+		t.Fatalf("create reusable invite: %v", err)
+	}
+	if !invite.Reusable || !invite.ExpiresAt.IsZero() {
+		t.Fatalf("reusable invite = %+v", invite)
+	}
+
+	first := startAndApproveJoin(t, ctx, owner, firstJoiner, invite.InviteCode)
+	if first.Role != roleGuest {
+		t.Fatalf("first joined role = %q, want %q", first.Role, roleGuest)
+	}
+	active, err := owner.ListActiveInvites(ctx)
+	if err != nil {
+		t.Fatalf("list active after first join: %v", err)
+	}
+	if len(active) != 1 || active[0].InviteID != invite.InviteID {
+		t.Fatalf("reusable invite after first join = %+v", active)
+	}
+
+	second := startAndApproveJoin(t, ctx, owner, secondJoiner, invite.InviteCode)
+	if second.Role != roleGuest {
+		t.Fatalf("second joined role = %q, want %q", second.Role, roleGuest)
+	}
+	if err := owner.DeleteInvite(ctx, invite.InviteID); err != nil {
+		t.Fatalf("revoke reusable invite: %v", err)
+	}
+	active, err = owner.ListActiveInvites(ctx)
+	if err != nil {
+		t.Fatalf("list active after revoke: %v", err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("reusable invite after revoke = %+v", active)
+	}
+}
+
+func TestPendingJoinRequestsAreMemoryOnly(t *testing.T) {
 	ctx := context.Background()
 	infra := openInviteTestInfra(t)
 	owner := openCacheTestApp(t, 1024)
@@ -398,130 +394,30 @@ func TestStartFinalizeJoinSessionAsync(t *testing.T) {
 	joiner := openCacheTestApp(t, 1024)
 	configureInviteTestApp(joiner, infra)
 
-	library, err := owner.CreateLibrary(ctx, "invite-join-async")
-	if err != nil {
+	if _, err := owner.CreateLibrary(ctx, "invite-memory-only"); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	code, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
+	invite, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{})
 	if err != nil {
-		t.Fatalf("create invite code: %v", err)
+		t.Fatalf("create invite: %v", err)
 	}
-
-	session, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{
-		InviteCode: code.InviteCode,
-		DeviceName: "Joiner Async",
-	})
+	attempt, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: invite.InviteCode})
 	if err != nil {
-		t.Fatalf("start join from invite: %v", err)
+		t.Fatalf("start join: %v", err)
 	}
-	if err := owner.ApproveJoinRequest(ctx, session.RequestID, roleGuest); err != nil {
-		t.Fatalf("approve join request: %v", err)
-	}
-	waitForJoinSessionStatus(t, ctx, joiner, session.SessionID, joinSessionStatusApproved)
+	waitForPendingJoinRequest(t, ctx, owner, attempt.RequestID)
 
-	job, err := joiner.StartFinalizeJoinSession(ctx, session.SessionID)
+	owner.invite = &InviteService{app: owner}
+	requests, err := owner.ListJoinRequests(ctx)
 	if err != nil {
-		t.Fatalf("start finalize join session: %v", err)
+		t.Fatalf("list join requests after service restart: %v", err)
 	}
-	if job.JobID != finalizeJoinSessionJobID(session.SessionID) || job.Kind != jobKindFinalizeJoinSession || job.Phase != JobPhaseQueued {
-		t.Fatalf("unexpected queued finalize job: %+v", job)
-	}
-
-	final := waitForJobPhaseWithin(t, ctx, joiner, finalizeJoinSessionJobID(session.SessionID), JobPhaseCompleted, 20*time.Second)
-	if final.Kind != jobKindFinalizeJoinSession || final.LibraryID != library.LibraryID {
-		t.Fatalf("unexpected final finalize job: %+v", final)
-	}
-
-	joined := waitForJoinSessionStatus(t, ctx, joiner, session.SessionID, joinSessionStatusCompleted)
-	if joined.Role != roleGuest {
-		t.Fatalf("finalized join session = %+v", joined)
+	if len(requests) != 0 {
+		t.Fatalf("persisted join requests = %+v", requests)
 	}
 }
 
-func TestJoinRejectCancelAndInviteUseLimit(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	infra := openInviteTestInfra(t)
-	owner := openCacheTestApp(t, 1024)
-	configureInviteTestApp(owner, infra)
-	rejectedJoiner := openCacheTestApp(t, 1024)
-	configureInviteTestApp(rejectedJoiner, infra)
-	canceledJoiner := openCacheTestApp(t, 1024)
-	configureInviteTestApp(canceledJoiner, infra)
-	approvedJoiner := openCacheTestApp(t, 1024)
-	configureInviteTestApp(approvedJoiner, infra)
-	exhaustedJoiner := openCacheTestApp(t, 1024)
-	configureInviteTestApp(exhaustedJoiner, infra)
-
-	if _, err := owner.CreateLibrary(ctx, "invite-limits"); err != nil {
-		t.Fatalf("create library: %v", err)
-	}
-	code, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
-	if err != nil {
-		t.Fatalf("create invite code: %v", err)
-	}
-
-	rejected, err := rejectedJoiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: code.InviteCode})
-	if err != nil {
-		t.Fatalf("start rejected join: %v", err)
-	}
-	if err := owner.RejectJoinRequest(ctx, rejected.RequestID, "no"); err != nil {
-		t.Fatalf("reject join request: %v", err)
-	}
-	waitForJoinSessionStatus(t, ctx, rejectedJoiner, rejected.SessionID, joinSessionStatusRejected)
-	job, ok, err := rejectedJoiner.GetJob(ctx, rejected.SessionID)
-	if err != nil {
-		t.Fatalf("get rejected join job: %v", err)
-	}
-	if !ok || job.Phase != JobPhaseFailed {
-		t.Fatalf("rejected join job = %+v ok=%v", job, ok)
-	}
-	if _, err := rejectedJoiner.FinalizeJoinSession(ctx, rejected.SessionID); err == nil || !strings.Contains(err.Error(), joinSessionStatusRejected) {
-		t.Fatalf("finalize rejected join err = %v", err)
-	}
-
-	canceled, err := canceledJoiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: code.InviteCode})
-	if err != nil {
-		t.Fatalf("start canceled join: %v", err)
-	}
-	if err := canceledJoiner.CancelJoinSession(ctx, canceled.SessionID); err != nil {
-		t.Fatalf("cancel join session: %v", err)
-	}
-	waitForJoinRequestStatus(t, ctx, owner, canceled.RequestID, inviteJoinStatusRejected)
-	job, ok, err = canceledJoiner.GetJob(ctx, canceled.SessionID)
-	if err != nil {
-		t.Fatalf("get canceled join job: %v", err)
-	}
-	if !ok || job.Phase != JobPhaseFailed {
-		t.Fatalf("canceled join job = %+v ok=%v", job, ok)
-	}
-	if _, err := canceledJoiner.GetJoinSession(ctx, canceled.SessionID); err != nil {
-		t.Fatalf("get canceled join session: %v", err)
-	}
-
-	approved, err := approvedJoiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: code.InviteCode})
-	if err != nil {
-		t.Fatalf("start approved join: %v", err)
-	}
-	exhausted, err := exhaustedJoiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: code.InviteCode})
-	if err != nil {
-		t.Fatalf("start exhausted join: %v", err)
-	}
-	if err := owner.ApproveJoinRequest(ctx, approved.RequestID, roleMember); err != nil {
-		t.Fatalf("approve first limited-use join: %v", err)
-	}
-	waitForJoinRequestStatus(t, ctx, owner, exhausted.RequestID, inviteJoinStatusRejected)
-	waitForJoinSessionStatus(t, ctx, exhaustedJoiner, exhausted.SessionID, joinSessionStatusRejected)
-	if err := owner.ApproveJoinRequest(ctx, exhausted.RequestID, roleMember); err == nil ||
-		(!strings.Contains(err.Error(), "no remaining uses") && !strings.Contains(err.Error(), "expected pending")) {
-		t.Fatalf("approve exhausted invite err = %v", err)
-	}
-}
-
-func TestFinalizeJoinSessionRestoresLibraryMaterialAndOwnerContext(t *testing.T) {
-	t.Parallel()
-
+func TestMissingRelayPresenceReturnsInviteHostUnavailable(t *testing.T) {
 	ctx := context.Background()
 	infra := openInviteTestInfra(t)
 	owner := openCacheTestApp(t, 1024)
@@ -529,214 +425,79 @@ func TestFinalizeJoinSessionRestoresLibraryMaterialAndOwnerContext(t *testing.T)
 	joiner := openCacheTestApp(t, 1024)
 	configureInviteTestApp(joiner, infra)
 
-	library, err := owner.CreateLibrary(ctx, "restore-join-material")
-	if err != nil {
+	if _, err := owner.CreateLibrary(ctx, "invite-owner-unavailable"); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	ownerLocal, err := owner.requireActiveContext(ctx)
+	invite, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{})
 	if err != nil {
-		t.Fatalf("owner active context: %v", err)
+		t.Fatalf("create invite: %v", err)
 	}
-	code, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleAdmin, Uses: 1})
-	if err != nil {
-		t.Fatalf("create invite code: %v", err)
-	}
+	infra.registry.clearPresence()
 
-	session, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{
-		InviteCode: code.InviteCode,
-		DeviceName: "Restore Device",
-	})
-	if err != nil {
-		t.Fatalf("start join session: %v", err)
-	}
-	if err := owner.ApproveJoinRequest(ctx, session.RequestID, roleAdmin); err != nil {
-		t.Fatalf("approve join request: %v", err)
-	}
-	waitForJoinSessionStatus(t, ctx, joiner, session.SessionID, joinSessionStatusApproved)
-
-	result, err := joiner.FinalizeJoinSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("finalize join session: %v", err)
-	}
-	if result.LibraryID != library.LibraryID || result.Role != roleAdmin {
-		t.Fatalf("unexpected join result: %+v", result)
-	}
-
-	var restored Library
-	if err := joiner.db.WithContext(ctx).Where("library_id = ?", library.LibraryID).Take(&restored).Error; err != nil {
-		t.Fatalf("load restored library: %v", err)
-	}
-	if restored.Name != "restore-join-material" {
-		t.Fatalf("restored library name = %q, want %q", restored.Name, "restore-join-material")
-	}
-	if strings.TrimSpace(restored.RootPublicKey) == "" || strings.TrimSpace(restored.LibraryKey) == "" {
-		t.Fatalf("restored library material = %+v", restored)
-	}
-
-	var authority AdmissionAuthority
-	if err := joiner.db.WithContext(ctx).
-		Where("library_id = ?", library.LibraryID).
-		Order("version DESC").
-		Take(&authority).Error; err != nil {
-		t.Fatalf("load restored admission authority: %v", err)
-	}
-	if authority.Version != 1 || strings.TrimSpace(authority.PublicKey) == "" {
-		t.Fatalf("restored admission authority = %+v", authority)
-	}
-
-	privateKey, err := localSettingValueTx(joiner.db.WithContext(ctx), admissionAuthorityPrivateKeyLocalSettingKey(library.LibraryID, authority.Version))
-	if err != nil {
-		t.Fatalf("load admission authority private key: %v", err)
-	}
-	if strings.TrimSpace(privateKey) == "" {
-		t.Fatalf("expected restored admission authority private key")
-	}
-
-	var ownerDevice Device
-	if err := joiner.db.WithContext(ctx).Where("device_id = ?", ownerLocal.DeviceID).Take(&ownerDevice).Error; err != nil {
-		t.Fatalf("load restored owner device: %v", err)
-	}
-	if strings.TrimSpace(ownerDevice.PeerID) == "" {
-		t.Fatalf("restored owner device = %+v", ownerDevice)
-	}
-
-	var ownerMembership Membership
-	if err := joiner.db.WithContext(ctx).
-		Where("library_id = ? AND device_id = ?", library.LibraryID, ownerLocal.DeviceID).
-		Take(&ownerMembership).Error; err != nil {
-		t.Fatalf("load restored owner membership: %v", err)
-	}
-	if ownerMembership.Role != roleAdmin {
-		t.Fatalf("restored owner role = %q, want %q", ownerMembership.Role, roleAdmin)
+	_, err = joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: invite.InviteCode})
+	if err == nil || !strings.Contains(err.Error(), "invite host unavailable") {
+		t.Fatalf("start join err = %v", err)
 	}
 }
 
-func TestJoinSessionRefreshResumesAfterRestart(t *testing.T) {
-	t.Parallel()
-
+func TestPerLibraryRelayConfigSeedsEncodesAndRestores(t *testing.T) {
 	ctx := context.Background()
-	infra := openInviteTestInfra(t)
-	ownerRoot := filepath.Join(t.TempDir(), "owner")
-	joinerRoot := filepath.Join(t.TempDir(), "joiner")
-
-	owner := openPlaylistTestAppAtPath(t, ownerRoot)
-	configureInviteTestApp(owner, infra)
-	t.Cleanup(func() {
-		_ = owner.Close()
-	})
-	joiner := openPlaylistTestAppAtPath(t, joinerRoot)
-	configureInviteTestApp(joiner, infra)
-
-	library, err := owner.CreateLibrary(ctx, "invite-restart-resume")
-	if err != nil {
-		t.Fatalf("create library: %v", err)
-	}
-	code, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
-	if err != nil {
-		t.Fatalf("create invite code: %v", err)
-	}
-
-	session, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: code.InviteCode})
-	if err != nil {
-		t.Fatalf("start join session: %v", err)
-	}
-	if err := joiner.Close(); err != nil {
-		t.Fatalf("close joiner before restart: %v", err)
-	}
-
-	joiner = openPlaylistTestAppAtPath(t, joinerRoot)
-	configureInviteTestApp(joiner, infra)
-	t.Cleanup(func() {
-		_ = joiner.Close()
-	})
-
-	if err := owner.ApproveJoinRequest(ctx, session.RequestID, roleMember); err != nil {
-		t.Fatalf("approve join request: %v", err)
-	}
-	waitForJoinSessionStatus(t, ctx, joiner, session.SessionID, joinSessionStatusApproved)
-
-	result, err := joiner.FinalizeJoinSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("finalize restarted join session: %v", err)
-	}
-	if result.LibraryID != library.LibraryID || result.Role != roleMember {
-		t.Fatalf("unexpected restarted join result: %+v", result)
-	}
-}
-
-func TestNewJoinAttemptSupersedesOlderApprovedSession(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	infra := openInviteTestInfra(t)
+	initial := openInviteTestInfra(t)
+	next := openInviteTestInfra(t)
 	owner := openCacheTestApp(t, 1024)
-	configureInviteTestApp(owner, infra)
+	configureInviteTestApp(owner, initial)
 	joiner := openCacheTestApp(t, 1024)
-	configureInviteTestApp(joiner, infra)
 
-	if _, err := owner.CreateLibrary(ctx, "invite-supersede-approved"); err != nil {
+	library, err := owner.CreateLibrary(ctx, "invite-library-relay")
+	if err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-
-	code1, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
+	seeded, err := owner.GetLibraryRelayConfig(ctx, library.LibraryID)
 	if err != nil {
-		t.Fatalf("create first invite code: %v", err)
+		t.Fatalf("get seeded relay config: %v", err)
 	}
-	session1, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{
-		InviteCode: code1.InviteCode,
-		DeviceName: "Superseded Joiner",
+	if seeded.RegistryURL != initial.registryURL || strings.Join(seeded.RelayBootstrapAddrs, "\n") != strings.Join(initial.relayBootstrapAddrs, "\n") {
+		t.Fatalf("seeded relay config = %+v", seeded)
+	}
+
+	updated, err := owner.UpdateLibraryRelayConfig(ctx, apitypes.UpdateLibraryRelayConfigRequest{
+		LibraryID:           library.LibraryID,
+		RegistryURL:         next.registryURL,
+		RelayBootstrapAddrs: next.relayBootstrapAddrs,
 	})
 	if err != nil {
-		t.Fatalf("start first join session: %v", err)
+		t.Fatalf("update relay config: %v", err)
 	}
-	if err := owner.ApproveJoinRequest(ctx, session1.RequestID, roleMember); err != nil {
-		t.Fatalf("approve first join request: %v", err)
+	if updated.RegistryURL != next.registryURL {
+		t.Fatalf("updated relay config = %+v", updated)
 	}
-	waitForJoinSessionStatus(t, ctx, joiner, session1.SessionID, joinSessionStatusApproved)
-
-	code2, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: roleMember, Uses: 1})
+	invite, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{})
 	if err != nil {
-		t.Fatalf("create second invite code: %v", err)
+		t.Fatalf("create invite with updated relay: %v", err)
 	}
-	session2, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{
-		InviteCode: code2.InviteCode,
-		DeviceName: "Replacement Joiner",
-	})
+	payload, err := decodeInviteCode(invite.InviteCode)
 	if err != nil {
-		t.Fatalf("start second join session: %v", err)
+		t.Fatalf("decode invite: %v", err)
+	}
+	if payload.RegistryURL != next.registryURL || strings.Join(payload.RelayBootstrapAddrs, "\n") != strings.Join(next.relayBootstrapAddrs, "\n") {
+		t.Fatalf("encoded relay config = %+v", payload)
 	}
 
-	superseded, err := joiner.GetJoinSession(ctx, session1.SessionID)
+	startAndApproveJoin(t, ctx, owner, joiner, invite.InviteCode)
+	restored, err := joiner.GetLibraryRelayConfig(ctx, library.LibraryID)
 	if err != nil {
-		t.Fatalf("reload superseded join session: %v", err)
+		t.Fatalf("get restored relay config: %v", err)
 	}
-	if superseded.Status != joinSessionStatusFailed {
-		t.Fatalf("superseded join session status = %q, want %q", superseded.Status, joinSessionStatusFailed)
+	if restored.RegistryURL != next.registryURL || strings.Join(restored.RelayBootstrapAddrs, "\n") != strings.Join(next.relayBootstrapAddrs, "\n") {
+		t.Fatalf("restored relay config = %+v", restored)
 	}
-	if !strings.Contains(strings.ToLower(superseded.Message), "superseded") {
-		t.Fatalf("superseded join session message = %q", superseded.Message)
-	}
-	if _, err := joiner.FinalizeJoinSession(ctx, session1.SessionID); err == nil || !strings.Contains(err.Error(), joinSessionStatusFailed) {
-		t.Fatalf("finalize superseded join session err = %v", err)
-	}
-
-	if err := owner.ApproveJoinRequest(ctx, session2.RequestID, roleMember); err != nil {
-		t.Fatalf("approve second join request: %v", err)
-	}
-	waitForJoinSessionStatus(t, ctx, joiner, session2.SessionID, joinSessionStatusApproved)
-
-	result, err := joiner.FinalizeJoinSession(ctx, session2.SessionID)
-	if err != nil {
-		t.Fatalf("finalize second join session: %v", err)
-	}
-	if result.LibraryID == "" || result.RequestID != session2.RequestID {
-		t.Fatalf("unexpected second join result: %+v", result)
+	status := joiner.NetworkStatus()
+	if status.RegistryURL != next.registryURL {
+		t.Fatalf("active transport registry url = %q, want %q", status.RegistryURL, next.registryURL)
 	}
 }
 
 func TestOpenInviteClientTransportReusesActiveSyncHost(t *testing.T) {
-	t.Parallel()
-
 	ctx := context.Background()
 	app := openPlaylistTestApp(t)
 
@@ -779,8 +540,6 @@ func TestOpenInviteClientTransportReusesActiveSyncHost(t *testing.T) {
 }
 
 func TestFilterRelayInviteAddrsSkipsDirectAddrs(t *testing.T) {
-	t.Parallel()
-
 	relayPeerID := mustGenerateTestPeerID(t)
 	ownerPeerID := mustGenerateTestPeerID(t)
 	addrs := filterRelayInviteAddrs([]string{
@@ -793,59 +552,64 @@ func TestFilterRelayInviteAddrsSkipsDirectAddrs(t *testing.T) {
 	}
 }
 
-func waitForJoinSessionStatus(t *testing.T, ctx context.Context, app *App, sessionID, want string) apitypes.JoinSession {
+func startAndApproveJoin(t *testing.T, ctx context.Context, owner, joiner *App, code string) apitypes.JoinAttempt {
 	t.Helper()
 
-	deadline := time.Now().Add(20 * time.Second)
-	var lastErr error
-	lastStatus := ""
-	for time.Now().Before(deadline) {
-		session, err := app.GetJoinSession(ctx, sessionID)
-		if err == nil && session.Status == want {
-			return session
-		}
-		if err != nil {
-			lastErr = err
-		} else {
-			lastStatus = session.Status
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	session, err := app.GetJoinSession(ctx, sessionID)
+	attempt, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: code})
 	if err != nil {
-		if lastErr != nil {
-			t.Fatalf("get join session after wait: %v (last poll err: %v, last poll status: %q)", err, lastErr, lastStatus)
-		}
-		t.Fatalf("get join session after wait: %v", err)
+		t.Fatalf("start join: %v", err)
 	}
-	if lastErr != nil {
-		t.Fatalf("join session %q status = %q, want %q (last poll err: %v, last poll status: %q)", sessionID, session.Status, want, lastErr, lastStatus)
+	waitForPendingJoinRequest(t, ctx, owner, attempt.RequestID)
+	if err := owner.ApproveJoinRequest(ctx, attempt.RequestID); err != nil {
+		t.Fatalf("approve join request: %v", err)
 	}
-	t.Fatalf("join session %q status = %q, want %q", sessionID, session.Status, want)
-	return apitypes.JoinSession{}
+	return waitForJoinAttemptStatus(t, ctx, joiner, attempt.AttemptID, inviteJoinStatusCompleted)
 }
 
-func waitForJoinRequestStatus(t *testing.T, ctx context.Context, app *App, requestID, want string) apitypes.InviteJoinRequestRecord {
+func waitForPendingJoinRequest(t *testing.T, ctx context.Context, app *App, requestID string) apitypes.InviteJoinRequestRecord {
 	t.Helper()
 
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		rows, err := app.ListJoinRequests(ctx, "")
+		rows, err := app.ListJoinRequests(ctx)
 		if err == nil {
 			for _, row := range rows {
-				if row.RequestID == requestID && row.Status == want {
+				if row.RequestID == requestID {
 					return row
 				}
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-
-	rows, err := app.ListJoinRequests(ctx, "")
+	rows, err := app.ListJoinRequests(ctx)
 	if err != nil {
 		t.Fatalf("list join requests after wait: %v", err)
 	}
-	t.Fatalf("request %q status did not reach %q: %+v", requestID, want, rows)
+	t.Fatalf("request %q not visible as pending: %+v", requestID, rows)
 	return apitypes.InviteJoinRequestRecord{}
+}
+
+func waitForJoinAttemptStatus(t *testing.T, ctx context.Context, app *App, attemptID, want string) apitypes.JoinAttempt {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var last apitypes.JoinAttempt
+	var lastErr error
+	for time.Now().Before(deadline) {
+		attempt, err := app.GetJoinAttempt(ctx, attemptID)
+		if err == nil {
+			last = attempt
+			if attempt.Status == want {
+				return attempt
+			}
+		} else {
+			lastErr = err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if lastErr != nil {
+		t.Fatalf("join attempt %q did not reach %q; last error: %v; last attempt: %+v", attemptID, want, lastErr, last)
+	}
+	t.Fatalf("join attempt %q status = %q, want %q; attempt: %+v", attemptID, last.Status, want, last)
+	return apitypes.JoinAttempt{}
 }

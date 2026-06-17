@@ -80,9 +80,11 @@ func (s *LibraryService) CreateLibrary(ctx context.Context, name string) (apityp
 	libraryID := uuid.NewString()
 	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Create(&Library{
-			LibraryID: libraryID,
-			Name:      name,
-			CreatedAt: now,
+			LibraryID:               libraryID,
+			Name:                    name,
+			RegistryURL:             strings.TrimSpace(s.app.cfg.RegistryURL),
+			RelayBootstrapAddrsJSON: encodeStringListJSON(s.app.cfg.RelayBootstrapAddrs),
+			CreatedAt:               now,
 		}).Error; err != nil {
 			return err
 		}
@@ -238,7 +240,7 @@ func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) er
 		}
 		models := []any{
 			&Membership{}, &ScanRoot{}, &PinBlobRef{}, &PinMember{}, &PinRoot{}, &AdmissionAuthority{}, &MembershipCert{}, &MembershipCertRevocation{},
-			&MembershipRecovery{}, &InviteJoinRequest{}, &InviteTokenRedemption{}, &IssuedInvite{}, &JoinSession{},
+			&MembershipRecovery{}, &IssuedInvite{},
 			&Artist{}, &Credit{}, &AlbumVariantModel{}, &TrackVariantModel{}, &AlbumTrack{}, &DeviceVariantPreference{},
 			&SourceFileModel{}, &OptimizedAssetModel{}, &DeviceAssetCacheModel{}, &ArtworkVariant{}, &Playlist{},
 			&PlaylistItem{}, &OplogEntry{}, &DeviceClock{}, &PeerSyncState{}, &LibraryCheckpoint{}, &LibraryCheckpointChunk{},

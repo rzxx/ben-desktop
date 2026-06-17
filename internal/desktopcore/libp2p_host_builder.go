@@ -57,7 +57,11 @@ func (a *App) newSharedLibp2pHost(opts libp2pHostBuildOptions) (host.Host, error
 		return nil, fmt.Errorf("load transport identity: %w", err)
 	}
 
-	staticRelays, err := parseRelayBootstrapAddrInfos(a.relayBootstrapAddrsForHost(opts.relayBootstrapAddrs))
+	relayBootstrapAddrs := compactNonEmptyStrings(opts.relayBootstrapAddrs)
+	if len(relayBootstrapAddrs) == 0 {
+		relayBootstrapAddrs = a.relayBootstrapAddrsForHost(nil)
+	}
+	staticRelays, err := parseRelayBootstrapAddrInfos(relayBootstrapAddrs)
 	if err != nil {
 		return nil, err
 	}
@@ -160,11 +164,15 @@ func (a *App) ensureActiveTransportRelayReservation(ctx context.Context, timeout
 	if len(transport.relayReservationAddrs()) > 0 {
 		return nil
 	}
-	relays, err := parseRelayBootstrapAddrInfos(a.relayBootstrapAddrsForHost(nil))
+	relays, err := a.relayBootstrapAddrsForLibrary(ctx, transport.libraryID, nil)
 	if err != nil {
 		return err
 	}
-	if len(relays) == 0 {
+	relaysInfo, err := parseRelayBootstrapAddrInfos(relays)
+	if err != nil {
+		return err
+	}
+	if len(relaysInfo) == 0 {
 		return nil
 	}
 	if timeout <= 0 {
@@ -179,7 +187,7 @@ func (a *App) ensureActiveTransportRelayReservation(ctx context.Context, timeout
 		if len(transport.relayReservationAddrs()) > 0 {
 			return nil
 		}
-		for _, info := range relays {
+		for _, info := range relaysInfo {
 			if waitCtx.Err() != nil {
 				break
 			}
@@ -254,7 +262,10 @@ func (a *App) authorizeRelayReservation(ctx context.Context, transport *libp2pSy
 	if a == nil || transport == nil || transport.host == nil {
 		return nil
 	}
-	locator := a.peerLocator(a.cfg.RegistryURL)
+	locator, _, err := a.peerLocatorForLibrary(ctx, transport.libraryID)
+	if err != nil {
+		return err
+	}
 	if locator == nil {
 		return nil
 	}
