@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { NotificationCenter } from "@/components/notifications/NotificationCenter";
 import { NotificationRuntime } from "@/components/notifications/NotificationRuntime";
 import { ObservabilityPanel } from "@/components/observability/ObservabilityPanel";
+import { Toaster } from "@/components/ui/Toaster";
 import { ObservabilityRuntime } from "@/components/observability/ObservabilityRuntime";
 import { PlayerBar } from "@/components/playback/PlayerBar";
 import { QueueSidebar } from "@/components/playback/QueueSidebar";
@@ -117,6 +118,7 @@ export function AppShell({ children }: PropsWithChildren) {
       <ThemeRuntime />
       <ObservabilityRuntime />
       <TitleBar />
+      <Toaster />
       <NotificationRuntime />
       <NotificationCenter />
       {notificationVerbosity === "everything" ? <ObservabilityPanel /> : null}

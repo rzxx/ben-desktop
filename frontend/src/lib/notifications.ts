@@ -1,5 +1,4 @@
 import type {
-  NotificationAudience,
   NotificationPhase,
   NotificationSnapshot,
   NotificationVerbosity,
@@ -7,17 +6,7 @@ import type {
 
 export type NotificationFilter = "all" | "user" | "system";
 
-export const notificationToastHistoryStorageKey =
-  "ben.notifications.toast-history";
-
 const notificationToastHistoryLimit = 200;
-
-export function upsertNotificationSnapshots(
-  current: NotificationSnapshot[],
-  next: NotificationSnapshot,
-) {
-  return applyNotificationSnapshotBatch(current, [next]);
-}
 
 export function applyNotificationSnapshotBatch(
   current: NotificationSnapshot[],
@@ -178,42 +167,6 @@ export function notificationDescription(notification: NotificationSnapshot) {
   return detail;
 }
 
-export function notificationMetaLine(notification: NotificationSnapshot) {
-  const parts = [
-    audienceLabel(notification.audience),
-    importanceLabel(notification.importance),
-  ].filter(Boolean);
-  return parts.join(" • ");
-}
-
-export function phaseLabel(phase?: NotificationPhase | string | null) {
-  switch (phase) {
-    case "queued":
-      return "Queued";
-    case "running":
-      return "Running";
-    case "success":
-      return "Done";
-    case "error":
-      return "Failed";
-    default:
-      return "Active";
-  }
-}
-
-export function phaseTone(phase?: NotificationPhase | string | null) {
-  switch (phase) {
-    case "success":
-      return "border-emerald-400/25 bg-emerald-400/12 text-emerald-100";
-    case "error":
-      return "border-rose-400/25 bg-rose-400/12 text-rose-100";
-    case "queued":
-      return "border-amber-300/20 bg-amber-300/12 text-amber-100";
-    default:
-      return "border-sky-400/20 bg-sky-400/12 text-sky-100";
-  }
-}
-
 export function notificationTimeout(notification: NotificationSnapshot) {
   if (notification.phase === "error") {
     return 0;
@@ -222,27 +175,6 @@ export function notificationTimeout(notification: NotificationSnapshot) {
     return 3200;
   }
   return 0;
-}
-
-export function relativeNotificationTime(value?: Date | string | null) {
-  if (!value) {
-    return "";
-  }
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  const diff = Date.now() - date.getTime();
-  if (diff < 60_000) {
-    return "just now";
-  }
-  if (diff < 3_600_000) {
-    return `${Math.max(1, Math.round(diff / 60_000))}m ago`;
-  }
-  if (diff < 86_400_000) {
-    return `${Math.max(1, Math.round(diff / 3_600_000))}h ago`;
-  }
-  return date.toLocaleString();
 }
 
 export function notificationTimestamp(value?: Date | string | null) {
@@ -284,61 +216,6 @@ export function recordNotificationToastShown(
     ...history,
     [notification.id]: version,
   });
-}
-
-export function readNotificationToastHistory(raw?: string | null) {
-  if (!raw) {
-    return {};
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-
-    const history = Object.fromEntries(
-      Object.entries(parsed).flatMap(([id, value]) =>
-        typeof value === "number" && Number.isFinite(value) && value > 0
-          ? [[id, Math.trunc(value)]]
-          : [],
-      ),
-    );
-
-    return trimNotificationToastHistory(history);
-  } catch {
-    return {};
-  }
-}
-
-export function serializeNotificationToastHistory(
-  history: Record<string, number>,
-) {
-  return JSON.stringify(trimNotificationToastHistory(history));
-}
-
-function audienceLabel(audience?: NotificationAudience | string | null) {
-  switch (audience) {
-    case "user":
-      return "User";
-    case "system":
-      return "System";
-    default:
-      return "";
-  }
-}
-
-function importanceLabel(importance?: string | null) {
-  switch (importance) {
-    case "important":
-      return "Important";
-    case "normal":
-      return "Activity";
-    case "debug":
-      return "Debug";
-    default:
-      return "";
-  }
 }
 
 function notificationsEqual(

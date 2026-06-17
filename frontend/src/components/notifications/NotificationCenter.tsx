@@ -1,5 +1,5 @@
 import { BellRing, X } from "lucide-react";
-import { NotificationCard } from "@/components/notifications/NotificationCard";
+import { NotificationItem } from "@/components/notifications/NotificationItem";
 import {
   isNotificationActive,
   matchesNotificationFilter,
@@ -160,7 +160,7 @@ function Section({
         <div className="space-y-3">
           {items.map((notification) => (
             <div className="relative" key={notification.id}>
-              <NotificationCard
+              <NotificationItem
                 muted={!shouldToastNotification(notification, verbosity)}
                 notification={notification}
               />

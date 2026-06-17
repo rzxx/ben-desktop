@@ -5,11 +5,8 @@ import {
   hasNotificationToastBeenShown,
   matchesNotificationFilter,
   notificationHeading,
-  readNotificationToastHistory,
   recordNotificationToastShown,
-  serializeNotificationToastHistory,
   shouldToastNotification,
-  upsertNotificationSnapshots,
 } from "./notifications";
 
 function makeNotification(source: Partial<Types.NotificationSnapshot> = {}) {
@@ -24,51 +21,6 @@ function makeNotification(source: Partial<Types.NotificationSnapshot> = {}) {
     ...source,
   });
 }
-
-describe("upsertNotificationSnapshots", () => {
-  test("replaces an existing notification by stable id", () => {
-    const current = [
-      makeNotification({
-        id: "scan-1",
-        message: "Queued",
-        updatedAt: "2026-03-21T10:00:00.000Z",
-      }),
-      makeNotification({
-        id: "sync-1",
-        kind: "sync-now",
-        updatedAt: "2026-03-21T09:59:00.000Z",
-      }),
-    ];
-
-    const next = makeNotification({
-      id: "scan-1",
-      message: "Running",
-      phase: Types.NotificationPhase.NotificationPhaseRunning,
-      updatedAt: "2026-03-21T10:01:00.000Z",
-    });
-
-    const updated = upsertNotificationSnapshots(current, next);
-
-    expect(updated).toHaveLength(2);
-    expect(updated[0].id).toBe("scan-1");
-    expect(updated[0].message).toBe("Running");
-    expect(updated[1].id).toBe("sync-1");
-  });
-
-  test("keeps the same array reference when nothing changed", () => {
-    const current = [
-      makeNotification({
-        id: "scan-1",
-        message: "Running",
-        updatedAt: "2026-03-21T10:01:00.000Z",
-      }),
-    ];
-
-    const updated = upsertNotificationSnapshots(current, current[0]);
-
-    expect(updated).toBe(current);
-  });
-});
 
 describe("applyNotificationSnapshotBatch", () => {
   test("applies the latest snapshot per id and sorts once at the end", () => {
@@ -179,28 +131,6 @@ describe("notification toast history", () => {
     expect(hasNotificationToastBeenShown(queued, afterQueued)).toBe(true);
     expect(hasNotificationToastBeenShown(completed, afterQueued)).toBe(false);
     expect(hasNotificationToastBeenShown(completed, afterCompleted)).toBe(true);
-  });
-
-  test("ignores malformed persisted history", () => {
-    expect(readNotificationToastHistory("not-json")).toEqual({});
-    expect(
-      readNotificationToastHistory(
-        '{"scan-1":"bad","scan-2":0,"scan-3":1700000000000}',
-      ),
-    ).toEqual({
-      "scan-3": 1700000000000,
-    });
-  });
-
-  test("serializes a stable persisted history payload", () => {
-    const history = {
-      "scan-1": 1700000000000,
-      "scan-2": 1700000001000,
-    };
-
-    expect(
-      readNotificationToastHistory(serializeNotificationToastHistory(history)),
-    ).toEqual(history);
   });
 });
 
