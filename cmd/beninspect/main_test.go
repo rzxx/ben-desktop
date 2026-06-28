@@ -167,6 +167,8 @@ func assertGolden(t *testing.T, path string, got []byte) {
 	}
 	got = normalizeGoldenNewlines(got)
 	want = normalizeGoldenNewlines(want)
+	got = bytes.ReplaceAll(got, []byte(`\\`), []byte(`/`))
+	want = bytes.ReplaceAll(want, []byte(`\\`), []byte(`/`))
 	if !bytes.Equal(got, want) {
 		t.Fatalf("golden mismatch for %s\n--- got ---\n%s\n--- want ---\n%s", path, string(got), string(want))
 	}
