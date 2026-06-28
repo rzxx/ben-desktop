@@ -445,9 +445,11 @@ func (a *App) ensureCurrentDevice(ctx context.Context) (Device, error) {
 	}
 
 	var setting LocalSetting
-	if err := a.storage.WithContext(ctx).Where("key = ?", localSettingCurrentDevice).Take(&setting).Error; err == nil {
+	settingErr := a.storage.WithContext(ctx).Where("key = ?", localSettingCurrentDevice).Take(&setting).Error
+	if settingErr == nil {
 		var device Device
-		if err := a.storage.WithContext(ctx).Where("device_id = ?", strings.TrimSpace(setting.Value)).Take(&device).Error; err == nil {
+		deviceErr := a.storage.WithContext(ctx).Where("device_id = ?", strings.TrimSpace(setting.Value)).Take(&device).Error
+		if deviceErr == nil {
 			now := time.Now().UTC()
 			updates := map[string]any{"last_seen_at": &now}
 			if strings.TrimSpace(host) != "" && device.Name != host {
@@ -460,6 +462,11 @@ func (a *App) ensureCurrentDevice(ctx context.Context) (Device, error) {
 			device.LastSeenAt = &now
 			return device, nil
 		}
+		if !errors.Is(deviceErr, gorm.ErrRecordNotFound) {
+			return Device{}, deviceErr
+		}
+	} else if !errors.Is(settingErr, gorm.ErrRecordNotFound) {
+		return Device{}, settingErr
 	}
 
 	now := time.Now().UTC()
