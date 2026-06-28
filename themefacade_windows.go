@@ -28,6 +28,28 @@ func detectSystemTheme() apitypes.ResolvedTheme {
 	return platform.CurrentSystemTheme()
 }
 
+func (s *ThemeFacade) refreshSystemTheme() {
+	nextTheme := detectSystemTheme()
+
+	s.mu.Lock()
+	if nextTheme == "" {
+		nextTheme = apitypes.ResolvedThemeLight
+	}
+	changed := s.systemTheme != nextTheme
+	s.systemTheme = nextTheme
+	s.mu.Unlock()
+
+	if !changed {
+		return
+	}
+
+	mode, err := s.loadThemeMode()
+	if err != nil {
+		return
+	}
+	s.emitThemePreferences(s.themePreferences(mode))
+}
+
 func (s *ThemeFacade) startSystemThemeMonitor() {
 	s.mu.Lock()
 	app := s.app

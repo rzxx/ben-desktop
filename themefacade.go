@@ -240,28 +240,6 @@ func (s *ThemeFacade) currentSystemTheme() apitypes.ResolvedTheme {
 	return apitypes.NormalizeResolvedTheme(systemTheme)
 }
 
-func (s *ThemeFacade) refreshSystemTheme() {
-	nextTheme := detectSystemTheme()
-
-	s.mu.Lock()
-	if nextTheme == "" {
-		nextTheme = apitypes.ResolvedThemeLight
-	}
-	changed := s.systemTheme != nextTheme
-	s.systemTheme = nextTheme
-	s.mu.Unlock()
-
-	if !changed {
-		return
-	}
-
-	mode, err := s.loadThemeMode()
-	if err != nil {
-		return
-	}
-	s.emitThemePreferences(s.themePreferences(mode))
-}
-
 func (s *ThemeFacade) emitThemePreferences(preferences apitypes.ThemePreferences) {
 	s.mu.Lock()
 	app := s.app
