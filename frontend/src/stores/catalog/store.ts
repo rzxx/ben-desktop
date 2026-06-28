@@ -317,13 +317,12 @@ export const useCatalogStore = create<CatalogStore>((set) => {
         void _mode;
         const record =
           (draft.valueQueries[key] as
-            | (typeof draft.valueQueries)[string]
-            | undefined) ?? createValueQueryRecord<CatalogValueQueryItem>();
+            (typeof draft.valueQueries)[string] | undefined) ??
+          createValueQueryRecord<CatalogValueQueryItem>();
         draft.valueQueries[key] = record;
         record.getItemKey = getItemKey as typeof record.getItemKey;
         const existingPage = record.pages["0"] as
-          | QueryPageRecord<CatalogValueQueryItem>
-          | undefined;
+          QueryPageRecord<CatalogValueQueryItem> | undefined;
         if (
           offset === 0 &&
           pageHeadChanged(
@@ -337,8 +336,8 @@ export const useCatalogStore = create<CatalogStore>((set) => {
         }
         const page =
           (record.pages[String(offset)] as
-            | QueryPageRecord<CatalogValueQueryItem>
-            | undefined) ?? createQueryPageRecord<CatalogValueQueryItem>();
+            QueryPageRecord<CatalogValueQueryItem> | undefined) ??
+          createQueryPageRecord<CatalogValueQueryItem>();
         record.pages[String(offset)] = page;
         page.error = "";
         page.fetchedAt = fetchedAt ?? Date.now();

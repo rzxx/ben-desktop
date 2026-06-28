@@ -1148,16 +1148,15 @@ func (t *libp2pSyncTransport) relayReservationAddrs() []string {
 	if t == nil {
 		return nil
 	}
-	if addrs := advertisedRelayAddrs(t.host); len(addrs) > 0 {
-		return addrs
-	}
 	now := time.Now().UTC()
 	t.statusMu.RLock()
-	defer t.statusMu.RUnlock()
-	if t.explicitRelayExpiry != nil && !t.explicitRelayExpiry.After(now) {
-		return nil
+	explicitExpiry := cloneTimePtr(t.explicitRelayExpiry)
+	explicitAddrs := append([]string(nil), t.explicitRelayAddrs...)
+	t.statusMu.RUnlock()
+	if len(explicitAddrs) > 0 && (explicitExpiry == nil || explicitExpiry.After(now)) {
+		return explicitAddrs
 	}
-	return append([]string(nil), t.explicitRelayAddrs...)
+	return advertisedRelayAddrs(t.host)
 }
 
 func (t *libp2pSyncTransport) appendNetworkStatus(out *apitypes.NetworkStatus) {

@@ -10,7 +10,7 @@ This guide is for moving `relayd` off Railway without keeping Railway-specific a
 - libp2p relay: WebSocket upgrade requests on the same HTTPS domain, forwarded internally to a local libp2p `/ws` listener.
 - Storage: explicit `RELAYD_STORAGE_DIR`, not a Railway-named env var.
 
-Any host you choose needs persistent writable storage for the relay identity key and SQLite registry. Without that, redeploys or restarts can change the relay peer ID and erase registry state.
+The relay needs writable storage while it is running, but durable storage is optional. Without durable storage, redeploys can change the relay peer ID and clear registry state; online desktop clients discover the replacement identity, reserve it, republish presence, and resync membership revocations.
 
 Useful references:
 
@@ -22,13 +22,13 @@ Useful references:
 
 ## Required runtime shape
 
-Run exactly one `relayd` instance unless the registry database is moved out of process. The relay stores membership auth state, presence, root pins, revocations, and the relay's persistent libp2p identity in SQLite.
+Run exactly one `relayd` instance unless registry state is moved out of process. The relay uses SQLite for runtime membership authorization, presence, root pins, and membership revocations. This state is reconstructible from signed client state after a replacement.
 
 Required platform capabilities:
 
 - Docker image or Dockerfile deploy.
 - A public HTTPS domain that supports WebSocket upgrades.
-- A writable persistent directory for SQLite and the identity key.
+- A writable directory for SQLite and the identity key. A persistent volume avoids identity churn but is not required for recovery.
 - Single running replica.
 - A health check that calls `/healthz`.
 
@@ -50,9 +50,9 @@ curl https://<relay-domain>/healthz
 
 ## Unkey Deploy setup
 
-Unkey Deploy can run `relayd` and supports WebSocket ingress, but its configured `/data` storage is ephemeral. The Unkey docs describe `/data` as an ephemeral disk volume that is created when an instance starts and destroyed when it stops. That means Unkey is not a durable production home for this relay unless Unkey adds persistent volumes or the relay database/identity are moved to external persistent storage.
+Unkey Deploy can run `relayd` and supports WebSocket ingress. Its configured `/data` storage is ephemeral, so instance replacement changes the relay peer identity and briefly clears registry state. Current desktop clients recover through the stable registry URL.
 
-Use this setup only for a temporary/free relay or deployment smoke test:
+Use this setup when brief relay unavailability during instance replacement is acceptable:
 
 - Dockerfile/build context: `build/docker/Dockerfile.relayd`
 - Public HTTP port: platform `PORT`
@@ -89,19 +89,18 @@ After deployment:
 
 The desktop app discovers the current relay bootstrap address from `GET /healthz`, so `relayBootstrap` can be omitted for this hosted WebSocket shape. Static `relayBootstrap` entries still work as fallback, but a stale static peer ID should not be your primary Unkey path.
 
-4. Restart the desktop app or restart the network runtime so it reloads settings.
-5. Redeploy once and check `/healthz` again. If `peerId` changes, the relay identity was lost. With current Unkey ephemeral storage, this is expected after instance replacement. Restarting the desktop network runtime lets it discover the new relay address from `registryUrl`.
+4. Redeploy once and check `/healthz` again. If `peerId` changes, the relay identity was replaced. Keep an owner/admin desktop online and verify that it republishes a circuit address without restarting.
 
 What resets when Unkey replaces the instance:
 
 - The relay peer ID can change.
 - Presence and relay authorization state are rebuilt by online clients.
-- Owners/admins should let revocation sync run again.
-- Create fresh invites after a reset; old or in-progress invite joins can still carry stale peer/relay details.
+- Owners/admins automatically republish membership revocations.
+- Existing and in-progress v4 invites re-resolve the owner through the registry URL.
 
 ## Render setup
 
-If you want to deploy on Render, use a service configuration with persistent storage. A free Render web service is not a good home for this relay because it loses local SQLite/key files on spin-down/restart/redeploy.
+On Render, a persistent disk keeps the relay identity stable and reduces recovery churn, but an ephemeral disk remains functionally recoverable through the registry URL.
 
 Create a Docker web service:
 
@@ -146,11 +145,10 @@ RELAYD_ADVERTISE_ADDRS=/dns4/<railway-tcp-proxy-host>/tcp/<railway-tcp-proxy-por
 
 ## Migration checklist
 
-1. Deploy the new relay with persistent storage. Do not count Unkey ephemeral `/data` as persistent storage.
+1. Deploy the new relay. Add persistent storage if a stable relay peer identity is operationally useful.
 2. Confirm `/healthz` returns `db.ok: true`.
 3. Copy the new relay peer ID.
 4. Update every desktop install's `core.registryUrl`. For hosted WebSocket relays that expose `/healthz.addrs`, `core.relayBootstrap` can be omitted and discovered at runtime.
-5. Restart network runtimes.
-6. Create new invites after the config swap. Invite lookup now prefers the configured registry URL over the URL embedded in an invite, but fresh invites avoid stale cached owner addresses.
-7. Create fresh invites after the cutover. Old invites or in-progress join sessions may still contain stale relay addresses.
-8. After redeploying the new relay, check that `/healthz.peerId` did not change. If it changed, storage is not persistent or `RELAYD_STORAGE_DIR` is wrong.
+5. Existing network runtimes reconcile the new registry and relay configuration automatically.
+6. Verify that an existing invite still reaches an online owner after the cutover.
+7. If persistent storage is configured, confirm `/healthz.peerId` remains stable across redeploys.

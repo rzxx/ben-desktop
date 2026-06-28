@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -31,7 +32,10 @@ type transportNetworkStatusReporter interface {
 	appendNetworkStatus(*apitypes.NetworkStatus)
 }
 
-const presenceLastSeenWriteInterval = 30 * time.Second
+const (
+	presenceLastSeenWriteInterval = 30 * time.Second
+	registryStateSyncInterval     = 5 * time.Minute
+)
 
 type transportFactory func(context.Context, apitypes.LocalContext) (managedSyncTransport, error)
 
@@ -105,6 +109,7 @@ type activeTransportRuntime struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	state               apitypes.NetworkSyncState
+	lastRegistrySyncAt  time.Time
 
 	catchupLane    transportCatchupLaneState
 	peerUpdateLane transportTaskLaneState
@@ -247,12 +252,20 @@ func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.Local
 		s.Stop()
 		return nil
 	}
+	relayCfg, err := s.app.relayConfigForLibrary(ctx, local.LibraryID)
+	if err != nil {
+		return err
+	}
+	desiredRegistryURL := strings.TrimSpace(relayCfg.RegistryURL)
+	desiredRelayAddrs := compactNonEmptyStrings(relayCfg.RelayBootstrapAddrs)
 
 	s.app.runtimeMu.Lock()
 	current := runtime.transportRuntime
 	if current != nil &&
 		strings.TrimSpace(current.libraryID) == strings.TrimSpace(local.LibraryID) &&
 		strings.TrimSpace(current.deviceID) == strings.TrimSpace(local.DeviceID) &&
+		strings.TrimSpace(current.registryURL) == desiredRegistryURL &&
+		slices.Equal(compactNonEmptyStrings(current.relayBootstrapAddrs), desiredRelayAddrs) &&
 		current.transport != nil {
 		s.app.runtimeMu.Unlock()
 		return nil
@@ -267,18 +280,13 @@ func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.Local
 	if err != nil {
 		return err
 	}
-	relayCfg, err := s.app.relayConfigForLibrary(ctx, local.LibraryID)
-	if err != nil {
-		_ = next.Close()
-		return err
-	}
 
 	runtimeCtx, cancel := context.WithCancel(runtime.ctx)
 	nextRuntime := &activeTransportRuntime{
 		libraryID:           strings.TrimSpace(local.LibraryID),
 		deviceID:            strings.TrimSpace(local.DeviceID),
-		registryURL:         strings.TrimSpace(relayCfg.RegistryURL),
-		relayBootstrapAddrs: compactNonEmptyStrings(relayCfg.RelayBootstrapAddrs),
+		registryURL:         desiredRegistryURL,
+		relayBootstrapAddrs: desiredRelayAddrs,
 		transport:           next,
 		ctx:                 runtimeCtx,
 		cancel:              cancel,
@@ -298,6 +306,7 @@ func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.Local
 	s.app.runtimeMu.Unlock()
 
 	s.stopRuntime(current)
+	s.syncRuntimeRegistryState(nextRuntime, true)
 	_ = s.announceRuntimePresence(nextRuntime)
 	s.scheduleRuntimeCatchup(nextRuntime, apitypes.NetworkSyncReasonStartup, 0)
 	go s.runBackgroundLoop(nextRuntime)
@@ -335,10 +344,49 @@ func (s *TransportService) runBackgroundLoop(runtime *activeTransportRuntime) {
 			if !s.isActiveRuntime(runtime) || runtime.ctx.Err() != nil {
 				return
 			}
+			s.reconcileRuntimeRelay(runtime)
 			_ = s.announceRuntimePresence(runtime)
 			s.scheduleRuntimeCatchup(runtime, apitypes.NetworkSyncReasonTimer, 0)
 		}
 	}
+}
+
+func (s *TransportService) reconcileRuntimeRelay(runtime *activeTransportRuntime) {
+	if s == nil || s.app == nil || runtime == nil || runtime.ctx.Err() != nil {
+		return
+	}
+	relayChanged := false
+	if transport, ok := runtime.transport.(*libp2pSyncTransport); ok {
+		reconcileCtx, cancel := context.WithTimeout(runtime.ctx, registryRequestTimeout)
+		changed, err := s.app.reconcileTransportRelayReservation(reconcileCtx, transport, transportConnectTimeout)
+		cancel()
+		relayChanged = changed
+		if err != nil {
+			s.app.logf("desktopcore: reconcile relay reservation failed for %s: %v", runtime.libraryID, err)
+		}
+	}
+	s.syncRuntimeRegistryState(runtime, relayChanged)
+}
+
+func (s *TransportService) syncRuntimeRegistryState(runtime *activeTransportRuntime, force bool) {
+	if s == nil || s.app == nil || runtime == nil || runtime.ctx.Err() != nil {
+		return
+	}
+	now := time.Now().UTC()
+	if !force && !runtime.lastRegistrySyncAt.IsZero() && now.Sub(runtime.lastRegistrySyncAt) < registryStateSyncInterval {
+		return
+	}
+	local, ok := s.runtimeLocalContext(runtime)
+	if !ok || !canManageLibrary(local.Role) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(runtime.ctx, registryRequestTimeout)
+	defer cancel()
+	if err := s.app.syncMembershipRevocations(ctx, runtime.libraryID); err != nil {
+		s.app.logf("desktopcore: sync registry revocations failed for %s: %v", runtime.libraryID, err)
+		return
+	}
+	runtime.lastRegistrySyncAt = now
 }
 
 func (s *TransportService) noteLocalLibraryMutation(libraryID string) {

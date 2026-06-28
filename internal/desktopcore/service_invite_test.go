@@ -15,6 +15,7 @@ import (
 	apitypes "ben/desktop/api/types"
 
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/host"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 )
 
@@ -22,6 +23,7 @@ type inviteTestInfra struct {
 	registryURL         string
 	relayBootstrapAddrs []string
 	registry            *inviteTestRegistry
+	relayHost           host.Host
 }
 
 type inviteTestRegistry struct {
@@ -29,27 +31,14 @@ type inviteTestRegistry struct {
 	records     map[string]registryauth.PresenceRecord
 	relayPeerID string
 	relayAddrs  []string
+	revocations []registryauth.RevocationSyncRequest
 }
 
 func openInviteTestInfra(t *testing.T) *inviteTestInfra {
 	t.Helper()
 
-	relayHost, err := libp2p.New(
-		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"),
-		libp2p.ForceReachabilityPublic(),
-		libp2p.EnableRelayService(relayv2.WithResources(newRelayResources())),
-	)
-	if err != nil {
-		t.Fatalf("open relay host: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = relayHost.Close()
-	})
-
-	addrs := make([]string, 0, len(relayHost.Addrs()))
-	for _, addr := range relayHost.Addrs() {
-		addrs = append(addrs, fmt.Sprintf("%s/p2p/%s", addr.String(), relayHost.ID().String()))
-	}
+	relayHost := openInviteTestRelayHost(t)
+	addrs := inviteTestRelayBootstrapAddrs(relayHost)
 
 	registry := &inviteTestRegistry{
 		records:     make(map[string]registryauth.PresenceRecord),
@@ -59,10 +48,62 @@ func openInviteTestInfra(t *testing.T) *inviteTestInfra {
 	server := httptest.NewServer(http.HandlerFunc(registry.serveHTTP))
 	t.Cleanup(server.Close)
 
-	return &inviteTestInfra{
+	infra := &inviteTestInfra{
 		registryURL:         server.URL,
 		relayBootstrapAddrs: compactNonEmptyStrings(addrs),
 		registry:            registry,
+		relayHost:           relayHost,
+	}
+	t.Cleanup(func() {
+		if infra.relayHost != nil {
+			_ = infra.relayHost.Close()
+		}
+	})
+	return infra
+}
+
+func openInviteTestRelayHost(t *testing.T) host.Host {
+	t.Helper()
+	relayHost, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"),
+		libp2p.ForceReachabilityPublic(),
+		libp2p.EnableRelayService(relayv2.WithResources(newRelayResources())),
+	)
+	if err != nil {
+		t.Fatalf("open relay host: %v", err)
+	}
+	return relayHost
+}
+
+func inviteTestRelayBootstrapAddrs(relayHost host.Host) []string {
+	if relayHost == nil {
+		return nil
+	}
+	addrs := make([]string, 0, len(relayHost.Addrs()))
+	for _, addr := range relayHost.Addrs() {
+		addrs = append(addrs, fmt.Sprintf("%s/p2p/%s", addr.String(), relayHost.ID().String()))
+	}
+	return compactNonEmptyStrings(addrs)
+}
+
+func (i *inviteTestInfra) replaceRelay(t *testing.T) {
+	t.Helper()
+	if i == nil || i.registry == nil {
+		t.Fatal("invite test infrastructure is not configured")
+	}
+	next := openInviteTestRelayHost(t)
+	addrs := inviteTestRelayBootstrapAddrs(next)
+	previous := i.relayHost
+	i.relayHost = next
+	i.relayBootstrapAddrs = append([]string(nil), addrs...)
+	i.registry.mu.Lock()
+	i.registry.relayPeerID = next.ID().String()
+	i.registry.relayAddrs = append([]string(nil), addrs...)
+	i.registry.records = make(map[string]registryauth.PresenceRecord)
+	i.registry.revocations = nil
+	i.registry.mu.Unlock()
+	if previous != nil {
+		_ = previous.Close()
 	}
 }
 
@@ -85,7 +126,7 @@ func (r *inviteTestRegistry) serveHTTP(w http.ResponseWriter, req *http.Request)
 	case "/v1/relay/authorize":
 		r.handleRelayAuthorize(w, req)
 	case "/v1/revocations/sync":
-		w.WriteHeader(http.StatusOK)
+		r.handleRevocationSync(w, req)
 	case "/v1/invites/owner":
 		r.handleInviteOwner(w, req)
 	case "/healthz":
@@ -139,6 +180,26 @@ func (r *inviteTestRegistry) handleRelayAuthorize(w http.ResponseWriter, req *ht
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (r *inviteTestRegistry) handleRevocationSync(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body registryauth.RevocationSyncRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, fmt.Sprintf("decode revocation sync request: %v", err), http.StatusBadRequest)
+		return
+	}
+	if err := registryauth.VerifyRevocationSync(body); err != nil {
+		http.Error(w, fmt.Sprintf("verify revocation sync request: %v", err), http.StatusUnauthorized)
+		return
+	}
+	r.mu.Lock()
+	r.revocations = append(r.revocations, body)
+	r.mu.Unlock()
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -206,6 +267,12 @@ func (r *inviteTestRegistry) clearPresence() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.records = make(map[string]registryauth.PresenceRecord)
+}
+
+func (r *inviteTestRegistry) revocationSyncs() []registryauth.RevocationSyncRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]registryauth.RevocationSyncRequest(nil), r.revocations...)
 }
 
 func inviteRegistryKey(libraryID, peerID string) string {
@@ -494,6 +561,122 @@ func TestPerLibraryRelayConfigSeedsEncodesAndRestores(t *testing.T) {
 	status := joiner.NetworkStatus()
 	if status.RegistryURL != next.registryURL {
 		t.Fatalf("active transport registry url = %q, want %q", status.RegistryURL, next.registryURL)
+	}
+}
+
+func TestUpdateLibraryRelayConfigRestartsActiveTransport(t *testing.T) {
+	ctx := context.Background()
+	initial := openInviteTestInfra(t)
+	next := openInviteTestInfra(t)
+	app := openCacheTestApp(t, 1024)
+	configureInviteTestApp(app, initial)
+
+	var transports []*fakeManagedTransport
+	app.transportService.setTransportFactoryForTest(func(_ context.Context, local apitypes.LocalContext) (managedSyncTransport, error) {
+		transport := &fakeManagedTransport{
+			libraryID: local.LibraryID,
+			deviceID:  local.DeviceID,
+			peerID:    fmt.Sprintf("test-peer-%d", len(transports)+1),
+		}
+		transports = append(transports, transport)
+		return transport, nil
+	})
+
+	library, err := app.CreateLibrary(ctx, "relay-config-restart")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if len(transports) != 1 {
+		t.Fatalf("created transports = %d, want 1", len(transports))
+	}
+	if _, err := app.UpdateLibraryRelayConfig(ctx, apitypes.UpdateLibraryRelayConfigRequest{
+		LibraryID:           library.LibraryID,
+		RegistryURL:         next.registryURL,
+		RelayBootstrapAddrs: next.relayBootstrapAddrs,
+	}); err != nil {
+		t.Fatalf("update relay config: %v", err)
+	}
+	if len(transports) != 2 {
+		t.Fatalf("created transports after config update = %d, want 2", len(transports))
+	}
+	if transports[0].closed != 1 {
+		t.Fatalf("original transport close count = %d, want 1", transports[0].closed)
+	}
+	status := app.NetworkStatus()
+	if status.RegistryURL != next.registryURL {
+		t.Fatalf("active registry url = %q, want %q", status.RegistryURL, next.registryURL)
+	}
+}
+
+func TestInviteJoinRecoversAfterRelayReplacement(t *testing.T) {
+	ctx := context.Background()
+	infra := openInviteTestInfra(t)
+	owner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(owner, infra)
+	joiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(joiner, infra)
+	secondJoiner := openCacheTestApp(t, 1024)
+	configureInviteTestApp(secondJoiner, infra)
+
+	library, err := owner.CreateLibrary(ctx, "relay-replacement")
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := owner.storage.WithContext(ctx).Create(&MembershipCertRevocation{
+		LibraryID: library.LibraryID,
+		DeviceID:  "removed-device",
+		Serial:    1,
+		PeerID:    "removed-peer",
+		Reason:    "test relay replacement",
+		RevokedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatalf("seed membership revocation: %v", err)
+	}
+	pendingInvite, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{})
+	if err != nil {
+		t.Fatalf("create pending invite: %v", err)
+	}
+	unusedInvite, err := owner.CreateInvite(ctx, apitypes.InviteCreateRequest{})
+	if err != nil {
+		t.Fatalf("create unused invite: %v", err)
+	}
+	attempt, err := joiner.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: pendingInvite.InviteCode})
+	if err != nil {
+		t.Fatalf("start pending join: %v", err)
+	}
+
+	infra.replaceRelay(t)
+	runtime := owner.transportService.activeRuntime()
+	if runtime == nil {
+		t.Fatal("owner transport runtime is not active")
+	}
+	owner.transportService.reconcileRuntimeRelay(runtime)
+	if err := owner.transportService.announceRuntimePresence(runtime); err != nil {
+		t.Fatalf("announce replacement relay presence: %v", err)
+	}
+	revocationSyncs := infra.registry.revocationSyncs()
+	if len(revocationSyncs) != 1 || len(revocationSyncs[0].MembershipRevocations) != 1 || revocationSyncs[0].MembershipRevocations[0].DeviceID != "removed-device" {
+		t.Fatalf("replacement relay revocation syncs = %+v", revocationSyncs)
+	}
+
+	requests, err := owner.ListJoinRequests(ctx)
+	if err != nil || len(requests) != 1 {
+		t.Fatalf("pending join requests = %+v, err=%v", requests, err)
+	}
+	if err := owner.ApproveJoinRequest(ctx, requests[0].RequestID); err != nil {
+		t.Fatalf("approve pending join: %v", err)
+	}
+	completed, err := joiner.GetJoinAttempt(ctx, attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("refresh pending join through replacement relay: %v", err)
+	}
+	if completed.Status != inviteJoinStatusCompleted {
+		t.Fatalf("pending join status = %q, want completed", completed.Status)
+	}
+
+	second := startAndApproveJoin(t, ctx, owner, secondJoiner, unusedInvite.InviteCode)
+	if second.Status != inviteJoinStatusCompleted {
+		t.Fatalf("unused invite join status = %q, want completed", second.Status)
 	}
 }
 

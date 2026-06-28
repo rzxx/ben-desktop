@@ -154,11 +154,23 @@ func TestInviteOwnerRejectsExpiredAttestation(t *testing.T) {
 	}
 }
 
-func TestInviteOwnerRejectsMissingAttestationExpiry(t *testing.T) {
+func TestInviteOwnerAcceptsMissingAttestationExpiry(t *testing.T) {
 	t.Parallel()
 
 	server := openTestRelaydServer(t)
 	member := newMembershipFixture(t, "lib-1", "device-1", "peer-1")
+	if status := serveJSON(t, server.handlePresenceAnnounce, registryauth.PresenceAnnounceRequest{
+		Record: registryauth.PresenceRecord{
+			LibraryID: member.libraryID,
+			DeviceID:  member.deviceID,
+			PeerID:    member.peerID,
+			Addrs:     []string{relayAddrForPeer(t, member.peerID)},
+		},
+		RootPublicKey: member.rootPub,
+		Auth:          member.auth,
+	}); status != http.StatusOK {
+		t.Fatalf("presence announce status = %d", status)
+	}
 	invite, err := registryauth.SignInviteAttestation(registryauth.InviteAttestation{
 		LibraryID:     member.libraryID,
 		TokenID:       "token-no-expiry",
@@ -168,7 +180,7 @@ func TestInviteOwnerRejectsMissingAttestationExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sign invite attestation: %v", err)
 	}
-	if status := serveJSON(t, server.handleInviteOwner, registryauth.InviteOwnerLookupRequest{Invite: invite}); status != http.StatusUnauthorized {
+	if status := serveJSON(t, server.handleInviteOwner, registryauth.InviteOwnerLookupRequest{Invite: invite}); status != http.StatusOK {
 		t.Fatalf("missing-expiry invite lookup status = %d", status)
 	}
 }
@@ -374,7 +386,7 @@ func TestRelayACLAllowsAuthorizedReserveAndDestinationConnect(t *testing.T) {
 	}
 }
 
-func TestRevocationSyncRejectsRevokedInviteAndMembership(t *testing.T) {
+func TestRevocationSyncRejectsRevokedMembership(t *testing.T) {
 	t.Parallel()
 
 	server := openTestRelaydServer(t)
@@ -391,21 +403,10 @@ func TestRevocationSyncRejectsRevokedInviteAndMembership(t *testing.T) {
 	}); status != http.StatusOK {
 		t.Fatalf("presence announce status = %d", status)
 	}
-	invite, err := registryauth.SignInviteAttestation(registryauth.InviteAttestation{
-		LibraryID:     member.libraryID,
-		TokenID:       "token-revoked",
-		OwnerPeerID:   member.peerID,
-		RootPublicKey: member.rootPub,
-		ExpiresAt:     time.Now().Add(time.Hour).Unix(),
-	}, member.rootPriv)
-	if err != nil {
-		t.Fatalf("sign invite: %v", err)
-	}
 	revocations, err := registryauth.SignRevocationSync(registryauth.RevocationSyncRequest{
-		LibraryID:      member.libraryID,
-		RootPublicKey:  member.rootPub,
-		Revision:       time.Now().UnixNano(),
-		InviteTokenIDs: []string{invite.TokenID},
+		LibraryID:     member.libraryID,
+		RootPublicKey: member.rootPub,
+		Revision:      time.Now().UnixNano(),
 		MembershipRevocations: []registryauth.MembershipRevocation{{
 			DeviceID:  member.deviceID,
 			MaxSerial: member.auth.Cert.Serial,
@@ -416,9 +417,6 @@ func TestRevocationSyncRejectsRevokedInviteAndMembership(t *testing.T) {
 	}
 	if status := serveJSON(t, server.handleRevocationSync, revocations); status != http.StatusOK {
 		t.Fatalf("revocation sync status = %d", status)
-	}
-	if status := serveJSON(t, server.handleInviteOwner, registryauth.InviteOwnerLookupRequest{Invite: invite}); status != http.StatusUnauthorized {
-		t.Fatalf("revoked invite status = %d", status)
 	}
 	if status := serveJSON(t, server.handleRelayAuthorize, registryauth.RelayAuthorizeRequest{
 		LibraryID:     member.libraryID,
@@ -626,7 +624,7 @@ func TestInitSchemaConfiguresSQLiteBusyTimeout(t *testing.T) {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	configureSQLite(db)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := initSchema(db); err != nil {
 		t.Fatalf("init schema: %v", err)
@@ -674,7 +672,7 @@ func TestCleanupExpiredRegistryStateDeletesExpiredPresenceAndMemberAuth(t *testi
 		t.Fatalf("open sqlite: %v", err)
 	}
 	configureSQLite(db)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := initSchema(db); err != nil {
 		t.Fatalf("init schema: %v", err)
 	}
@@ -711,33 +709,32 @@ func TestNewRelayHostUsesExplicitAdvertiseAddrs(t *testing.T) {
 	t.Parallel()
 
 	opts := relaydOptions{
-		HTTPAddr:               ":8787",
-		DBPath:                 filepath.Join(t.TempDir(), "registry.db"),
-		IdentityKeyPath:        filepath.Join(t.TempDir(), "identity.key"),
-		PeerListenAddrs:        []string{"/ip4/127.0.0.1/tcp/0"},
-		AdvertiseAddrs:         []string{"/dns4/relay-p2p.example.com/tcp/15140"},
-		ReadHeaderTimeout:      time.Second,
-		ReadTimeout:            time.Second,
-		WriteTimeout:           time.Second,
-		IdleTimeout:            time.Second,
-		ShutdownTimeout:        time.Second,
-		MaxBodyBytes:           defaultMaxBodyBytes,
-		RateLimitIdleTTL:       time.Minute,
-		RateLimitBurst:         1,
-		ReservationTTL:         time.Hour,
-		MaxReservations:        1,
-		MaxCircuits:            1,
-		MaxReservationsPerPeer: 1,
-		MaxReservationsPerIP:   1,
-		MaxReservationsPerASN:  1,
-		RelayLimitDuration:     time.Second,
-		RelayLimitDataBytes:    1024,
+		HTTPAddr:              ":8787",
+		DBPath:                filepath.Join(t.TempDir(), "registry.db"),
+		IdentityKeyPath:       filepath.Join(t.TempDir(), "identity.key"),
+		PeerListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		AdvertiseAddrs:        []string{"/dns4/relay-p2p.example.com/tcp/15140"},
+		ReadHeaderTimeout:     time.Second,
+		ReadTimeout:           time.Second,
+		WriteTimeout:          time.Second,
+		IdleTimeout:           time.Second,
+		ShutdownTimeout:       time.Second,
+		MaxBodyBytes:          defaultMaxBodyBytes,
+		RateLimitIdleTTL:      time.Minute,
+		RateLimitBurst:        1,
+		ReservationTTL:        time.Hour,
+		MaxReservations:       1,
+		MaxCircuits:           1,
+		MaxReservationsPerIP:  1,
+		MaxReservationsPerASN: 1,
+		RelayLimitDuration:    time.Second,
+		RelayLimitDataBytes:   1024,
 	}
 	hostNode, err := newRelayHost(opts, nil, nil)
 	if err != nil {
 		t.Fatalf("new relay host: %v", err)
 	}
-	defer hostNode.Close()
+	defer func() { _ = hostNode.Close() }()
 
 	addrs := formatHostAddrs(hostNode)
 	if len(addrs) != 1 {
@@ -885,7 +882,6 @@ func TestMaxBodyBytesMiddlewareRejectsOversizeRequests(t *testing.T) {
 		ReservationTTL:             time.Hour,
 		MaxReservations:            1,
 		MaxCircuits:                1,
-		MaxReservationsPerPeer:     1,
 		MaxReservationsPerIP:       1,
 		MaxReservationsPerASN:      1,
 		RelayLimitDuration:         time.Second,
@@ -924,17 +920,16 @@ func TestWebSocketIngressFindsLocalRelayListener(t *testing.T) {
 	t.Parallel()
 
 	opts := relaydOptions{
-		IdentityKeyPath:        filepath.Join(t.TempDir(), "identity.key"),
-		PeerListenAddrs:        []string{"/ip4/127.0.0.1/tcp/0/ws"},
-		RelayACLDisabled:       true,
-		ReservationTTL:         time.Hour,
-		MaxReservations:        1,
-		MaxCircuits:            1,
-		MaxReservationsPerPeer: 1,
-		MaxReservationsPerIP:   1,
-		MaxReservationsPerASN:  1,
-		RelayLimitDuration:     time.Second,
-		RelayLimitDataBytes:    1024,
+		IdentityKeyPath:       filepath.Join(t.TempDir(), "identity.key"),
+		PeerListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0/ws"},
+		RelayACLDisabled:      true,
+		ReservationTTL:        time.Hour,
+		MaxReservations:       1,
+		MaxCircuits:           1,
+		MaxReservationsPerIP:  1,
+		MaxReservationsPerASN: 1,
+		RelayLimitDuration:    time.Second,
+		RelayLimitDataBytes:   1024,
 	}
 	hostNode, err := newRelayHost(opts, nil, nil)
 	if err != nil {

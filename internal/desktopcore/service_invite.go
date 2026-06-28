@@ -96,6 +96,7 @@ type activeJoinAttempt struct {
 	LibraryID           string
 	RegistryURL         string
 	RelayBootstrapAddrs []string
+	InviteAuth          *registryauth.InviteAttestation
 	OwnerPeerID         string
 	OwnerAddrs          []string
 	DeviceID            string
@@ -120,25 +121,6 @@ func (s *InviteService) ensureRuntimeStateLocked() {
 	}
 	if s.attempts == nil {
 		s.attempts = make(map[string]*activeJoinAttempt)
-	}
-}
-
-func (s *InviteService) clearLibraryRuntimeState(libraryID string) {
-	libraryID = strings.TrimSpace(libraryID)
-	if s == nil || libraryID == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for id, req := range s.requests {
-		if req.LibraryID == libraryID {
-			delete(s.requests, id)
-		}
-	}
-	for id, attempt := range s.attempts {
-		if attempt.LibraryID == libraryID {
-			delete(s.attempts, id)
-		}
 	}
 }
 
@@ -349,6 +331,7 @@ func (s *InviteService) StartJoinFromInvite(ctx context.Context, req apitypes.Jo
 		LibraryID:           payload.LibraryID,
 		RegistryURL:         payload.RegistryURL,
 		RelayBootstrapAddrs: compactNonEmptyStrings(payload.RelayBootstrapAddrs),
+		InviteAuth:          cloneInviteAttestation(payload.InviteAuth),
 		OwnerPeerID:         firstNonEmpty(strings.TrimSpace(startResp.OwnerPeerID), strings.TrimSpace(resolvedPeerID), payload.OwnerPeerID),
 		OwnerAddrs:          compactNonEmptyStrings(append(ownerAddrs, resolvedPeerAddr)),
 		DeviceID:            deviceID,
@@ -699,7 +682,18 @@ func (s *InviteService) refreshJoinAttempt(ctx context.Context, attempt *activeJ
 	refreshCtx, cancel := context.WithTimeout(ctx, defaultInviteDiscoverTimeout)
 	defer cancel()
 
-	ownerAddrs := attempt.OwnerAddrs
+	ownerAddrs := append([]string(nil), attempt.OwnerAddrs...)
+	if attempt.InviteAuth != nil && strings.TrimSpace(attempt.RegistryURL) != "" {
+		resolved, resolveErr := s.resolveInviteOwnerAddrs(refreshCtx, inviteCodePayload{
+			RegistryURL: attempt.RegistryURL,
+			InviteAuth:  cloneInviteAttestation(attempt.InviteAuth),
+		})
+		if resolveErr == nil {
+			ownerAddrs = compactNonEmptyStrings(append(resolved, ownerAddrs...))
+		} else if len(ownerAddrs) == 0 {
+			return resolveErr
+		}
+	}
 	if len(ownerAddrs) == 0 {
 		ownerAddrs = relayCircuitAddrsForPeer(attempt.RelayBootstrapAddrs, attempt.OwnerPeerID)
 	}
@@ -862,7 +856,17 @@ func (s *InviteService) loadJoinAttempt(attemptID string) (*activeJoinAttempt, e
 	copyAttempt := *attempt
 	copyAttempt.RelayBootstrapAddrs = append([]string(nil), attempt.RelayBootstrapAddrs...)
 	copyAttempt.OwnerAddrs = append([]string(nil), attempt.OwnerAddrs...)
+	copyAttempt.InviteAuth = cloneInviteAttestation(attempt.InviteAuth)
 	return &copyAttempt, nil
+}
+
+func cloneInviteAttestation(value *registryauth.InviteAttestation) *registryauth.InviteAttestation {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	copyValue.Sig = append([]byte(nil), value.Sig...)
+	return &copyValue
 }
 
 func (s *InviteService) updateJoinAttemptError(attemptID string, err error) {

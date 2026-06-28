@@ -153,9 +153,6 @@ func (s *LibraryService) UpdateLibraryRelayConfig(ctx context.Context, req apity
 		}).Error; err != nil {
 		return apitypes.LibraryRelayConfig{}, err
 	}
-	if s.app.invite != nil {
-		s.app.invite.clearLibraryRuntimeState(libraryID)
-	}
 	if err := s.app.syncActiveRuntimeServices(ctx); err != nil {
 		return apitypes.LibraryRelayConfig{}, err
 	}
