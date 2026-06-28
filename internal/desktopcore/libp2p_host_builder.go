@@ -271,6 +271,9 @@ func (a *App) reconcileTransportRelayReservation(ctx context.Context, transport 
 	if lastErr != nil {
 		return false, fmt.Errorf("ensure active transport relay reservation: %w", lastErr)
 	}
+	if err := waitCtx.Err(); err != nil {
+		return false, err
+	}
 	return false, context.DeadlineExceeded
 }
 

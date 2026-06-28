@@ -47,7 +47,17 @@ func (s *ThemeFacade) refreshSystemTheme() {
 		return
 	}
 
+	// Revalidate the detected theme before committing it; the OS theme may
+	// have changed while loadThemeMode() was reading settings.
+	nextTheme = detectSystemTheme()
 	s.mu.Lock()
+	if nextTheme == "" {
+		nextTheme = apitypes.ResolvedThemeLight
+	}
+	if s.systemTheme == nextTheme {
+		s.mu.Unlock()
+		return
+	}
 	s.systemTheme = nextTheme
 	s.mu.Unlock()
 
