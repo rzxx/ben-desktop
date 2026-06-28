@@ -127,6 +127,11 @@ jobs:
         with:
           msystem: MINGW64
           update: true
+          # path-type: inherit so the MSYS2 shell can see the Go toolchain
+          # installed by actions/setup-go on the runner PATH. With the default
+          # minimal path, `go` is not found inside msys2 and the race step
+          # exits with code 127.
+          path-type: inherit
           install: >-
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-pkgconf
