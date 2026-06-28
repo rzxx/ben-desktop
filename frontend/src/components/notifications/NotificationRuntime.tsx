@@ -67,7 +67,7 @@ export function NotificationRuntime() {
   const notifications = useNotificationsStore((state) => state.notifications);
   const preferences = useNotificationsStore((state) => state.preferences);
   const [dismissedAt, setDismissedAt] = useState<Record<string, number>>({});
-  const activeRef = useRef<Set<string>>(new Set());
+  const activeRef = useRef<Map<string, string>>(new Map());
   const shownAtRef = useRef<Record<string, number>>(readHistory());
 
   const visibleNotifications = useMemo(
@@ -107,6 +107,13 @@ export function NotificationRuntime() {
           }
         },
       } as const;
+      const renderKey = JSON.stringify([
+        options.title,
+        options.description,
+        options.timeout,
+        options.priority,
+        options.type,
+      ]);
 
       const markShown = () => {
         const updatedHistory = recordNotificationToastShown(
@@ -120,10 +127,13 @@ export function NotificationRuntime() {
       };
 
       if (activeRef.current.has(id)) {
-        toast.update(id, options);
+        if (activeRef.current.get(id) !== renderKey) {
+          toast.update(id, options);
+          activeRef.current.set(id, renderKey);
+        }
       } else if (!hasNotificationToastBeenShown(notification, nextShownAt)) {
         toast(options);
-        activeRef.current.add(id);
+        activeRef.current.set(id, renderKey);
       } else {
         continue;
       }

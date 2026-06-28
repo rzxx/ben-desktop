@@ -17,7 +17,7 @@
     "format:check": "prettier . --check"
   },
   "dependencies": {
-    "@base-ui/react": "^1.4.1",
+    "@base-ui/react": "^1.6.0",
     "@tanstack/react-router": "^1.168.23",
     "@tanstack/react-virtual": "^3.13.24",
     "@wailsio/runtime": "^3.0.0-alpha.79",

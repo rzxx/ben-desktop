@@ -20,7 +20,7 @@ export function Toaster() {
   return (
     <Toast.Provider limit={5} toastManager={toastManager}>
       <Toast.Portal>
-        <Toast.Viewport className="pointer-events-none fixed top-12 left-1/2 z-[60] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2">
+        <Toast.Viewport className="fixed top-12 right-0 left-0 z-[60] mx-auto w-[calc(100%-2rem)] max-w-sm">
           <ToastList />
         </Toast.Viewport>
       </Toast.Portal>
@@ -42,28 +42,25 @@ function ToastList() {
     return (
       <Toast.Root
         key={toast.id}
-        swipeDirection={["up", "down", "left", "right"]}
+        swipeDirection="up"
         toast={toast}
         className={[
-          "group pointer-events-auto absolute top-0 left-1/2 w-full origin-top",
+          "absolute top-0 right-0 left-0 mx-auto w-full origin-top select-none",
           "border-theme-300/75 bg-theme-100-desat/90 text-theme-900 rounded-2xl border shadow-xl shadow-black/15 backdrop-blur-xl backdrop-saturate-150",
           "dark:bg-theme-900/82 dark:text-theme-100 dark:border-white/10 dark:shadow-black/25",
           "[--gap:0.5rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--offset-y:calc(var(--toast-offset-y)+var(--toast-index)*var(--gap)+var(--toast-swipe-movement-y))] [--peek:0.75rem] [--scale:calc(max(0,1-var(--toast-index)*0.06))] [--shrink:calc(1-var(--scale))]",
-          "[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)))_translateY(calc(var(--toast-swipe-movement-y)+(var(--toast-index)*var(--peek))+(var(--shrink)*var(--height))))_scale(var(--scale))]",
-          "data-[starting-style]:[transform:translateX(-50%)_translateY(-12px)_scale(0.9)] data-[starting-style]:opacity-0",
+          "[transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)+(var(--toast-index)*var(--peek))+(var(--shrink)*var(--height))))_scale(var(--scale))]",
+          "after:absolute after:bottom-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-['']",
+          "data-[starting-style]:[transform:translateY(-12px)_scale(0.9)] data-[starting-style]:opacity-0",
           "data-[ending-style]:opacity-0",
-          "data-[expanded]:[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)))_translateY(var(--offset-y))]",
-          "[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateX(-50%)_translateY(-12px)_scale(0.9)]",
-          "data-[ending-style]:data-[swipe-direction=down]:[transform:translateX(-50%)_translateY(calc(var(--toast-swipe-movement-y)+150%))_scale(0.9)]",
-          "data-[expanded]:data-[ending-style]:data-[swipe-direction=down]:[transform:translateX(-50%)_translateY(calc(var(--toast-swipe-movement-y)+150%))_scale(0.9)]",
-          "data-[ending-style]:data-[swipe-direction=up]:[transform:translateX(-50%)_translateY(calc(var(--toast-swipe-movement-y)-150%))_scale(0.9)]",
-          "data-[expanded]:data-[ending-style]:data-[swipe-direction=up]:[transform:translateX(-50%)_translateY(calc(var(--toast-swipe-movement-y)-150%))_scale(0.9)]",
-          "data-[ending-style]:data-[swipe-direction=left]:[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)-150%))_translateY(var(--toast-offset-y))_scale(0.9)]",
-          "data-[expanded]:data-[ending-style]:data-[swipe-direction=left]:[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)-150%))_translateY(var(--toast-offset-y))_scale(0.9)]",
-          "data-[ending-style]:data-[swipe-direction=right]:[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)+150%))_translateY(var(--toast-offset-y))_scale(0.9)]",
-          "data-[expanded]:data-[ending-style]:data-[swipe-direction=right]:[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)+150%))_translateY(var(--toast-offset-y))_scale(0.9)]",
+          "data-[expanded]:[transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]",
+          "data-[limited]:opacity-0",
+          "[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateY(-12px)_scale(0.9)]",
+          "data-[ending-style]:data-[swipe-direction=up]:[transform:translateY(calc(var(--toast-swipe-movement-y)-150%))_scale(0.9)]",
+          "data-[expanded]:data-[ending-style]:data-[swipe-direction=up]:[transform:translateY(calc(var(--toast-swipe-movement-y)-150%))_scale(0.9)]",
           "h-[var(--height)] data-[expanded]:h-[var(--toast-height)]",
           "z-[calc(1000-var(--toast-index))]",
+          "focus-visible:outline-theme-900 dark:focus-visible:outline-theme-100 focus-visible:outline-2 focus-visible:-outline-offset-1",
           "[transition:transform_0.3s_cubic-bezier(0.22,1,0.36,1),opacity_0.3s_ease-out,height_0.2s_ease-out]",
           "data-[ending-style]:[transition:transform_0.12s_ease-out,opacity_0.12s_ease-out,height_0.2s_ease-out]",
         ].join(" ")}

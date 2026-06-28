@@ -5,6 +5,7 @@ import {
   hasNotificationToastBeenShown,
   matchesNotificationFilter,
   notificationHeading,
+  notificationTimeout,
   recordNotificationToastShown,
   shouldToastNotification,
 } from "./notifications";
@@ -131,6 +132,26 @@ describe("notification toast history", () => {
     expect(hasNotificationToastBeenShown(queued, afterQueued)).toBe(true);
     expect(hasNotificationToastBeenShown(completed, afterQueued)).toBe(false);
     expect(hasNotificationToastBeenShown(completed, afterCompleted)).toBe(true);
+  });
+});
+
+describe("notificationTimeout", () => {
+  test("uses a short success timeout and the Base UI default otherwise", () => {
+    expect(
+      notificationTimeout(
+        makeNotification({
+          phase: Types.NotificationPhase.NotificationPhaseSuccess,
+        }),
+      ),
+    ).toBe(3200);
+    expect(
+      notificationTimeout(
+        makeNotification({
+          phase: Types.NotificationPhase.NotificationPhaseError,
+        }),
+      ),
+    ).toBe(5000);
+    expect(notificationTimeout(makeNotification())).toBe(5000);
   });
 });
 
