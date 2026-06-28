@@ -54,18 +54,6 @@ type JoinAttempt struct {
 	UpdatedAt     time.Time
 }
 
-type JoinLibraryResult struct {
-	LibraryID         string
-	Role              string
-	DeviceID          string
-	LocalPeerID       string
-	DeviceFingerprint string
-	OwnerDeviceID     string
-	OwnerRole         string
-	OwnerPeerID       string
-	OwnerFingerprint  string
-}
-
 // InviteJoinSurface is the joiner-facing invite handshake API.
 type InviteJoinSurface interface {
 	StartJoinFromInvite(ctx context.Context, req JoinFromInviteInput) (JoinAttempt, error)

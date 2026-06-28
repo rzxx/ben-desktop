@@ -156,7 +156,9 @@ func assertGolden(t *testing.T, path string, got []byte) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("mkdir golden dir: %v", err)
 		}
-		if err := os.WriteFile(path, got, 0o644); err != nil {
+		normalized := normalizeGoldenNewlines(got)
+		normalized = bytes.ReplaceAll(normalized, []byte(`\\`), []byte(`/`))
+		if err := os.WriteFile(path, normalized, 0o644); err != nil {
 			t.Fatalf("write golden file: %v", err)
 		}
 	}

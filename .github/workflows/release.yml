@@ -192,6 +192,13 @@ jobs:
       - name: Install Wails CLI
         run: go install "github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}"
 
+      - name: Install frontend dependencies
+        # Pre-install frontend deps with a frozen lockfile so the Wails build
+        # task does not resolve them concurrently, and releases use the same
+        # locked versions CI already linted, typechecked, and tested.
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
       - name: Free disk space
         run: |
           echo "Disk space before cleanup:"
@@ -262,6 +269,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
           go install "github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}"
+
+      - name: Install frontend dependencies
+        # Pre-install frontend deps with a frozen lockfile so the Wails build
+        # task does not resolve them concurrently, and releases use the same
+        # locked versions CI already linted, typechecked, and tested.
+        working-directory: frontend
+        run: bun install --frozen-lockfile
 
       - name: Set build metadata
         run: |

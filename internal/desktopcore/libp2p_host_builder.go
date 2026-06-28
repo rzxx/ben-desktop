@@ -169,13 +169,20 @@ func (a *App) reconcileTransportRelayReservation(ctx context.Context, transport 
 	if a == nil || transport == nil || transport.host == nil {
 		return false, nil
 	}
-	relayCfg, err := a.relayConfigForLibrary(ctx, transport.libraryID)
+	if timeout <= 0 {
+		timeout = transportConnectTimeout
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	relayCfg, err := a.relayConfigForLibrary(waitCtx, transport.libraryID)
 	if err != nil {
 		return false, err
 	}
 	relays := []string(nil)
 	if strings.TrimSpace(relayCfg.RegistryURL) != "" {
-		relays, err = fetchRelayBootstrapAddrs(ctx, relayCfg.RegistryURL)
+		relays, err = fetchRelayBootstrapAddrs(waitCtx, relayCfg.RegistryURL)
 		if err != nil {
 			a.logf("desktopcore: relay discovery from %s failed: %v", relayCfg.RegistryURL, err)
 		}
@@ -193,12 +200,6 @@ func (a *App) reconcileTransportRelayReservation(ctx context.Context, transport 
 	if transportHasRelayReservation(transport, relaysInfo) {
 		return false, nil
 	}
-	if timeout <= 0 {
-		timeout = transportConnectTimeout
-	}
-
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
 	var lastErr error
 	for {

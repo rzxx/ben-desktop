@@ -36,7 +36,6 @@ func (s *ThemeFacade) refreshSystemTheme() {
 		nextTheme = apitypes.ResolvedThemeLight
 	}
 	changed := s.systemTheme != nextTheme
-	s.systemTheme = nextTheme
 	s.mu.Unlock()
 
 	if !changed {
@@ -47,6 +46,11 @@ func (s *ThemeFacade) refreshSystemTheme() {
 	if err != nil {
 		return
 	}
+
+	s.mu.Lock()
+	s.systemTheme = nextTheme
+	s.mu.Unlock()
+
 	s.emitThemePreferences(s.themePreferences(mode))
 }
 
