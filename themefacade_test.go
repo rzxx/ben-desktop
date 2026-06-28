@@ -10,7 +10,7 @@ import (
 
 	apitypes "ben/desktop/api/types"
 	"ben/desktop/internal/desktopcore"
-	"ben/desktop/internal/palette"
+	"ben/desktop/internal/dynamictheme"
 )
 
 type themePlaybackStub struct {
@@ -33,17 +33,17 @@ func (s *themePlaybackStub) ResolveRecordingArtwork(_ context.Context, recording
 type themeExtractorStub struct {
 	callCount int
 	lastPath  string
-	palette   palette.ThemePalette
+	theme     dynamictheme.Theme
 	err       error
 }
 
-func (s *themeExtractorStub) ExtractFromPath(path string, _ palette.ExtractOptions) (palette.ThemePalette, error) {
+func (s *themeExtractorStub) ExtractFromPath(path string, _ dynamictheme.ExtractOptions) (dynamictheme.Theme, error) {
 	s.callCount++
 	s.lastPath = path
 	if s.err != nil {
-		return palette.ThemePalette{}, s.err
+		return dynamictheme.Theme{}, s.err
 	}
-	return s.palette, nil
+	return s.theme, nil
 }
 
 func TestThemeFacadeGenerateRecordingThemeUsesResolved320ArtworkAndCaches(t *testing.T) {
@@ -63,8 +63,11 @@ func TestThemeFacadeGenerateRecordingThemeUsesResolved320ArtworkAndCaches(t *tes
 		},
 	}
 	extractorStub := &themeExtractorStub{
-		palette: palette.ThemePalette{
-			ThemeScale: []palette.PaletteTone{{Tone: 50}, {Tone: 100}},
+		theme: dynamictheme.Theme{
+			Version: 1,
+			Compatibility: dynamictheme.CompatibilityPalette{
+				ThemeScale: []dynamictheme.PaletteTone{{Tone: 50}, {Tone: 100}},
+			},
 		},
 	}
 

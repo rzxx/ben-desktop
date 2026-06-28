@@ -10,9 +10,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as apitypes$0 from "./api/types/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as palette$0 from "./internal/palette/models.js";
+import * as dynamictheme$0 from "./internal/dynamictheme/models.js";
 
-export function GenerateRecordingTheme(recordingID: string): $CancellablePromise<palette$0.ThemePalette> {
+export function GenerateRecordingTheme(recordingID: string): $CancellablePromise<dynamictheme$0.Theme> {
     return $Call.ByID(2624863662, recordingID).then(($result: any) => {
         return $$createType0($result);
     });
@@ -35,5 +35,5 @@ export function SubscribeThemeEvents(): $CancellablePromise<string> {
 }
 
 // Private type creation functions
-const $$createType0 = palette$0.ThemePalette.createFrom;
+const $$createType0 = dynamictheme$0.Theme.createFrom;
 const $$createType1 = apitypes$0.ThemePreferences.createFrom;

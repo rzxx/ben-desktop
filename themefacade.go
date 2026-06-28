@@ -10,7 +10,7 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
-	"ben/desktop/internal/palette"
+	"ben/desktop/internal/dynamictheme"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -23,11 +23,11 @@ const (
 )
 
 type themeExtractor interface {
-	ExtractFromPath(path string, options palette.ExtractOptions) (palette.ThemePalette, error)
+	ExtractFromPath(path string, options dynamictheme.ExtractOptions) (dynamictheme.Theme, error)
 }
 
 type themeCacheEntry struct {
-	palette           palette.ThemePalette
+	theme             dynamictheme.Theme
 	sourceModUnixNano int64
 	cachedAt          time.Time
 }
@@ -47,7 +47,7 @@ type ThemeFacade struct {
 func NewThemeFacade(host *coreHost) *ThemeFacade {
 	return &ThemeFacade{
 		facadeBase: facadeBase{host: host},
-		extractor:  palette.NewExtractor(),
+		extractor:  dynamictheme.NewExtractor(),
 		cache:      make(map[string]themeCacheEntry),
 	}
 }
@@ -113,34 +113,34 @@ func (s *ThemeFacade) SetThemeMode(mode apitypes.AppThemeMode) (apitypes.ThemePr
 	return preferences, nil
 }
 
-func (s *ThemeFacade) GenerateRecordingTheme(ctx context.Context, recordingID string) (palette.ThemePalette, error) {
+func (s *ThemeFacade) GenerateRecordingTheme(ctx context.Context, recordingID string) (dynamictheme.Theme, error) {
 	ctx, span := startFacadeSpan(ctx, "theme", "generate_recording_theme", map[string]any{"recording_id": recordingID})
 	defer span.End()
 	recordingID = strings.TrimSpace(recordingID)
 	if recordingID == "" {
 		err := errors.New("recording id is required")
 		span.RecordError(err)
-		return palette.ThemePalette{}, err
+		return dynamictheme.Theme{}, err
 	}
 
 	playbackRuntime := s.playback()
 	if playbackRuntime == nil {
 		err := errors.New("playback runtime is not available")
 		span.RecordError(err)
-		return palette.ThemePalette{}, err
+		return dynamictheme.Theme{}, err
 	}
 
 	resolved, err := playbackRuntime.ResolveRecordingArtwork(ctx, recordingID, themeArtworkVariant)
 	if err != nil {
 		span.RecordError(err)
-		return palette.ThemePalette{}, err
+		return dynamictheme.Theme{}, err
 	}
 
 	resolvedPath := strings.TrimSpace(resolved.LocalPath)
 	if !resolved.Available || resolvedPath == "" {
 		err := errors.New(errThemeArtworkAbsent)
 		span.RecordError(err)
-		return palette.ThemePalette{}, err
+		return dynamictheme.Theme{}, err
 	}
 
 	sourceInfo, err := os.Stat(resolvedPath)
@@ -148,49 +148,49 @@ func (s *ThemeFacade) GenerateRecordingTheme(ctx context.Context, recordingID st
 		if os.IsNotExist(err) {
 			err := errors.New(errThemeArtworkAbsent)
 			span.RecordError(err)
-			return palette.ThemePalette{}, err
+			return dynamictheme.Theme{}, err
 		}
 		err = fmt.Errorf("stat theme artwork: %w", err)
 		span.RecordError(err)
-		return palette.ThemePalette{}, err
+		return dynamictheme.Theme{}, err
 	}
 	sourceModUnixNano := sourceInfo.ModTime().UnixNano()
 
-	if cachedPalette, ok := s.loadCachedPalette(resolvedPath, sourceModUnixNano); ok {
+	if cachedTheme, ok := s.loadCachedTheme(resolvedPath, sourceModUnixNano); ok {
 		span.Event("theme.cache_hit")
-		span.SetOutput(apitypes.TraceSummary{Summary: "theme palette cache hit", Fields: map[string]any{"tones": len(cachedPalette.ThemeScale)}})
-		return cachedPalette, nil
+		span.SetOutput(apitypes.TraceSummary{Summary: "dynamic theme cache hit", Fields: map[string]any{"version": cachedTheme.Version}})
+		return cachedTheme, nil
 	}
 
-	themePalette, err := s.extractor.ExtractFromPath(resolvedPath, palette.DefaultExtractOptions())
+	dynamicTheme, err := s.extractor.ExtractFromPath(resolvedPath, dynamictheme.DefaultExtractOptions())
 	if err != nil {
 		err = fmt.Errorf("generate recording theme: %w", err)
 		span.RecordError(err)
-		return palette.ThemePalette{}, err
+		return dynamictheme.Theme{}, err
 	}
 
-	s.storeCachedPalette(resolvedPath, sourceModUnixNano, themePalette)
-	span.SetOutput(apitypes.TraceSummary{Summary: "theme palette generated", Fields: map[string]any{"tones": len(themePalette.ThemeScale)}})
-	return themePalette, nil
+	s.storeCachedTheme(resolvedPath, sourceModUnixNano, dynamicTheme)
+	span.SetOutput(apitypes.TraceSummary{Summary: "dynamic theme generated", Fields: map[string]any{"version": dynamicTheme.Version, "artwork_class": dynamicTheme.Artwork.Class}})
+	return dynamicTheme, nil
 }
 
-func (s *ThemeFacade) loadCachedPalette(cacheKey string, sourceModUnixNano int64) (palette.ThemePalette, bool) {
+func (s *ThemeFacade) loadCachedTheme(cacheKey string, sourceModUnixNano int64) (dynamictheme.Theme, bool) {
 	s.cacheMu.RLock()
 	entry, ok := s.cache[cacheKey]
 	s.cacheMu.RUnlock()
 	if !ok || entry.sourceModUnixNano != sourceModUnixNano {
-		return palette.ThemePalette{}, false
+		return dynamictheme.Theme{}, false
 	}
 
-	return entry.palette, true
+	return entry.theme, true
 }
 
-func (s *ThemeFacade) storeCachedPalette(cacheKey string, sourceModUnixNano int64, themePalette palette.ThemePalette) {
+func (s *ThemeFacade) storeCachedTheme(cacheKey string, sourceModUnixNano int64, dynamicTheme dynamictheme.Theme) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
 	s.cache[cacheKey] = themeCacheEntry{
-		palette:           themePalette,
+		theme:             dynamicTheme,
 		sourceModUnixNano: sourceModUnixNano,
 		cachedAt:          time.Now(),
 	}
