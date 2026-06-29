@@ -810,6 +810,9 @@ func TestRepairLibraryReturnsLookupCancellationDuringSetup(t *testing.T) {
 	var injected int32
 	callbackName := "test:cancel-current-device-lookup"
 	if err := app.storage.DB().Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement.Schema == nil || tx.Statement.Schema.Table != "devices" {
+			return
+		}
 		if atomic.CompareAndSwapInt32(&injected, 0, 1) {
 			_ = tx.AddError(context.Canceled)
 		}
