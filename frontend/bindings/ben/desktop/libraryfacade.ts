@@ -35,19 +35,25 @@ export function DeleteLibrary(libraryID: string): $CancellablePromise<void> {
     return $Call.ByID(533926343, libraryID);
 }
 
+export function GetLibraryRelayConfig(libraryID: string): $CancellablePromise<apitypes$0.LibraryRelayConfig> {
+    return $Call.ByID(3920698823, libraryID).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 export function LeaveLibrary(libraryID: string): $CancellablePromise<void> {
     return $Call.ByID(3061401293, libraryID);
 }
 
 export function ListLibraries(): $CancellablePromise<apitypes$0.LibrarySummary[]> {
     return $Call.ByID(2014903258).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function ListLibraryMembers(): $CancellablePromise<apitypes$0.LibraryMemberStatus[]> {
     return $Call.ByID(3506183317).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -85,7 +91,7 @@ export function SetScanRoots(roots: string[]): $CancellablePromise<void> {
 
 export function StartRepairLibrary(): $CancellablePromise<desktopcore$0.JobSnapshot> {
     return $Call.ByID(4183300495).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -93,10 +99,17 @@ export function UpdateLibraryMemberRole(deviceID: string, role: string): $Cancel
     return $Call.ByID(820385675, deviceID, role);
 }
 
+export function UpdateLibraryRelayConfig(req: apitypes$0.UpdateLibraryRelayConfigRequest): $CancellablePromise<apitypes$0.LibraryRelayConfig> {
+    return $Call.ByID(1408584128, req).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 // Private type creation functions
 const $$createType0 = apitypes$0.LibrarySummary.createFrom;
 const $$createType1 = $Create.Array($Create.Any);
-const $$createType2 = $Create.Array($$createType0);
-const $$createType3 = apitypes$0.LibraryMemberStatus.createFrom;
-const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = desktopcore$0.JobSnapshot.createFrom;
+const $$createType2 = apitypes$0.LibraryRelayConfig.createFrom;
+const $$createType3 = $Create.Array($$createType0);
+const $$createType4 = apitypes$0.LibraryMemberStatus.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = desktopcore$0.JobSnapshot.createFrom;

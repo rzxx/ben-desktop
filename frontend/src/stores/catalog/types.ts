@@ -57,10 +57,7 @@ export type DetailRecord<T> = {
 };
 
 export type DetailKind =
-  | "album"
-  | "albumVariants"
-  | "artist"
-  | "playlistSummary";
+  "album" | "albumVariants" | "artist" | "playlistSummary";
 
 export type CatalogValueQueryItem =
   | AlbumListItem

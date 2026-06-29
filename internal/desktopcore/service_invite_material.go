@@ -14,7 +14,7 @@ const (
 	admissionAuthoritySignedByRoot = "root"
 )
 
-type joinSessionAuthorityMaterial struct {
+type joinAuthorityMaterial struct {
 	Version      int64  `json:"version"`
 	PublicKey    string `json:"publicKey"`
 	PrivateKey   string `json:"privateKey,omitempty"`
@@ -24,29 +24,29 @@ type joinSessionAuthorityMaterial struct {
 	CreatedAt    int64  `json:"createdAt"`
 }
 
-func (s *InviteService) buildJoinSessionMaterialTx(tx *gorm.DB, libraryID, deviceID, peerID, role string, now time.Time) (joinSessionMaterial, error) {
+func (s *InviteService) buildJoinMaterialTx(tx *gorm.DB, libraryID, deviceID, peerID, role string, now time.Time) (joinMaterial, error) {
 	library, authority, privateKey, err := ensureLibraryJoinMaterialTx(tx, libraryID, now)
 	if err != nil {
-		return joinSessionMaterial{}, err
+		return joinMaterial{}, err
 	}
 
 	recoveryToken, err := randomToken()
 	if err != nil {
-		return joinSessionMaterial{}, err
+		return joinMaterial{}, err
 	}
 
 	cert, err := issueMembershipCertTx(tx, libraryID, deviceID, peerID, role, defaultMembershipCertTTL)
 	if err != nil {
-		return joinSessionMaterial{}, err
+		return joinMaterial{}, err
 	}
 
-	material := joinSessionMaterial{
+	material := joinMaterial{
 		LibraryName:    strings.TrimSpace(library.Name),
 		RootPublicKey:  strings.TrimSpace(library.RootPublicKey),
 		LibraryKey:     strings.TrimSpace(library.LibraryKey),
 		RecoveryToken:  recoveryToken,
 		MembershipCert: cert,
-		AdmissionAuthority: &joinSessionAuthorityMaterial{
+		AdmissionAuthority: &joinAuthorityMaterial{
 			Version:      authority.Version,
 			PublicKey:    strings.TrimSpace(authority.PublicKey),
 			PrevVersion:  authority.PrevVersion,
@@ -160,10 +160,10 @@ func ensureLibraryJoinMaterialTx(tx *gorm.DB, libraryID string, now time.Time) (
 	return library, authority, privateKey, nil
 }
 
-func restoreJoinSessionMaterialTx(tx *gorm.DB, session JoinSession, material joinSessionMaterial, now time.Time) error {
-	libraryID := strings.TrimSpace(session.LibraryID)
+func restoreJoinMaterialTx(tx *gorm.DB, libraryID string, material joinMaterial, now time.Time) error {
+	libraryID = strings.TrimSpace(libraryID)
 	if libraryID == "" {
-		return fmt.Errorf("join session library id is required")
+		return fmt.Errorf("join library id is required")
 	}
 
 	libraryName := strings.TrimSpace(material.LibraryName)

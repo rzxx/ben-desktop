@@ -57,7 +57,6 @@ For closed beta, either mode is fine. If you already have standard ingress or a 
   - `-relay-reservation-ttl`
   - `-relay-max-reservations`
   - `-relay-max-circuits`
-  - `-relay-max-reservations-per-peer`
   - `-relay-max-reservations-per-ip`
   - `-relay-max-reservations-per-asn`
   - `-relay-limit-duration`
@@ -178,7 +177,7 @@ The desktop app discovers the current relay bootstrap multiaddr from `GET /healt
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for Unkey setup, Render setup, Railway compatibility, and the migration checklist.
 
-The host still needs durable storage for production. Unkey Deploy's `/data` storage is currently documented as ephemeral, so it is suitable for smoke testing this shape but not for keeping a stable relay identity and SQLite registry through instance replacement.
+Durable storage is recommended when a stable relay identity is operationally useful, but it is not a correctness requirement. With ephemeral storage, online desktop clients discover the replacement identity and rebuild relay authorization, presence, and membership revocation state.
 
 ## Railway Deployment
 
@@ -206,12 +205,12 @@ Notes:
 
 - Railway documents public HTTP/HTTPS and public TCP proxying. This README therefore recommends a TCP-only relay configuration on Railway.
 - If you use a custom hostname for the TCP proxy, keep the Railway-assigned proxy port in the advertised multiaddr.
-- The volume is required so the relay peer identity and SQLite registry survive redeploys.
+- The volume keeps the relay peer identity and SQLite registry stable across redeploys; clients can recover if it is lost.
 - Railway mounts volumes as `root`. Set `RAILWAY_RUN_UID=0` so relayd can claim the storage directory at startup; on Linux it immediately drops to UID/GID 65532 before opening SQLite, loading the relay identity, or serving traffic.
 
 ## App Configuration
 
-The desktop app still needs both the registry URL and the relay bootstrap address in its local settings:
+The desktop app needs a stable registry URL. Static relay bootstrap addresses are optional fallback values because the current relay address is discovered from `/healthz`:
 
 ```json
 {

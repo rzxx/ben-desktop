@@ -106,7 +106,6 @@ type relaydOptions struct {
 	ReservationTTL             time.Duration
 	MaxReservations            int
 	MaxCircuits                int
-	MaxReservationsPerPeer     int
 	MaxReservationsPerIP       int
 	MaxReservationsPerASN      int
 	RelayLimitDuration         time.Duration
@@ -176,7 +175,7 @@ func main() {
 	if err != nil {
 		fatal("open registry db", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	configureSQLite(db)
 	if err := initSchema(db); err != nil {
 		fatal("init registry db", err)
@@ -187,7 +186,7 @@ func main() {
 	if err != nil {
 		fatal("create relay host", err)
 	}
-	defer hostNode.Close()
+	defer func() { _ = hostNode.Close() }()
 
 	server := &relaydServer{db: db, host: hostNode, metrics: metrics}
 	mux := http.NewServeMux()
@@ -287,7 +286,6 @@ func parseOptionsFromArgs(args []string) (relaydOptions, error) {
 	fs.DurationVar(&opts.ReservationTTL, "relay-reservation-ttl", time.Hour, "relay reservation TTL")
 	fs.IntVar(&opts.MaxReservations, "relay-max-reservations", 128, "maximum relay reservations")
 	fs.IntVar(&opts.MaxCircuits, "relay-max-circuits", 8, "maximum concurrent relay circuits")
-	fs.IntVar(&opts.MaxReservationsPerPeer, "relay-max-reservations-per-peer", 1, "maximum reservations per peer")
 	fs.IntVar(&opts.MaxReservationsPerIP, "relay-max-reservations-per-ip", 8, "maximum reservations per source IP")
 	fs.IntVar(&opts.MaxReservationsPerASN, "relay-max-reservations-per-asn", 32, "maximum reservations per ASN")
 	fs.DurationVar(&opts.RelayLimitDuration, "relay-limit-duration", 90*time.Second, "maximum relay circuit duration")
@@ -473,7 +471,6 @@ func (o relaydOptions) relayResources() relayv2.Resources {
 	resources.ReservationTTL = o.ReservationTTL
 	resources.MaxReservations = o.MaxReservations
 	resources.MaxCircuits = o.MaxCircuits
-	resources.MaxReservationsPerPeer = o.MaxReservationsPerPeer
 	resources.MaxReservationsPerIP = o.MaxReservationsPerIP
 	resources.MaxReservationsPerASN = o.MaxReservationsPerASN
 	resources.Limit = &relayv2.RelayLimit{
@@ -531,8 +528,6 @@ func (o relaydOptions) validate() error {
 		return fmt.Errorf("relay max reservations must be positive")
 	case o.MaxCircuits <= 0:
 		return fmt.Errorf("relay max circuits must be positive")
-	case o.MaxReservationsPerPeer <= 0:
-		return fmt.Errorf("relay max reservations per peer must be positive")
 	case o.MaxReservationsPerIP <= 0:
 		return fmt.Errorf("relay max reservations per ip must be positive")
 	case o.MaxReservationsPerASN <= 0:
@@ -988,7 +983,7 @@ func applySchemaMigration(db *sql.DB, version int) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	for _, query := range schemaMigrationQueries(version) {
 		if _, err := tx.Exec(query); err != nil {
 			return err
@@ -1045,13 +1040,6 @@ func schemaMigrationQueries(version int) []string {
 				revision INTEGER NOT NULL,
 				updated_at INTEGER NOT NULL
 			);`,
-			`CREATE TABLE IF NOT EXISTS revoked_invites (
-				library_id TEXT NOT NULL,
-				token_id TEXT NOT NULL,
-				revision INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL,
-				PRIMARY KEY (library_id, token_id)
-			);`,
 			`CREATE TABLE IF NOT EXISTS revoked_members (
 				library_id TEXT NOT NULL,
 				device_id TEXT NOT NULL,
@@ -1060,7 +1048,6 @@ func schemaMigrationQueries(version int) []string {
 				updated_at INTEGER NOT NULL,
 				PRIMARY KEY (library_id, device_id)
 			);`,
-			`CREATE INDEX IF NOT EXISTS idx_revoked_invites_library_token ON revoked_invites(library_id, token_id);`,
 			`CREATE INDEX IF NOT EXISTS idx_revoked_members_library_device ON revoked_members(library_id, device_id);`,
 		}
 	default:
@@ -1352,15 +1339,6 @@ func (s *relaydServer) handleInviteOwner(w http.ResponseWriter, r *http.Request)
 		http.Error(w, fmt.Sprintf("pin invite library root: %v", err), http.StatusUnauthorized)
 		return
 	}
-	if revoked, err := s.inviteRevoked(req.Invite.LibraryID, req.Invite.TokenID); err != nil {
-		s.metrics.registryEvent("invite_owner", "revocation_check_failed")
-		http.Error(w, fmt.Sprintf("check invite revocation: %v", err), http.StatusInternalServerError)
-		return
-	} else if revoked {
-		s.metrics.registryEvent("invite_owner", "revoked")
-		http.Error(w, "invite is revoked", http.StatusUnauthorized)
-		return
-	}
 	record, ok, err := s.lookupPresence(req.Invite.LibraryID, req.Invite.OwnerPeerID)
 	if err != nil {
 		s.metrics.registryEvent("invite_owner", "lookup_failed")
@@ -1380,10 +1358,6 @@ func (s *relaydServer) handleInviteOwner(w http.ResponseWriter, r *http.Request)
 	}
 	s.metrics.registryEvent("invite_owner", "ok")
 	writeJSON(w, http.StatusOK, record)
-}
-
-func inviteLookupRelayAddrs(addrs []string) []string {
-	return inviteLookupRelayAddrsForPeer(addrs, "")
 }
 
 func inviteLookupRelayAddrsForPeer(addrs []string, peerID string) []string {
@@ -1504,7 +1478,7 @@ func (s *relaydServer) applyRevocationSync(ctx context.Context, req registryauth
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var existingRevision int64
 	err = tx.QueryRow(`SELECT revision FROM revocation_state WHERE library_id = ?`, strings.TrimSpace(req.LibraryID)).Scan(&existingRevision)
 	switch {
@@ -1524,17 +1498,6 @@ func (s *relaydServer) applyRevocationSync(ctx context.Context, req registryauth
 			updated_at = excluded.updated_at
 	`, strings.TrimSpace(req.LibraryID), strings.TrimSpace(req.RootPublicKey), req.Revision, now); err != nil {
 		return false, err
-	}
-	for _, tokenID := range compactNonEmptyStrings(req.InviteTokenIDs) {
-		if _, err := tx.Exec(`
-			INSERT INTO revoked_invites(library_id, token_id, revision, updated_at)
-			VALUES(?, ?, ?, ?)
-			ON CONFLICT(library_id, token_id) DO UPDATE SET
-				revision = max(revoked_invites.revision, excluded.revision),
-				updated_at = excluded.updated_at
-		`, strings.TrimSpace(req.LibraryID), tokenID, req.Revision, now); err != nil {
-			return false, err
-		}
 	}
 	for _, revocation := range req.MembershipRevocations {
 		deviceID := strings.TrimSpace(revocation.DeviceID)
@@ -1556,19 +1519,6 @@ func (s *relaydServer) applyRevocationSync(ctx context.Context, req registryauth
 		return false, err
 	}
 	return true, nil
-}
-
-func (s *relaydServer) inviteRevoked(libraryID, tokenID string) (bool, error) {
-	var exists int
-	err := s.db.QueryRow(`SELECT 1 FROM revoked_invites WHERE library_id = ? AND token_id = ? LIMIT 1`, strings.TrimSpace(libraryID), strings.TrimSpace(tokenID)).Scan(&exists)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	return err == nil && exists == 1, err
-}
-
-func (s *relaydServer) membershipRevoked(libraryID, deviceID string, serial int64) (bool, error) {
-	return membershipRevokedQuery(s.db, libraryID, deviceID, serial)
 }
 
 func membershipRevokedQuery(db sqlQueryExecutor, libraryID, deviceID string, serial int64) (bool, error) {
@@ -1605,7 +1555,7 @@ func (s *relaydServer) authenticateMembership(ctx context.Context, libraryID, cl
 	if err != nil {
 		return verifiedMembership{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	member, err := authenticateMembershipTx(tx, libraryID, claimedRootPublicKey, auth)
 	if err != nil {
 		return verifiedMembership{}, err
@@ -1663,10 +1613,6 @@ func authenticateMembershipTx(db sqlQueryExecutor, libraryID, claimedRootPublicK
 	return member, nil
 }
 
-func (s *relaydServer) libraryRootPublicKey(libraryID string) (string, bool, error) {
-	return libraryRootPublicKeyQuery(s.db, libraryID)
-}
-
 func libraryRootPublicKeyQuery(db sqlQueryExecutor, libraryID string) (string, bool, error) {
 	libraryID = strings.TrimSpace(libraryID)
 	if libraryID == "" {
@@ -1711,10 +1657,6 @@ func pinLibraryRootQuery(db sqlQueryExecutor, libraryID, rootPublicKey string) e
 	return err
 }
 
-func (s *relaydServer) persistMemberAuthState(member verifiedMembership) error {
-	return persistMemberAuthStateQuery(s.db, member)
-}
-
 func persistMemberAuthStateQuery(db sqlQueryExecutor, member verifiedMembership) error {
 	var existingSerial int64
 	var existingPeerID string
@@ -1723,15 +1665,15 @@ func persistMemberAuthStateQuery(db sqlQueryExecutor, member verifiedMembership)
 		FROM member_auth_state
 		WHERE library_id = ? AND device_id = ?
 	`, member.LibraryID, member.DeviceID).Scan(&existingSerial, &existingPeerID)
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		if existingSerial > member.CertSerial {
 			return fmt.Errorf("membership certificate serial is stale")
 		}
 		if existingSerial == member.CertSerial && strings.TrimSpace(existingPeerID) != "" && strings.TrimSpace(existingPeerID) != member.PeerID {
 			return fmt.Errorf("membership certificate peer mismatch")
 		}
-	case err == sql.ErrNoRows:
+	case sql.ErrNoRows:
 	default:
 		return err
 	}

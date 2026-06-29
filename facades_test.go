@@ -484,14 +484,13 @@ func TestInviteFacadeForwardsToRuntime(t *testing.T) {
 
 	ctx := context.Background()
 	invite := apitypes.InviteRecord{LibraryID: "lib-1", InviteCode: "code-1", Role: "member"}
-	session := apitypes.JoinSession{SessionID: "session-1", RequestID: "req-1", Status: "pending", LibraryID: "lib-1", Pending: true}
-	request := apitypes.InviteJoinRequestRecord{RequestID: "req-1", LibraryID: "lib-1", Status: "pending"}
-	job := desktopcore.JobSnapshot{JobID: "join-finalize:session-1", Kind: "finalize-join-session", LibraryID: "lib-1", Phase: desktopcore.JobPhaseQueued}
+	attempt := apitypes.JoinAttempt{AttemptID: "attempt-1", RequestID: "req-1", Status: "pending", LibraryID: "lib-1", Pending: true}
+	request := apitypes.InviteJoinRequestRecord{RequestID: "req-1", LibraryID: "lib-1"}
 	calls := make([]string, 0, 10)
 	host := newPassthroughHost(&passthroughRuntimeStub{
 		UnavailableCore: desktopcore.NewUnavailableCore(errors.New("unused")),
 		createInviteFn: func(_ context.Context, req apitypes.InviteCreateRequest) (apitypes.InviteRecord, error) {
-			calls = append(calls, "create:"+req.Role)
+			calls = append(calls, "create:"+req.Role+":"+boolString(req.Reusable))
 			return invite, nil
 		},
 		listActiveInvitesFn: func(_ context.Context) ([]apitypes.InviteRecord, error) {
@@ -502,38 +501,34 @@ func TestInviteFacadeForwardsToRuntime(t *testing.T) {
 			calls = append(calls, "delete:"+inviteID)
 			return nil
 		},
-		startJoinFromInviteFn: func(_ context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
+		startJoinFromInviteFn: func(_ context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinAttempt, error) {
 			calls = append(calls, "start:"+req.InviteCode)
-			return session, nil
+			return attempt, nil
 		},
-		getJoinSessionFn: func(_ context.Context, sessionID string) (apitypes.JoinSession, error) {
-			calls = append(calls, "get:"+sessionID)
-			return session, nil
+		getJoinAttemptFn: func(_ context.Context, attemptID string) (apitypes.JoinAttempt, error) {
+			calls = append(calls, "get:"+attemptID)
+			return attempt, nil
 		},
-		startFinalizeJoinSessionFn: func(_ context.Context, sessionID string) (desktopcore.JobSnapshot, error) {
-			calls = append(calls, "start-finalize:"+sessionID)
-			return job, nil
-		},
-		cancelJoinSessionFn: func(_ context.Context, sessionID string) error {
-			calls = append(calls, "cancel:"+sessionID)
+		cancelJoinAttemptFn: func(_ context.Context, attemptID string) error {
+			calls = append(calls, "cancel:"+attemptID)
 			return nil
 		},
-		listJoinRequestsFn: func(_ context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
-			calls = append(calls, "requests:"+status)
+		listJoinRequestsFn: func(_ context.Context) ([]apitypes.InviteJoinRequestRecord, error) {
+			calls = append(calls, "requests")
 			return []apitypes.InviteJoinRequestRecord{request}, nil
 		},
-		approveJoinRequestFn: func(_ context.Context, requestID, role string) error {
-			calls = append(calls, "approve:"+requestID+":"+role)
+		approveJoinRequestFn: func(_ context.Context, requestID string) error {
+			calls = append(calls, "approve:"+requestID)
 			return nil
 		},
-		rejectJoinRequestFn: func(_ context.Context, requestID, reason string) error {
-			calls = append(calls, "reject:"+requestID+":"+reason)
+		rejectJoinRequestFn: func(_ context.Context, requestID string) error {
+			calls = append(calls, "reject:"+requestID)
 			return nil
 		},
 	})
 	facade := NewInviteFacade(host)
 
-	if _, err := facade.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: "member"}); err != nil {
+	if _, err := facade.CreateInvite(ctx, apitypes.InviteCreateRequest{Role: "member", Reusable: true}); err != nil {
 		t.Fatalf("create invite: %v", err)
 	}
 	if got, err := facade.ListActiveInvites(ctx); err != nil || len(got) != 1 || got[0].InviteID != invite.InviteID {
@@ -545,40 +540,43 @@ func TestInviteFacadeForwardsToRuntime(t *testing.T) {
 	if _, err := facade.StartJoinFromInvite(ctx, apitypes.JoinFromInviteInput{InviteCode: "code-1"}); err != nil {
 		t.Fatalf("start join from invite: %v", err)
 	}
-	if _, err := facade.GetJoinSession(ctx, "session-1"); err != nil {
-		t.Fatalf("get join session: %v", err)
+	if _, err := facade.GetJoinAttempt(ctx, "attempt-1"); err != nil {
+		t.Fatalf("get join attempt: %v", err)
 	}
-	if got, err := facade.StartFinalizeJoinSession(ctx, "session-1"); err != nil || got.JobID != job.JobID {
-		t.Fatalf("start finalize join session = %+v, err=%v", got, err)
+	if err := facade.CancelJoinAttempt(ctx, "attempt-1"); err != nil {
+		t.Fatalf("cancel join attempt: %v", err)
 	}
-	if err := facade.CancelJoinSession(ctx, "session-1"); err != nil {
-		t.Fatalf("cancel join session: %v", err)
-	}
-	if got, err := facade.ListJoinRequests(ctx, "pending"); err != nil || len(got) != 1 || got[0].RequestID != request.RequestID {
+	if got, err := facade.ListJoinRequests(ctx); err != nil || len(got) != 1 || got[0].RequestID != request.RequestID {
 		t.Fatalf("list join requests = %+v, err=%v", got, err)
 	}
-	if err := facade.ApproveJoinRequest(ctx, "req-1", "guest"); err != nil {
+	if err := facade.ApproveJoinRequest(ctx, "req-1"); err != nil {
 		t.Fatalf("approve join request: %v", err)
 	}
-	if err := facade.RejectJoinRequest(ctx, "req-1", "no"); err != nil {
+	if err := facade.RejectJoinRequest(ctx, "req-1"); err != nil {
 		t.Fatalf("reject join request: %v", err)
 	}
 
 	want := []string{
-		"create:member",
+		"create:member:true",
 		"active",
 		"delete:invite-1",
 		"start:code-1",
-		"get:session-1",
-		"start-finalize:session-1",
-		"cancel:session-1",
-		"requests:pending",
-		"approve:req-1:guest",
-		"reject:req-1:no",
+		"get:attempt-1",
+		"cancel:attempt-1",
+		"requests",
+		"approve:req-1",
+		"reject:req-1",
 	}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("invite facade calls = %v, want %v", calls, want)
 	}
+}
+
+func boolString(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }
 
 func TestCacheAndPlaybackFacadesForwardToRuntime(t *testing.T) {

@@ -117,6 +117,14 @@ func (s *LibraryFacade) RenameLibrary(ctx context.Context, libraryID, name strin
 	return s.library().RenameLibrary(ctx, libraryID, name)
 }
 
+func (s *LibraryFacade) GetLibraryRelayConfig(ctx context.Context, libraryID string) (apitypes.LibraryRelayConfig, error) {
+	return s.library().GetLibraryRelayConfig(ctx, libraryID)
+}
+
+func (s *LibraryFacade) UpdateLibraryRelayConfig(ctx context.Context, req apitypes.UpdateLibraryRelayConfigRequest) (apitypes.LibraryRelayConfig, error) {
+	return s.library().UpdateLibraryRelayConfig(ctx, req)
+}
+
 func (s *LibraryFacade) LeaveLibrary(ctx context.Context, libraryID string) error {
 	return s.library().LeaveLibrary(ctx, libraryID)
 }
@@ -482,7 +490,7 @@ func NewInviteFacade(host *coreHost) *InviteFacade {
 func (s *InviteFacade) ServiceName() string { return "InviteFacade" }
 
 func (s *InviteFacade) CreateInvite(ctx context.Context, req apitypes.InviteCreateRequest) (apitypes.InviteRecord, error) {
-	ctx, span := startFacadeSpan(ctx, "invite", "create_invite", map[string]any{"role": req.Role, "uses": req.Uses})
+	ctx, span := startFacadeSpan(ctx, "invite", "create_invite", map[string]any{"role": req.Role, "reusable": req.Reusable})
 	defer span.End()
 	result, err := s.invite().CreateInvite(ctx, req)
 	return finishFacadeSpan(span, result, err, map[string]any{"invite_id": result.InviteID, "library_id": result.LibraryID})
@@ -496,35 +504,31 @@ func (s *InviteFacade) DeleteInvite(ctx context.Context, inviteID string) error 
 	return s.invite().DeleteInvite(ctx, inviteID)
 }
 
-func (s *InviteFacade) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
+func (s *InviteFacade) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinAttempt, error) {
 	ctx, span := startFacadeSpan(ctx, "invite", "start_join_from_invite", map[string]any{"has_invite": req.InviteCode != ""})
 	defer span.End()
 	result, err := s.invite().StartJoinFromInvite(ctx, req)
-	return finishFacadeSpan(span, result, err, map[string]any{"session_id": result.SessionID, "request_id": result.RequestID})
+	return finishFacadeSpan(span, result, err, map[string]any{"attempt_id": result.AttemptID, "request_id": result.RequestID})
 }
 
-func (s *InviteFacade) GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error) {
-	return s.invite().GetJoinSession(ctx, sessionID)
+func (s *InviteFacade) GetJoinAttempt(ctx context.Context, attemptID string) (apitypes.JoinAttempt, error) {
+	return s.invite().GetJoinAttempt(ctx, attemptID)
 }
 
-func (s *InviteFacade) StartFinalizeJoinSession(ctx context.Context, sessionID string) (desktopcore.JobSnapshot, error) {
-	return s.invite().StartFinalizeJoinSession(ctx, sessionID)
+func (s *InviteFacade) CancelJoinAttempt(ctx context.Context, attemptID string) error {
+	return s.invite().CancelJoinAttempt(ctx, attemptID)
 }
 
-func (s *InviteFacade) CancelJoinSession(ctx context.Context, sessionID string) error {
-	return s.invite().CancelJoinSession(ctx, sessionID)
+func (s *InviteFacade) ListJoinRequests(ctx context.Context) ([]apitypes.InviteJoinRequestRecord, error) {
+	return s.invite().ListJoinRequests(ctx)
 }
 
-func (s *InviteFacade) ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
-	return s.invite().ListJoinRequests(ctx, status)
+func (s *InviteFacade) ApproveJoinRequest(ctx context.Context, requestID string) error {
+	return s.invite().ApproveJoinRequest(ctx, requestID)
 }
 
-func (s *InviteFacade) ApproveJoinRequest(ctx context.Context, requestID, role string) error {
-	return s.invite().ApproveJoinRequest(ctx, requestID, role)
-}
-
-func (s *InviteFacade) RejectJoinRequest(ctx context.Context, requestID, reason string) error {
-	return s.invite().RejectJoinRequest(ctx, requestID, reason)
+func (s *InviteFacade) RejectJoinRequest(ctx context.Context, requestID string) error {
+	return s.invite().RejectJoinRequest(ctx, requestID)
 }
 
 type PinFacade struct {

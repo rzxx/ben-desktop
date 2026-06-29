@@ -21,7 +21,7 @@ const (
 	localSettingDBBaselineEpoch = "db_baseline_epoch"
 	localSettingInviteFlowEpoch = "invite_flow_epoch"
 	dbBaselineEpoch             = "2026_04_rebaseline_1"
-	inviteFlowEpoch             = "2026_04_relay_invite_v1"
+	inviteFlowEpoch             = "2026_06_streamlined_invite_v1"
 	playlistKindNormal          = "normal"
 	playlistKindLiked           = "liked"
 	playlistKindOffline         = "offline"

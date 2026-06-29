@@ -80,9 +80,11 @@ func (s *LibraryService) CreateLibrary(ctx context.Context, name string) (apityp
 	libraryID := uuid.NewString()
 	if err := s.app.storage.Transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Create(&Library{
-			LibraryID: libraryID,
-			Name:      name,
-			CreatedAt: now,
+			LibraryID:               libraryID,
+			Name:                    name,
+			RegistryURL:             strings.TrimSpace(s.app.cfg.RegistryURL),
+			RelayBootstrapAddrsJSON: encodeStringListJSON(s.app.cfg.RelayBootstrapAddrs),
+			CreatedAt:               now,
 		}).Error; err != nil {
 			return err
 		}
@@ -238,7 +240,7 @@ func (s *LibraryService) DeleteLibrary(ctx context.Context, libraryID string) er
 		}
 		models := []any{
 			&Membership{}, &ScanRoot{}, &PinBlobRef{}, &PinMember{}, &PinRoot{}, &AdmissionAuthority{}, &MembershipCert{}, &MembershipCertRevocation{},
-			&MembershipRecovery{}, &InviteJoinRequest{}, &InviteTokenRedemption{}, &IssuedInvite{}, &JoinSession{},
+			&MembershipRecovery{}, &IssuedInvite{},
 			&Artist{}, &Credit{}, &AlbumVariantModel{}, &TrackVariantModel{}, &AlbumTrack{}, &DeviceVariantPreference{},
 			&SourceFileModel{}, &OptimizedAssetModel{}, &DeviceAssetCacheModel{}, &ArtworkVariant{}, &Playlist{},
 			&PlaylistItem{}, &OplogEntry{}, &DeviceClock{}, &PeerSyncState{}, &LibraryCheckpoint{}, &LibraryCheckpointChunk{},
@@ -443,9 +445,11 @@ func (a *App) ensureCurrentDevice(ctx context.Context) (Device, error) {
 	}
 
 	var setting LocalSetting
-	if err := a.storage.WithContext(ctx).Where("key = ?", localSettingCurrentDevice).Take(&setting).Error; err == nil {
+	settingErr := a.storage.WithContext(ctx).Where("key = ?", localSettingCurrentDevice).Take(&setting).Error
+	if settingErr == nil {
 		var device Device
-		if err := a.storage.WithContext(ctx).Where("device_id = ?", strings.TrimSpace(setting.Value)).Take(&device).Error; err == nil {
+		deviceErr := a.storage.WithContext(ctx).Where("device_id = ?", strings.TrimSpace(setting.Value)).Take(&device).Error
+		if deviceErr == nil {
 			now := time.Now().UTC()
 			updates := map[string]any{"last_seen_at": &now}
 			if strings.TrimSpace(host) != "" && device.Name != host {
@@ -458,6 +462,11 @@ func (a *App) ensureCurrentDevice(ctx context.Context) (Device, error) {
 			device.LastSeenAt = &now
 			return device, nil
 		}
+		if !errors.Is(deviceErr, gorm.ErrRecordNotFound) {
+			return Device{}, deviceErr
+		}
+	} else if !errors.Is(settingErr, gorm.ErrRecordNotFound) {
+		return Device{}, settingErr
 	}
 
 	now := time.Now().UTC()

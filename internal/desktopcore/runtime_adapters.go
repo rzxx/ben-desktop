@@ -41,6 +41,14 @@ func (r *libraryRuntimeAdapter) RenameLibrary(ctx context.Context, libraryID, na
 	return r.library.RenameLibrary(ctx, libraryID, name)
 }
 
+func (r *libraryRuntimeAdapter) GetLibraryRelayConfig(ctx context.Context, libraryID string) (apitypes.LibraryRelayConfig, error) {
+	return r.library.GetLibraryRelayConfig(ctx, libraryID)
+}
+
+func (r *libraryRuntimeAdapter) UpdateLibraryRelayConfig(ctx context.Context, req apitypes.UpdateLibraryRelayConfigRequest) (apitypes.LibraryRelayConfig, error) {
+	return r.library.UpdateLibraryRelayConfig(ctx, req)
+}
+
 func (r *libraryRuntimeAdapter) LeaveLibrary(ctx context.Context, libraryID string) error {
 	return r.library.LeaveLibrary(ctx, libraryID)
 }

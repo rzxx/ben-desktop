@@ -35,8 +35,9 @@ func normalizeLocalPlaybackPath(value string) string {
 	if value == "" {
 		return ""
 	}
+	value = strings.ReplaceAll(value, "\\", "/")
 	value = filepath.Clean(value)
-	value = filepath.ToSlash(value)
+	value = strings.ReplaceAll(value, "\\", "/")
 	if len(value) >= 2 && value[1] == ':' {
 		return strings.ToLower(value)
 	}

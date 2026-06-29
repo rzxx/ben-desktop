@@ -83,8 +83,8 @@ func TestOversizedWebPIsRejectedBeforeDecode(t *testing.T) {
 	t.Parallel()
 	data := []byte{
 		'R', 'I', 'F', 'F', 22, 0, 0, 0, 'W', 'E', 'B', 'P',
-		'V', 'P', '8', 'X', 10, 0, 0, 0, 1 << 4, 0, 0, 0,
-		0xfe, 0xff, 0x00, 0xfe, 0xff, 0x00,
+		'V', 'P', '8', 'X', 10, 0, 0, 0, 0, 0, 0, 0,
+		0x00, 0x10, 0x00, 0x00, 0x10, 0x00,
 	}
 	path := filepath.Join(t.TempDir(), "oversized.webp")
 	if err := os.WriteFile(path, data, 0o600); err != nil {

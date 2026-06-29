@@ -1453,19 +1453,15 @@ export class InspectSummary {
 
 export class InviteCreateRequest {
     "Role": string;
-    "Uses": number;
-    "Expires": time$0.Duration;
+    "Reusable": boolean;
 
     /** Creates a new InviteCreateRequest instance. */
     constructor($$source: Partial<InviteCreateRequest> = {}) {
         if (!("Role" in $$source)) {
             this["Role"] = "";
         }
-        if (!("Uses" in $$source)) {
-            this["Uses"] = 0;
-        }
-        if (!("Expires" in $$source)) {
-            this["Expires"] = time$0.Duration.$zero;
+        if (!("Reusable" in $$source)) {
+            this["Reusable"] = false;
         }
 
         Object.assign(this, $$source);
@@ -1487,13 +1483,9 @@ export class InviteJoinRequestRecord {
     "DeviceName": string;
     "PeerID": string;
     "DeviceFingerprint": string;
-    "RequestedRole": string;
-    "ApprovedRole": string;
-    "Status": string;
-    "Message": string;
-    "ExpiresAt": time$0.Time;
+    "Role": string;
     "CreatedAt": time$0.Time;
-    "UpdatedAt": time$0.Time;
+    "ExpiresAt": time$0.Time;
 
     /** Creates a new InviteJoinRequestRecord instance. */
     constructor($$source: Partial<InviteJoinRequestRecord> = {}) {
@@ -1515,26 +1507,14 @@ export class InviteJoinRequestRecord {
         if (!("DeviceFingerprint" in $$source)) {
             this["DeviceFingerprint"] = "";
         }
-        if (!("RequestedRole" in $$source)) {
-            this["RequestedRole"] = "";
-        }
-        if (!("ApprovedRole" in $$source)) {
-            this["ApprovedRole"] = "";
-        }
-        if (!("Status" in $$source)) {
-            this["Status"] = "";
-        }
-        if (!("Message" in $$source)) {
-            this["Message"] = "";
-        }
-        if (!("ExpiresAt" in $$source)) {
-            this["ExpiresAt"] = null;
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
         }
         if (!("CreatedAt" in $$source)) {
             this["CreatedAt"] = null;
         }
-        if (!("UpdatedAt" in $$source)) {
-            this["UpdatedAt"] = null;
+        if (!("ExpiresAt" in $$source)) {
+            this["ExpiresAt"] = null;
         }
 
         Object.assign(this, $$source);
@@ -1553,10 +1533,8 @@ export class InviteRecord {
     "InviteID": string;
     "LibraryID": string;
     "InviteCode": string;
-    "InviteLink": string;
     "Role": string;
-    "MaxUses": number;
-    "RedemptionCount": number;
+    "Reusable": boolean;
     "ExpiresAt": time$0.Time;
     "CreatedAt": time$0.Time;
 
@@ -1571,17 +1549,11 @@ export class InviteRecord {
         if (!("InviteCode" in $$source)) {
             this["InviteCode"] = "";
         }
-        if (!("InviteLink" in $$source)) {
-            this["InviteLink"] = "";
-        }
         if (!("Role" in $$source)) {
             this["Role"] = "";
         }
-        if (!("MaxUses" in $$source)) {
-            this["MaxUses"] = 0;
-        }
-        if (!("RedemptionCount" in $$source)) {
-            this["RedemptionCount"] = 0;
+        if (!("Reusable" in $$source)) {
+            this["Reusable"] = false;
         }
         if (!("ExpiresAt" in $$source)) {
             this["ExpiresAt"] = null;
@@ -1599,6 +1571,71 @@ export class InviteRecord {
     static createFrom($$source: any = {}): InviteRecord {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new InviteRecord($$parsedSource as Partial<InviteRecord>);
+    }
+}
+
+export class JoinAttempt {
+    "AttemptID": string;
+    "RequestID": string;
+    "Status": string;
+    "Message": string;
+    "LibraryID": string;
+    "Role": string;
+    "Pending": boolean;
+    "OwnerDeviceID": string;
+    "OwnerRole": string;
+    "OwnerPeerID": string;
+    "CreatedAt": time$0.Time;
+    "UpdatedAt": time$0.Time;
+
+    /** Creates a new JoinAttempt instance. */
+    constructor($$source: Partial<JoinAttempt> = {}) {
+        if (!("AttemptID" in $$source)) {
+            this["AttemptID"] = "";
+        }
+        if (!("RequestID" in $$source)) {
+            this["RequestID"] = "";
+        }
+        if (!("Status" in $$source)) {
+            this["Status"] = "";
+        }
+        if (!("Message" in $$source)) {
+            this["Message"] = "";
+        }
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("Role" in $$source)) {
+            this["Role"] = "";
+        }
+        if (!("Pending" in $$source)) {
+            this["Pending"] = false;
+        }
+        if (!("OwnerDeviceID" in $$source)) {
+            this["OwnerDeviceID"] = "";
+        }
+        if (!("OwnerRole" in $$source)) {
+            this["OwnerRole"] = "";
+        }
+        if (!("OwnerPeerID" in $$source)) {
+            this["OwnerPeerID"] = "";
+        }
+        if (!("CreatedAt" in $$source)) {
+            this["CreatedAt"] = null;
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new JoinAttempt instance from a string or object.
+     */
+    static createFrom($$source: any = {}): JoinAttempt {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new JoinAttempt($$parsedSource as Partial<JoinAttempt>);
     }
 }
 
@@ -1632,75 +1669,6 @@ export class JoinFromInviteInput {
     static createFrom($$source: any = {}): JoinFromInviteInput {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new JoinFromInviteInput($$parsedSource as Partial<JoinFromInviteInput>);
-    }
-}
-
-export class JoinSession {
-    "SessionID": string;
-    "RequestID": string;
-    "Status": string;
-    "Message": string;
-    "LibraryID": string;
-    "Role": string;
-    "Pending": boolean;
-    "OwnerDeviceID": string;
-    "OwnerRole": string;
-    "OwnerPeerID": string;
-    "ExpiresAt": time$0.Time;
-    "CreatedAt": time$0.Time;
-    "UpdatedAt": time$0.Time;
-
-    /** Creates a new JoinSession instance. */
-    constructor($$source: Partial<JoinSession> = {}) {
-        if (!("SessionID" in $$source)) {
-            this["SessionID"] = "";
-        }
-        if (!("RequestID" in $$source)) {
-            this["RequestID"] = "";
-        }
-        if (!("Status" in $$source)) {
-            this["Status"] = "";
-        }
-        if (!("Message" in $$source)) {
-            this["Message"] = "";
-        }
-        if (!("LibraryID" in $$source)) {
-            this["LibraryID"] = "";
-        }
-        if (!("Role" in $$source)) {
-            this["Role"] = "";
-        }
-        if (!("Pending" in $$source)) {
-            this["Pending"] = false;
-        }
-        if (!("OwnerDeviceID" in $$source)) {
-            this["OwnerDeviceID"] = "";
-        }
-        if (!("OwnerRole" in $$source)) {
-            this["OwnerRole"] = "";
-        }
-        if (!("OwnerPeerID" in $$source)) {
-            this["OwnerPeerID"] = "";
-        }
-        if (!("ExpiresAt" in $$source)) {
-            this["ExpiresAt"] = null;
-        }
-        if (!("CreatedAt" in $$source)) {
-            this["CreatedAt"] = null;
-        }
-        if (!("UpdatedAt" in $$source)) {
-            this["UpdatedAt"] = null;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new JoinSession instance from a string or object.
-     */
-    static createFrom($$source: any = {}): JoinSession {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new JoinSession($$parsedSource as Partial<JoinSession>);
     }
 }
 
@@ -1968,6 +1936,39 @@ export class LibraryOplogDiagnostics {
     }
 }
 
+export class LibraryRelayConfig {
+    "LibraryID": string;
+    "RegistryURL": string;
+    "RelayBootstrapAddrs": string[];
+
+    /** Creates a new LibraryRelayConfig instance. */
+    constructor($$source: Partial<LibraryRelayConfig> = {}) {
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("RegistryURL" in $$source)) {
+            this["RegistryURL"] = "";
+        }
+        if (!("RelayBootstrapAddrs" in $$source)) {
+            this["RelayBootstrapAddrs"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LibraryRelayConfig instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LibraryRelayConfig {
+        const $$createField2_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("RelayBootstrapAddrs" in $$parsedSource) {
+            $$parsedSource["RelayBootstrapAddrs"] = $$createField2_0($$parsedSource["RelayBootstrapAddrs"]);
+        }
+        return new LibraryRelayConfig($$parsedSource as Partial<LibraryRelayConfig>);
+    }
+}
+
 export class LibrarySummary {
     "LibraryID": string;
     "Name": string;
@@ -2130,10 +2131,6 @@ export class NetworkStatus {
     "RelayReservationActive": boolean;
     "AdvertisedRelayAddrs": string[];
     "LastRegistryAnnounceAt": time$0.Time | null;
-    "ActiveInviteCount": number;
-    "InviteReachabilityRequired": boolean;
-    "InviteReachable": boolean;
-    "InviteReachabilityError": string;
     "ConnectionKind": string;
     "DirectUpgradeState": string;
     "Mode": NetworkSyncMode;
@@ -2186,18 +2183,6 @@ export class NetworkStatus {
         }
         if (!("LastRegistryAnnounceAt" in $$source)) {
             this["LastRegistryAnnounceAt"] = null;
-        }
-        if (!("ActiveInviteCount" in $$source)) {
-            this["ActiveInviteCount"] = 0;
-        }
-        if (!("InviteReachabilityRequired" in $$source)) {
-            this["InviteReachabilityRequired"] = false;
-        }
-        if (!("InviteReachable" in $$source)) {
-            this["InviteReachable"] = false;
-        }
-        if (!("InviteReachabilityError" in $$source)) {
-            this["InviteReachabilityError"] = "";
         }
         if (!("ConnectionKind" in $$source)) {
             this["ConnectionKind"] = "";
@@ -4765,6 +4750,39 @@ export class TranscodeOplogDiagnostics {
     static createFrom($$source: any = {}): TranscodeOplogDiagnostics {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new TranscodeOplogDiagnostics($$parsedSource as Partial<TranscodeOplogDiagnostics>);
+    }
+}
+
+export class UpdateLibraryRelayConfigRequest {
+    "LibraryID": string;
+    "RegistryURL": string;
+    "RelayBootstrapAddrs": string[];
+
+    /** Creates a new UpdateLibraryRelayConfigRequest instance. */
+    constructor($$source: Partial<UpdateLibraryRelayConfigRequest> = {}) {
+        if (!("LibraryID" in $$source)) {
+            this["LibraryID"] = "";
+        }
+        if (!("RegistryURL" in $$source)) {
+            this["RegistryURL"] = "";
+        }
+        if (!("RelayBootstrapAddrs" in $$source)) {
+            this["RelayBootstrapAddrs"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UpdateLibraryRelayConfigRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): UpdateLibraryRelayConfigRequest {
+        const $$createField2_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("RelayBootstrapAddrs" in $$parsedSource) {
+            $$parsedSource["RelayBootstrapAddrs"] = $$createField2_0($$parsedSource["RelayBootstrapAddrs"]);
+        }
+        return new UpdateLibraryRelayConfigRequest($$parsedSource as Partial<UpdateLibraryRelayConfigRequest>);
     }
 }
 

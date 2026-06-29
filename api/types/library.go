@@ -13,6 +13,18 @@ type LibrarySummary struct {
 	IsActive  bool
 }
 
+type LibraryRelayConfig struct {
+	LibraryID           string
+	RegistryURL         string
+	RelayBootstrapAddrs []string
+}
+
+type UpdateLibraryRelayConfigRequest struct {
+	LibraryID           string
+	RegistryURL         string
+	RelayBootstrapAddrs []string
+}
+
 type LibraryMemberStatus struct {
 	LibraryID         string
 	DeviceID          string
@@ -30,6 +42,8 @@ type LibrarySurface interface {
 	CreateLibrary(ctx context.Context, name string) (LibrarySummary, error)
 	SelectLibrary(ctx context.Context, libraryID string) (LibrarySummary, error)
 	RenameLibrary(ctx context.Context, libraryID, name string) (LibrarySummary, error)
+	GetLibraryRelayConfig(ctx context.Context, libraryID string) (LibraryRelayConfig, error)
+	UpdateLibraryRelayConfig(ctx context.Context, req UpdateLibraryRelayConfigRequest) (LibraryRelayConfig, error)
 	LeaveLibrary(ctx context.Context, libraryID string) error
 	DeleteLibrary(ctx context.Context, libraryID string) error
 	ActiveLibrary(ctx context.Context) (LibrarySummary, bool, error)
