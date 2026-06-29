@@ -168,13 +168,10 @@ export function notificationDescription(notification: NotificationSnapshot) {
 }
 
 export function notificationTimeout(notification: NotificationSnapshot) {
-  if (notification.phase === "error") {
-    return 0;
-  }
   if (notification.phase === "success") {
     return 3200;
   }
-  return 0;
+  return 5000;
 }
 
 export function notificationTimestamp(value?: Date | string | null) {

@@ -10,17 +10,17 @@ const typeIcons: Record<ToastType, typeof Info> = {
 };
 
 const typeClasses: Record<ToastType, string> = {
-  info: "text-sky-600 dark:text-sky-300",
-  success: "text-emerald-600 dark:text-emerald-300",
-  error: "text-red-600 dark:text-red-300",
-  loading: "text-accent-600 dark:text-accent-300",
+  info: "text-accent",
+  success: "text-status-success",
+  error: "text-status-danger",
+  loading: "text-accent",
 };
 
 export function Toaster() {
   return (
     <Toast.Provider limit={5} toastManager={toastManager}>
       <Toast.Portal>
-        <Toast.Viewport className="pointer-events-none fixed top-12 left-1/2 z-[60] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2">
+        <Toast.Viewport className="fixed top-12 right-0 left-0 z-[60] mx-auto w-[calc(100%-2rem)] max-w-sm">
           <ToastList />
         </Toast.Viewport>
       </Toast.Portal>
@@ -42,28 +42,24 @@ function ToastList() {
     return (
       <Toast.Root
         key={toast.id}
-        swipeDirection={["up", "down", "left", "right"]}
+        swipeDirection="up"
         toast={toast}
         className={[
-          "group pointer-events-auto absolute top-0 left-1/2 w-full origin-top",
-          "border-theme-300/75 bg-theme-100-desat/90 text-theme-900 rounded-2xl border shadow-xl shadow-black/15 backdrop-blur-xl backdrop-saturate-150",
-          "dark:bg-theme-900/82 dark:text-theme-100 dark:border-white/10 dark:shadow-black/25",
+          "absolute top-0 right-0 left-0 mx-auto w-full origin-top select-none",
+          "border-border-subtle bg-surface-overlay/90 text-content-primary rounded-2xl border shadow-xl shadow-black/15 backdrop-blur-xl backdrop-saturate-150 dark:shadow-black/25",
           "[--gap:0.5rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--offset-y:calc(var(--toast-offset-y)+var(--toast-index)*var(--gap)+var(--toast-swipe-movement-y))] [--peek:0.75rem] [--scale:calc(max(0,1-var(--toast-index)*0.06))] [--shrink:calc(1-var(--scale))]",
-          "[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)))_translateY(calc(var(--toast-swipe-movement-y)+(var(--toast-index)*var(--peek))+(var(--shrink)*var(--height))))_scale(var(--scale))]",
-          "data-[starting-style]:[transform:translateX(-50%)_translateY(-12px)_scale(0.9)] data-[starting-style]:opacity-0",
+          "[transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)+(var(--toast-index)*var(--peek))+(var(--shrink)*var(--height))))_scale(var(--scale))]",
+          "after:pointer-events-none after:absolute after:bottom-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-['']",
+          "data-[starting-style]:[transform:translateY(-12px)_scale(0.9)] data-[starting-style]:opacity-0",
           "data-[ending-style]:opacity-0",
-          "data-[expanded]:[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)))_translateY(var(--offset-y))]",
-          "[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateX(-50%)_translateY(-12px)_scale(0.9)]",
-          "data-[ending-style]:data-[swipe-direction=down]:[transform:translateX(-50%)_translateY(calc(var(--toast-swipe-movement-y)+150%))_scale(0.9)]",
-          "data-[expanded]:data-[ending-style]:data-[swipe-direction=down]:[transform:translateX(-50%)_translateY(calc(var(--toast-swipe-movement-y)+150%))_scale(0.9)]",
-          "data-[ending-style]:data-[swipe-direction=up]:[transform:translateX(-50%)_translateY(calc(var(--toast-swipe-movement-y)-150%))_scale(0.9)]",
-          "data-[expanded]:data-[ending-style]:data-[swipe-direction=up]:[transform:translateX(-50%)_translateY(calc(var(--toast-swipe-movement-y)-150%))_scale(0.9)]",
-          "data-[ending-style]:data-[swipe-direction=left]:[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)-150%))_translateY(var(--toast-offset-y))_scale(0.9)]",
-          "data-[expanded]:data-[ending-style]:data-[swipe-direction=left]:[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)-150%))_translateY(var(--toast-offset-y))_scale(0.9)]",
-          "data-[ending-style]:data-[swipe-direction=right]:[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)+150%))_translateY(var(--toast-offset-y))_scale(0.9)]",
-          "data-[expanded]:data-[ending-style]:data-[swipe-direction=right]:[transform:translateX(calc(-50%_+_var(--toast-swipe-movement-x)+150%))_translateY(var(--toast-offset-y))_scale(0.9)]",
+          "data-[expanded]:[transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]",
+          "data-[limited]:opacity-0",
+          "[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateY(-12px)_scale(0.9)]",
+          "data-[ending-style]:data-[swipe-direction=up]:[transform:translateY(calc(var(--toast-swipe-movement-y)-150%))_scale(0.9)]",
+          "data-[expanded]:data-[ending-style]:data-[swipe-direction=up]:[transform:translateY(calc(var(--toast-swipe-movement-y)-150%))_scale(0.9)]",
           "h-[var(--height)] data-[expanded]:h-[var(--toast-height)]",
           "z-[calc(1000-var(--toast-index))]",
+          "focus-visible:outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-1",
           "[transition:transform_0.3s_cubic-bezier(0.22,1,0.36,1),opacity_0.3s_ease-out,height_0.2s_ease-out]",
           "data-[ending-style]:[transition:transform_0.12s_ease-out,opacity_0.12s_ease-out,height_0.2s_ease-out]",
         ].join(" ")}
@@ -79,19 +75,19 @@ function ToastList() {
             </div>
 
             <div className="min-w-0 flex-1">
-              <Toast.Title className="text-theme-900 dark:text-theme-100 text-sm font-semibold" />
-              <Toast.Description className="text-theme-600 dark:text-theme-300 mt-0.5 text-xs" />
+              <Toast.Title className="text-content-primary text-sm font-semibold" />
+              <Toast.Description className="text-content-secondary mt-0.5 text-xs" />
             </div>
 
             {actionLabel ? (
-              <Toast.Action className="border-theme-300/75 text-theme-700 hover:bg-theme-200 dark:text-theme-200 dark:hover:bg-theme-800 shrink-0 rounded-md border bg-transparent px-2 py-1 text-xs font-medium transition dark:border-white/10">
+              <Toast.Action className="border-border-default text-content-primary hover:bg-accent-subtle focus-visible:outline-focus-ring shrink-0 rounded-md border bg-transparent px-2 py-1 text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-offset-1">
                 {actionLabel}
               </Toast.Action>
             ) : null}
 
             <Toast.Close
               aria-label="Dismiss"
-              className="text-theme-500 hover:bg-theme-200 hover:text-theme-900 dark:text-theme-400 dark:hover:bg-theme-800 dark:hover:text-theme-100 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition"
+              className="text-content-secondary hover:bg-accent-subtle hover:text-content-primary focus-visible:outline-focus-ring inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition focus-visible:outline-2 focus-visible:outline-offset-1"
             >
               <X className="h-4 w-4" />
             </Toast.Close>
