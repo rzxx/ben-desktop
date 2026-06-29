@@ -35,8 +35,7 @@ function getCachedEntityQuerySnapshot<TEntity>(
   key: string,
 ) {
   return entityQuerySnapshotCache.get(state)?.get(key) as
-    | EntityQuerySnapshot<TEntity>
-    | undefined;
+    EntityQuerySnapshot<TEntity> | undefined;
 }
 
 function setCachedEntityQuerySnapshot<TEntity>(

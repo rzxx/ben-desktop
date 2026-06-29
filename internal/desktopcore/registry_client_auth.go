@@ -47,7 +47,10 @@ func (a *App) syncMembershipRevocations(ctx context.Context, libraryID string) e
 	if a == nil {
 		return nil
 	}
-	locator := a.peerLocator(a.cfg.RegistryURL)
+	locator, _, err := a.peerLocatorForLibrary(ctx, libraryID)
+	if err != nil {
+		return err
+	}
 	if locator == nil {
 		return nil
 	}

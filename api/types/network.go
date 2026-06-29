@@ -58,10 +58,6 @@ type NetworkStatus struct {
 	RelayReservationActive         bool
 	AdvertisedRelayAddrs           []string
 	LastRegistryAnnounceAt         *time.Time
-	ActiveInviteCount              int
-	InviteReachabilityRequired     bool
-	InviteReachable                bool
-	InviteReachabilityError        string
 	ConnectionKind                 string
 	DirectUpgradeState             string
 	NetworkSyncState

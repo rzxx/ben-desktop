@@ -2,219 +2,149 @@ import {
   CheckCircle2,
   Copy,
   KeyRound,
-  Link2,
   RefreshCw,
   Router,
   Send,
+  Settings2,
   ShieldCheck,
+  Trash2,
   UserPlus,
   XCircle,
 } from "lucide-react";
-import {
-  approveJoinRequest,
-  cancelJoinSession,
-  createInvite,
-  deleteInvite,
-  rejectJoinRequest,
-  startFinalizeJoinSession,
-  startJoinFromInvite,
-} from "@/lib/api/invite";
-import { Types } from "@/lib/api/models";
 import { formatDateTime, formatRelativeDate } from "@/lib/format";
 import { useSharingPage } from "@/hooks/sharing/useSharingPage";
 
-const inviteExpiryHourOptions = [1, 6, 24, 72];
 const inviteRoles = ["guest", "member", "admin"] as const;
-const durationHour = 60 * 60 * 1_000_000_000;
 
 function describeError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function normalizeRole(role: string) {
-  return role.trim().toLowerCase();
+function normalize(value: string) {
+  return value.trim().toLowerCase();
 }
 
-function sessionTone(status: string) {
-  switch (normalizeRole(status)) {
+function joinTone(status: string) {
+  switch (normalize(status)) {
     case "approved":
     case "completed":
-      return "border-emerald-400/18 bg-emerald-400/10 text-emerald-700 dark:text-emerald-100";
+      return "border-emerald-400/20 bg-emerald-400/10 text-emerald-700 dark:text-emerald-100";
     case "rejected":
     case "expired":
     case "failed":
-      return "border-rose-400/18 bg-rose-400/10 text-rose-700 dark:text-rose-100";
+      return "border-rose-400/20 bg-rose-400/10 text-rose-700 dark:text-rose-100";
     default:
-      return "border-sky-400/18 bg-sky-400/10 text-sky-700 dark:text-sky-100";
+      return "border-amber-400/25 bg-amber-400/10 text-amber-700 dark:text-amber-100";
   }
 }
 
-function requestTone(status: string) {
-  switch (normalizeRole(status)) {
-    case "approved":
-      return "border-emerald-400/18 bg-emerald-400/10 text-emerald-700 dark:text-emerald-100";
-    case "rejected":
-    case "expired":
-      return "border-rose-400/18 bg-rose-400/10 text-rose-700 dark:text-rose-100";
-    default:
-      return "border-amber-400/18 bg-amber-400/10 text-amber-700 dark:text-amber-100";
+function hasUsableDate(value: Date | string | null | undefined) {
+  if (!value) {
+    return false;
   }
+  const date = value instanceof Date ? value : new Date(value);
+  return !Number.isNaN(date.getTime()) && date.getFullYear() > 1970;
 }
 
-function inviteReachabilityTone(
-  activeInviteCount: number,
-  inviteReachabilityRequired: boolean,
-  inviteReachable: boolean,
-  inviteReachabilityError: string,
+function inviteExpiryLabel(
+  value: Date | string | null | undefined,
+  reusable: boolean,
 ) {
-  if (!inviteReachabilityRequired || activeInviteCount <= 0) {
-    return "border-theme-300/75 bg-white/82 text-theme-700 dark:border-white/10 dark:bg-black/15 dark:text-white/72";
+  if (reusable || !hasUsableDate(value)) {
+    return "Reusable";
   }
-  if (inviteReachabilityError) {
-    return "border-rose-400/18 bg-rose-400/10 text-rose-700 dark:text-rose-100";
-  }
-  if (inviteReachable) {
-    return "border-emerald-400/18 bg-emerald-400/10 text-emerald-700 dark:text-emerald-100";
-  }
-  return "border-amber-400/18 bg-amber-400/10 text-amber-700 dark:text-amber-100";
-}
-
-function inviteReachabilityLabel(
-  activeInviteCount: number,
-  inviteReachabilityRequired: boolean,
-  inviteReachable: boolean,
-  inviteReachabilityError: string,
-) {
-  if (!inviteReachabilityRequired || activeInviteCount <= 0) {
-    return "No active invites";
-  }
-  if (inviteReachabilityError) {
-    return "Invite reachability failed";
-  }
-  if (inviteReachable) {
-    return "Reachable for invites";
-  }
-  return "Preparing relay reachability";
-}
-
-function inviteReachabilityMessage(
-  activeInviteCount: number,
-  inviteReachabilityRequired: boolean,
-  inviteReachable: boolean,
-  inviteReachabilityError: string,
-) {
-  if (!inviteReachabilityRequired || activeInviteCount <= 0) {
-    return "Create an invite to reserve relay reachability and publish invite contact addresses.";
-  }
-  if (inviteReachabilityError) {
-    return inviteReachabilityError;
-  }
-  if (inviteReachable) {
-    return `${activeInviteCount} active invite${activeInviteCount === 1 ? "" : "s"} keeping invite contact alive in the background.`;
-  }
-  return "Waiting for relay reservation and a fresh registry announce before invite contact is ready.";
+  return `Expires ${formatDateTime(value)}`;
 }
 
 async function copyText(value: string) {
-  if (!value.trim()) {
+  const text = value.trim();
+  if (!text) {
     return;
   }
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
+  if (!navigator.clipboard?.writeText) {
+    throw new Error("clipboard is not available");
   }
-  throw new Error("clipboard is not available");
+  await navigator.clipboard.writeText(text);
 }
 
 export function SharingSurface() {
   const {
     actionError,
-    approvalRoles,
-    connectJob,
+    approveRequestAction,
+    cancelJoinAction,
+    createInviteAction,
     feedback,
     inviteCode,
-    inviteExpiryHours,
+    inviteReusable,
     inviteRole,
-    inviteUses,
     joinDeviceName,
-    latestInvite,
     manageLibrary,
-    peerAddress,
     pendingAction,
     pendingRequests,
-    queueConnectPeer,
     refresh,
+    rejectRequestAction,
+    relayBootstrapText,
+    relayOpen,
+    relayRegistryURL,
+    revokeInviteAction,
     runAction,
+    saveRelayAction,
     setActionError,
-    setApprovalRoles,
     setFeedback,
     setInviteCode,
-    setInviteExpiryHours,
+    setInviteReusable,
     setInviteRole,
-    setInviteUses,
     setJoinDeviceName,
-    setLatestInvite,
-    setPeerAddress,
-    setTrackedSessionId,
+    setRelayBootstrapText,
+    setRelayOpen,
+    setRelayRegistryURL,
+    startJoinAction,
     state,
-    trackedSessionId,
   } = useSharingPage();
-  const activeInviteCount =
-    state.network?.ActiveInviteCount ?? state.invites.length;
-  const inviteReachabilityRequired = Boolean(
-    state.network?.InviteReachabilityRequired,
-  );
-  const inviteReachable = Boolean(state.network?.InviteReachable);
-  const inviteReachabilityError =
-    state.network?.InviteReachabilityError?.trim() ?? "";
+
+  const libraryName = state.library?.Name || "No active library";
+  const relayAddrs =
+    state.network?.RelayBootstrapAddrs?.length ??
+    state.relay?.RelayBootstrapAddrs?.length ??
+    0;
+  const canCreateInvite = manageLibrary && Boolean(state.library);
+  const activeJoin = state.joinAttempt;
 
   if (state.loading) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center">
-        <div className="border-theme-300/70 text-theme-900 rounded-[1.4rem] border bg-white/82 px-5 py-4 text-sm dark:border-white/8 dark:bg-black/15 dark:text-white/65">
-          Loading sharing surface...
+        <div className="border-theme-300/70 text-theme-700 rounded-lg border bg-white/80 px-4 py-3 text-sm dark:border-white/10 dark:bg-white/5 dark:text-white/65">
+          Loading sharing...
         </div>
       </div>
     );
   }
 
   return (
-    <div className="ben-scrollbar ben-shell-scroll-offset flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
-      <section className="border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(140deg,rgba(34,197,94,0.14),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6 dark:border-white/8">
+    <div className="ben-scrollbar ben-shell-scroll-offset flex h-full min-h-0 flex-col gap-5 overflow-y-auto pr-1">
+      <section className="border-theme-300/70 border-b pb-5 dark:border-white/8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-theme-500 text-[0.68rem] tracking-[0.35em] uppercase dark:text-white/35">
+            <p className="text-theme-500 text-[0.68rem] tracking-[0.28em] uppercase dark:text-white/38">
               Sharing
             </p>
-            <h1 className="text-theme-900 mt-3 text-3xl font-semibold dark:text-white">
-              Relay-first invites, joins, and peer controls
+            <h1 className="text-theme-950 mt-2 text-2xl font-semibold dark:text-white">
+              Invites
             </h1>
-            <p className="text-theme-600 mt-3 max-w-3xl text-sm leading-6 dark:text-white/55">
-              Active invites now keep relay-backed share reachability alive in
-              the background. Join flow resolves the owner through registry
-              lookup and relay-capable addresses instead of LAN-first discovery.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
-                {state.library
-                  ? `${state.library.Name} • ${state.library.Role}`
-                  : "No active library"}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="border-theme-300/75 bg-theme-100/70 text-theme-700 rounded-full border px-3 py-1 text-xs tracking-[0.16em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/58">
+                {libraryName}
               </span>
-              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
-                {state.local?.Device || "Unknown device"}
+              <span className="border-theme-300/75 bg-theme-100/70 text-theme-700 rounded-full border px-3 py-1 text-xs tracking-[0.16em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/58">
+                {state.invites.length} active
               </span>
-              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
-                {pendingRequests.length} pending request
-                {pendingRequests.length === 1 ? "" : "s"}
-              </span>
-              <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-1 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/52">
-                {activeInviteCount} active invite
-                {activeInviteCount === 1 ? "" : "s"}
+              <span className="border-theme-300/75 bg-theme-100/70 text-theme-700 rounded-full border px-3 py-1 text-xs tracking-[0.16em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/58">
+                {pendingRequests.length} pending
               </span>
             </div>
           </div>
           <button
-            className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+            className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex h-10 items-center gap-2 rounded-md border bg-white/82 px-3 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
             onClick={() => {
               void refresh();
             }}
@@ -227,697 +157,323 @@ export function SharingSurface() {
       </section>
 
       {(state.error || actionError || feedback) && (
-        <section className="grid gap-3 xl:grid-cols-2">
+        <section className="grid gap-2">
           {state.error && (
-            <div className="rounded-[1.25rem] border border-amber-400/18 bg-amber-400/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-100">
+            <div className="rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-100">
               {state.error}
             </div>
           )}
           {actionError && (
-            <div className="rounded-[1.25rem] border border-rose-400/18 bg-rose-400/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-100">
+            <div className="rounded-md border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-100">
               {actionError}
             </div>
           )}
           {feedback && (
-            <div className="rounded-[1.25rem] border border-emerald-400/18 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-100">
+            <div className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-100">
               {feedback}
             </div>
           )}
         </section>
       )}
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
-          <div className="flex items-center gap-3">
-            <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
+      <section className="border-theme-300/70 rounded-lg border bg-white/78 p-4 dark:border-white/8 dark:bg-white/[0.035]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-10 w-10 shrink-0 items-center justify-center rounded-md border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
               <Router className="h-5 w-5" />
             </div>
-            <div>
-              <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
-                Peer connect
+            <div className="min-w-0">
+              <h2 className="text-theme-950 text-base font-semibold dark:text-white">
+                Relay
               </h2>
-              <p className="text-theme-600 text-sm dark:text-white/48">
-                Trigger a manual `connect + catch-up` attempt against a peer
-                address.
+              <p className="text-theme-600 truncate text-sm dark:text-white/52">
+                {state.relay?.RegistryURL ||
+                  state.network?.RegistryURL ||
+                  "No registry configured"}
               </p>
             </div>
           </div>
-
-          <div className="mt-5 space-y-3">
-            <label className="block">
-              <span className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
-                Peer address
-              </span>
-              <input
-                className="border-theme-300/75 text-theme-900 mt-2 w-full rounded-[1rem] border bg-white/82 px-4 py-3 text-sm transition outline-none focus:border-sky-400/45 dark:border-white/10 dark:bg-black/15 dark:text-white"
-                onChange={(event) => {
-                  setPeerAddress(event.target.value);
-                }}
-                placeholder="memory://owner or libp2p multiaddr"
-                value={peerAddress}
-              />
-            </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="border-theme-300/75 text-theme-600 rounded-full border px-3 py-1 text-xs tracking-[0.16em] uppercase dark:border-white/10 dark:text-white/42">
+              {relayAddrs} bootstrap
+            </span>
             <button
-              className="border-theme-900 bg-theme-900 text-theme-50 hover:bg-theme-800 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
-              disabled={!peerAddress.trim() || pendingAction === "connect-peer"}
+              className="border-theme-300/75 text-theme-900 hover:bg-theme-100 inline-flex h-9 items-center gap-2 rounded-md border bg-white/82 px-3 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+              disabled={!state.library || pendingAction === "relay"}
               onClick={() => {
-                void runAction("connect-peer", async () => {
-                  await queueConnectPeer();
-                });
+                setRelayOpen(!relayOpen);
               }}
               type="button"
             >
-              <Link2 className="h-4 w-4" />
-              <span>Connect peer</span>
+              <Settings2 className="h-4 w-4" />
+              <span>{relayOpen ? "Close" : "Edit"}</span>
             </button>
-            <p className="text-theme-900 text-sm dark:text-white/45">
-              Peer connect now runs through the async jobs path, so the UI can
-              track resolution and catch-up without blocking.
-            </p>
-            {connectJob && (
-              <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-theme-900 text-sm font-semibold dark:text-white">
-                      Latest connect job
-                    </p>
-                    <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
-                      {connectJob.message || "No status message yet"}
-                    </p>
-                    {connectJob.error && (
-                      <p className="mt-2 text-sm text-rose-700 dark:text-rose-100">
-                        {connectJob.error}
-                      </p>
-                    )}
-                  </div>
-                  <div className="text-theme-500 text-right text-xs dark:text-white/42">
-                    <div className="uppercase">
-                      {connectJob.phase || "queued"}
-                    </div>
-                    <div className="text-theme-900 mt-1 font-mono text-[0.68rem] tracking-[0.18em] dark:text-white/28">
-                      {connectJob.jobId}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
-        <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
-          <div className="flex items-center gap-3">
-            <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
-              <UserPlus className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
-                Join from invite
-              </h2>
-              <p className="text-theme-600 text-sm dark:text-white/48">
-                Start or resume a join session even when this device is not
-                already in a library.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 space-y-3">
+        {relayOpen && (
+          <div className="border-theme-300/70 mt-4 grid gap-3 border-t pt-4 dark:border-white/8">
             <label className="block">
-              <span className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
-                Invite code
-              </span>
-              <textarea
-                className="border-theme-300/75 text-theme-900 mt-2 min-h-28 w-full rounded-[1rem] border bg-white/82 px-4 py-3 text-sm transition outline-none focus:border-sky-400/45 dark:border-white/10 dark:bg-black/15 dark:text-white"
-                onChange={(event) => {
-                  setInviteCode(event.target.value);
-                }}
-                placeholder="ben-invite-v3..."
-                value={inviteCode}
-              />
-            </label>
-            <label className="block">
-              <span className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
-                Device name override
+              <span className="text-theme-500 text-[0.68rem] tracking-[0.22em] uppercase dark:text-white/35">
+                Registry URL
               </span>
               <input
-                className="border-theme-300/75 text-theme-900 mt-2 w-full rounded-[1rem] border bg-white/82 px-4 py-3 text-sm transition outline-none focus:border-sky-400/45 dark:border-white/10 dark:bg-black/15 dark:text-white"
+                className="border-theme-300/75 text-theme-950 mt-2 h-11 w-full rounded-md border bg-white/82 px-3 text-sm transition outline-none focus:border-sky-400/60 dark:border-white/10 dark:bg-black/15 dark:text-white"
                 onChange={(event) => {
-                  setJoinDeviceName(event.target.value);
+                  setRelayRegistryURL(event.target.value);
                 }}
-                placeholder={state.local?.Device || "Use current device name"}
-                value={joinDeviceName}
+                value={relayRegistryURL}
               />
             </label>
-            <div className="flex flex-wrap gap-3">
-              <button
-                className="border-theme-900 bg-theme-900 text-theme-50 hover:bg-theme-800 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
-                disabled={!inviteCode.trim() || pendingAction === "start-join"}
-                onClick={() => {
-                  void runAction("start-join", async () => {
-                    const session = await startJoinFromInvite(
-                      new Types.JoinFromInviteInput({
-                        InviteCode: inviteCode.trim(),
-                        DeviceName: joinDeviceName.trim(),
-                      }),
-                    );
-                    setTrackedSessionId(session.SessionID);
-                    setFeedback(`Started join session ${session.SessionID}`);
-                  });
+            <label className="block">
+              <span className="text-theme-500 text-[0.68rem] tracking-[0.22em] uppercase dark:text-white/35">
+                Bootstrap addrs
+              </span>
+              <textarea
+                className="border-theme-300/75 text-theme-950 mt-2 min-h-24 w-full rounded-md border bg-white/82 px-3 py-2 font-mono text-xs transition outline-none focus:border-sky-400/60 dark:border-white/10 dark:bg-black/15 dark:text-white"
+                onChange={(event) => {
+                  setRelayBootstrapText(event.target.value);
                 }}
-                type="button"
-              >
-                <Send className="h-4 w-4" />
-                <span>Start join</span>
-              </button>
+                value={relayBootstrapText}
+              />
+            </label>
+            <div className="flex justify-end">
               <button
-                className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
-                disabled={
-                  !trackedSessionId.trim() ||
-                  pendingAction === "refresh-session"
-                }
+                className="border-theme-950 bg-theme-950 text-theme-50 hover:bg-theme-800 inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-200 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+                disabled={pendingAction === "relay"}
                 onClick={() => {
-                  void refresh();
-                  setFeedback("Refreshed tracked session");
-                }}
-                type="button"
-              >
-                <RefreshCw className="h-4 w-4" />
-                <span>Refresh session</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {state.trackedSession && (
-        <section className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
-                  Tracked join session
-                </h2>
-                <span
-                  className={`rounded-full border px-2 py-1 text-[0.68rem] tracking-[0.24em] uppercase ${sessionTone(
-                    state.trackedSession.Status,
-                  )}`}
-                >
-                  {state.trackedSession.Status || "pending"}
-                </span>
-              </div>
-              <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
-                {state.trackedSession.Message || "No join status message yet"}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
-                onClick={() => {
-                  void copyText(state.trackedSession?.SessionID ?? "")
-                    .then(() => {
-                      setFeedback("Copied join session id");
-                    })
-                    .catch((error) => {
-                      setActionError(describeError(error));
-                    });
-                }}
-                type="button"
-              >
-                <Copy className="h-4 w-4" />
-                <span>Copy session id</span>
-              </button>
-              <button
-                className="border-theme-900 bg-theme-900 text-theme-50 hover:bg-theme-800 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
-                disabled={
-                  normalizeRole(state.trackedSession.Status) !== "approved" ||
-                  pendingAction === "finalize-session"
-                }
-                onClick={() => {
-                  void runAction("finalize-session", async () => {
-                    const job = await startFinalizeJoinSession(
-                      state.trackedSession?.SessionID ?? "",
-                    );
-                    setFeedback(`Queued finalize join job ${job.jobId}`);
-                  });
+                  void runAction("relay", saveRelayAction);
                 }}
                 type="button"
               >
                 <CheckCircle2 className="h-4 w-4" />
-                <span>Finalize join</span>
+                <span>Save</span>
               </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <div className="border-theme-300/70 rounded-lg border bg-white/78 p-4 dark:border-white/8 dark:bg-white/[0.035]">
+          <div className="flex items-center gap-3">
+            <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-10 w-10 items-center justify-center rounded-md border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
+              <KeyRound className="h-5 w-5" />
+            </div>
+            <h2 className="text-theme-950 text-base font-semibold dark:text-white">
+              Create Invite
+            </h2>
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            <div>
+              <span className="text-theme-500 text-[0.68rem] tracking-[0.22em] uppercase dark:text-white/35">
+                Role
+              </span>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {inviteRoles.map((role) => (
+                  <button
+                    className={`h-10 rounded-md border px-3 text-sm capitalize transition ${
+                      inviteRole === role
+                        ? "border-theme-950 bg-theme-950 text-theme-50 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950"
+                        : "border-theme-300/75 text-theme-800 hover:bg-theme-100 bg-white/82 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10"
+                    }`}
+                    disabled={!canCreateInvite}
+                    key={role}
+                    onClick={() => {
+                      setInviteRole(role);
+                    }}
+                    type="button"
+                  >
+                    {role}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-theme-300/75 flex items-center justify-between gap-3 rounded-md border bg-white/70 px-3 py-2 dark:border-white/10 dark:bg-black/15">
+              <div>
+                <p className="text-theme-900 text-sm font-medium dark:text-white">
+                  Reusable
+                </p>
+                <p className="text-theme-500 text-xs dark:text-white/42">
+                  {inviteReusable ? "No expiry" : "Single-use, 24h"}
+                </p>
+              </div>
               <button
-                className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
-                disabled={
-                  normalizeRole(state.trackedSession.Status) === "completed" ||
-                  pendingAction === "cancel-session"
-                }
+                aria-pressed={inviteReusable}
+                className={`h-6 w-11 rounded-full p-1 transition ${
+                  inviteReusable
+                    ? "bg-theme-950 dark:bg-zinc-100"
+                    : "bg-theme-300 dark:bg-white/16"
+                }`}
+                disabled={!canCreateInvite}
                 onClick={() => {
-                  void runAction("cancel-session", async () => {
-                    await cancelJoinSession(
-                      state.trackedSession?.SessionID ?? "",
-                    );
-                    setFeedback("Canceled join session");
-                  });
+                  setInviteReusable(!inviteReusable);
                 }}
                 type="button"
               >
-                <XCircle className="h-4 w-4" />
-                <span>Cancel</span>
+                <span
+                  className={`block h-4 w-4 rounded-full bg-white transition dark:bg-zinc-950 ${
+                    inviteReusable ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
               </button>
             </div>
+
+            <button
+              className="border-theme-950 bg-theme-950 text-theme-50 hover:bg-theme-800 inline-flex h-11 items-center justify-center gap-2 rounded-md border px-3 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-200 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+              disabled={!canCreateInvite || pendingAction === "create-invite"}
+              onClick={() => {
+                void runAction("create-invite", createInviteAction);
+              }}
+              type="button"
+            >
+              <KeyRound className="h-4 w-4" />
+              <span>Create</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="border-theme-300/70 rounded-lg border bg-white/78 p-4 dark:border-white/8 dark:bg-white/[0.035]">
+          <div className="flex items-center gap-3">
+            <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-10 w-10 items-center justify-center rounded-md border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
+              <UserPlus className="h-5 w-5" />
+            </div>
+            <h2 className="text-theme-950 text-base font-semibold dark:text-white">
+              Join With Code
+            </h2>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
-              <p className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
-                Session
-              </p>
-              <p className="text-theme-800 mt-2 font-mono text-sm break-all dark:text-white/80">
-                {state.trackedSession.SessionID}
-              </p>
-            </div>
-            <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
-              <p className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
-                Role
-              </p>
-              <p className="text-theme-900 mt-2 text-lg font-semibold capitalize dark:text-white">
-                {state.trackedSession.Role || "pending"}
-              </p>
-            </div>
-            <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
-              <p className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
-                Request
-              </p>
-              <p className="text-theme-800 mt-2 font-mono text-sm break-all dark:text-white/80">
-                {state.trackedSession.RequestID || "No request id"}
-              </p>
-            </div>
-            <div className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10">
-              <p className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
-                Updated
-              </p>
-              <p className="text-theme-900 mt-2 text-lg font-semibold dark:text-white">
-                {formatDateTime(state.trackedSession.UpdatedAt)}
-              </p>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {state.library ? (
-        <>
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
-            <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
-              <div className="flex items-center gap-3">
-                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
-                  <KeyRound className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
-                    Create invite
-                  </h2>
-                  <p className="text-theme-600 text-sm dark:text-white/48">
-                    Create registry-backed invite codes for the active library.
-                    Reachability is prepared before issuance and stays alive
-                    while active invites remain.
-                  </p>
-                </div>
-              </div>
-
-              <div
-                className={`mt-5 rounded-[1.2rem] border p-4 ${inviteReachabilityTone(
-                  activeInviteCount,
-                  inviteReachabilityRequired,
-                  inviteReachable,
-                  inviteReachabilityError,
-                )}`}
+          <div className="mt-4 grid gap-3">
+            <label className="block">
+              <span className="text-theme-500 text-[0.68rem] tracking-[0.22em] uppercase dark:text-white/35">
+                Invite code
+              </span>
+              <textarea
+                className="border-theme-300/75 text-theme-950 mt-2 min-h-24 w-full rounded-md border bg-white/82 px-3 py-2 font-mono text-xs transition outline-none focus:border-sky-400/60 dark:border-white/10 dark:bg-black/15 dark:text-white"
+                onChange={(event) => {
+                  setInviteCode(event.target.value);
+                }}
+                placeholder="ben-invite-v4..."
+                value={inviteCode}
+              />
+            </label>
+            <label className="block">
+              <span className="text-theme-500 text-[0.68rem] tracking-[0.22em] uppercase dark:text-white/35">
+                Device name
+              </span>
+              <input
+                className="border-theme-300/75 text-theme-950 mt-2 h-11 w-full rounded-md border bg-white/82 px-3 text-sm transition outline-none focus:border-sky-400/60 dark:border-white/10 dark:bg-black/15 dark:text-white"
+                onChange={(event) => {
+                  setJoinDeviceName(event.target.value);
+                }}
+                placeholder={state.local?.Device || "Current device"}
+                value={joinDeviceName}
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="border-theme-950 bg-theme-950 text-theme-50 hover:bg-theme-800 inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-200 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+                disabled={!inviteCode.trim() || pendingAction === "start-join"}
+                onClick={() => {
+                  void runAction("start-join", startJoinAction);
+                }}
+                type="button"
               >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold">
-                      {inviteReachabilityLabel(
-                        activeInviteCount,
-                        inviteReachabilityRequired,
-                        inviteReachable,
-                        inviteReachabilityError,
-                      )}
-                    </p>
-                    <p className="mt-2 text-sm opacity-85">
-                      {inviteReachabilityMessage(
-                        activeInviteCount,
-                        inviteReachabilityRequired,
-                        inviteReachable,
-                        inviteReachabilityError,
-                      )}
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-current/15 px-3 py-1 text-[0.68rem] tracking-[0.24em] uppercase">
-                    {activeInviteCount} active
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <label className="block">
-                  <span className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
-                    Role
-                  </span>
-                  <select
-                    className="border-theme-300/75 text-theme-900 mt-2 w-full rounded-[1rem] border bg-white/82 px-4 py-3 text-sm transition outline-none focus:border-sky-400/45 dark:border-white/10 dark:bg-black/15 dark:text-white"
-                    disabled={!manageLibrary}
-                    onChange={(event) => {
-                      setInviteRole(
-                        event.target.value as (typeof inviteRoles)[number],
-                      );
-                    }}
-                    value={inviteRole}
-                  >
-                    {inviteRoles.map((role) => (
-                      <option
-                        className="bg-theme-50 text-theme-900 dark:bg-theme-900 dark:text-theme-100"
-                        key={role}
-                        value={role}
-                      >
-                        {role}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
-                    Uses
-                  </span>
-                  <input
-                    className="border-theme-300/75 text-theme-900 mt-2 w-full rounded-[1rem] border bg-white/82 px-4 py-3 text-sm transition outline-none focus:border-sky-400/45 dark:border-white/10 dark:bg-black/15 dark:text-white"
-                    disabled={!manageLibrary}
-                    min="1"
-                    onChange={(event) => {
-                      setInviteUses(event.target.value);
-                    }}
-                    step="1"
-                    type="number"
-                    value={inviteUses}
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-theme-500 text-[0.68rem] tracking-[0.24em] uppercase dark:text-white/35">
-                    Expiry
-                  </span>
-                  <select
-                    className="border-theme-300/75 text-theme-900 mt-2 w-full rounded-[1rem] border bg-white/82 px-4 py-3 text-sm transition outline-none focus:border-sky-400/45 dark:border-white/10 dark:bg-black/15 dark:text-white"
-                    disabled={!manageLibrary}
-                    onChange={(event) => {
-                      setInviteExpiryHours(event.target.value);
-                    }}
-                    value={inviteExpiryHours}
-                  >
-                    {inviteExpiryHourOptions.map((hours) => (
-                      <option
-                        className="bg-theme-50 text-theme-900 dark:bg-theme-900 dark:text-theme-100"
-                        key={hours}
-                        value={String(hours)}
-                      >
-                        {hours}h
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-3">
+                <Send className="h-4 w-4" />
+                <span>Join</span>
+              </button>
+              {activeJoin?.Pending && (
                 <button
-                  className="border-theme-900 bg-theme-900 text-theme-50 hover:bg-theme-800 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
-                  disabled={!manageLibrary || pendingAction === "create-invite"}
+                  className="border-theme-300/75 text-theme-900 hover:bg-theme-100 inline-flex h-10 items-center gap-2 rounded-md border bg-white/82 px-3 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                  disabled={pendingAction === "cancel-join"}
                   onClick={() => {
-                    void runAction("create-invite", async () => {
-                      const result = await createInvite(
-                        new Types.InviteCreateRequest({
-                          Role: inviteRole,
-                          Uses: Math.max(
-                            1,
-                            Number.parseInt(inviteUses, 10) || 1,
-                          ),
-                          Expires:
-                            Math.max(
-                              1,
-                              Number.parseInt(inviteExpiryHours, 10) || 24,
-                            ) * durationHour,
-                        }),
-                      );
-                      setLatestInvite(result);
-                      setFeedback(`Created ${result.Role} invite`);
-                    });
+                    void runAction("cancel-join", cancelJoinAction);
                   }}
                   type="button"
                 >
-                  <KeyRound className="h-4 w-4" />
-                  <span>
-                    {pendingAction === "create-invite"
-                      ? "Preparing reachability..."
-                      : "Create invite"}
-                  </span>
+                  <XCircle className="h-4 w-4" />
+                  <span>Cancel</span>
                 </button>
-                {!manageLibrary && (
-                  <span className="border-theme-300/75 bg-theme-100 text-theme-500 rounded-full border px-3 py-2 text-xs tracking-[0.2em] uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/42">
-                    Read only for {normalizeRole(state.local?.Role ?? "member")}
-                  </span>
-                )}
-              </div>
-
-              {latestInvite && (
-                <div className="mt-4 rounded-[1.25rem] border border-emerald-400/18 bg-emerald-400/10 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-theme-900 text-sm font-semibold dark:text-white">
-                        Latest invite
-                      </p>
-                      <p className="mt-1 text-xs tracking-[0.22em] text-emerald-700 uppercase dark:text-emerald-100/72">
-                        Expires {formatDateTime(latestInvite.ExpiresAt)}
-                      </p>
-                    </div>
-                    <button
-                      className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
-                      onClick={() => {
-                        void copyText(latestInvite.InviteCode)
-                          .then(() => {
-                            setFeedback("Copied invite code");
-                          })
-                          .catch((error) => {
-                            setActionError(describeError(error));
-                          });
-                      }}
-                      type="button"
-                    >
-                      <Copy className="h-4 w-4" />
-                      <span>Copy code</span>
-                    </button>
-                  </div>
-                  <p className="border-theme-300/75 text-theme-800 mt-3 rounded-[1rem] border bg-white/82 p-3 font-mono text-xs break-all dark:border-white/10 dark:bg-black/15 dark:text-white/82">
-                    {latestInvite.InviteCode}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
-                      onClick={() => {
-                        void copyText(latestInvite.InviteLink)
-                          .then(() => {
-                            setFeedback("Copied invite link");
-                          })
-                          .catch((error) => {
-                            setActionError(describeError(error));
-                          });
-                      }}
-                      type="button"
-                    >
-                      <Link2 className="h-4 w-4" />
-                      <span>Copy link</span>
-                    </button>
-                  </div>
-                </div>
               )}
             </div>
 
-            <div className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
-              <div className="flex items-center gap-3">
-                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
-                  <ShieldCheck className="h-5 w-5" />
+            {activeJoin && (
+              <div
+                className={`rounded-md border px-3 py-2 text-sm ${joinTone(
+                  activeJoin.Status,
+                )}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium capitalize">
+                    {activeJoin.Status || "pending"}
+                  </span>
+                  {activeJoin.Role && (
+                    <span className="text-xs tracking-[0.16em] uppercase">
+                      {activeJoin.Role}
+                    </span>
+                  )}
                 </div>
-                <div>
-                  <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
-                    Pending approvals
-                  </h2>
-                  <p className="text-theme-600 text-sm dark:text-white/48">
-                    Approve or reject join requests for the active library.
+                {activeJoin.Message && (
+                  <p className="mt-1 text-sm opacity-80">
+                    {activeJoin.Message}
                   </p>
-                </div>
-              </div>
-
-              <div className="mt-5 space-y-3">
-                {state.requests.length === 0 ? (
-                  <div className="border-theme-300/75 text-theme-600 rounded-[1.2rem] border border-dashed bg-white/78 px-4 py-5 text-sm dark:border-white/10 dark:bg-black/10 dark:text-white/48">
-                    No join requests recorded for this library yet.
-                  </div>
-                ) : (
-                  state.requests.map((request) => (
-                    <div
-                      className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10"
-                      key={request.RequestID}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-theme-900 text-sm font-semibold dark:text-white">
-                              {request.DeviceName || request.DeviceID}
-                            </p>
-                            <span
-                              className={`rounded-full border px-2 py-1 text-[0.68rem] tracking-[0.22em] uppercase ${requestTone(
-                                request.Status,
-                              )}`}
-                            >
-                              {request.Status || "pending"}
-                            </span>
-                          </div>
-                          <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
-                            {request.Message || "Join request pending"}
-                          </p>
-                          <div className="text-theme-500 mt-3 flex flex-wrap gap-2 text-xs tracking-[0.18em] uppercase dark:text-white/35">
-                            <span>{request.RequestedRole || "member"}</span>
-                            <span>{formatRelativeDate(request.CreatedAt)}</span>
-                            <span className="text-theme-900 font-mono tracking-normal normal-case dark:text-white/45">
-                              {request.RequestID}
-                            </span>
-                          </div>
-                        </div>
-
-                        {normalizeRole(request.Status) === "pending" &&
-                        manageLibrary ? (
-                          <div className="flex flex-wrap gap-2">
-                            <select
-                              className="border-theme-300/75 bg-theme-100 text-theme-900 rounded-full border px-3 py-2 text-xs tracking-[0.18em] uppercase outline-none dark:border-white/10 dark:bg-white/5 dark:text-white"
-                              onChange={(event) => {
-                                setApprovalRoles((current) => ({
-                                  ...current,
-                                  [request.RequestID]: event.target.value,
-                                }));
-                              }}
-                              value={
-                                approvalRoles[request.RequestID] ||
-                                request.RequestedRole
-                              }
-                            >
-                              {inviteRoles.map((role) => (
-                                <option
-                                  className="bg-theme-50 text-theme-900 dark:bg-theme-900 dark:text-theme-100"
-                                  key={role}
-                                  value={role}
-                                >
-                                  {role}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              className="border-theme-900 bg-theme-900 text-theme-50 hover:bg-theme-800 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
-                              disabled={
-                                pendingAction === `approve:${request.RequestID}`
-                              }
-                              onClick={() => {
-                                void runAction(
-                                  `approve:${request.RequestID}`,
-                                  async () => {
-                                    await approveJoinRequest(
-                                      request.RequestID,
-                                      approvalRoles[request.RequestID] ||
-                                        request.RequestedRole ||
-                                        "member",
-                                    );
-                                    setFeedback(
-                                      `Approved ${request.DeviceName || request.DeviceID}`,
-                                    );
-                                  },
-                                );
-                              }}
-                              type="button"
-                            >
-                              <CheckCircle2 className="h-4 w-4" />
-                              <span>Approve</span>
-                            </button>
-                            <button
-                              className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
-                              disabled={
-                                pendingAction === `reject:${request.RequestID}`
-                              }
-                              onClick={() => {
-                                void runAction(
-                                  `reject:${request.RequestID}`,
-                                  async () => {
-                                    await rejectJoinRequest(
-                                      request.RequestID,
-                                      "rejected from desktop sharing page",
-                                    );
-                                    setFeedback(
-                                      `Rejected ${request.DeviceName || request.DeviceID}`,
-                                    );
-                                  },
-                                );
-                              }}
-                              type="button"
-                            >
-                              <XCircle className="h-4 w-4" />
-                              <span>Reject</span>
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))
                 )}
               </div>
-            </div>
-          </section>
+            )}
+          </div>
+        </div>
+      </section>
 
-          <section className="border-theme-300/70 shadow-theme-900/8 dark:border-theme-300/70 rounded-[1.6rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-5 shadow-sm dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] dark:shadow-none">
-            <div className="flex items-center gap-3">
-              <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-11 w-11 items-center justify-center rounded-2xl border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
-                <KeyRound className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-theme-900 text-lg font-semibold dark:text-white">
-                  Active invites
+      {state.library && (
+        <section className="grid gap-4 xl:grid-cols-2">
+          <div className="border-theme-300/70 rounded-lg border bg-white/78 p-4 dark:border-white/8 dark:bg-white/[0.035]">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-10 w-10 items-center justify-center rounded-md border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
+                  <KeyRound className="h-5 w-5" />
+                </div>
+                <h2 className="text-theme-950 text-base font-semibold dark:text-white">
+                  Active Invites
                 </h2>
-                <p className="text-theme-600 text-sm dark:text-white/48">
-                  Only currently usable invite tokens remain here. Expired,
-                  exhausted, and deleted invites are removed instead of kept as
-                  history.
-                </p>
               </div>
             </div>
 
-            <div className="mt-5 space-y-3">
+            <div className="mt-4 grid gap-2">
               {state.invites.length === 0 ? (
-                <div className="border-theme-300/75 text-theme-600 rounded-[1.2rem] border border-dashed bg-white/78 px-4 py-5 text-sm dark:border-white/10 dark:bg-black/10 dark:text-white/48">
-                  No active invites for this library right now.
+                <div className="border-theme-300/75 text-theme-500 rounded-md border border-dashed bg-white/55 px-3 py-4 text-sm dark:border-white/10 dark:bg-black/10 dark:text-white/42">
+                  No active invites.
                 </div>
               ) : (
                 state.invites.map((invite) => (
                   <div
-                    className="border-theme-300/70 rounded-[1.2rem] border bg-white/78 p-4 dark:border-white/8 dark:bg-black/10"
+                    className="border-theme-300/70 rounded-md border bg-white/82 p-3 dark:border-white/8 dark:bg-black/15"
                     key={invite.InviteID}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-theme-900 text-sm font-semibold capitalize dark:text-white">
-                          {invite.Role} invite
-                        </p>
-                        <p className="text-theme-600 mt-2 text-sm dark:text-white/55">
-                          {invite.RedemptionCount}/{invite.MaxUses} redemption
-                          {invite.MaxUses === 1 ? "" : "s"} used
-                        </p>
-                        <p className="text-theme-500 mt-2 font-mono text-xs break-all dark:text-white/42">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-theme-950 text-sm font-semibold capitalize dark:text-white">
+                            {invite.Role || "member"}
+                          </span>
+                          <span className="border-theme-300/75 text-theme-500 rounded-full border px-2 py-0.5 text-[0.68rem] tracking-[0.14em] uppercase dark:border-white/10 dark:text-white/42">
+                            {inviteExpiryLabel(
+                              invite.ExpiresAt,
+                              invite.Reusable,
+                            )}
+                          </span>
+                        </div>
+                        <p className="text-theme-500 mt-2 font-mono text-xs break-all dark:text-white/45">
                           {invite.InviteCode}
+                        </p>
+                        <p className="text-theme-500 mt-2 text-xs dark:text-white/35">
+                          Created {formatRelativeDate(invite.CreatedAt)}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button
-                          className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                          className="border-theme-300/75 text-theme-900 hover:bg-theme-100 inline-flex h-9 items-center gap-2 rounded-md border bg-white/82 px-3 text-sm transition dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
                           onClick={() => {
                             void copyText(invite.InviteCode)
                               .then(() => {
@@ -930,73 +486,117 @@ export function SharingSurface() {
                           type="button"
                         >
                           <Copy className="h-4 w-4" />
-                          <span>Copy code</span>
+                          <span>Copy</span>
                         </button>
                         <button
-                          className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
-                          onClick={() => {
-                            void copyText(invite.InviteLink)
-                              .then(() => {
-                                setFeedback("Copied invite link");
-                              })
-                              .catch((error) => {
-                                setActionError(describeError(error));
-                              });
-                          }}
-                          type="button"
-                        >
-                          <Link2 className="h-4 w-4" />
-                          <span>Copy link</span>
-                        </button>
-                        <button
-                          className="border-theme-300/75 text-theme-900 hover:border-theme-400/75 hover:bg-theme-100 inline-flex items-center gap-2 rounded-md border bg-white/82 px-3 py-2 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                          className="border-theme-300/75 text-theme-900 hover:bg-theme-100 inline-flex h-9 items-center gap-2 rounded-md border bg-white/82 px-3 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
                           disabled={
                             !manageLibrary ||
-                            pendingAction === `delete:${invite.InviteID}`
+                            pendingAction === `revoke:${invite.InviteID}`
                           }
                           onClick={() => {
                             void runAction(
-                              `delete:${invite.InviteID}`,
-                              async () => {
-                                await deleteInvite(invite.InviteID);
-                                setFeedback("Deleted invite");
-                              },
+                              `revoke:${invite.InviteID}`,
+                              async () => revokeInviteAction(invite.InviteID),
                             );
                           }}
                           type="button"
                         >
-                          <XCircle className="h-4 w-4" />
-                          <span>Delete</span>
+                          <Trash2 className="h-4 w-4" />
+                          <span>Revoke</span>
                         </button>
                       </div>
-                    </div>
-
-                    <div className="text-theme-500 mt-3 flex flex-wrap gap-3 text-xs tracking-[0.18em] uppercase dark:text-white/35">
-                      <span>Expires {formatDateTime(invite.ExpiresAt)}</span>
-                      <span>
-                        Created {formatRelativeDate(invite.CreatedAt)}
-                      </span>
                     </div>
                   </div>
                 ))
               )}
             </div>
-          </section>
-        </>
-      ) : (
-        <section className="border-theme-300/75 rounded-[1.6rem] border border-dashed bg-white/78 px-8 py-10 text-center dark:border-white/10 dark:bg-black/10">
-          <div className="border-theme-300/75 bg-theme-100 text-theme-400 mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border dark:border-white/10 dark:bg-white/5 dark:text-white/40">
-            <UserPlus className="h-5 w-5" />
           </div>
-          <h2 className="text-theme-900 text-lg font-semibold dark:text-white/90">
-            Join flow works without an active library
-          </h2>
-          <p className="text-theme-500 mx-auto mt-2 max-w-2xl text-sm dark:text-white/50">
-            Peer connect, invite issuance, and join request management depend on
-            an active library. Starting or refreshing a join session from an
-            invite code remains available so a fresh device can enter the
-            system.
-          </p>
+
+          <div className="border-theme-300/70 rounded-lg border bg-white/78 p-4 dark:border-white/8 dark:bg-white/[0.035]">
+            <div className="flex items-center gap-3">
+              <div className="border-theme-300/75 bg-theme-100 text-theme-700 flex h-10 w-10 items-center justify-center rounded-md border dark:border-white/10 dark:bg-white/5 dark:text-white/72">
+                <ShieldCheck className="h-5 w-5" />
+              </div>
+              <h2 className="text-theme-950 text-base font-semibold dark:text-white">
+                Pending Requests
+              </h2>
+            </div>
+
+            <div className="mt-4 grid gap-2">
+              {pendingRequests.length === 0 ? (
+                <div className="border-theme-300/75 text-theme-500 rounded-md border border-dashed bg-white/55 px-3 py-4 text-sm dark:border-white/10 dark:bg-black/10 dark:text-white/42">
+                  No pending requests.
+                </div>
+              ) : (
+                pendingRequests.map((request) => (
+                  <div
+                    className="border-theme-300/70 rounded-md border bg-white/82 p-3 dark:border-white/8 dark:bg-black/15"
+                    key={request.RequestID}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-theme-950 text-sm font-semibold dark:text-white">
+                            {request.DeviceName || request.DeviceID}
+                          </span>
+                          <span className="rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[0.68rem] tracking-[0.14em] text-amber-700 uppercase dark:text-amber-100">
+                            {request.Role || "member"}
+                          </span>
+                        </div>
+                        <p className="text-theme-500 mt-2 font-mono text-xs break-all dark:text-white/45">
+                          {request.DeviceFingerprint ||
+                            request.PeerID ||
+                            request.DeviceID}
+                        </p>
+                        <p className="text-theme-500 mt-2 text-xs dark:text-white/35">
+                          Requested {formatRelativeDate(request.CreatedAt)}
+                        </p>
+                      </div>
+                      {manageLibrary && (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            className="border-theme-950 bg-theme-950 text-theme-50 hover:bg-theme-800 inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-zinc-200 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+                            disabled={
+                              pendingAction === `approve:${request.RequestID}`
+                            }
+                            onClick={() => {
+                              void runAction(
+                                `approve:${request.RequestID}`,
+                                async () =>
+                                  approveRequestAction(request.RequestID),
+                              );
+                            }}
+                            type="button"
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            <span>Approve</span>
+                          </button>
+                          <button
+                            className="border-theme-300/75 text-theme-900 hover:bg-theme-100 inline-flex h-9 items-center gap-2 rounded-md border bg-white/82 px-3 text-sm transition disabled:cursor-default disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                            disabled={
+                              pendingAction === `reject:${request.RequestID}`
+                            }
+                            onClick={() => {
+                              void runAction(
+                                `reject:${request.RequestID}`,
+                                async () =>
+                                  rejectRequestAction(request.RequestID),
+                              );
+                            }}
+                            type="button"
+                          >
+                            <XCircle className="h-4 w-4" />
+                            <span>Reject</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </section>
       )}
     </div>

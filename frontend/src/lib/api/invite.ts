@@ -5,8 +5,11 @@ import { traceWailsCall } from "@/lib/observability/trace";
 export function createInvite(
   req: InstanceType<typeof Types.InviteCreateRequest>,
 ) {
-  return traceWailsCall("invite", "create_invite", { role: req.Role }, () =>
-    InviteFacade.CreateInvite(req),
+  return traceWailsCall(
+    "invite",
+    "create_invite",
+    { role: req.Role, reusable: req.Reusable },
+    () => InviteFacade.CreateInvite(req),
   );
 }
 
@@ -30,47 +33,32 @@ export function startJoinFromInvite(
   );
 }
 
-export function getJoinSession(sessionId: string) {
-  return traceWailsCall("invite", "get_join_session", { sessionId }, () =>
-    InviteFacade.GetJoinSession(sessionId),
+export function getJoinAttempt(attemptId: string) {
+  return traceWailsCall("invite", "get_join_attempt", { attemptId }, () =>
+    InviteFacade.GetJoinAttempt(attemptId),
   );
 }
 
-export function startFinalizeJoinSession(sessionId: string) {
-  return traceWailsCall(
-    "invite",
-    "start_finalize_join_session",
-    { sessionId },
-    () => InviteFacade.StartFinalizeJoinSession(sessionId),
+export function cancelJoinAttempt(attemptId: string) {
+  return traceWailsCall("invite", "cancel_join_attempt", { attemptId }, () =>
+    InviteFacade.CancelJoinAttempt(attemptId),
   );
 }
 
-export function cancelJoinSession(sessionId: string) {
-  return traceWailsCall("invite", "cancel_join_session", { sessionId }, () =>
-    InviteFacade.CancelJoinSession(sessionId),
+export function listJoinRequests() {
+  return traceWailsCall("invite", "list_join_requests", undefined, () =>
+    InviteFacade.ListJoinRequests(),
   );
 }
 
-export function listJoinRequests(status = "") {
-  return traceWailsCall("invite", "list_join_requests", { status }, () =>
-    InviteFacade.ListJoinRequests(status),
+export function approveJoinRequest(requestId: string) {
+  return traceWailsCall("invite", "approve_join_request", { requestId }, () =>
+    InviteFacade.ApproveJoinRequest(requestId),
   );
 }
 
-export function approveJoinRequest(requestId: string, role: string) {
-  return traceWailsCall(
-    "invite",
-    "approve_join_request",
-    { requestId, role },
-    () => InviteFacade.ApproveJoinRequest(requestId, role),
-  );
-}
-
-export function rejectJoinRequest(requestId: string, reason: string) {
-  return traceWailsCall(
-    "invite",
-    "reject_join_request",
-    { requestId, hasReason: Boolean(reason), reasonLength: reason.length },
-    () => InviteFacade.RejectJoinRequest(requestId, reason),
+export function rejectJoinRequest(requestId: string) {
+  return traceWailsCall("invite", "reject_join_request", { requestId }, () =>
+    InviteFacade.RejectJoinRequest(requestId),
   );
 }

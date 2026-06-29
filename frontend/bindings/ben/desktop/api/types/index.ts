@@ -43,12 +43,13 @@ export {
     InviteCreateRequest,
     InviteJoinRequestRecord,
     InviteRecord,
+    JoinAttempt,
     JoinFromInviteInput,
-    JoinSession,
     LibraryCheckpointStatus,
     LibraryMaterializedCounts,
     LibraryMemberStatus,
     LibraryOplogDiagnostics,
+    LibraryRelayConfig,
     LibrarySummary,
     LikedRecordingItem,
     LikedRecordingListRequest,
@@ -127,5 +128,6 @@ export {
     TraceSummary,
     TrackAvailabilitySummary,
     TranscodeActivityStatus,
-    TranscodeOplogDiagnostics
+    TranscodeOplogDiagnostics,
+    UpdateLibraryRelayConfigRequest
 } from "./models.js";

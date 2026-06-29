@@ -260,8 +260,7 @@ describe("usePlayerProgress", () => {
 
   test("keeps the committed seek position visible until authoritative transport catches up", async () => {
     let resolveSeek:
-      | ((value: PlaybackModels.SessionSnapshot | null) => void)
-      | null = null;
+      ((value: PlaybackModels.SessionSnapshot | null) => void) | null = null;
     const baseTime = Date.now();
 
     activeRoot = renderUsePlayerProgress({
@@ -327,8 +326,7 @@ describe("usePlayerProgress", () => {
 
   test("abandons a pending seek when newer authoritative transport moves in the wrong direction", async () => {
     let resolveSeek:
-      | ((value: PlaybackModels.SessionSnapshot | null) => void)
-      | null = null;
+      ((value: PlaybackModels.SessionSnapshot | null) => void) | null = null;
     const baseTime = Date.now();
 
     activeRoot = renderUsePlayerProgress({
@@ -375,8 +373,7 @@ describe("usePlayerProgress", () => {
 
   test("clears a pending seek when the resolved snapshot does not match the requested position", async () => {
     let resolveSeek:
-      | ((value: PlaybackModels.SessionSnapshot | null) => void)
-      | null = null;
+      ((value: PlaybackModels.SessionSnapshot | null) => void) | null = null;
     const baseTime = Date.now();
 
     activeRoot = renderUsePlayerProgress({
@@ -425,8 +422,7 @@ describe("usePlayerProgress", () => {
 
   test("clears pending seek when authoritative transport matches at the same capture timestamp", async () => {
     let resolveSeek:
-      | ((value: PlaybackModels.SessionSnapshot | null) => void)
-      | null = null;
+      ((value: PlaybackModels.SessionSnapshot | null) => void) | null = null;
     const baseTime = Date.now();
 
     activeRoot = renderUsePlayerProgress({
@@ -473,8 +469,7 @@ describe("usePlayerProgress", () => {
 
   test("keeps a matched seek visible until transport confirms it", async () => {
     let resolveSeek:
-      | ((value: PlaybackModels.SessionSnapshot | null) => void)
-      | null = null;
+      ((value: PlaybackModels.SessionSnapshot | null) => void) | null = null;
     const baseTime = Date.now();
 
     activeRoot = renderUsePlayerProgress({

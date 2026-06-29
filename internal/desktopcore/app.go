@@ -409,10 +409,6 @@ func (a *App) handleInviteJoinStatus(ctx context.Context, libraryID, localPeerID
 	return a.invite.handleInviteJoinStatus(ctx, libraryID, localPeerID, actualPeerID, req)
 }
 
-func (a *App) handleInviteJoinCancel(ctx context.Context, libraryID, actualPeerID string, req inviteJoinCancelRequest) (inviteJoinCancelResponse, error) {
-	return a.invite.handleInviteJoinCancel(ctx, libraryID, actualPeerID, req)
-}
-
 func (a *App) syncActiveScanWatcher(ctx context.Context) error {
 	return a.scanner.syncActiveScanWatcher(ctx)
 }
@@ -521,6 +517,14 @@ func (a *App) SelectLibrary(ctx context.Context, libraryID string) (apitypes.Lib
 
 func (a *App) RenameLibrary(ctx context.Context, libraryID, name string) (apitypes.LibrarySummary, error) {
 	return a.library.RenameLibrary(ctx, libraryID, name)
+}
+
+func (a *App) GetLibraryRelayConfig(ctx context.Context, libraryID string) (apitypes.LibraryRelayConfig, error) {
+	return a.library.GetLibraryRelayConfig(ctx, libraryID)
+}
+
+func (a *App) UpdateLibraryRelayConfig(ctx context.Context, req apitypes.UpdateLibraryRelayConfigRequest) (apitypes.LibraryRelayConfig, error) {
+	return a.library.UpdateLibraryRelayConfig(ctx, req)
 }
 
 func (a *App) LeaveLibrary(ctx context.Context, libraryID string) error {
@@ -854,19 +858,12 @@ func (a *App) ensureInviteFlowEpoch(ctx context.Context) error {
 
 	now := time.Now().UTC()
 	return a.storage.Transaction(ctx, func(tx *gorm.DB) error {
-		if err := tx.Where("library_id <> ''").Delete(&InviteJoinRequest{}).Error; err != nil {
-			return err
+		for _, table := range []string{"invite_join_requests", "invite_token_redemptions", "join_sessions", "issued_invites"} {
+			if err := tx.Exec("DROP TABLE IF EXISTS " + table).Error; err != nil {
+				return err
+			}
 		}
-		if err := tx.Where("library_id <> ''").Delete(&InviteTokenRedemption{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("library_id <> ''").Delete(&IssuedInvite{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("library_id <> ''").Delete(&JoinSession{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("key LIKE ?", "join_session_keypair:%").Delete(&LocalSetting{}).Error; err != nil {
+		if err := tx.AutoMigrate(&IssuedInvite{}); err != nil {
 			return err
 		}
 		return upsertLocalSettingTx(tx, localSettingInviteFlowEpoch, inviteFlowEpoch, now)
@@ -881,34 +878,26 @@ func (a *App) DeleteInvite(ctx context.Context, inviteID string) error {
 	return a.invite.DeleteInvite(ctx, inviteID)
 }
 
-func (a *App) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
+func (a *App) StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinAttempt, error) {
 	return a.invite.StartJoinFromInvite(ctx, req)
 }
 
-func (a *App) GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error) {
-	return a.invite.GetJoinSession(ctx, sessionID)
+func (a *App) GetJoinAttempt(ctx context.Context, attemptID string) (apitypes.JoinAttempt, error) {
+	return a.invite.GetJoinAttempt(ctx, attemptID)
 }
 
-func (a *App) FinalizeJoinSession(ctx context.Context, sessionID string) (apitypes.JoinLibraryResult, error) {
-	return a.invite.FinalizeJoinSession(ctx, sessionID)
+func (a *App) CancelJoinAttempt(ctx context.Context, attemptID string) error {
+	return a.invite.CancelJoinAttempt(ctx, attemptID)
 }
 
-func (a *App) StartFinalizeJoinSession(ctx context.Context, sessionID string) (JobSnapshot, error) {
-	return a.invite.StartFinalizeJoinSession(ctx, sessionID)
+func (a *App) ListJoinRequests(ctx context.Context) ([]apitypes.InviteJoinRequestRecord, error) {
+	return a.invite.ListJoinRequests(ctx)
 }
 
-func (a *App) CancelJoinSession(ctx context.Context, sessionID string) error {
-	return a.invite.CancelJoinSession(ctx, sessionID)
+func (a *App) ApproveJoinRequest(ctx context.Context, requestID string) error {
+	return a.invite.ApproveJoinRequest(ctx, requestID)
 }
 
-func (a *App) ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error) {
-	return a.invite.ListJoinRequests(ctx, status)
-}
-
-func (a *App) ApproveJoinRequest(ctx context.Context, requestID, role string) error {
-	return a.invite.ApproveJoinRequest(ctx, requestID, role)
-}
-
-func (a *App) RejectJoinRequest(ctx context.Context, requestID, reason string) error {
-	return a.invite.RejectJoinRequest(ctx, requestID, reason)
+func (a *App) RejectJoinRequest(ctx context.Context, requestID string) error {
+	return a.invite.RejectJoinRequest(ctx, requestID)
 }

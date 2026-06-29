@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -890,94 +889,4 @@ func TestHandleNetworkSyncStatusSynthesizesManualAndBackgroundUpdates(t *testing
 	if len(emitted) != 3 || emitted[2].Phase != apitypes.NotificationPhaseSuccess {
 		t.Fatalf("background sync completion notification = %+v", emitted)
 	}
-}
-
-func TestJoinSessionRefreshLoopRefreshesActiveSessions(t *testing.T) {
-	now := time.Date(2026, time.March, 25, 12, 0, 0, 0, time.UTC)
-	emitted := make([]apitypes.NotificationSnapshot, 0, 6)
-	facade := newNotificationFacadeForTest(&now, &emitted)
-	invite := &stubNotificationInviteRuntime{
-		called: make(chan struct{}, 1),
-		onGetJoinSession: func(sessionID string) {
-			now = now.Add(time.Second)
-			facade.handleJobSnapshot(desktopcore.JobSnapshot{
-				JobID:   sessionID,
-				Kind:    "join-session",
-				Phase:   desktopcore.JobPhaseRunning,
-				Message: "join request approved",
-			})
-		},
-	}
-	facade.host = &coreHost{invite: invite}
-	facade.handleJobSnapshot(desktopcore.JobSnapshot{
-		JobID:   "session-1",
-		Kind:    "join-session",
-		Phase:   desktopcore.JobPhaseRunning,
-		Message: "join request pending approval",
-	})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan struct{})
-	go func() {
-		facade.runJoinSessionRefreshLoop(ctx)
-		close(done)
-	}()
-
-	select {
-	case <-invite.called:
-	case <-time.After(3 * time.Second):
-		t.Fatal("join session refresh loop did not call GetJoinSession")
-	}
-	cancel()
-	<-done
-
-	last := emitted[len(emitted)-1]
-	if last.Kind != "join-session" || !strings.Contains(last.Message, "approved") {
-		t.Fatalf("last join notification = %+v", last)
-	}
-}
-
-type stubNotificationInviteRuntime struct {
-	onGetJoinSession func(sessionID string)
-	called           chan struct{}
-}
-
-func (s *stubNotificationInviteRuntime) CreateInvite(context.Context, apitypes.InviteCreateRequest) (apitypes.InviteRecord, error) {
-	return apitypes.InviteRecord{}, nil
-}
-func (s *stubNotificationInviteRuntime) ListActiveInvites(context.Context) ([]apitypes.InviteRecord, error) {
-	return nil, nil
-}
-func (s *stubNotificationInviteRuntime) DeleteInvite(context.Context, string) error {
-	return nil
-}
-func (s *stubNotificationInviteRuntime) StartJoinFromInvite(context.Context, apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
-	return apitypes.JoinSession{}, nil
-}
-func (s *stubNotificationInviteRuntime) GetJoinSession(_ context.Context, sessionID string) (apitypes.JoinSession, error) {
-	if s.called == nil {
-		s.called = make(chan struct{}, 1)
-	}
-	if s.onGetJoinSession != nil {
-		s.onGetJoinSession(sessionID)
-	}
-	select {
-	case s.called <- struct{}{}:
-	default:
-	}
-	return apitypes.JoinSession{SessionID: sessionID}, nil
-}
-func (s *stubNotificationInviteRuntime) StartFinalizeJoinSession(context.Context, string) (desktopcore.JobSnapshot, error) {
-	return desktopcore.JobSnapshot{}, nil
-}
-func (s *stubNotificationInviteRuntime) CancelJoinSession(context.Context, string) error { return nil }
-func (s *stubNotificationInviteRuntime) ListJoinRequests(context.Context, string) ([]apitypes.InviteJoinRequestRecord, error) {
-	return nil, nil
-}
-func (s *stubNotificationInviteRuntime) ApproveJoinRequest(context.Context, string, string) error {
-	return nil
-}
-func (s *stubNotificationInviteRuntime) RejectJoinRequest(context.Context, string, string) error {
-	return nil
 }

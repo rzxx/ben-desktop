@@ -81,8 +81,8 @@ func TestDesktopRewriteRegression(t *testing.T) {
 		}
 	})
 
-	t.Run("sharing frontend uses async connect peer", func(t *testing.T) {
-		var foundAsyncConnect bool
+	t.Run("sharing frontend stays active invite only", func(t *testing.T) {
+		var foundSharingSurface bool
 		err := filepath.WalkDir(filepath.Join("frontend", "src"), func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -95,6 +95,10 @@ func TestDesktopRewriteRegression(t *testing.T) {
 			default:
 				return nil
 			}
+			base := filepath.Base(path)
+			if strings.HasSuffix(base, ".test.ts") || strings.HasSuffix(base, ".test.tsx") {
+				return nil
+			}
 
 			raw, readErr := os.ReadFile(path)
 			if readErr != nil {
@@ -102,8 +106,33 @@ func TestDesktopRewriteRegression(t *testing.T) {
 			}
 			text := string(raw)
 
-			if strings.Contains(path, filepath.Join("sharing")) && strings.Contains(text, "startConnectPeer(") {
-				foundAsyncConnect = true
+			if strings.Contains(path, filepath.Join("sharing")) {
+				if strings.Contains(text, "Create Invite") && strings.Contains(text, "Pending Requests") {
+					foundSharingSurface = true
+				}
+				disallowed := []string{
+					"startConnectPeer(",
+					"connect-peer",
+					"localStorage",
+					"GetJoinSession",
+					"StartFinalizeJoinSession",
+					"CancelJoinSession",
+					"FinalizeJoinSession",
+					"InviteReachability",
+					"RequestedRole",
+					"RedemptionCount",
+					"MaxUses",
+					"InviteLink",
+					"approvalRoles",
+					"latestInvite",
+					"inviteUses",
+					"inviteExpiryHours",
+				}
+				for _, value := range disallowed {
+					if strings.Contains(text, value) {
+						t.Fatalf("%s still contains legacy invite UI concept %q", path, value)
+					}
+				}
 			}
 			if strings.Contains(text, "await connectPeer(") {
 				t.Fatalf("%s still calls blocking connectPeer", path)
@@ -113,28 +142,32 @@ func TestDesktopRewriteRegression(t *testing.T) {
 		if err != nil {
 			t.Fatalf("walk frontend/src: %v", err)
 		}
-		if !foundAsyncConnect {
-			t.Fatalf("sharing frontend does not call startConnectPeer")
+		if !foundSharingSurface {
+			t.Fatalf("sharing frontend does not expose the streamlined invite surface")
 		}
 
-		apiLayer, err := os.ReadFile(filepath.Join("frontend", "src", "lib", "api", "network.ts"))
+		apiLayer, err := os.ReadFile(filepath.Join("frontend", "src", "lib", "api", "invite.ts"))
 		if err != nil {
-			t.Fatalf("read network api layer: %v", err)
+			t.Fatalf("read invite api layer: %v", err)
 		}
 		apiText := string(apiLayer)
-		if !strings.Contains(apiText, "export function startConnectPeer") {
-			t.Fatalf("network api layer is missing startConnectPeer")
+		if !strings.Contains(apiText, "export function getJoinAttempt") {
+			t.Fatalf("invite api layer is missing getJoinAttempt")
 		}
-		if strings.Contains(apiText, "export function connectPeer(") {
-			t.Fatalf("network api layer still exports blocking connectPeer")
+		if strings.Contains(apiText, "getJoinSession") || strings.Contains(apiText, "startFinalizeJoinSession") {
+			t.Fatalf("invite api layer still exports legacy join session helpers")
 		}
 
-		binding, err := os.ReadFile(filepath.Join("frontend", "bindings", "ben", "desktop", "networkfacade.ts"))
+		binding, err := os.ReadFile(filepath.Join("frontend", "bindings", "ben", "desktop", "invitefacade.ts"))
 		if err != nil {
-			t.Fatalf("read network facade binding: %v", err)
+			t.Fatalf("read invite facade binding: %v", err)
 		}
-		if !strings.Contains(string(binding), "export function StartConnectPeer") {
-			t.Fatalf("network facade binding is missing StartConnectPeer")
+		bindingText := string(binding)
+		if !strings.Contains(bindingText, "export function GetJoinAttempt") {
+			t.Fatalf("invite facade binding is missing GetJoinAttempt")
+		}
+		if strings.Contains(bindingText, "StartFinalizeJoinSession") || strings.Contains(bindingText, "GetJoinSession") {
+			t.Fatalf("invite facade binding still exposes legacy join sessions")
 		}
 	})
 

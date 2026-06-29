@@ -1,0 +1,183 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+# Only one event fires per change: push to main triggers `push`, pushes to any
+# other branch trigger `pull_request` only when a PR is open. This makes
+# duplicate runs impossible by construction; the group just cancels stale runs
+# when a PR is updated rapidly.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.25.11"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            relayd/go.sum
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install Linux GUI and media dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            libmpv-dev
+
+      - name: Build frontend assets
+        # main.go embeds frontend/dist via //go:embed, and that directory is
+        # gitignored, so it must be materialized before any Go build/test.
+        working-directory: frontend
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Install Go tools
+        run: |
+          go install golang.org/x/tools/cmd/goimports@v0.45.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
+
+      - name: Check goimports
+        run: |
+          mapfile -t files < <(git ls-files '*.go')
+          if [ ${#files[@]} -gt 0 ]; then
+            diff="$(goimports -l "${files[@]}")"
+            if [ -n "$diff" ]; then
+              echo "::error::goimports would modify the following files:"
+              echo "$diff"
+              exit 1
+            fi
+          fi
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
+        with:
+          version: v2.11.4
+          args: --timeout 10m
+
+      - name: golangci-lint (relayd)
+        working-directory: relayd
+        run: golangci-lint run --timeout 10m ./...
+
+      - name: golangci-lint (shared/registryauth)
+        working-directory: shared/registryauth
+        run: golangci-lint run --timeout 10m ./...
+
+      - name: Test desktop module
+        run: go test ./...
+
+      - name: Test relay module
+        working-directory: relayd
+        run: go test ./...
+
+      - name: Test shared registry authentication module
+        working-directory: shared/registryauth
+        run: go test ./...
+
+      - name: Audit Go dependencies
+        run: |
+          govulncheck ./...
+          (cd relayd && govulncheck ./...)
+          (cd shared/registryauth && govulncheck ./...)
+
+  go-windows-race:
+    name: Go race (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.25.11"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          msystem: MINGW64
+          update: true
+          # path-type: inherit so the MSYS2 shell can see the Go toolchain
+          # installed by actions/setup-go on the runner PATH. With the default
+          # minimal path, `go` is not found inside msys2 and the race step
+          # exits with code 127.
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-mpv
+
+      - name: Build frontend assets
+        # main.go embeds frontend/dist via //go:embed, and that directory is
+        # gitignored, so it must be materialized before any Go build/test.
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Race test desktop module
+        shell: msys2 {0}
+        run: |
+          export CGO_ENABLED=1
+          export CC=gcc
+          go test -race ./...
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: bun audit
+
+      - name: Check frontend
+        working-directory: frontend
+        run: |
+          bun run format:check
+          bun lint
+          bun typecheck
+          bun run test:run

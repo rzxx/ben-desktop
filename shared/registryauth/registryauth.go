@@ -87,7 +87,6 @@ type RevocationSyncRequest struct {
 	LibraryID             string                 `json:"libraryId"`
 	RootPublicKey         string                 `json:"rootPublicKey"`
 	Revision              int64                  `json:"revision"`
-	InviteTokenIDs        []string               `json:"inviteTokenIds,omitempty"`
 	MembershipRevocations []MembershipRevocation `json:"membershipRevocations,omitempty"`
 	Sig                   []byte                 `json:"sig,omitempty"`
 }
@@ -217,8 +216,6 @@ func InviteAttestationSigningPayload(attestation InviteAttestation) ([]byte, err
 }
 
 func RevocationSyncSigningPayload(req RevocationSyncRequest) ([]byte, error) {
-	inviteTokenIDs := CompactNonEmptyStrings(req.InviteTokenIDs)
-	sort.Strings(inviteTokenIDs)
 	revocations := append([]MembershipRevocation(nil), req.MembershipRevocations...)
 	for i := range revocations {
 		revocations[i].DeviceID = strings.TrimSpace(revocations[i].DeviceID)
@@ -233,13 +230,11 @@ func RevocationSyncSigningPayload(req RevocationSyncRequest) ([]byte, error) {
 		LibraryID             string                 `json:"library_id"`
 		RootPublicKey         string                 `json:"root_public_key"`
 		Revision              int64                  `json:"revision"`
-		InviteTokenIDs        []string               `json:"invite_token_ids,omitempty"`
 		MembershipRevocations []MembershipRevocation `json:"membership_revocations,omitempty"`
 	}{
 		LibraryID:             strings.TrimSpace(req.LibraryID),
 		RootPublicKey:         strings.TrimSpace(req.RootPublicKey),
 		Revision:              req.Revision,
-		InviteTokenIDs:        inviteTokenIDs,
 		MembershipRevocations: revocations,
 	}
 	out, err := json.Marshal(body)
@@ -318,10 +313,7 @@ func VerifyInviteAttestation(attestation InviteAttestation, now time.Time) error
 	if attestation.LibraryID == "" || attestation.TokenID == "" || attestation.OwnerPeerID == "" || attestation.RootPublicKey == "" {
 		return fmt.Errorf("invite attestation is incomplete")
 	}
-	if attestation.ExpiresAt <= 0 {
-		return fmt.Errorf("invite attestation expiry is required")
-	}
-	if now.UTC().Unix() > attestation.ExpiresAt {
+	if attestation.ExpiresAt > 0 && now.UTC().Unix() > attestation.ExpiresAt {
 		return fmt.Errorf("invite attestation expired")
 	}
 	publicKey, err := DecodeEd25519PublicKey(attestation.RootPublicKey)
