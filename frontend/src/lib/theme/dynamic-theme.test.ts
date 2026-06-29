@@ -122,6 +122,14 @@ describe("dynamic theme variables", () => {
         document.documentElement.style.getPropertyValue(`--color-${role}`),
       ).toBe("");
     }
+    const compatibilityVariables = Array.from(
+      { length: document.documentElement.style.length },
+      (_, index) => document.documentElement.style.item(index),
+    ).filter(
+      (name) =>
+        name.startsWith("--color-theme-") || name.startsWith("--color-accent-"),
+    );
+    expect(compatibilityVariables).toEqual([]);
     expect(document.documentElement.dataset.artworkThemeClass).toBeUndefined();
   });
 });

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/draw"
+	"io"
 	"math"
 	"os"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 
 const (
 	defaultCandidateCount = 32
+	maxImagePixels        = 16_000_000
 	maxWorkerCount        = 8
 )
 
@@ -41,6 +43,16 @@ func (e *Extractor) ExtractFromPath(path string, options ExtractOptions) (Theme,
 		return Theme{}, fmt.Errorf("open image: %w", err)
 	}
 	defer func() { _ = file.Close() }()
+	config, err := webp.DecodeConfig(file)
+	if err != nil {
+		return Theme{}, fmt.Errorf("decode image config: %w", err)
+	}
+	if err := validateImageDimensions(int64(config.Width), int64(config.Height)); err != nil {
+		return Theme{}, err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return Theme{}, fmt.Errorf("rewind image: %w", err)
+	}
 	decoded, err := webp.Decode(file)
 	if err != nil {
 		return Theme{}, fmt.Errorf("decode image: %w", err)
@@ -51,6 +63,13 @@ func (e *Extractor) ExtractFromPath(path string, options ExtractOptions) (Theme,
 func (e *Extractor) ExtractFromImage(img image.Image, options ExtractOptions) (Theme, error) {
 	if img == nil || img.Bounds().Empty() {
 		return Theme{}, errors.New("image has no pixels")
+	}
+	bounds := img.Bounds()
+	if err := validateImageDimensions(
+		int64(bounds.Max.X)-int64(bounds.Min.X),
+		int64(bounds.Max.Y)-int64(bounds.Min.Y),
+	); err != nil {
+		return Theme{}, err
 	}
 	candidates, err := observeArtwork(toNRGBA(img), options.normalized())
 	if err != nil {
@@ -70,6 +89,9 @@ func (o ExtractOptions) normalized() ExtractOptions {
 	if o.QuantizationBits <= 0 {
 		o.QuantizationBits = defaultExtractOptions.QuantizationBits
 	}
+	if o.AlphaThreshold <= 0 {
+		o.AlphaThreshold = defaultExtractOptions.AlphaThreshold
+	}
 	o.Quality = int(clamp(float64(o.Quality), 1, 12))
 	o.CandidateCount = int(clamp(float64(o.CandidateCount), 8, 64))
 	o.QuantizationBits = int(clamp(float64(o.QuantizationBits), 4, 6))
@@ -79,6 +101,16 @@ func (o ExtractOptions) normalized() ExtractOptions {
 	}
 	o.WorkerCount = int(clamp(float64(o.WorkerCount), 1, float64(maxWorkerCount)))
 	return o
+}
+
+func validateImageDimensions(width, height int64) error {
+	if width <= 0 || height <= 0 {
+		return errors.New("image has no pixels")
+	}
+	if width > maxImagePixels/height {
+		return fmt.Errorf("image exceeds maximum pixel count of %d", maxImagePixels)
+	}
+	return nil
 }
 
 type histogramBin struct {

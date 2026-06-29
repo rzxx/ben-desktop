@@ -69,7 +69,7 @@ export function formatDateTime(value?: Date | string | null) {
 }
 
 export function artistLetter(name: string) {
-  const match = name.trim().match(/[A-Za-z0-9]/);
+  const match = name.trim().match(/[\p{L}\p{N}]/u);
   return match ? match[0]!.toUpperCase() : "#";
 }
 

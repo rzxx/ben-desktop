@@ -4,6 +4,9 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -65,6 +68,31 @@ func TestTransparentArtworkIsRejected(t *testing.T) {
 	_, err := NewExtractor().ExtractFromImage(image.NewNRGBA(image.Rect(0, 0, 24, 24)), ExtractOptions{})
 	if err == nil {
 		t.Fatal("expected fully transparent artwork to fail")
+	}
+}
+
+func TestOversizedArtworkIsRejected(t *testing.T) {
+	t.Parallel()
+	_, err := NewExtractor().ExtractFromImage(image.NewUniform(color.White), ExtractOptions{})
+	if err == nil || !strings.Contains(err.Error(), "exceeds maximum pixel count") {
+		t.Fatalf("expected oversized in-memory image error, got %v", err)
+	}
+}
+
+func TestOversizedWebPIsRejectedBeforeDecode(t *testing.T) {
+	t.Parallel()
+	data := []byte{
+		'R', 'I', 'F', 'F', 22, 0, 0, 0, 'W', 'E', 'B', 'P',
+		'V', 'P', '8', 'X', 10, 0, 0, 0, 1 << 4, 0, 0, 0,
+		0xfe, 0xff, 0x00, 0xfe, 0xff, 0x00,
+	}
+	path := filepath.Join(t.TempDir(), "oversized.webp")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewExtractor().ExtractFromPath(path, ExtractOptions{})
+	if err == nil || !strings.Contains(err.Error(), "exceeds maximum pixel count") {
+		t.Fatalf("expected oversized path image error, got %v", err)
 	}
 }
 
@@ -198,6 +226,10 @@ func TestGamutMappingReducesChromaWithoutChangingToneOrHue(t *testing.T) {
 
 func TestNormalizeExtractOptionsBoundsOperationalInputs(t *testing.T) {
 	t.Parallel()
+	defaults := NormalizeExtractOptions(ExtractOptions{})
+	if defaults.AlphaThreshold != defaultExtractOptions.AlphaThreshold {
+		t.Fatalf("expected default alpha threshold %d, got %d", defaultExtractOptions.AlphaThreshold, defaults.AlphaThreshold)
+	}
 	options := NormalizeExtractOptions(ExtractOptions{Quality: 999, CandidateCount: 999, QuantizationBits: 99, AlphaThreshold: 999, WorkerCount: 999})
 	if options.Quality > 12 || options.CandidateCount > 64 || options.QuantizationBits > 6 || options.AlphaThreshold > 254 || options.WorkerCount > maxWorkerCount {
 		t.Fatalf("unexpected normalized options: %#v", options)
