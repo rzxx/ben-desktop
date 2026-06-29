@@ -1,37 +1,28 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { artistLetter } from "@/lib/format";
 
 type ArtworkTileProps = {
   src?: string;
   title: string;
-  subtitle?: string;
+  fallback?: ReactNode;
   alt: string;
-  square?: boolean;
-  rounded?: "soft" | "full";
   className?: string;
 };
 
 export function ArtworkTile({
   src,
   title,
-  subtitle,
+  fallback,
   alt,
-  square = true,
   className = "",
 }: ArtworkTileProps) {
-  const [loadState, setLoadState] = useState<{ failed: boolean; src: string }>({
-    failed: false,
-    src: "",
-  });
-
-  const visibleSrc =
-    src && !(loadState.failed && loadState.src === src) ? src : "";
+  const [failedSrc, setFailedSrc] = useState("");
+  const visibleSrc = src && failedSrc !== src ? src : "";
 
   return (
     <div
       className={[
-        "border-theme-300/70 bg-theme-100/80 relative overflow-hidden border dark:border-white/8 dark:bg-white/5",
-        square ? "aspect-square" : "aspect-4/3",
+        "border-theme-300/75 relative aspect-square overflow-hidden border bg-white/82 dark:border-white/10 dark:bg-white/[0.06]",
         className,
       ].join(" ")}
     >
@@ -40,21 +31,17 @@ export function ArtworkTile({
           alt={alt}
           className="h-full w-full object-cover"
           loading="lazy"
-          onError={() => {
-            setLoadState({
-              failed: true,
-              src: visibleSrc,
-            });
-          }}
+          onError={() => setFailedSrc(visibleSrc)}
           src={visibleSrc}
         />
       ) : (
-        <div className="from-theme-100 to-theme-50 flex h-full w-full flex-col justify-between bg-linear-to-br via-white p-4 dark:bg-white/5">
-          <span className="text-theme-500 text-xs tracking-wide uppercase">
-            {subtitle || "Library"}
-          </span>
+        <div
+          aria-label={alt}
+          className="flex h-full w-full items-center justify-center"
+          role="img"
+        >
           <span className="text-theme-900 dark:text-theme-100 text-4xl font-semibold">
-            {artistLetter(title)}
+            {fallback ?? artistLetter(title)}
           </span>
         </div>
       )}

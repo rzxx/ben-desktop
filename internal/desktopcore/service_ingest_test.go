@@ -12,6 +12,8 @@ import (
 	"time"
 
 	apitypes "ben/desktop/api/types"
+
+	"gorm.io/gorm"
 )
 
 func TestScanRootsRequireActiveLibrary(t *testing.T) {
@@ -798,6 +800,33 @@ func TestRepairLibraryDropsQueuedManualScanOnCallerCancel(t *testing.T) {
 	case path := <-started:
 		t.Fatalf("canceled queued repair still ingested %q", path)
 	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestRepairLibraryReturnsLookupCancellationDuringSetup(t *testing.T) {
+	ctx := context.Background()
+	app := openCacheTestApp(t, 1024)
+
+	var injected int32
+	callbackName := "test:cancel-current-device-lookup"
+	if err := app.storage.DB().Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement.Schema == nil || tx.Statement.Schema.Table != "devices" {
+			return
+		}
+		if atomic.CompareAndSwapInt32(&injected, 0, 1) {
+			_ = tx.AddError(context.Canceled)
+		}
+	}); err != nil {
+		t.Fatalf("register canceled query callback: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.storage.DB().Callback().Query().Remove(callbackName); err != nil {
+			t.Errorf("remove canceled query callback: %v", err)
+		}
+	})
+
+	if _, err := app.RepairLibrary(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("repair err = %v, want context.Canceled", err)
 	}
 }
 

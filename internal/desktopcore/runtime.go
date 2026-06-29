@@ -12,6 +12,8 @@ type LibraryRuntime interface {
 	CreateLibrary(ctx context.Context, name string) (apitypes.LibrarySummary, error)
 	SelectLibrary(ctx context.Context, libraryID string) (apitypes.LibrarySummary, error)
 	RenameLibrary(ctx context.Context, libraryID, name string) (apitypes.LibrarySummary, error)
+	GetLibraryRelayConfig(ctx context.Context, libraryID string) (apitypes.LibraryRelayConfig, error)
+	UpdateLibraryRelayConfig(ctx context.Context, req apitypes.UpdateLibraryRelayConfigRequest) (apitypes.LibraryRelayConfig, error)
 	LeaveLibrary(ctx context.Context, libraryID string) error
 	DeleteLibrary(ctx context.Context, libraryID string) error
 	ListLibraryMembers(ctx context.Context) ([]apitypes.LibraryMemberStatus, error)
@@ -93,13 +95,12 @@ type InviteRuntime interface {
 	CreateInvite(ctx context.Context, req apitypes.InviteCreateRequest) (apitypes.InviteRecord, error)
 	ListActiveInvites(ctx context.Context) ([]apitypes.InviteRecord, error)
 	DeleteInvite(ctx context.Context, inviteID string) error
-	StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinSession, error)
-	GetJoinSession(ctx context.Context, sessionID string) (apitypes.JoinSession, error)
-	StartFinalizeJoinSession(ctx context.Context, sessionID string) (JobSnapshot, error)
-	CancelJoinSession(ctx context.Context, sessionID string) error
-	ListJoinRequests(ctx context.Context, status string) ([]apitypes.InviteJoinRequestRecord, error)
-	ApproveJoinRequest(ctx context.Context, requestID, role string) error
-	RejectJoinRequest(ctx context.Context, requestID, reason string) error
+	StartJoinFromInvite(ctx context.Context, req apitypes.JoinFromInviteInput) (apitypes.JoinAttempt, error)
+	GetJoinAttempt(ctx context.Context, attemptID string) (apitypes.JoinAttempt, error)
+	CancelJoinAttempt(ctx context.Context, attemptID string) error
+	ListJoinRequests(ctx context.Context) ([]apitypes.InviteJoinRequestRecord, error)
+	ApproveJoinRequest(ctx context.Context, requestID string) error
+	RejectJoinRequest(ctx context.Context, requestID string) error
 }
 
 type CacheRuntime interface {

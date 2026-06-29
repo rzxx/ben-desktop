@@ -1,5 +1,6 @@
 import { Dialogs } from "@wailsio/runtime";
 import * as LibraryFacade from "../../../bindings/ben/desktop/libraryfacade";
+import { Types } from "./models";
 import { traceWailsCall } from "@/lib/observability/trace";
 
 export async function getActiveLibrary() {
@@ -66,6 +67,30 @@ export function updateLibraryMemberRole(deviceId: string, role: string) {
 export function removeLibraryMember(deviceId: string) {
   return traceWailsCall("library", "remove_library_member", { deviceId }, () =>
     LibraryFacade.RemoveLibraryMember(deviceId),
+  );
+}
+
+export function getLibraryRelayConfig(libraryId = "") {
+  return traceWailsCall(
+    "library",
+    "get_library_relay_config",
+    { libraryId },
+    () => LibraryFacade.GetLibraryRelayConfig(libraryId),
+  );
+}
+
+export function updateLibraryRelayConfig(
+  req: InstanceType<typeof Types.UpdateLibraryRelayConfigRequest>,
+) {
+  return traceWailsCall(
+    "library",
+    "update_library_relay_config",
+    {
+      libraryId: req.LibraryID,
+      registryURL: req.RegistryURL,
+      relayBootstrapCount: req.RelayBootstrapAddrs.length,
+    },
+    () => LibraryFacade.UpdateLibraryRelayConfig(req),
   );
 }
 

@@ -1,6 +1,6 @@
 import * as Types from "../../../bindings/ben/desktop/api/types/models";
 import * as DesktopCoreModels from "../../../bindings/ben/desktop/internal/desktopcore/models";
-import * as ThemeModels from "../../../bindings/ben/desktop/internal/palette/models";
+import * as ThemeModels from "../../../bindings/ben/desktop/internal/dynamictheme/models";
 import * as PlaybackModels from "../../../bindings/ben/desktop/internal/playback/models";
 
 export { DesktopCoreModels, PlaybackModels, Types };
@@ -20,12 +20,13 @@ export type InspectSummary = Types.InspectSummary;
 export type InviteCreateRequest = Types.InviteCreateRequest;
 export type InviteJoinRequestRecord = Types.InviteJoinRequestRecord;
 export type InviteRecord = Types.InviteRecord;
-export type JoinSession = Types.JoinSession;
+export type JoinAttempt = Types.JoinAttempt;
 export type JobPhase = DesktopCoreModels.JobPhase;
 export type JobSnapshot = DesktopCoreModels.JobSnapshot;
 export type LibraryCheckpointStatus = Types.LibraryCheckpointStatus;
 export type LibraryMemberStatus = Types.LibraryMemberStatus;
 export type LibraryOplogDiagnostics = Types.LibraryOplogDiagnostics;
+export type LibraryRelayConfig = Types.LibraryRelayConfig;
 export type LibrarySummary = Types.LibrarySummary;
 export type LikedRecordingItem = Types.LikedRecordingItem;
 export type LocalContext = Types.LocalContext;
@@ -63,9 +64,10 @@ export type SessionEntry = PlaybackModels.SessionEntry;
 export type SessionItem = PlaybackModels.SessionItem;
 export type SessionSnapshot = PlaybackModels.SessionSnapshot;
 export type ThemePreferences = Types.ThemePreferences;
-export type ThemePalette = ThemeModels.ThemePalette;
-export type ThemePaletteColor = ThemeModels.PaletteColor;
-export type ThemePaletteTone = ThemeModels.PaletteTone;
+export type DynamicTheme = ThemeModels.Theme;
+export type DynamicThemeColor = ThemeModels.Color;
+export type UpdateLibraryRelayConfigRequest =
+  Types.UpdateLibraryRelayConfigRequest;
 
 export const DEFAULT_PAGE_SIZE = 60;
 export const TRACK_PAGE_SIZE = 120;

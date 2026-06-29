@@ -3,7 +3,6 @@ package desktopcore
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -15,13 +14,11 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/crypto/nacl/box"
-	"gorm.io/gorm"
 )
 
 const (
-	desktopInviteJoinStartProtocolID  = protocol.ID("/ben/desktop/invite/start/1.0.0")
-	desktopInviteJoinStatusProtocolID = protocol.ID("/ben/desktop/invite/status/1.0.0")
-	desktopInviteJoinCancelProtocolID = protocol.ID("/ben/desktop/invite/cancel/1.0.0")
+	desktopInviteJoinStartProtocolID  = protocol.ID("/ben/desktop/invite/start/2.0.0")
+	desktopInviteJoinStatusProtocolID = protocol.ID("/ben/desktop/invite/status/2.0.0")
 
 	defaultInviteDiscoverTimeout = 10 * time.Second
 )
@@ -43,8 +40,7 @@ type inviteJoinStartResponse struct {
 	OwnerDeviceID string `json:"ownerDeviceId"`
 	OwnerRole     string `json:"ownerRole"`
 	OwnerPeerID   string `json:"ownerPeerId"`
-	OwnerAddrs    string `json:"ownerAddrs"`
-	ExpiresAt     int64  `json:"expiresAt"`
+	UpdatedAt     int64  `json:"updatedAt"`
 	Error         string `json:"error,omitempty"`
 }
 
@@ -66,29 +62,8 @@ type inviteJoinStatusResponse struct {
 	OwnerPeerID       string `json:"ownerPeerId"`
 	OwnerFingerprint  string `json:"ownerFingerprint"`
 	EncryptedMaterial []byte `json:"encryptedMaterial,omitempty"`
-	ExpiresAt         int64  `json:"expiresAt"`
 	UpdatedAt         int64  `json:"updatedAt"`
 	Error             string `json:"error,omitempty"`
-}
-
-type inviteJoinCancelRequest struct {
-	LibraryID string `json:"libraryId"`
-	RequestID string `json:"requestId"`
-	DeviceID  string `json:"deviceId"`
-	PeerID    string `json:"peerId"`
-	Reason    string `json:"reason"`
-}
-
-type inviteJoinCancelResponse struct {
-	Status    string `json:"status"`
-	Message   string `json:"message"`
-	UpdatedAt int64  `json:"updatedAt"`
-	Error     string `json:"error,omitempty"`
-}
-
-type inviteJoinKeypair struct {
-	PublicKey  string `json:"publicKey"`
-	PrivateKey string `json:"privateKey"`
 }
 
 type inviteClientTransport struct {
@@ -105,123 +80,39 @@ func generateInviteJoinKeypair() (*[32]byte, *[32]byte, error) {
 	return publicKey, privateKey, nil
 }
 
-func encodeInviteJoinKeypair(publicKey, privateKey *[32]byte) (string, error) {
-	if publicKey == nil || privateKey == nil {
-		return "", fmt.Errorf("invite join keypair is required")
-	}
-	body, err := json.Marshal(inviteJoinKeypair{
-		PublicKey:  base64.StdEncoding.EncodeToString(publicKey[:]),
-		PrivateKey: base64.StdEncoding.EncodeToString(privateKey[:]),
-	})
-	if err != nil {
-		return "", fmt.Errorf("encode invite join keypair: %w", err)
-	}
-	return string(body), nil
-}
-
-func decodeInviteJoinKeypair(encoded string) (*[32]byte, *[32]byte, error) {
-	encoded = strings.TrimSpace(encoded)
-	if encoded == "" {
-		return nil, nil, fmt.Errorf("invite join keypair is required")
-	}
-	var body inviteJoinKeypair
-	if err := json.Unmarshal([]byte(encoded), &body); err != nil {
-		return nil, nil, fmt.Errorf("decode invite join keypair: %w", err)
-	}
-	publicRaw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(body.PublicKey))
-	if err != nil {
-		return nil, nil, fmt.Errorf("decode invite join public key: %w", err)
-	}
-	privateRaw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(body.PrivateKey))
-	if err != nil {
-		return nil, nil, fmt.Errorf("decode invite join private key: %w", err)
-	}
-	if len(publicRaw) != 32 || len(privateRaw) != 32 {
-		return nil, nil, fmt.Errorf("invalid invite join keypair size")
-	}
-	var publicKey [32]byte
-	var privateKey [32]byte
-	copy(publicKey[:], publicRaw)
-	copy(privateKey[:], privateRaw)
-	return &publicKey, &privateKey, nil
-}
-
-func encryptJoinSessionMaterial(joinPubKey []byte, material joinSessionMaterial) ([]byte, error) {
+func encryptJoinMaterial(joinPubKey []byte, material joinMaterial) ([]byte, error) {
 	if len(joinPubKey) != 32 {
 		return nil, fmt.Errorf("join public key must be 32 bytes")
 	}
 	raw, err := json.Marshal(material)
 	if err != nil {
-		return nil, fmt.Errorf("marshal join session material: %w", err)
+		return nil, fmt.Errorf("marshal join material: %w", err)
 	}
 	var recipient [32]byte
 	copy(recipient[:], joinPubKey)
 	sealed, err := box.SealAnonymous(nil, raw, &recipient, rand.Reader)
 	if err != nil {
-		return nil, fmt.Errorf("encrypt join session material: %w", err)
+		return nil, fmt.Errorf("encrypt join material: %w", err)
 	}
 	return sealed, nil
 }
 
-func decryptJoinSessionMaterial(ciphertext []byte, publicKey, privateKey *[32]byte) (joinSessionMaterial, error) {
+func decryptJoinMaterial(ciphertext []byte, publicKey, privateKey *[32]byte) (joinMaterial, error) {
 	if len(ciphertext) == 0 {
-		return joinSessionMaterial{}, fmt.Errorf("encrypted join session material is required")
+		return joinMaterial{}, fmt.Errorf("encrypted join material is required")
 	}
 	if publicKey == nil || privateKey == nil {
-		return joinSessionMaterial{}, fmt.Errorf("invite join keypair is required")
+		return joinMaterial{}, fmt.Errorf("invite join keypair is required")
 	}
 	opened, ok := box.OpenAnonymous(nil, ciphertext, publicKey, privateKey)
 	if !ok {
-		return joinSessionMaterial{}, fmt.Errorf("decrypt join session material")
+		return joinMaterial{}, fmt.Errorf("decrypt join material")
 	}
-	var material joinSessionMaterial
+	var material joinMaterial
 	if err := json.Unmarshal(opened, &material); err != nil {
-		return joinSessionMaterial{}, fmt.Errorf("decode join session material: %w", err)
+		return joinMaterial{}, fmt.Errorf("decode join material: %w", err)
 	}
 	return material, nil
-}
-
-func joinSessionKeypairLocalSettingKey(sessionID string) string {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return ""
-	}
-	return "join_session_keypair:" + sessionID
-}
-
-func saveJoinSessionKeypairTx(tx *gorm.DB, sessionID string, publicKey, privateKey *[32]byte, updatedAt time.Time) error {
-	key, err := encodeInviteJoinKeypair(publicKey, privateKey)
-	if err != nil {
-		return err
-	}
-	return upsertLocalSettingTx(tx, joinSessionKeypairLocalSettingKey(sessionID), key, updatedAt)
-}
-
-func loadJoinSessionKeypair(ctx context.Context, db *gorm.DB, sessionID string) (*[32]byte, *[32]byte, bool, error) {
-	key := joinSessionKeypairLocalSettingKey(sessionID)
-	if strings.TrimSpace(key) == "" {
-		return nil, nil, false, nil
-	}
-	var setting LocalSetting
-	if err := db.WithContext(ctx).Where("key = ?", key).Take(&setting).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil, false, nil
-		}
-		return nil, nil, false, err
-	}
-	publicKey, privateKey, err := decodeInviteJoinKeypair(setting.Value)
-	if err != nil {
-		return nil, nil, false, err
-	}
-	return publicKey, privateKey, true, nil
-}
-
-func deleteJoinSessionKeypair(ctx context.Context, db *gorm.DB, sessionID string) error {
-	key := joinSessionKeypairLocalSettingKey(sessionID)
-	if strings.TrimSpace(key) == "" {
-		return nil
-	}
-	return db.WithContext(ctx).Where("key = ?", key).Delete(&LocalSetting{}).Error
 }
 
 func (a *App) openInviteClientTransport(relayBootstrapAddrs []string) (*inviteClientTransport, error) {
@@ -240,13 +131,7 @@ func (a *App) openInviteClientTransport(relayBootstrapAddrs []string) (*inviteCl
 			return nil, err
 		}
 	}
-
-	client := &inviteClientTransport{
-		app:        a,
-		host:       hostNode,
-		sharedHost: sharedHost,
-	}
-	return client, nil
+	return &inviteClientTransport{app: a, host: hostNode, sharedHost: sharedHost}, nil
 }
 
 func (c *inviteClientTransport) Close() error {

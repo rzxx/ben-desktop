@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -31,7 +32,10 @@ type transportNetworkStatusReporter interface {
 	appendNetworkStatus(*apitypes.NetworkStatus)
 }
 
-const presenceLastSeenWriteInterval = 30 * time.Second
+const (
+	presenceLastSeenWriteInterval = 30 * time.Second
+	registryStateSyncInterval     = 5 * time.Minute
+)
 
 type transportFactory func(context.Context, apitypes.LocalContext) (managedSyncTransport, error)
 
@@ -97,17 +101,15 @@ type transportCatchupLaneState struct {
 }
 
 type activeTransportRuntime struct {
-	libraryID string
-	deviceID  string
-	transport managedSyncTransport
-	ctx       context.Context
-	cancel    context.CancelFunc
-	state     apitypes.NetworkSyncState
-
-	activeInviteCount          int
-	inviteReachabilityRequired bool
-	inviteReachable            bool
-	inviteReachabilityError    string
+	libraryID           string
+	deviceID            string
+	registryURL         string
+	relayBootstrapAddrs []string
+	transport           managedSyncTransport
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	state               apitypes.NetworkSyncState
+	lastRegistrySyncAt  time.Time
 
 	catchupLane    transportCatchupLaneState
 	peerUpdateLane transportTaskLaneState
@@ -250,12 +252,20 @@ func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.Local
 		s.Stop()
 		return nil
 	}
+	relayCfg, err := s.app.relayConfigForLibrary(ctx, local.LibraryID)
+	if err != nil {
+		return err
+	}
+	desiredRegistryURL := strings.TrimSpace(relayCfg.RegistryURL)
+	desiredRelayAddrs := compactNonEmptyStrings(relayCfg.RelayBootstrapAddrs)
 
 	s.app.runtimeMu.Lock()
 	current := runtime.transportRuntime
 	if current != nil &&
 		strings.TrimSpace(current.libraryID) == strings.TrimSpace(local.LibraryID) &&
 		strings.TrimSpace(current.deviceID) == strings.TrimSpace(local.DeviceID) &&
+		strings.TrimSpace(current.registryURL) == desiredRegistryURL &&
+		slices.Equal(compactNonEmptyStrings(current.relayBootstrapAddrs), desiredRelayAddrs) &&
 		current.transport != nil {
 		s.app.runtimeMu.Unlock()
 		return nil
@@ -273,11 +283,13 @@ func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.Local
 
 	runtimeCtx, cancel := context.WithCancel(runtime.ctx)
 	nextRuntime := &activeTransportRuntime{
-		libraryID: strings.TrimSpace(local.LibraryID),
-		deviceID:  strings.TrimSpace(local.DeviceID),
-		transport: next,
-		ctx:       runtimeCtx,
-		cancel:    cancel,
+		libraryID:           strings.TrimSpace(local.LibraryID),
+		deviceID:            strings.TrimSpace(local.DeviceID),
+		registryURL:         desiredRegistryURL,
+		relayBootstrapAddrs: desiredRelayAddrs,
+		transport:           next,
+		ctx:                 runtimeCtx,
+		cancel:              cancel,
 		state: apitypes.NetworkSyncState{
 			Mode: apitypes.NetworkSyncModeIdle,
 		},
@@ -294,8 +306,8 @@ func (s *TransportService) syncRuntime(ctx context.Context, local apitypes.Local
 	s.app.runtimeMu.Unlock()
 
 	s.stopRuntime(current)
+	s.syncRuntimeRegistryState(nextRuntime, true)
 	_ = s.announceRuntimePresence(nextRuntime)
-	s.refreshInviteReachabilityState(nextRuntime.libraryID)
 	s.scheduleRuntimeCatchup(nextRuntime, apitypes.NetworkSyncReasonStartup, 0)
 	go s.runBackgroundLoop(nextRuntime)
 	return nil
@@ -332,11 +344,49 @@ func (s *TransportService) runBackgroundLoop(runtime *activeTransportRuntime) {
 			if !s.isActiveRuntime(runtime) || runtime.ctx.Err() != nil {
 				return
 			}
+			s.reconcileRuntimeRelay(runtime)
 			_ = s.announceRuntimePresence(runtime)
-			s.maintainRuntimeInviteReachability(runtime)
 			s.scheduleRuntimeCatchup(runtime, apitypes.NetworkSyncReasonTimer, 0)
 		}
 	}
+}
+
+func (s *TransportService) reconcileRuntimeRelay(runtime *activeTransportRuntime) {
+	if s == nil || s.app == nil || runtime == nil || runtime.ctx.Err() != nil {
+		return
+	}
+	relayChanged := false
+	if transport, ok := runtime.transport.(*libp2pSyncTransport); ok {
+		reconcileCtx, cancel := context.WithTimeout(runtime.ctx, registryRequestTimeout)
+		changed, err := s.app.reconcileTransportRelayReservation(reconcileCtx, transport, transportConnectTimeout)
+		cancel()
+		relayChanged = changed
+		if err != nil {
+			s.app.logf("desktopcore: reconcile relay reservation failed for %s: %v", runtime.libraryID, err)
+		}
+	}
+	s.syncRuntimeRegistryState(runtime, relayChanged)
+}
+
+func (s *TransportService) syncRuntimeRegistryState(runtime *activeTransportRuntime, force bool) {
+	if s == nil || s.app == nil || runtime == nil || runtime.ctx.Err() != nil {
+		return
+	}
+	now := time.Now().UTC()
+	if !force && !runtime.lastRegistrySyncAt.IsZero() && now.Sub(runtime.lastRegistrySyncAt) < registryStateSyncInterval {
+		return
+	}
+	local, ok := s.runtimeLocalContext(runtime)
+	if !ok || !canManageLibrary(local.Role) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(runtime.ctx, registryRequestTimeout)
+	defer cancel()
+	if err := s.app.syncMembershipRevocations(ctx, runtime.libraryID); err != nil {
+		s.app.logf("desktopcore: sync registry revocations failed for %s: %v", runtime.libraryID, err)
+		return
+	}
+	runtime.lastRegistrySyncAt = now
 }
 
 func (s *TransportService) noteLocalLibraryMutation(libraryID string) {
@@ -985,12 +1035,12 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 	out := apitypes.NetworkStatus{
 		LibraryID:                      strings.TrimSpace(local.LibraryID),
 		DeviceID:                       strings.TrimSpace(local.DeviceID),
-		RegistryURL:                    strings.TrimSpace(s.app.cfg.RegistryURL),
-		RelayBootstrapAddrs:            append([]string(nil), s.app.cfg.RelayBootstrapAddrs...),
 		EnableLANDiscovery:             s.app.cfg.EnableLANDiscovery,
 		RequireDirectForLargeTransfers: s.app.cfg.RequireDirectForLargeTransfers,
 	}
 	if current != nil && current.transport != nil {
+		out.RegistryURL = strings.TrimSpace(current.registryURL)
+		out.RelayBootstrapAddrs = append([]string(nil), current.relayBootstrapAddrs...)
 		out.Running = strings.TrimSpace(current.transport.LocalPeerID()) != ""
 		out.PeerID = strings.TrimSpace(current.transport.LocalPeerID())
 		out.ListenAddrs = append([]string(nil), current.transport.ListenAddrs()...)
@@ -998,6 +1048,10 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 			reporter.appendNetworkStatus(&out)
 		}
 	} else {
+		if relayCfg, err := s.app.relayConfigForLibrary(context.Background(), local.LibraryID); err == nil {
+			out.RegistryURL = strings.TrimSpace(relayCfg.RegistryURL)
+			out.RelayBootstrapAddrs = compactNonEmptyStrings(relayCfg.RelayBootstrapAddrs)
+		}
 		out.PeerID = strings.TrimSpace(local.PeerID)
 	}
 	if out.LibraryID == "" {
@@ -1009,10 +1063,6 @@ func (s *TransportService) NetworkStatus() apitypes.NetworkStatus {
 	if current != nil {
 		s.mu.RLock()
 		state := current.state
-		out.ActiveInviteCount = current.activeInviteCount
-		out.InviteReachabilityRequired = current.inviteReachabilityRequired
-		out.InviteReachable = current.inviteReachable
-		out.InviteReachabilityError = strings.TrimSpace(current.inviteReachabilityError)
 		s.mu.RUnlock()
 		out.NetworkSyncState = cloneNetworkSyncState(state)
 		if out.Mode == "" {
@@ -1081,74 +1131,6 @@ func (s *TransportService) SubscribeNetworkStatus(listener func(apitypes.Network
 		delete(s.networkStatusSubscribers, id)
 		s.mu.Unlock()
 	}
-}
-
-func (s *TransportService) refreshInviteReachabilityState(libraryID string) {
-	if s == nil || strings.TrimSpace(libraryID) == "" {
-		return
-	}
-	runtime := s.activeRuntimeForLibrary(libraryID)
-	if runtime == nil {
-		return
-	}
-	go s.maintainRuntimeInviteReachability(runtime)
-}
-
-func (s *TransportService) maintainRuntimeInviteReachability(runtime *activeTransportRuntime) {
-	if s == nil || s.app == nil || runtime == nil || runtime.transport == nil {
-		return
-	}
-	local, ok := s.runtimeLocalContext(runtime)
-	if !ok || strings.TrimSpace(local.LibraryID) == "" {
-		return
-	}
-	now := time.Now().UTC()
-	count := 0
-	errMsg := ""
-	if s.app.invite != nil {
-		if err := s.app.invite.cleanupInactiveInviteRows(context.Background(), local.LibraryID, now); err != nil {
-			errMsg = err.Error()
-		}
-	}
-	if errMsg == "" {
-		var total int64
-		err := s.app.storage.WithContext(context.Background()).
-			Model(&IssuedInvite{}).
-			Where("library_id = ?", strings.TrimSpace(local.LibraryID)).
-			Count(&total).Error
-		if err != nil {
-			errMsg = err.Error()
-		} else {
-			count = int(total)
-		}
-	}
-	required := count > 0
-	reachable := false
-	if required && errMsg == "" {
-		err := s.app.ensureActiveTransportRelayReservation(context.Background(), defaultInviteDiscoverTimeout)
-		if err != nil {
-			errMsg = err.Error()
-		} else if err := s.announceRuntimePresence(runtime); err != nil {
-			errMsg = err.Error()
-		} else if reporter, ok := runtime.transport.(*libp2pSyncTransport); ok {
-			reachable = len(reporter.relayReservationAddrs()) > 0
-			if !reachable {
-				errMsg = "invite relay reservation is not active"
-			}
-		} else {
-			reachable = true
-		}
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.isActiveRuntime(runtime) {
-		return
-	}
-	runtime.activeInviteCount = count
-	runtime.inviteReachabilityRequired = required
-	runtime.inviteReachable = reachable
-	runtime.inviteReachabilityError = strings.TrimSpace(errMsg)
 }
 
 func (s *TransportService) beginRuntimeSync(runtime *activeTransportRuntime, reason apitypes.NetworkSyncReason) {
@@ -1538,8 +1520,6 @@ func (s *TransportService) networkStatusNotificationLocked(
 
 func (s *TransportService) runtimeNetworkStatusSnapshotLocked(runtime *activeTransportRuntime) apitypes.NetworkStatus {
 	out := apitypes.NetworkStatus{
-		RegistryURL:                    strings.TrimSpace(s.app.cfg.RegistryURL),
-		RelayBootstrapAddrs:            append([]string(nil), s.app.cfg.RelayBootstrapAddrs...),
 		EnableLANDiscovery:             s.app.cfg.EnableLANDiscovery,
 		RequireDirectForLargeTransfers: s.app.cfg.RequireDirectForLargeTransfers,
 	}
@@ -1547,15 +1527,13 @@ func (s *TransportService) runtimeNetworkStatusSnapshotLocked(runtime *activeTra
 		out.NetworkSyncState = cloneNetworkSyncState(runtime.state)
 		out.LibraryID = strings.TrimSpace(runtime.libraryID)
 		out.DeviceID = strings.TrimSpace(runtime.deviceID)
+		out.RegistryURL = strings.TrimSpace(runtime.registryURL)
+		out.RelayBootstrapAddrs = append([]string(nil), runtime.relayBootstrapAddrs...)
 		if runtime.transport != nil {
 			out.Running = strings.TrimSpace(runtime.transport.LocalPeerID()) != ""
 			out.PeerID = strings.TrimSpace(runtime.transport.LocalPeerID())
 			out.ListenAddrs = append([]string(nil), runtime.transport.ListenAddrs()...)
 		}
-		out.ActiveInviteCount = runtime.activeInviteCount
-		out.InviteReachabilityRequired = runtime.inviteReachabilityRequired
-		out.InviteReachable = runtime.inviteReachable
-		out.InviteReachabilityError = strings.TrimSpace(runtime.inviteReachabilityError)
 	}
 	if out.LibraryID != "" {
 		out.ServiceTag = serviceTagForLibrary(out.LibraryID)
@@ -1685,7 +1663,10 @@ func (s *TransportService) announceRuntimePresence(runtime *activeTransportRunti
 	if s == nil || s.app == nil || runtime == nil || runtime.transport == nil {
 		return nil
 	}
-	locator := s.app.peerLocator(s.app.cfg.RegistryURL)
+	locator, _, err := s.app.peerLocatorForLibrary(runtime.ctx, runtime.libraryID)
+	if err != nil {
+		return err
+	}
 	if locator == nil {
 		return nil
 	}

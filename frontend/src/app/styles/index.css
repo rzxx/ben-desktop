@@ -10,13 +10,48 @@
 }
 
 html {
-  background: var(--color-theme-50);
-  color: var(--color-theme-950);
+  background: var(--color-surface-canvas);
+  color: var(--color-content-primary);
+  transition-duration: 180ms;
+  transition-property:
+    --color-surface-canvas, --color-surface-recessed, --color-surface-default,
+    --color-surface-raised, --color-surface-overlay, --color-content-primary,
+    --color-content-secondary, --color-content-disabled,
+    --color-content-inverse, --color-border-subtle, --color-border-default,
+    --color-border-strong, --color-focus-ring, --color-accent,
+    --color-accent-hover, --color-accent-pressed, --color-accent-subtle,
+    --color-on-accent, background-color, color;
+  transition-timing-function: ease-out;
 }
 
 html.dark {
-  background: var(--color-theme-950);
-  color: var(--color-theme-100);
+  --color-surface-canvas: oklch(0.13 0 0);
+  --color-surface-recessed: oklch(0.105 0 0);
+  --color-surface-default: oklch(0.17 0 0);
+  --color-surface-raised: oklch(0.205 0 0);
+  --color-surface-overlay: oklch(0.24 0 0);
+  --color-content-primary: oklch(0.94 0 0);
+  --color-content-secondary: oklch(0.72 0 0);
+  --color-content-disabled: oklch(0.49 0 0);
+  --color-content-inverse: oklch(0.16 0 0);
+  --color-border-subtle: oklch(0.28 0 0);
+  --color-border-default: oklch(0.39 0 0);
+  --color-border-strong: oklch(0.56 0 0);
+  --color-focus-ring: oklch(0.74 0 0);
+  --color-accent: oklch(0.74 0 0);
+  --color-accent-hover: oklch(0.78 0 0);
+  --color-accent-pressed: oklch(0.82 0 0);
+  --color-accent-subtle: oklch(0.27 0 0);
+  --color-on-accent: oklch(0.12 0 0);
+  --color-status-danger: oklch(0.72 0.17 25);
+  --color-status-danger-subtle: oklch(0.25 0.045 25);
+  --color-on-status-danger: oklch(0.12 0.01 25);
+  --color-status-warning: oklch(0.72 0.17 80);
+  --color-status-warning-subtle: oklch(0.25 0.045 80);
+  --color-on-status-warning: oklch(0.12 0.01 80);
+  --color-status-success: oklch(0.72 0.17 145);
+  --color-status-success-subtle: oklch(0.25 0.045 145);
+  --color-on-status-success: oklch(0.12 0.01 145);
 }
 
 body {
@@ -24,6 +59,35 @@ body {
 }
 
 @theme {
+  --color-surface-canvas: oklch(0.965 0 0);
+  --color-surface-recessed: oklch(0.945 0 0);
+  --color-surface-default: oklch(0.98 0 0);
+  --color-surface-raised: oklch(0.99 0 0);
+  --color-surface-overlay: oklch(0.995 0 0);
+  --color-content-primary: oklch(0.18 0 0);
+  --color-content-secondary: oklch(0.42 0 0);
+  --color-content-disabled: oklch(0.62 0 0);
+  --color-content-inverse: oklch(0.97 0 0);
+  --color-border-subtle: oklch(0.86 0 0);
+  --color-border-default: oklch(0.75 0 0);
+  --color-border-strong: oklch(0.58 0 0);
+  --color-focus-ring: oklch(0.48 0 0);
+  --color-accent: oklch(0.48 0 0);
+  --color-accent-hover: oklch(0.44 0 0);
+  --color-accent-pressed: oklch(0.4 0 0);
+  --color-accent-subtle: oklch(0.92 0 0);
+  --color-on-accent: oklch(0.98 0 0);
+  --color-status-danger: oklch(0.48 0.17 25);
+  --color-status-danger-subtle: oklch(0.93 0.045 25);
+  --color-on-status-danger: oklch(0.98 0.01 25);
+  --color-status-warning: oklch(0.48 0.17 80);
+  --color-status-warning-subtle: oklch(0.93 0.045 80);
+  --color-on-status-warning: oklch(0.98 0.01 80);
+  --color-status-success: oklch(0.48 0.17 145);
+  --color-status-success-subtle: oklch(0.93 0.045 145);
+  --color-on-status-success: oklch(0.98 0.01 145);
+
+  /* Temporary pre-redesign escape hatch. Do not use in new components. */
   --color-theme-50: oklch(0.985 0 0);
   --color-theme-100: oklch(0.97 0 0);
   --color-theme-200: oklch(0.922 0 0);
@@ -53,7 +117,11 @@ body {
 
 .ben-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklab, var(--color-theme-300) 52%, transparent)
+  scrollbar-color: color-mix(
+      in oklab,
+      var(--color-border-default) 52%,
+      transparent
+    )
     transparent;
 }
 
@@ -67,15 +135,21 @@ body {
 }
 
 .ben-scrollbar::-webkit-scrollbar-thumb {
-  background: color-mix(in oklab, var(--color-theme-300) 44%, transparent);
+  background: color-mix(in oklab, var(--color-border-default) 44%, transparent);
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
 }
 
 .ben-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in oklab, var(--color-theme-200) 62%, transparent);
+  background: color-mix(in oklab, var(--color-border-strong) 62%, transparent);
   background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    transition-duration: 0ms;
+  }
 }
 
 .ben-shell-scroll-offset {

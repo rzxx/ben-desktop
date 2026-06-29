@@ -116,7 +116,7 @@ func TestOpenRejectsDatabaseWithOfflinePinsTable(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateDropsLegacyIssuedInviteRequiredColumns(t *testing.T) {
+func TestAutoMigrateCreatesStreamlinedIssuedInviteSchema(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -131,23 +131,6 @@ func TestAutoMigrateDropsLegacyIssuedInviteRequiredColumns(t *testing.T) {
 			t.Fatalf("close sqlite: %v", err)
 		}
 	}()
-
-	if err := db.Exec(`CREATE TABLE issued_invites (
-		invite_id TEXT PRIMARY KEY,
-		library_id TEXT NOT NULL,
-		token_id TEXT NOT NULL,
-		service_tag TEXT NOT NULL,
-		invite_code TEXT NOT NULL,
-		registry_url TEXT NOT NULL,
-		owner_peer_id TEXT NOT NULL,
-		invite_auth_json TEXT NOT NULL,
-		role TEXT,
-		max_uses INTEGER NOT NULL DEFAULT 1,
-		expires_at datetime NOT NULL,
-		created_at datetime NOT NULL
-	)`).Error; err != nil {
-		t.Fatalf("create legacy issued_invites table: %v", err)
-	}
 
 	if err := autoMigrate(db); err != nil {
 		t.Fatalf("auto migrate: %v", err)
@@ -172,11 +155,11 @@ func TestAutoMigrateDropsLegacyIssuedInviteRequiredColumns(t *testing.T) {
 		OwnerPeerID:    "peer-1",
 		InviteAuthJSON: "{}",
 		Role:           roleGuest,
-		MaxUses:        1,
+		Reusable:       false,
 		ExpiresAt:      now.Add(time.Hour),
 		CreatedAt:      now,
 	}).Error; err != nil {
-		t.Fatalf("insert issued invite without service tag: %v", err)
+		t.Fatalf("insert streamlined issued invite: %v", err)
 	}
 }
 

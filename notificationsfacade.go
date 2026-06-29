@@ -22,7 +22,6 @@ const (
 	scanNotificationEmitProgressDelta    = 0.02
 	artworkNotificationEmitInterval      = 250 * time.Millisecond
 	artworkNotificationEmitProgressDelta = 0.02
-	joinSessionRefreshInterval           = 2 * time.Second
 )
 
 type notificationEmitState struct {
@@ -59,7 +58,6 @@ type NotificationsFacade struct {
 	playbackSkipEventID    string
 	playbackSkipPrimed     bool
 
-	activeJoinSessions map[string]struct{}
 	activeManualSyncID string
 
 	lastRuntimeSyncNotification apitypes.NotificationSnapshot
@@ -68,14 +66,13 @@ type NotificationsFacade struct {
 
 func NewNotificationsFacade(host *coreHost, playbackService *PlaybackService) *NotificationsFacade {
 	return &NotificationsFacade{
-		host:               host,
-		now:                func() time.Time { return time.Now().UTC() },
-		playback:           playbackService,
-		notifications:      make(map[string]apitypes.NotificationSnapshot),
-		scanEmitStates:     make(map[string]notificationEmitState),
-		artworkEmitStates:  make(map[string]notificationEmitState),
-		activeTranscodes:   make(map[string]apitypes.NotificationSnapshot),
-		activeJoinSessions: make(map[string]struct{}),
+		host:              host,
+		now:               func() time.Time { return time.Now().UTC() },
+		playback:          playbackService,
+		notifications:     make(map[string]apitypes.NotificationSnapshot),
+		scanEmitStates:    make(map[string]notificationEmitState),
+		artworkEmitStates: make(map[string]notificationEmitState),
+		activeTranscodes:  make(map[string]apitypes.NotificationSnapshot),
 	}
 }
 
@@ -106,10 +103,6 @@ func (s *NotificationsFacade) ServiceStartup(ctx context.Context, _ application.
 	if s.playback != nil {
 		stops = append(stops, s.playback.subscribeSnapshots(s.handlePlaybackSnapshot))
 	}
-	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
-	stops = append(stops, backgroundCancel)
-	go s.runJoinSessionRefreshLoop(backgroundCtx)
-
 	s.mu.Lock()
 	s.stopListening = stops
 	s.mu.Unlock()
@@ -995,17 +988,7 @@ func (s *NotificationsFacade) trackNotificationDrivenJobs(job desktopcore.JobSna
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.activeJoinSessions == nil {
-		s.activeJoinSessions = make(map[string]struct{})
-	}
-
 	switch strings.TrimSpace(job.Kind) {
-	case "join-session":
-		if notificationTracksActiveJob(job.Phase) {
-			s.activeJoinSessions[jobID] = struct{}{}
-		} else {
-			delete(s.activeJoinSessions, jobID)
-		}
 	case "sync-now":
 		if notificationTracksActiveJob(job.Phase) {
 			s.activeManualSyncID = jobID
@@ -1017,44 +1000,6 @@ func (s *NotificationsFacade) trackNotificationDrivenJobs(job desktopcore.JobSna
 
 func notificationTracksActiveJob(phase desktopcore.JobPhase) bool {
 	return phase == desktopcore.JobPhaseQueued || phase == desktopcore.JobPhaseRunning
-}
-
-func (s *NotificationsFacade) runJoinSessionRefreshLoop(ctx context.Context) {
-	ticker := time.NewTicker(joinSessionRefreshInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sessionIDs := s.activeJoinSessionIDs()
-			if len(sessionIDs) == 0 || s.host == nil {
-				continue
-			}
-			runtime := s.host.InviteRuntime()
-			if runtime == nil {
-				continue
-			}
-			for _, sessionID := range sessionIDs {
-				if _, err := runtime.GetJoinSession(ctx, sessionID); err != nil {
-					continue
-				}
-			}
-		}
-	}
-}
-
-func (s *NotificationsFacade) activeJoinSessionIDs() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	out := make([]string, 0, len(s.activeJoinSessions))
-	for sessionID := range s.activeJoinSessions {
-		out = append(out, sessionID)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func (s *NotificationsFacade) handleNetworkSyncStatus(status apitypes.NetworkStatus) {

@@ -256,31 +256,27 @@ func (c *UnavailableCore) DeleteInvite(context.Context, string) error {
 	return c.err
 }
 
-func (c *UnavailableCore) StartJoinFromInvite(context.Context, apitypes.JoinFromInviteInput) (apitypes.JoinSession, error) {
-	return apitypes.JoinSession{}, c.err
+func (c *UnavailableCore) StartJoinFromInvite(context.Context, apitypes.JoinFromInviteInput) (apitypes.JoinAttempt, error) {
+	return apitypes.JoinAttempt{}, c.err
 }
 
-func (c *UnavailableCore) GetJoinSession(context.Context, string) (apitypes.JoinSession, error) {
-	return apitypes.JoinSession{}, c.err
+func (c *UnavailableCore) GetJoinAttempt(context.Context, string) (apitypes.JoinAttempt, error) {
+	return apitypes.JoinAttempt{}, c.err
 }
 
-func (c *UnavailableCore) StartFinalizeJoinSession(context.Context, string) (JobSnapshot, error) {
-	return JobSnapshot{}, c.err
-}
-
-func (c *UnavailableCore) CancelJoinSession(context.Context, string) error {
+func (c *UnavailableCore) CancelJoinAttempt(context.Context, string) error {
 	return c.err
 }
 
-func (c *UnavailableCore) ListJoinRequests(context.Context, string) ([]apitypes.InviteJoinRequestRecord, error) {
+func (c *UnavailableCore) ListJoinRequests(context.Context) ([]apitypes.InviteJoinRequestRecord, error) {
 	return nil, c.err
 }
 
-func (c *UnavailableCore) ApproveJoinRequest(context.Context, string, string) error {
+func (c *UnavailableCore) ApproveJoinRequest(context.Context, string) error {
 	return c.err
 }
 
-func (c *UnavailableCore) RejectJoinRequest(context.Context, string, string) error {
+func (c *UnavailableCore) RejectJoinRequest(context.Context, string) error {
 	return c.err
 }
 
@@ -378,6 +374,14 @@ func (c *UnavailableCore) SelectLibrary(context.Context, string) (apitypes.Libra
 
 func (c *UnavailableCore) RenameLibrary(context.Context, string, string) (apitypes.LibrarySummary, error) {
 	return apitypes.LibrarySummary{}, c.err
+}
+
+func (c *UnavailableCore) GetLibraryRelayConfig(context.Context, string) (apitypes.LibraryRelayConfig, error) {
+	return apitypes.LibraryRelayConfig{}, c.err
+}
+
+func (c *UnavailableCore) UpdateLibraryRelayConfig(context.Context, apitypes.UpdateLibraryRelayConfigRequest) (apitypes.LibraryRelayConfig, error) {
+	return apitypes.LibraryRelayConfig{}, c.err
 }
 
 func (c *UnavailableCore) LeaveLibrary(context.Context, string) error {

@@ -6,7 +6,7 @@ import type {
   PinSubjectRef,
 } from "@/lib/api/models";
 import { Button } from "@/components/ui/Button";
-import { ArtworkTile } from "@/components/ui/ArtworkTile";
+import { PlaylistArtwork } from "@/components/catalog/PlaylistArtwork";
 import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
@@ -137,10 +137,10 @@ export function LikedPlaylistPage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <section className="flex flex-wrap items-end gap-5">
-        <ArtworkTile
+        <PlaylistArtwork
           alt="Liked songs"
-          className="border-theme-300/70 h-40 w-40 shrink-0 dark:border-black/10"
-          subtitle="Liked"
+          className="h-40 w-40 shrink-0"
+          kind="liked"
           title="Liked songs"
         />
         <div className="flex min-w-0 flex-1 flex-col gap-3">

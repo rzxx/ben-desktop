@@ -80,7 +80,14 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 		return nil, fmt.Errorf("device id is required")
 	}
 
-	hostNode, err := a.newSharedLibp2pHost(libp2pHostBuildOptions{mode: libp2pHostModeClient})
+	relayAddrs, err := a.relayBootstrapAddrsForLibrary(ctx, local.LibraryID, nil)
+	if err != nil {
+		return nil, err
+	}
+	hostNode, err := a.newSharedLibp2pHost(libp2pHostBuildOptions{
+		mode:                libp2pHostModeClient,
+		relayBootstrapAddrs: relayAddrs,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +106,6 @@ func (a *App) newLibp2pSyncTransport(ctx context.Context, local apitypes.LocalCo
 	hostNode.SetStreamHandler(desktopMembershipProtocolID, transport.handleMembershipRefreshStream)
 	hostNode.SetStreamHandler(desktopInviteJoinStartProtocolID, transport.handleInviteJoinStartStream)
 	hostNode.SetStreamHandler(desktopInviteJoinStatusProtocolID, transport.handleInviteJoinStatusStream)
-	hostNode.SetStreamHandler(desktopInviteJoinCancelProtocolID, transport.handleInviteJoinCancelStream)
 	hostNode.Network().Notify(&desktopNetworkNotifee{transport: transport})
 
 	if a.cfg.EnableLANDiscovery {
@@ -767,29 +773,6 @@ func (t *libp2pSyncTransport) handleInviteJoinStatusStream(stream network.Stream
 	}
 }
 
-func (t *libp2pSyncTransport) handleInviteJoinCancelStream(stream network.Stream) {
-	defer func() { _ = stream.Close() }()
-	_ = stream.SetDeadline(time.Now().Add(transportStreamTimeout))
-
-	ctx, cancel := context.WithTimeout(context.Background(), transportStreamTimeout)
-	defer cancel()
-
-	var req inviteJoinCancelRequest
-	if err := json.NewDecoder(stream).Decode(&req); err != nil {
-		_ = json.NewEncoder(stream).Encode(inviteJoinCancelResponse{Error: fmt.Sprintf("decode request: %v", err)})
-		return
-	}
-
-	resp, err := t.app.handleInviteJoinCancel(ctx, t.libraryID, stream.Conn().RemotePeer().String(), req)
-	if err != nil {
-		_ = json.NewEncoder(stream).Encode(inviteJoinCancelResponse{Error: strings.TrimSpace(err.Error())})
-		return
-	}
-	if err := json.NewEncoder(stream).Encode(resp); err != nil {
-		t.app.logf("desktopcore: write invite cancel response failed: %v", err)
-	}
-}
-
 func (t *libp2pSyncTransport) writeSyncError(stream network.Stream, message string) {
 	_ = json.NewEncoder(stream).Encode(wireSyncResponse{Error: strings.TrimSpace(message)})
 }
@@ -986,8 +969,7 @@ func protocolAllowsLimitedConnection(protocolID protocol.ID) bool {
 		desktopLibraryChangedID,
 		desktopMembershipProtocolID,
 		desktopInviteJoinStartProtocolID,
-		desktopInviteJoinStatusProtocolID,
-		desktopInviteJoinCancelProtocolID:
+		desktopInviteJoinStatusProtocolID:
 		return true
 	default:
 		return false
@@ -1051,7 +1033,7 @@ func (t *libp2pSyncTransport) resolvePeerIdentityAddresses(ctx context.Context, 
 		return nil
 	}
 	addrs := make([]string, 0, 8)
-	if locator := t.app.peerLocator(t.app.cfg.RegistryURL); locator != nil {
+	if locator, _, locatorErr := t.app.peerLocatorForLibrary(ctx, t.libraryID); locatorErr == nil && locator != nil {
 		auth, authErr := t.app.registryMembershipAuth(ctx, t.libraryID, t.deviceID, t.host.ID().String())
 		record, ok, err := PeerPresenceRecord{}, false, authErr
 		if authErr == nil {
@@ -1075,6 +1057,16 @@ func (t *libp2pSyncTransport) resolvePeerIdentityAddresses(ctx context.Context, 
 				Error:     err.Error(),
 			})
 		}
+	} else if locatorErr != nil {
+		t.app.recordNetworkEvent(apitypes.NetworkTraceEvent{
+			Level:     "warn",
+			Kind:      "registry.lookup.failed",
+			Message:   "Registry member lookup failed",
+			LibraryID: t.libraryID,
+			DeviceID:  t.deviceID,
+			PeerID:    peerID.String(),
+			Error:     locatorErr.Error(),
+		})
 	}
 	cached, err := t.app.loadKnownPeerAddrs(ctx, t.libraryID, peerID.String())
 	if err == nil {
@@ -1156,16 +1148,15 @@ func (t *libp2pSyncTransport) relayReservationAddrs() []string {
 	if t == nil {
 		return nil
 	}
-	if addrs := advertisedRelayAddrs(t.host); len(addrs) > 0 {
-		return addrs
-	}
 	now := time.Now().UTC()
 	t.statusMu.RLock()
-	defer t.statusMu.RUnlock()
-	if t.explicitRelayExpiry != nil && !t.explicitRelayExpiry.After(now) {
-		return nil
+	explicitExpiry := cloneTimePtr(t.explicitRelayExpiry)
+	explicitAddrs := append([]string(nil), t.explicitRelayAddrs...)
+	t.statusMu.RUnlock()
+	if len(explicitAddrs) > 0 && (explicitExpiry == nil || explicitExpiry.After(now)) {
+		return explicitAddrs
 	}
-	return append([]string(nil), t.explicitRelayAddrs...)
+	return advertisedRelayAddrs(t.host)
 }
 
 func (t *libp2pSyncTransport) appendNetworkStatus(out *apitypes.NetworkStatus) {

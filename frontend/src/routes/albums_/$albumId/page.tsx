@@ -331,7 +331,7 @@ export function AlbumDetailPage() {
 
           <ArtworkTile
             alt={heroTitle}
-            className="border-theme-300/70 shadow-theme-900/16 w-full rounded-2xl shadow-[0_24px_65px_rgba(15,23,42,0.18)] dark:border-black/10 dark:shadow-[0_24px_65px_rgba(0,0,0,0.3)]"
+            className="shadow-theme-900/16 w-full rounded-2xl shadow-[0_24px_65px_rgba(15,23,42,0.18)] dark:shadow-[0_24px_65px_rgba(0,0,0,0.3)]"
             src={highResArtworkUrl || lowResArtworkUrl}
             title={heroTitle}
           />

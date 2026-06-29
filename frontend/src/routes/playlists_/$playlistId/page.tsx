@@ -15,7 +15,7 @@ import {
 } from "@/components/catalog/PlaylistDialogs";
 import { ManagedTrackListRow } from "@/components/catalog/ManagedTrackListRow";
 import { Button } from "@/components/ui/Button";
-import { ArtworkTile } from "@/components/ui/ArtworkTile";
+import { PlaylistArtwork } from "@/components/catalog/PlaylistArtwork";
 import { MetricPill } from "@/components/catalog/MetricPill";
 import { SectionHeading } from "@/components/catalog/SectionHeading";
 import { TracksEmptyState } from "@/components/catalog/EmptyState";
@@ -237,11 +237,11 @@ export function PlaylistDetailPage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <section className="flex flex-wrap items-end gap-5">
-        <ArtworkTile
+        <PlaylistArtwork
           alt={detail.data?.Name ?? "Playlist"}
-          className="border-theme-300/70 h-40 w-40 shrink-0 dark:border-black/10"
+          className="h-40 w-40 shrink-0"
+          kind={detail.data?.Kind}
           src={artworkUrl}
-          subtitle="Playlist"
           title={detail.data?.Name ?? "Playlist"}
         />
         <div className="flex min-w-0 flex-1 flex-col gap-3">
