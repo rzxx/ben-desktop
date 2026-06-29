@@ -9,7 +9,7 @@ export function ArtistGridTile({ artist }: { artist: ArtistListItem }) {
       params={{ artistId: artist.ArtistID }}
       to="/artists/$artistId"
     >
-      <div className="bg-theme-900 text-theme-50 dark:bg-theme-100 dark:text-theme-900 mb-4 flex h-20 w-20 items-center justify-center rounded-full text-2xl font-semibold shadow-[0_10px_30px_rgba(17,24,39,0.12)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.14)]">
+      <div className="text-theme-900 border-theme-300/75 shadow-theme-900/8 dark:text-theme-100 mb-4 flex h-20 w-20 items-center justify-center rounded-full border bg-white/82 text-2xl font-semibold shadow-sm dark:border-white/10 dark:bg-white/[0.06] dark:shadow-none">
         {artistLetter(artist.Name)}
       </div>
       <p className="text-theme-900 dark:text-theme-100 line-clamp-1 text-sm font-medium">

@@ -40,7 +40,7 @@ export function AlbumGridTile({
       <ArtworkTile
         alt={`${album.Title} cover`}
         className={[
-          "border-theme-300/70 mb-2 w-full rounded-lg transition-[filter] dark:border-black/10",
+          "mb-2 w-full rounded-lg transition-[filter]",
           unavailable ? "grayscale" : "",
         ].join(" ")}
         src={artworkUrl}

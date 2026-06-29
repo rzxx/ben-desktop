@@ -95,8 +95,7 @@ function PlayerBarMeta() {
     <div className="flex min-w-0 items-center gap-3 lg:w-72 lg:shrink-0">
       <ArtworkTile
         alt={currentTitle}
-        className="border-theme-300/70 h-12 w-12 shrink-0 rounded-md dark:border-black/10"
-        rounded="soft"
+        className="h-12 w-12 shrink-0 rounded-md"
         src={artworkUrl}
         title={currentTitle}
       />

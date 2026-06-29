@@ -6,4 +6,35 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
-Object.freeze($Create.Events);
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as apitypes$0 from "../../../../../ben/desktop/api/types/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as desktopcore$0 from "../../../../../ben/desktop/internal/desktopcore/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as playback$0 from "../../../../../ben/desktop/internal/playback/models.js";
+
+function configure() {
+    Object.freeze(Object.assign($Create.Events, {
+        "catalog:changed": $$createType0,
+        "jobs:snapshot": $$createType1,
+        "notifications:snapshot": $$createType2,
+        "pin:changed": $$createType3,
+        "playback:queue": $$createType4,
+        "playback:transport": $$createType5,
+        "theme:preferences": $$createType6,
+    }));
+}
+
+// Private type creation functions
+const $$createType0 = apitypes$0.CatalogChangeEvent.createFrom;
+const $$createType1 = desktopcore$0.JobSnapshot.createFrom;
+const $$createType2 = apitypes$0.NotificationSnapshot.createFrom;
+const $$createType3 = apitypes$0.PinChangeEvent.createFrom;
+const $$createType4 = playback$0.QueueEventSnapshot.createFrom;
+const $$createType5 = playback$0.TransportEventSnapshot.createFrom;
+const $$createType6 = apitypes$0.ThemePreferences.createFrom;
+
+configure();
