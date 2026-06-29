@@ -4,12 +4,17 @@ tasks:
   go:mod:tidy:
     summary: Runs `go mod tidy`
     internal: true
+    # Universal builds fan out into one dependency tree per architecture.
+    # This task mutates shared module files and must not run concurrently.
+    run: once
     cmds:
       - go mod tidy
 
   install:frontend:deps:
     summary: Install frontend dependencies
     dir: frontend
+    # Both universal-build architectures share the same node_modules tree.
+    run: once
     sources:
       - package.json
       - bun.lock
@@ -25,6 +30,9 @@ tasks:
     label: build:frontend (DEV={{.DEV}})
     summary: Build the frontend project
     dir: frontend
+    # The frontend output is architecture-independent and shared by both
+    # halves of a universal build.
+    run: once
     sources:
       - "**/*"
       - exclude: node_modules/**/*
@@ -105,6 +113,8 @@ tasks:
   generate:icons:
     summary: Generates Windows `.ico` and Mac `.icns` from an image; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms).
     dir: build
+    # Icon outputs are shared files, so generate them once before both builds.
+    run: once
     sources:
       - "appicon.png"
       - "appicon.icon"
