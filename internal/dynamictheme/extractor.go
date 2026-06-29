@@ -302,11 +302,12 @@ func splitBox(box colorBox, bits int) (colorBox, colorBox, bool) {
 		min, max := 1<<bits, 0
 		for _, bin := range box.bins {
 			v := 0
-			if axis == 0 {
+			switch axis {
+			case 0:
 				v = (bin.key >> (bits * 2)) & mask
-			} else if axis == 1 {
+			case 1:
 				v = (bin.key >> bits) & mask
-			} else {
+			default:
 				v = bin.key & mask
 			}
 			if v < min {
@@ -328,13 +329,14 @@ func splitBox(box colorBox, bits int) (colorBox, colorBox, bool) {
 	ordered := append([]quantizedBin(nil), box.bins...)
 	sort.Slice(ordered, func(i, j int) bool {
 		value := func(bin quantizedBin) int {
-			if axis == 0 {
+			switch axis {
+			case 0:
 				return (bin.key >> (bits * 2)) & mask
-			}
-			if axis == 1 {
+			case 1:
 				return (bin.key >> bits) & mask
+			default:
+				return bin.key & mask
 			}
-			return bin.key & mask
 		}
 		return value(ordered[i]) < value(ordered[j])
 	})
