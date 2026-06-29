@@ -1,11 +1,13 @@
-import { useEffect, useLayoutEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import type { DynamicTheme } from "@/lib/api/models";
 import { generateRecordingTheme } from "@/lib/api/theme";
 import { applyThemeToDocument } from "@/lib/theme/bootstrap";
-import { applyThemePaletteVariables } from "@/lib/theme/palette";
+import { applyDynamicThemeVariables } from "@/lib/theme/dynamic-theme";
 import { usePlaybackStore } from "@/stores/playback/store";
 import { useThemeStore } from "@/stores/theme/store";
 
 export function ThemeRuntime() {
+  const dynamicTheme = useRef<DynamicTheme | null>(null);
   const bootstrapTheme = useThemeStore((state) => state.bootstrap);
   const teardownTheme = useThemeStore((state) => state.teardown);
   const themePreferences = useThemeStore((state) => state.preferences);
@@ -30,6 +32,10 @@ export function ThemeRuntime() {
       system: themePreferences.system,
       effective: themePreferences.effective,
     });
+    applyDynamicThemeVariables(
+      dynamicTheme.current,
+      themePreferences.effective,
+    );
   }, [
     themePreferences.effective,
     themePreferences.mode,
@@ -40,24 +46,27 @@ export function ThemeRuntime() {
     let cancelled = false;
 
     if (!themeRecordingId) {
-      applyThemePaletteVariables(null);
+      dynamicTheme.current = null;
+      applyDynamicThemeVariables(null);
       return () => {
         cancelled = true;
       };
     }
 
     void generateRecordingTheme(themeRecordingId)
-      .then((palette) => {
+      .then((theme) => {
         if (cancelled) {
           return;
         }
-        applyThemePaletteVariables(palette);
+        dynamicTheme.current = theme;
+        applyDynamicThemeVariables(theme);
       })
       .catch(() => {
         if (cancelled) {
           return;
         }
-        applyThemePaletteVariables(null);
+        dynamicTheme.current = null;
+        applyDynamicThemeVariables(null);
       });
 
     return () => {

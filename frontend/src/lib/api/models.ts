@@ -1,6 +1,6 @@
 import * as Types from "../../../bindings/ben/desktop/api/types/models";
 import * as DesktopCoreModels from "../../../bindings/ben/desktop/internal/desktopcore/models";
-import * as ThemeModels from "../../../bindings/ben/desktop/internal/palette/models";
+import * as ThemeModels from "../../../bindings/ben/desktop/internal/dynamictheme/models";
 import * as PlaybackModels from "../../../bindings/ben/desktop/internal/playback/models";
 
 export { DesktopCoreModels, PlaybackModels, Types };
@@ -64,9 +64,8 @@ export type SessionEntry = PlaybackModels.SessionEntry;
 export type SessionItem = PlaybackModels.SessionItem;
 export type SessionSnapshot = PlaybackModels.SessionSnapshot;
 export type ThemePreferences = Types.ThemePreferences;
-export type ThemePalette = ThemeModels.ThemePalette;
-export type ThemePaletteColor = ThemeModels.PaletteColor;
-export type ThemePaletteTone = ThemeModels.PaletteTone;
+export type DynamicTheme = ThemeModels.Theme;
+export type DynamicThemeColor = ThemeModels.Color;
 export type UpdateLibraryRelayConfigRequest =
   Types.UpdateLibraryRelayConfigRequest;
 

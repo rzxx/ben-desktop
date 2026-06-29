@@ -14,7 +14,7 @@ import {
 } from "@/lib/format";
 import { deletePlaylist, renamePlaylist } from "@/lib/api/catalog";
 import { useThumbnailUrl } from "@/hooks/media/useThumbnailUrl";
-import { ArtworkTile } from "@/components/ui/ArtworkTile";
+import { PlaylistArtwork } from "@/components/catalog/PlaylistArtwork";
 import { IconButton } from "@/components/ui/Button";
 import { usePlaybackStore } from "@/stores/playback/store";
 import { reservedPlaylistRoute } from "@/lib/catalog/reserved-playlists";
@@ -39,6 +39,11 @@ export function PlaylistRow({
   const canPlayPlaylist = isTrackCollectionPlayable({
     trackCount: playlist.ItemCount,
   });
+  const play = isLiked
+    ? playLiked
+    : isOffline
+      ? playOffline
+      : () => playPlaylist(playlist.PlaylistID);
 
   const details = (
     <>
@@ -58,34 +63,20 @@ export function PlaylistRow({
 
   return (
     <div className="group border-theme-300/70 shadow-theme-900/6 hover:border-theme-400/70 hover:bg-theme-50 flex items-center gap-4 rounded-xl border bg-white/78 px-4 py-3 shadow-sm transition dark:border-white/6 dark:bg-white/[0.035] dark:shadow-none dark:hover:border-white/12 dark:hover:bg-white/[0.05]">
-      {reservedRoute ? (
-        <Link
-          className="flex min-w-0 flex-1 items-center gap-4"
-          to={reservedRoute}
-        >
-          <ArtworkTile
-            alt={playlist.Name}
-            className="h-18 w-18 shrink-0"
-            src={artworkUrl}
-            title={playlist.Name}
-          />
-          <div className="min-w-0">{details}</div>
-        </Link>
-      ) : (
-        <Link
-          className="flex min-w-0 flex-1 items-center gap-4"
-          params={{ playlistId: playlist.PlaylistID }}
-          to="/playlists/$playlistId"
-        >
-          <ArtworkTile
-            alt={playlist.Name}
-            className="h-18 w-18 shrink-0"
-            src={artworkUrl}
-            title={playlist.Name}
-          />
-          <div className="min-w-0">{details}</div>
-        </Link>
-      )}
+      <Link
+        className="flex min-w-0 flex-1 items-center gap-4"
+        params={reservedRoute ? undefined : { playlistId: playlist.PlaylistID }}
+        to={reservedRoute ?? "/playlists/$playlistId"}
+      >
+        <PlaylistArtwork
+          alt={playlist.Name}
+          className="h-18 w-18 shrink-0"
+          kind={playlist.Kind}
+          src={artworkUrl}
+          title={playlist.Name}
+        />
+        <div className="min-w-0">{details}</div>
+      </Link>
 
       <div className="flex shrink-0 gap-2">
         <IconButton
@@ -97,39 +88,25 @@ export function PlaylistRow({
                 ? "Play offline tracks"
                 : "Play playlist"
           }
-          onClick={() => {
-            if (isLiked) {
-              void playLiked();
-              return;
-            }
-            if (isOffline) {
-              void playOffline();
-              return;
-            }
-            void playPlaylist(playlist.PlaylistID);
-          }}
+          onClick={() => void play()}
         >
           <Play className="h-4 w-4" />
         </IconButton>
         {!isReserved ? (
-          <IconButton
-            label="Rename playlist"
-            onClick={() => {
-              setRenameOpen(true);
-            }}
-          >
-            <Pencil className="h-4 w-4" />
-          </IconButton>
-        ) : null}
-        {!isReserved ? (
-          <IconButton
-            label="Delete playlist"
-            onClick={() => {
-              setDeleteOpen(true);
-            }}
-          >
-            <Trash2 className="h-4 w-4" />
-          </IconButton>
+          <>
+            <IconButton
+              label="Rename playlist"
+              onClick={() => setRenameOpen(true)}
+            >
+              <Pencil className="h-4 w-4" />
+            </IconButton>
+            <IconButton
+              label="Delete playlist"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </IconButton>
+          </>
         ) : null}
       </div>
 

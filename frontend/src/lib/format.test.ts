@@ -1,8 +1,16 @@
 import { describe, expect, test } from "vitest";
 import {
+  artistLetter,
   isAggregateAvailabilityPlayable,
   isTrackCollectionPlayable,
 } from "./format";
+
+describe("artistLetter", () => {
+  test("extracts initials from international names", () => {
+    expect(artistLetter("  🎵 東京")).toBe("東");
+    expect(artistLetter("альбом")).toBe("А");
+  });
+});
 
 describe("isAggregateAvailabilityPlayable", () => {
   test("keeps play enabled while availability has not loaded yet", () => {
