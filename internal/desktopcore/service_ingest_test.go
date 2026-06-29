@@ -806,9 +806,6 @@ func TestRepairLibraryDropsQueuedManualScanOnCallerCancel(t *testing.T) {
 func TestRepairLibraryReturnsLookupCancellationDuringSetup(t *testing.T) {
 	ctx := context.Background()
 	app := openCacheTestApp(t, 1024)
-	if _, err := app.CreateLibrary(ctx, "scan-setup-cancel"); err != nil {
-		t.Fatalf("create library: %v", err)
-	}
 
 	var injected int32
 	callbackName := "test:cancel-current-device-lookup"
